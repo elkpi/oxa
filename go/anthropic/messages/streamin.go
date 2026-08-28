@@ -14,23 +14,26 @@ import (
 // Flush afterwards only confirms the stream end. Unknown event types and
 // unknown delta types are not decodable in M6 and record one
 // unsupported-semantic loss each without disturbing decoder state; an unknown
-// content block type additionally marks its index as skipped: later deltas
-// and the stop for that index are absorbed without events and without
-// further losses, so block indexes keep aligning with the wire.
+// content block type additionally marks its native index as skipped: later
+// deltas and the stop for that index are absorbed without events and without
+// further losses, while later emitted IR blocks retain contiguous indexes.
 type StreamDecoder struct {
-	models    modelmap.Table
-	losses    []ir.Loss
-	started   bool
-	nextIndex int // expected index of the next content_block_start
-	openIndex int // valid while blockOpen
-	blockOpen bool
-	skipped   map[int]bool // indexes absorbed as unknown block types
-	deltaSeen bool
-	stop      ir.StopReason
-	stopSeq   string
-	usage     ir.Usage
-	stopped   bool // message_stop fed
-	flushed   bool
+	models      modelmap.Table
+	losses      []ir.Loss
+	started     bool
+	nextIndex   int // expected native index of the next content_block_start
+	nextIRIndex int // index allocated to the next emitted IR content block
+	openIndex   int // native index, valid while blockOpen
+	openIRIndex int // emitted IR index, valid while blockOpen
+	blockOpen   bool
+	skippedOpen bool
+	skipped     map[int]bool // indexes absorbed as unknown block types
+	deltaSeen   bool
+	stop        ir.StopReason
+	stopSeq     string
+	usage       ir.Usage
+	stopped     bool // message_stop fed
+	flushed     bool
 }
 
 // NewStreamDecoder returns an event-stream decoder. The variadic Options match
@@ -72,7 +75,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_start before message_start")
 		}
-		if d.blockOpen {
+		if d.blockOpen || d.skippedOpen {
 			return nil, fmt.Errorf("anthropic: content_block_start with a block still open")
 		}
 		if ev.Index != d.nextIndex {
@@ -85,6 +88,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 				blockType = ev.ContentBlock.Type
 			}
 			d.skipped[ev.Index] = true
+			d.skippedOpen = true
 			d.losses = append(d.losses, ir.Loss{
 				Path:   fmt.Sprintf("content_block_start[%d].content_block.type", ev.Index),
 				Field:  "content_block.type",
@@ -95,7 +99,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.blockOpen = true
 		d.openIndex = ev.Index
-		return []ir.Event{ir.ContentBlockStart{Index: ev.Index, Block: ir.TextBlock{Text: ev.ContentBlock.Text}}}, nil
+		d.openIRIndex = d.nextIRIndex
+		d.nextIRIndex++
+		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text}}}, nil
 	case "content_block_delta":
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_delta before message_start")
@@ -113,7 +119,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		switch ev.Delta.Type {
 		case "text_delta":
-			return []ir.Event{ir.ContentBlockDelta{Index: ev.Index, Delta: ir.TextDelta{Text: ev.Delta.Text}}}, nil
+			return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.TextDelta{Text: ev.Delta.Text}}}, nil
 		case "input_json_delta":
 			// Provisional id: reserved streaming tool-argument loss
 			// (formalized as a spec/20 N-S id in M7).
@@ -139,18 +145,19 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if d.skipped[ev.Index] {
 			delete(d.skipped, ev.Index)
+			d.skippedOpen = false
 			return nil, nil
 		}
 		if !d.blockOpen || ev.Index != d.openIndex {
 			return nil, fmt.Errorf("anthropic: content_block_stop index %d does not match the open block", ev.Index)
 		}
 		d.blockOpen = false
-		return []ir.Event{ir.ContentBlockStop{Index: ev.Index}}, nil
+		return []ir.Event{ir.ContentBlockStop{Index: d.openIRIndex}}, nil
 	case "message_delta":
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: message_delta before message_start")
 		}
-		if d.blockOpen {
+		if d.blockOpen || d.skippedOpen {
 			return nil, fmt.Errorf("anthropic: message_delta with a block still open")
 		}
 		if ev.Delta == nil {
@@ -174,7 +181,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: message_stop before message_start")
 		}
-		if d.blockOpen {
+		if d.blockOpen || d.skippedOpen {
 			return nil, fmt.Errorf("anthropic: message_stop with a block still open")
 		}
 		if !d.deltaSeen {

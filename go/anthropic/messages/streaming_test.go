@@ -159,6 +159,9 @@ func TestStreamDecoderUnknownBlockSkipped(t *testing.T) {
 		eventBlockStart(1, "text"),
 		eventTextDelta(1, "kept"),
 		eventBlockStop(1),
+		eventBlockStart(2, "text"),
+		eventTextDelta(2, "also kept"),
+		eventBlockStop(2),
 		eventMessageDelta("end_turn", "", 1, 1),
 		{Type: "message_stop"},
 	} {
@@ -173,8 +176,11 @@ func TestStreamDecoderUnknownBlockSkipped(t *testing.T) {
 	}
 	want := []ir.Event{
 		ir.MessageStart{ID: "msg_3", Model: "claude-3"},
+		ir.ContentBlockStart{Index: 0, Block: ir.TextBlock{Text: ""}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.TextDelta{Text: "kept"}},
+		ir.ContentBlockStop{Index: 0},
 		ir.ContentBlockStart{Index: 1, Block: ir.TextBlock{Text: ""}},
-		ir.ContentBlockDelta{Index: 1, Delta: ir.TextDelta{Text: "kept"}},
+		ir.ContentBlockDelta{Index: 1, Delta: ir.TextDelta{Text: "also kept"}},
 		ir.ContentBlockStop{Index: 1},
 		ir.MessageDelta{StopReason: ir.StopEndTurn, Usage: ir.Usage{InputTokens: 1, OutputTokens: 1}},
 		ir.MessageDone{},
@@ -185,6 +191,21 @@ func TestStreamDecoderUnknownBlockSkipped(t *testing.T) {
 	ls := d.Losses()
 	if len(ls) != 1 || ls[0].Field != "content_block.type" || ls[0].Reason != ir.LossUnsupportedSemantic {
 		t.Fatalf("losses = %#v", ls)
+	}
+}
+
+func TestStreamDecoderRequiresSkippedBlockStop(t *testing.T) {
+	d := NewStreamDecoder()
+	for _, ev := range []*StreamEvent{
+		eventMessageStart("msg_open_skip", "claude-3"),
+		eventBlockStart(0, "redacted_thinking"),
+	} {
+		if _, err := d.Feed(ev); err != nil {
+			t.Fatalf("Feed(%s): %v", ev.Type, err)
+		}
+	}
+	if _, err := d.Feed(eventBlockStart(1, "text")); err == nil {
+		t.Fatal("content_block_start before skipped block stop: want error")
 	}
 }
 

@@ -1,0 +1,384 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/ir.schema.json",
+  "title": "oxa IR document",
+  "description": "Validates one IR document: a request, a response, or an event stream, as defined by spec/01-intermediate-representation.md. Only per-document structure is checked here; sequence rules (INV-2..INV-6, INV-8) are enforced by converters and vector checking, not by JSON Schema (INV-9).",
+  "oneOf": [
+    { "$ref": "#/$defs/request" },
+    { "$ref": "#/$defs/response" },
+    { "$ref": "#/$defs/eventStream" }
+  ],
+  "$defs": {
+    "request": {
+      "type": "object",
+      "description": "IR request document (spec/01 s3.1).",
+      "properties": {
+        "specVersion": {
+          "const": "0.1.0",
+          "description": "Spec version this document conforms to (document-layer field)."
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opaque model identifier; passed through verbatim (spec/03)."
+        },
+        "system": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/systemBlock" },
+          "description": "System prompt blocks; absent means no system prompt."
+        },
+        "messages": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/message" },
+          "description": "Conversation turns; INV-2..INV-4 apply."
+        },
+        "tools": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/tool" },
+          "description": "Tool definitions."
+        },
+        "tool_choice": {
+          "$ref": "#/$defs/toolChoice"
+        },
+        "params": {
+          "$ref": "#/$defs/params"
+        },
+        "metadata": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "String-to-string map."
+        }
+      },
+      "required": ["specVersion", "model", "messages"],
+      "additionalProperties": false
+    },
+    "systemBlock": {
+      "description": "Sealed union; exactly one variant in v1 (spec/01 s3.2).",
+      "oneOf": [
+        { "$ref": "#/$defs/textBlock" }
+      ]
+    },
+    "message": {
+      "type": "object",
+      "description": "IR message (spec/01 s3.3).",
+      "properties": {
+        "role": { "enum": ["user", "assistant"] },
+        "content": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/block" }
+        }
+      },
+      "required": ["role", "content"],
+      "additionalProperties": false
+    },
+    "block": {
+      "description": "Sealed union of the four v1 block types, discriminated on \"type\" (spec/01 s3.4).",
+      "oneOf": [
+        { "$ref": "#/$defs/textBlock" },
+        { "$ref": "#/$defs/imageBlock" },
+        { "$ref": "#/$defs/toolUseBlock" },
+        { "$ref": "#/$defs/toolResultBlock" }
+      ]
+    },
+    "textBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "text" },
+        "text": { "type": "string" }
+      },
+      "required": ["type", "text"],
+      "additionalProperties": false
+    },
+    "imageBlock": {
+      "type": "object",
+      "description": "Image input. Exactly one of data or url MUST be present; media_type is required with data (spec/01 s3.4).",
+      "properties": {
+        "type": { "const": "image" },
+        "media_type": {
+          "type": "string",
+          "pattern": "^image/.+$",
+          "description": "Image MIME type, e.g. image/png."
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1,
+          "contentEncoding": "base64",
+          "description": "Base64 image data; opaque to converters."
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Image URL."
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["data", "media_type"],
+          "not": { "required": ["url"] }
+        },
+        {
+          "required": ["url"],
+          "not": { "required": ["data"] }
+        }
+      ]
+    },
+    "toolUseBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "tool_use" },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "input": {
+          "type": "string",
+          "description": "Raw JSON text (INV-1); never parsed or re-serialized by converters; may be malformed in degraded cases (spec/02)."
+        }
+      },
+      "required": ["type", "id", "name", "input"],
+      "additionalProperties": false
+    },
+    "toolResultBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "tool_result" },
+        "tool_use_id": { "type": "string", "minLength": 1 },
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/block" },
+          "description": "May be empty."
+        },
+        "is_error": {
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "required": ["type", "tool_use_id", "content"],
+      "additionalProperties": false
+    },
+    "tool": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "description": { "type": "string" },
+        "input_schema": {
+          "type": "object",
+          "description": "JSON-Schema-shaped object carried verbatim; never analyzed or rewritten."
+        }
+      },
+      "required": ["name", "input_schema"],
+      "additionalProperties": false
+    },
+    "toolChoice": {
+      "description": "Tool choice (spec/01 s3.6); name is required iff mode is \"tool\".",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "mode": { "const": "auto" } },
+          "required": ["mode"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "mode": { "const": "any" } },
+          "required": ["mode"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "mode": { "const": "none" } },
+          "required": ["mode"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "mode": { "const": "tool" },
+            "name": { "type": "string", "minLength": 1 }
+          },
+          "required": ["mode", "name"],
+          "additionalProperties": false
+        }
+      ]
+    },
+    "params": {
+      "type": "object",
+      "description": "Sampling parameters (spec/01 s3.7); optional fields are omitted, never null. Ranges are face concerns.",
+      "properties": {
+        "temperature": { "type": "number" },
+        "top_p": { "type": "number" },
+        "max_tokens": { "type": "integer", "minimum": 1 },
+        "stop_sequences": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "additionalProperties": false
+    },
+    "response": {
+      "type": "object",
+      "description": "IR response document (spec/01 s4.1).",
+      "properties": {
+        "specVersion": {
+          "const": "0.1.0",
+          "description": "Spec version this document conforms to (document-layer field)."
+        },
+        "id": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 },
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/block" },
+          "description": "May be empty (a stream with zero blocks)."
+        },
+        "stop_reason": { "$ref": "#/$defs/stopReason" },
+        "stop_sequence": {
+          "type": "string",
+          "description": "Present only when stop_reason is stop_sequence."
+        },
+        "usage": { "$ref": "#/$defs/usage" }
+      },
+      "required": ["specVersion", "id", "model", "content", "stop_reason", "usage"],
+      "additionalProperties": false
+    },
+    "stopReason": {
+      "enum": [
+        "end_turn",
+        "max_tokens",
+        "stop_sequence",
+        "tool_use",
+        "refusal",
+        "other"
+      ]
+    },
+    "usage": {
+      "type": "object",
+      "properties": {
+        "input_tokens": { "type": "integer", "minimum": 0 },
+        "output_tokens": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["input_tokens", "output_tokens"],
+      "additionalProperties": false
+    },
+    "event": {
+      "description": "Sealed union of the six v1 event types, discriminated on \"type\" (spec/01 s5.1).",
+      "oneOf": [
+        { "$ref": "#/$defs/messageStart" },
+        { "$ref": "#/$defs/contentBlockStart" },
+        { "$ref": "#/$defs/contentBlockDelta" },
+        { "$ref": "#/$defs/contentBlockStop" },
+        { "$ref": "#/$defs/messageDelta" },
+        { "$ref": "#/$defs/messageDone" }
+      ]
+    },
+    "messageStart": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "message_start" },
+        "id": { "type": "string", "minLength": 1 },
+        "model": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "id", "model"],
+      "additionalProperties": false
+    },
+    "contentBlockStart": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "content_block_start" },
+        "index": { "type": "integer", "minimum": 0 },
+        "block": { "$ref": "#/$defs/block" }
+      },
+      "required": ["type", "index", "block"],
+      "additionalProperties": false
+    },
+    "contentBlockDelta": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "content_block_delta" },
+        "index": { "type": "integer", "minimum": 0 },
+        "delta": { "$ref": "#/$defs/delta" }
+      },
+      "required": ["type", "index", "delta"],
+      "additionalProperties": false
+    },
+    "contentBlockStop": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "content_block_stop" },
+        "index": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["type", "index"],
+      "additionalProperties": false
+    },
+    "messageDelta": {
+      "type": "object",
+      "description": "Occurs exactly once, immediately before message_done (INV-5); stop_reason and usage are the final values.",
+      "properties": {
+        "type": { "const": "message_delta" },
+        "stop_reason": { "$ref": "#/$defs/stopReason" },
+        "stop_sequence": {
+          "type": "string",
+          "description": "Present only when stop_reason is stop_sequence."
+        },
+        "usage": { "$ref": "#/$defs/usage" }
+      },
+      "required": ["type", "stop_reason", "usage"],
+      "additionalProperties": false
+    },
+    "messageDone": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "message_done" }
+      },
+      "required": ["type"],
+      "additionalProperties": false
+    },
+    "delta": {
+      "description": "Sealed union of the two v1 delta types, discriminated on \"type\" (spec/01 s5.2).",
+      "oneOf": [
+        { "$ref": "#/$defs/textDelta" },
+        { "$ref": "#/$defs/inputJSONDelta" }
+      ]
+    },
+    "textDelta": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "text_delta" },
+        "text": { "type": "string" }
+      },
+      "required": ["type", "text"],
+      "additionalProperties": false
+    },
+    "inputJSONDelta": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "input_json_delta" },
+        "partial_json": {
+          "type": "string",
+          "description": "Raw fragment of the tool-argument string (INV-1); may be empty or syntactically incomplete."
+        }
+      },
+      "required": ["type", "partial_json"],
+      "additionalProperties": false
+    },
+    "eventStream": {
+      "type": "object",
+      "description": "JSON document form of a streamed response (spec/01 s5.3).",
+      "properties": {
+        "specVersion": {
+          "const": "0.1.0",
+          "description": "Spec version this document conforms to (document-layer field)."
+        },
+        "events": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "$ref": "#/$defs/event" },
+          "description": "Minimum valid stream: message_start, message_delta, message_done."
+        }
+      },
+      "required": ["specVersion", "events"],
+      "additionalProperties": false
+    }
+  }
+}

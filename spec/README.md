@@ -28,9 +28,9 @@ Read the documents in this order:
 | [01](01-intermediate-representation.md) | the IR: types and invariants | ready |
 | [02](02-loss-policy.md) | loss reporting | ready |
 | [03](03-model-handling.md) | model handling | ready |
-| 10 | Chat Completions face mapping | planned |
+| [10](10-mapping-openai-chat-completions.md) | Chat Completions face mapping | ready |
 | 11 | Responses face mapping | planned |
-| 12 | Anthropic Messages face mapping | planned |
+| [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
 | 20 | streaming semantics | planned |
 | 90 | glossary | planned |
 

@@ -111,6 +111,37 @@ type Choice struct {
 	FinishReason string  `json:"finish_reason"`
 }
 
+// Chunk is one Chat Completions streamed chunk (object
+// "chat.completion.chunk"). Choices carries incremental deltas; the final
+// usage-only chunk has empty Choices and a populated Usage (when
+// stream_options.include_usage was set).
+type Chunk struct {
+	ID      string        `json:"id"`
+	Object  string        `json:"object"`
+	Created int64         `json:"created"`
+	Model   string        `json:"model"`
+	Choices []ChoiceDelta `json:"choices"`
+	Usage   *UsageWire    `json:"usage,omitempty"`
+}
+
+// ChoiceDelta is one element of a wire chunk's choices array. FinishReason is
+// a pointer to distinguish absent (null while streaming) from a mapped value;
+// Content likewise distinguishes absent from empty text.
+type ChoiceDelta struct {
+	Index        int          `json:"index"`
+	Delta        DeltaPayload `json:"delta"`
+	FinishReason *string      `json:"finish_reason"`
+}
+
+// DeltaPayload is the incremental delta object of a chunk choice. ToolCalls is
+// not decoded in M6; its presence is detected so the decoder can record an
+// unsupported-semantic loss.
+type DeltaPayload struct {
+	Role      string          `json:"role,omitempty"`
+	Content   *string         `json:"content,omitempty"`
+	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+}
+
 // UsageWire is the wire usage object. total_tokens is derived (prompt +
 // completion) and recomputed on encode, so its absence on the IR side carries
 // no loss (vectors/README.md loss conventions, DERIVED fields).

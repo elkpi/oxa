@@ -1,0 +1,52 @@
+{
+  "name": "chatcompletions.nonstream.tools-definition-to-ir",
+  "description": "Chat Completions function tool definitions with nested JSON Schema parameters map to IR tools with the schema bytes carried verbatim.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Book a table" }],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "reserve_table",
+          "description": "Reserve a dinner table.",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "party_size": { "type": "integer", "minimum": 1 },
+              "date": { "type": "string", "description": "ISO date" }
+            },
+            "required": ["date"]
+          }
+        }
+      },
+      { "type": "function", "function": { "name": "list_menu", "parameters": { "type": "object" } } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Book a table" }] }],
+    "tools": [
+      {
+        "name": "reserve_table",
+        "description": "Reserve a dinner table.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "party_size": { "type": "integer", "minimum": 1 },
+            "date": { "type": "string", "description": "ISO date" }
+          },
+          "required": ["date"]
+        }
+      },
+      { "name": "list_menu", "input_schema": { "type": "object" } }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "inv-1"]
+}

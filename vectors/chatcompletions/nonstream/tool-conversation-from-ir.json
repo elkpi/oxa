@@ -1,0 +1,58 @@
+{
+  "name": "chatcompletions.nonstream.tool-conversation-from-ir",
+  "description": "An IR tool conversation renders as Chat Completions: parallel tool_calls on one assistant turn and each IR tool result as its own role:tool message.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "What is the weather in Paris and London?" }] },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "tool_use", "id": "call_1", "name": "get_weather", "input": "{\"city\":\"Paris\",\"unit\":\"c\"}" },
+          { "type": "tool_use", "id": "call_2", "name": "get_weather", "input": "{\"city\":\"London\",\"unit\":\"c\"}" }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          { "type": "tool_result", "tool_use_id": "call_1", "content": [{ "type": "text", "text": "18C sunny" }] },
+          { "type": "tool_result", "tool_use_id": "call_2", "content": [{ "type": "text", "text": "12C rain" }] }
+        ]
+      },
+      { "role": "assistant", "content": [{ "type": "text", "text": "Paris is 18C and sunny; London is 12C with rain." }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": "What is the weather in Paris and London?" },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": { "name": "get_weather", "arguments": "{\"city\":\"Paris\",\"unit\":\"c\"}" }
+          },
+          {
+            "id": "call_2",
+            "type": "function",
+            "function": { "name": "get_weather", "arguments": "{\"city\":\"London\",\"unit\":\"c\"}" }
+          }
+        ]
+      },
+      { "role": "tool", "tool_call_id": "call_1", "content": "18C sunny" },
+      { "role": "tool", "tool_call_id": "call_2", "content": "12C rain" },
+      { "role": "assistant", "content": "Paris is 18C and sunny; London is 12C with rain." }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "multiturn", "n-cc-6", "n-cc-8", "inv-4"]
+}

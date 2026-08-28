@@ -1,0 +1,39 @@
+{
+  "name": "chatcompletions.nonstream.loss-tool-result-is-error-from-ir",
+  "description": "An IR tool result with is_error renders as a Chat Completions tool message; the error flag has no wire field and records an unmapped-field loss (N-CC-6).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [{ "type": "text", "text": "Boom" }],
+            "is_error": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "tool", "tool_call_id": "call_1", "content": "Boom" }]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[0].content[0].is_error",
+      "field": "is_error",
+      "reason": "unmapped-field",
+      "detail": "Chat Completions tool messages have no is_error field"
+    }
+  ],
+  "tags": ["loss", "request", "tools", "n-cc-6"]
+}

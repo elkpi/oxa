@@ -1,0 +1,31 @@
+{
+  "name": "chatcompletions.nonstream.tool-ordering-preserved-from-ir",
+  "description": "An IR user turn whose tool result precedes its ordinary text renders tool-first with no ordering loss: the hoisted order matches the source order (N-CC-9).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "tool_result", "tool_use_id": "call_check_1", "content": [{ "type": "text", "text": "Shipped" }] },
+          { "type": "text", "text": "Thanks, that was fast!" }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "tool", "tool_call_id": "call_check_1", "content": "Shipped" },
+      { "role": "user", "content": "Thanks, that was fast!" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "ordering", "n-cc-9"]
+}

@@ -1,0 +1,38 @@
+{
+  "name": "chatcompletions.nonstream.tool-ordering-degraded-from-ir",
+  "description": "An IR user turn whose ordinary text precedes its tool result renders with the tool message hoisted first plus exactly one degraded ordering loss (N-CC-9).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Where is my order?" },
+          { "type": "tool_result", "tool_use_id": "call_check_1", "content": [{ "type": "text", "text": "Shipped" }] }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "tool", "tool_call_id": "call_check_1", "content": "Shipped" },
+      { "role": "user", "content": "Where is my order?" }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[0]",
+      "field": "ordering",
+      "reason": "degraded",
+      "detail": "N-CC-9: tool messages are hoisted ahead of the trailing user content; source order is not preserved"
+    }
+  ],
+  "tags": ["tools", "request", "ordering", "loss", "n-cc-9"]
+}

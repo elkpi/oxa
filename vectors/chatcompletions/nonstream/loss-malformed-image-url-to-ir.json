@@ -1,0 +1,39 @@
+{
+  "name": "chatcompletions.nonstream.loss-malformed-image-url-to-ir",
+  "description": "A data image URL without the ;base64,payload shape is malformed and its image_url part is dropped with an unsupported-semantic loss (N-CC-3); the text part survives.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "What is in this picture?" },
+          { "type": "image_url", "image_url": { "url": "data:image/png;base64" } }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "What is in this picture?" }]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[0].content[1].image_url",
+      "field": "image_url",
+      "reason": "unsupported-semantic",
+      "detail": "malformed data image URL has no IR equivalent"
+    }
+  ],
+  "tags": ["loss", "request", "image", "n-cc-3"]
+}

@@ -1,0 +1,45 @@
+{
+  "name": "anthropic.nonstream.loss-unknown-block-to-ir",
+  "description": "An unknown block type (document) is dropped as one whole-block unsupported-semantic loss; its cache_control annotation adds no second loss (N-AN-9), and the text block in the same turn survives.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "document",
+            "source": { "type": "base64", "media_type": "application/pdf", "data": "aGVsbG8=" },
+            "cache_control": { "type": "ephemeral" }
+          },
+          { "type": "text", "text": "Summarize this." }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "Summarize this." }]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [
+    {
+      "path": "messages[0].content[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "Anthropic block type \"document\" has no IR equivalent"
+    }
+  ],
+  "tags": ["loss", "request", "n-an-9"]
+}

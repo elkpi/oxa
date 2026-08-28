@@ -1,0 +1,47 @@
+{
+  "name": "anthropic.nonstream.mixed-content-from-ir",
+  "description": "An IR user turn mixing text, an image, and a tool result renders as one Anthropic user message of blocks; the tool result content renders as a text block array and is_error stays absent when false.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Here is the screenshot; the tool already answered." },
+          { "type": "image", "media_type": "image/png", "data": "aGVsbG8=" },
+          { "type": "tool_result", "tool_use_id": "toolu_1", "content": [{ "type": "text", "text": "42" }] }
+        ]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Here is the screenshot; the tool already answered." },
+          {
+            "type": "image",
+            "source": { "type": "base64", "media_type": "image/png", "data": "aGVsbG8=" }
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_1",
+            "content": [{ "type": "text", "text": "42" }]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["mixed", "request", "n-an-5"]
+}

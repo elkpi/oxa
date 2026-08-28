@@ -1,0 +1,36 @@
+{
+  "name": "chatcompletions.nonstream.tool-choice-none-to-ir",
+  "description": "Chat Completions tool_choice none maps to IR tool-choice mode none.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Weather in Paris?" }],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "parameters": { "type": "object", "properties": { "city": { "type": "string" } } }
+        }
+      }
+    ],
+    "tool_choice": "none"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Weather in Paris?" }] }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "mode": "none" }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "tool-choice", "n-cc-7"]
+}

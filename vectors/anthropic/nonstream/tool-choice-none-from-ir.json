@@ -1,0 +1,36 @@
+{
+  "name": "anthropic.nonstream.tool-choice-none-from-ir",
+  "description": "IR tool-choice mode none renders as Anthropic tool_choice {type:none}.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Weather in Paris?" }] }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "mode": "none" },
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "Weather in Paris?" }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "type": "none" }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "tool-choice", "n-an-6"]
+}

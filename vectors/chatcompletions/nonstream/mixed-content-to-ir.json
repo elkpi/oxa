@@ -1,0 +1,74 @@
+{
+  "name": "chatcompletions.nonstream.mixed-content-to-ir",
+  "description": "A Chat Completions conversation interleaving parts-array user turns (text plus images) with an assistant tool call and its tool message maps to ordered IR blocks per N-CC-2/4/5.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Compare these two logos." },
+          { "type": "image_url", "image_url": { "url": "data:image/png;base64,aGVsbG8=" } }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "On it.",
+        "tool_calls": [
+          {
+            "id": "call_logo_1",
+            "type": "function",
+            "function": { "name": "logo_meta", "arguments": "{}" }
+          }
+        ]
+      },
+      { "role": "tool", "tool_call_id": "call_logo_1", "content": "same palette" },
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Thanks! Now the second one." },
+          { "type": "image_url", "image_url": { "url": "https://example.com/logo2.png" } }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Compare these two logos." },
+          { "type": "image", "media_type": "image/png", "data": "aGVsbG8=" }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "On it." },
+          { "type": "tool_use", "id": "call_logo_1", "name": "logo_meta", "input": "{}" }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          { "type": "tool_result", "tool_use_id": "call_logo_1", "content": [{ "type": "text", "text": "same palette" }] }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Thanks! Now the second one." },
+          { "type": "image", "url": "https://example.com/logo2.png" }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["mixed", "request", "multiturn", "n-cc-2", "n-cc-4", "n-cc-5"]
+}

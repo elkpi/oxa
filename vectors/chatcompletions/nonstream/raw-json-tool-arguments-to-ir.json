@@ -1,0 +1,46 @@
+{
+  "name": "chatcompletions.nonstream.raw-json-tool-arguments-to-ir",
+  "description": "Tool-call arguments are opaque JSON text (INV-1): nested objects, whitespace, key order, integer spelling, and literal backslash-u escapes in the arguments string all reach the IR input token byte-identically.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "assistant",
+        "content": null,
+        "tool_calls": [
+          {
+            "id": "call_raw_1",
+            "type": "function",
+            "function": {
+              "name": "search",
+              "arguments": "{\"query\": \"Ren\\u00e9e\", \"opts\": {\"deep\": [1, 2]}, \"limit\": 10, \"note\": \"P\\u0041TH\"}"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_raw_1",
+            "name": "search",
+            "input": "{\"query\": \"Ren\\u00e9e\", \"opts\": {\"deep\": [1, 2]}, \"limit\": 10, \"note\": \"P\\u0041TH\"}"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "raw-json", "n-cc-4", "inv-1"]
+}

@@ -1,0 +1,46 @@
+{
+  "name": "anthropic.nonstream.raw-json-tool-input-from-ir",
+  "description": "The IR raw JSON string token unwraps to a tool_use.input object with its bytes preserved: nested arrays, whitespace-insensitive value fidelity, literal backslash-u escapes in strings, and non-integer numeric spelling such as 1.0 (INV-1, N-AN-4).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_raw_1",
+            "name": "weather",
+            "input": "{\"city\": \"P\\u0041ris\", \"days\": [1, 2], \"weight\": 1.0}"
+          }
+        ]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_raw_1",
+            "name": "weather",
+            "input": { "city": "PAris", "days": [1, 2], "weight": 1.0 }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "raw-json", "n-an-4", "inv-1"]
+}

@@ -1,0 +1,71 @@
+{
+  "name": "anthropic.nonstream.tool-conversation-to-ir",
+  "description": "A full Anthropic tool conversation: two parallel tool_use blocks on one assistant turn and both tool_result blocks in one user message map to the IR near-identically (INV-4).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      { "role": "user", "content": "What is the weather in Paris and London?" },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "Checking both cities." },
+          { "type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": { "city": "Paris" } },
+          { "type": "tool_use", "id": "toolu_2", "name": "get_weather", "input": { "city": "London" } }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_1",
+            "content": [{ "type": "text", "text": "18C sunny" }]
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_2",
+            "content": [{ "type": "text", "text": "12C rain" }]
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "Paris is 18C and sunny; London is 12C with rain." }]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "What is the weather in Paris and London?" }] },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "Checking both cities." },
+          { "type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": "{\"city\":\"Paris\"}" },
+          { "type": "tool_use", "id": "toolu_2", "name": "get_weather", "input": "{\"city\":\"London\"}" }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          { "type": "tool_result", "tool_use_id": "toolu_1", "content": [{ "type": "text", "text": "18C sunny" }] },
+          { "type": "tool_result", "tool_use_id": "toolu_2", "content": [{ "type": "text", "text": "12C rain" }] }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [{ "type": "text", "text": "Paris is 18C and sunny; London is 12C with rain." }]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "multiturn", "n-an-5", "inv-4"]
+}

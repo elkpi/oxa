@@ -1,0 +1,45 @@
+{
+  "name": "anthropic.nonstream.images-to-ir",
+  "description": "Anthropic base64 and url image sources map to IR image blocks carrying data or url respectively.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "What is in these pictures?" },
+          {
+            "type": "image",
+            "source": { "type": "base64", "media_type": "image/png", "data": "aGVsbG8=" }
+          },
+          {
+            "type": "image",
+            "source": { "type": "url", "url": "https://example.com/cat.png" }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "What is in these pictures?" },
+          { "type": "image", "media_type": "image/png", "data": "aGVsbG8=" },
+          { "type": "image", "url": "https://example.com/cat.png" }
+        ]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["image", "request", "n-an-5"]
+}

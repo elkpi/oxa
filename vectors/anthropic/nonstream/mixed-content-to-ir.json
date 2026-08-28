@@ -1,0 +1,46 @@
+{
+  "name": "anthropic.nonstream.mixed-content-to-ir",
+  "description": "One Anthropic user turn mixing text, a base64 image, and a tool_result block maps order-preserving to one IR user message (N-AN-5).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Here is the screenshot; the tool already answered." },
+          {
+            "type": "image",
+            "source": { "type": "base64", "media_type": "image/png", "data": "aGVsbG8=" }
+          },
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_1",
+            "content": [{ "type": "text", "text": "42" }]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Here is the screenshot; the tool already answered." },
+          { "type": "image", "media_type": "image/png", "data": "aGVsbG8=" },
+          { "type": "tool_result", "tool_use_id": "toolu_1", "content": [{ "type": "text", "text": "42" }] }
+        ]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["mixed", "request", "n-an-5"]
+}

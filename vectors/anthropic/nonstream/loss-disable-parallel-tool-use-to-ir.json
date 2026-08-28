@@ -1,0 +1,42 @@
+{
+  "name": "anthropic.nonstream.loss-disable-parallel-tool-use-to-ir",
+  "description": "tool_choice.disable_parallel_tool_use has no IR equivalent in v1 and is dropped with an unmapped-field loss while the choice type still maps (N-AN-6).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "Weather in Paris?" }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "type": "auto", "disable_parallel_tool_use": true }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Weather in Paris?" }] }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "mode": "auto" },
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [
+    {
+      "path": "tool_choice.disable_parallel_tool_use",
+      "field": "disable_parallel_tool_use",
+      "reason": "unmapped-field",
+      "detail": "Anthropic disable_parallel_tool_use has no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "request", "tools", "n-an-6"]
+}

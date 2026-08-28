@@ -83,10 +83,12 @@ The wire objects in scope are:
 
 On encode (IR → RE), `Request.System` is rendered as the `instructions`
 string equal to the concatenation of all system block texts (N-R-1). The
-input string shorthand is rendered exactly when the conversation is one
-user message whose content is one text block; every other conversation
-renders as an item array (N-R-2). Message-item content renders as a string
-when text-only and as a parts array when it contains at least one image.
+input string shorthand is rendered exactly when there is no system content
+and the conversation is one user message whose content is exactly one text
+block; every other conversation renders as an item array (N-R-2).
+User message-item content renders as a plain string when it is exactly one
+text block and as a parts array otherwise; assistant message-item content
+always renders as a string.
 
 ## 4. Response Field Mapping
 
@@ -149,16 +151,18 @@ Each rule has a stable ID usable as a vector tag.
 - **N-R-2 (input string shorthand).** A string `input` converts to one
   IR user message with one text block. On encode, the string shorthand is
   rendered exactly when the IR conversation is one user message whose
-  content is one text block; every other conversation renders as an item
-  array. A non-system message whose decoded content is empty MUST carry a
+  content is exactly one text block AND there is no system content
+  (`instructions` would force the array form); every other conversation,
+  including one whose single user message has multiple text blocks, renders
+  as an item array. A non-system message whose decoded content is empty MUST carry a
   single empty `TextBlock` (spec/01 §3.3).
 - **N-R-3 (content normalization).** String item content becomes one IR
   `TextBlock`. A parts array becomes one block per part (`input_text` and
   `output_text` → `TextBlock`, `input_image` → `ImageBlock` via N-R-4);
   other part types are dropped as unsupported-semantic losses. On encode,
-  user content renders as a plain string when text-only and as a parts
-  array when it contains at least one image; assistant text renders as a
-  message item with string content.
+  user content renders as a plain string when it is exactly one text block
+  and as a parts array otherwise (multiple text blocks, images); assistant
+  text renders as a message item with string content.
 - **N-R-4 (image URL normalization).** An `input_image` part's
   `image_url` (a plain string, not an object) that is a syntactically
   valid absolute `https:` URL converts to `ImageBlock.URL`; a
@@ -170,9 +174,11 @@ Each rule has a stable ID usable as a vector tag.
   an unusable URL is dropped with an unsupported-semantic loss.
 - **N-R-5 (function call items).** Each `function_call` item (request) or
   output item (response) becomes a `ToolUseBlock` with
-  `ID: call_id`, keyed by `name`, appended after the text blocks, in wire
-  order; a maximal run of consecutive `function_call` items — including
-  adjacent assistant message items — merges into ONE IR assistant message.
+  `ID: call_id`, keyed by `name`, appended after the text blocks; a maximal
+  run of consecutive `function_call` items — including adjacent assistant
+  message items — merges into ONE IR assistant message whose content is
+  ordered text blocks first, then tool uses, regardless of how the wire
+  interleaved the items.
   `arguments` is a wire STRING of opaque JSON text: the decoder MUST wrap
   it into the IR raw JSON string token without parsing or reformatting,
   and the encoder MUST unwrap only the JSON string envelope, preserving

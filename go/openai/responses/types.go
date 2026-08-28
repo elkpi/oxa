@@ -171,3 +171,93 @@ type UsageWire struct {
 	OutputTokens int64 `json:"output_tokens"`
 	TotalTokens  int64 `json:"total_tokens"`
 }
+
+// StreamEvent is one OpenAI Responses streaming SSE event. Type is the
+// discriminating head. The payload fields model the text-stream subset: the
+// response envelope, output item and content part lifecycle, and text delta
+// or completion payloads. SequenceNumber is an envelope field and has no IR
+// equivalent.
+type StreamEvent struct {
+	Type           string         `json:"type"`
+	Response       *Response      `json:"response,omitempty"`
+	ItemID         string         `json:"item_id,omitempty"`
+	OutputIndex    int            `json:"output_index,omitempty"`
+	ContentIndex   int            `json:"content_index,omitempty"`
+	Item           *OutputItem    `json:"item,omitempty"`
+	Part           *OutputContent `json:"part,omitempty"`
+	Delta          string         `json:"delta,omitempty"`
+	Text           string         `json:"text,omitempty"`
+	SequenceNumber int64          `json:"sequence_number,omitempty"`
+}
+
+// MarshalJSON renders each typed event's native wire envelope. Index zero is
+// meaningful for output_index and content_index, but must not appear on event
+// types which do not use indexes.
+func (e StreamEvent) MarshalJSON() ([]byte, error) {
+	type sequence struct {
+		SequenceNumber int64 `json:"sequence_number,omitempty"`
+	}
+	switch e.Type {
+	case "response.created", "response.completed", "response.incomplete", "response.failed":
+		if e.Response == nil {
+			return nil, fmt.Errorf("responses: %s without response", e.Type)
+		}
+		return json.Marshal(struct {
+			Type     string    `json:"type"`
+			Response *Response `json:"response"`
+			sequence
+		}{Type: e.Type, Response: e.Response, sequence: sequence{e.SequenceNumber}})
+	case "response.output_item.added", "response.output_item.done":
+		if e.Item == nil {
+			return nil, fmt.Errorf("responses: %s without item", e.Type)
+		}
+		return json.Marshal(struct {
+			Type        string      `json:"type"`
+			OutputIndex int         `json:"output_index"`
+			Item        *OutputItem `json:"item"`
+			sequence
+		}{Type: e.Type, OutputIndex: e.OutputIndex, Item: e.Item, sequence: sequence{e.SequenceNumber}})
+	case "response.content_part.added", "response.content_part.done":
+		if e.Part == nil {
+			return nil, fmt.Errorf("responses: %s without part", e.Type)
+		}
+		return json.Marshal(struct {
+			Type         string         `json:"type"`
+			ItemID       string         `json:"item_id"`
+			OutputIndex  int            `json:"output_index"`
+			ContentIndex int            `json:"content_index"`
+			Part         *OutputContent `json:"part"`
+			sequence
+		}{
+			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
+			ContentIndex: e.ContentIndex, Part: e.Part, sequence: sequence{e.SequenceNumber},
+		})
+	case "response.output_text.delta":
+		return json.Marshal(struct {
+			Type         string `json:"type"`
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+			Delta        string `json:"delta"`
+			sequence
+		}{
+			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
+			ContentIndex: e.ContentIndex, Delta: e.Delta, sequence: sequence{e.SequenceNumber},
+		})
+	case "response.output_text.done":
+		return json.Marshal(struct {
+			Type         string `json:"type"`
+			ItemID       string `json:"item_id"`
+			OutputIndex  int    `json:"output_index"`
+			ContentIndex int    `json:"content_index"`
+			Text         string `json:"text"`
+			sequence
+		}{
+			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
+			ContentIndex: e.ContentIndex, Text: e.Text, sequence: sequence{e.SequenceNumber},
+		})
+	default:
+		type plainStreamEvent StreamEvent
+		return json.Marshal(plainStreamEvent(e))
+	}
+}

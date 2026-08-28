@@ -173,6 +173,68 @@ func TestStreamDecoderModelMap(t *testing.T) {
 	}
 }
 
+func TestStreamDecoderRoleRestartMidStream(t *testing.T) {
+	d := NewStreamDecoder()
+	if _, err := d.Feed(chunkRole("id", "m")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if _, err := d.Feed(chunkContent("hi")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	if _, err := d.Feed(chunkRole("id", "m")); err == nil {
+		t.Fatal("role chunk mid-stream (before finish): want error")
+	}
+	// After finish_reason, a role-bearing chunk is likewise a restart.
+	d2 := NewStreamDecoder()
+	_, _ = d2.Feed(chunkRole("id", "m"))
+	_, _ = d2.Feed(chunkFinish("stop"))
+	if _, err := d2.Feed(chunkRole("id", "m")); err == nil {
+		t.Fatal("role chunk after finish_reason: want error")
+	}
+}
+
+func TestStreamDecoderUsageBeforeFinish(t *testing.T) {
+	d := NewStreamDecoder()
+	if _, err := d.Feed(chunkRole("id", "m")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	// Wire-tolerated: usage chunk arrives before the finish_reason chunk.
+	if events, err := d.Feed(chunkUsage()); err != nil || len(events) != 0 {
+		t.Fatalf("usage-before-finish feed: events=%#v err=%v", events, err)
+	}
+	if _, err := d.Feed(chunkFinish("stop")); err != nil {
+		t.Fatalf("Feed finish: %v", err)
+	}
+	events, err := d.Flush()
+	if err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	delta, ok := events[len(events)-2].(ir.MessageDelta)
+	if !ok || delta.Usage != (ir.Usage{InputTokens: 3, OutputTokens: 5}) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
+func TestStreamDecoderMergedUsageOnFinishChunk(t *testing.T) {
+	d := NewStreamDecoder()
+	if _, err := d.Feed(chunkRole("id", "m")); err != nil {
+		t.Fatalf("Feed: %v", err)
+	}
+	finish := chunkFinish("stop")
+	finish.Usage = &UsageWire{PromptTokens: 7, CompletionTokens: 9, TotalTokens: 16}
+	if _, err := d.Feed(finish); err != nil {
+		t.Fatalf("Feed finish: %v", err)
+	}
+	events, err := d.Flush()
+	if err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	delta, ok := events[len(events)-2].(ir.MessageDelta)
+	if !ok || delta.Usage != (ir.Usage{InputTokens: 7, OutputTokens: 9}) {
+		t.Fatalf("events = %#v", events)
+	}
+}
+
 func TestStreamEncoderHappyPath(t *testing.T) {
 	e := NewStreamEncoder()
 	var chunks []*Chunk

@@ -37,7 +37,11 @@ func NewStreamDecoder(opts ...Option) *StreamDecoder {
 // Feed pushes one wire chunk and returns any IR events it completes. Only
 // choices[0] participates; additional choices are ignored (envelope). A
 // tool_calls delta is not decodable in M6 and records one
-// unsupported-semantic loss without disturbing the decoder state.
+// unsupported-semantic loss without disturbing the decoder state. A
+// role-annotated delta after the stream has started is a single-stream
+// violation; content deltas arriving after the finish_reason chunk are
+// tolerated (the wire may deliver further chunks before the usage-only one),
+// though they no longer affect the IR text emitted at Flush.
 func (d *StreamDecoder) Feed(chunk *Chunk) ([]ir.Event, error) {
 	if chunk == nil {
 		return nil, fmt.Errorf("chatcompletions: nil chunk")
@@ -67,8 +71,11 @@ func (d *StreamDecoder) Feed(chunk *Chunk) ([]ir.Event, error) {
 		))
 		return nil, nil
 	}
-	if d.started && choice.Delta.Role != "" && d.finishSeen {
-		return nil, fmt.Errorf("chatcompletions: chunk stream restarted after finish_reason")
+	if d.started && choice.Delta.Role != "" {
+		if d.finishSeen {
+			return nil, fmt.Errorf("chatcompletions: chunk stream restarted after finish_reason")
+		}
+		return nil, fmt.Errorf("chatcompletions: chunk stream already started")
 	}
 	var events []ir.Event
 	if !d.started {

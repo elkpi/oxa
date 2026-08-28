@@ -10,7 +10,7 @@ import (
 // (IR -> face). ir.System renders as one leading system message; message
 // content renders as a plain string (text blocks concatenate, this milestone
 // is text-only); Params map back to temperature/top_p/max_tokens/stop.
-func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
+func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
 	}
@@ -26,7 +26,8 @@ func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
 			Detail: "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
 		})
 	}
-	out := &Request{Model: defaultOptions.models.Map(req.Model)}
+	o := newOptions(opts...)
+	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.System) > 0 {
 		text := ""
 		for _, s := range req.System {
@@ -75,7 +76,7 @@ func encodeRole(role ir.Role, index int) (string, error) {
 // index 0, message role assistant) and record no loss: this direction renders
 // defaults, it drops nothing (vectors/README.md "From-ir rendering
 // defaults"). usage.total_tokens is derived and recomputed.
-func EncodeResponse(resp *ir.Response) (*Response, []ir.Loss, error) {
+func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, error) {
 	if resp == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil response")
 	}
@@ -113,11 +114,12 @@ func EncodeResponse(resp *ir.Response) (*Response, []ir.Loss, error) {
 	default:
 		return nil, nil, fmt.Errorf("chatcompletions: stop reason %q has no Chat Completions equivalent", resp.StopReason)
 	}
+	o := newOptions(opts...)
 	return &Response{
 		ID:      resp.ID,
 		Object:  "chat.completion",
 		Created: 0,
-		Model:   defaultOptions.models.Map(resp.Model),
+		Model:   o.models.Map(resp.Model),
 		Choices: []Choice{{
 			Index:        0,
 			Message:      Message{Role: "assistant", Content: text},

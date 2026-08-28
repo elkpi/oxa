@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/oxa-protocol/oxa/go/modelmap"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -229,5 +230,60 @@ func TestMetadataLossesBothDirections(t *testing.T) {
 	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
 		losses[0].Reason != ir.LossUnmappedField {
 		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	}
+}
+
+func TestWithModelMap(t *testing.T) {
+	wire := &Request{
+		Model:    "gpt-4o-mini",
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+	}
+	// face -> IR: model name mapped through the table.
+	req, _, err := DecodeRequest(wire, WithModelMap(modelmap.Table{"gpt-4o-mini": "gpt-4o"}))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if req.Model != "gpt-4o" {
+		t.Fatalf("decode model not mapped: %q", req.Model)
+	}
+	// No options: identity passthrough (spec/03 s2).
+	reqDefault, _, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("decode default: %v", err)
+	}
+	if reqDefault.Model != "gpt-4o-mini" {
+		t.Fatalf("default must be identity: %q", reqDefault.Model)
+	}
+	// IR -> face: model name mapped back through the table.
+	irReq := &ir.Request{
+		Model:    "gpt-4o",
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
+	}
+	out, _, err := EncodeRequest(irReq, WithModelMap(modelmap.Table{"gpt-4o": "gpt-4o-mini"}))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.Model != "gpt-4o-mini" {
+		t.Fatalf("encode model not mapped: %q", out.Model)
+	}
+	// The table applies to both response directions too.
+	irResp := &ir.Response{ID: "i", Model: "gpt-4o", StopReason: ir.StopEndTurn}
+	respOut, _, err := EncodeResponse(irResp, WithModelMap(modelmap.Table{"gpt-4o": "gpt-4o-mini"}))
+	if err != nil {
+		t.Fatalf("encode response: %v", err)
+	}
+	if respOut.Model != "gpt-4o-mini" {
+		t.Fatalf("encode response model not mapped: %q", respOut.Model)
+	}
+	wireResp := &Response{
+		ID: "i", Model: "gpt-4o-mini",
+		Choices: []Choice{{Message: Message{Role: "assistant", Content: "x"}, FinishReason: "stop"}},
+	}
+	respIn, _, err := DecodeResponse(wireResp, WithModelMap(modelmap.Table{"gpt-4o-mini": "gpt-4o"}))
+	if err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if respIn.Model != "gpt-4o" {
+		t.Fatalf("decode response model not mapped: %q", respIn.Model)
 	}
 }

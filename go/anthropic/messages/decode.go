@@ -12,7 +12,7 @@ import (
 // ir.System, required max_tokens becomes Params.MaxTokens, and
 // temperature/top_p/stop_sequences map 1:1. cache_control annotations have no
 // IR equivalent in v1 and are dropped with unmapped-field losses.
-func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
+func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error) {
 	if wire == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil request")
 	}
@@ -32,9 +32,10 @@ func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
 			Detail: "Anthropic request metadata (user_id) has no IR equivalent in v1.",
 		})
 	}
+	o := newOptions(opts...)
 	maxTokens := wire.MaxTokens
 	req := &ir.Request{
-		Model:  defaultOptions.models.Map(wire.Model),
+		Model:  o.models.Map(wire.Model),
 		Params: ir.Params{MaxTokens: &maxTokens},
 	}
 
@@ -158,14 +159,15 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 // value (stop_sequence also carries the matched sequence), usage maps 1:1.
 // The envelope fields type and role are exempt from losses
 // (vectors/README.md loss conventions).
-func DecodeResponse(wire *Response) (*ir.Response, []ir.Loss, error) {
+func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, error) {
 	if wire == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil response")
 	}
 	var losses []ir.Loss
+	o := newOptions(opts...)
 	resp := &ir.Response{
 		ID:    wire.ID,
-		Model: defaultOptions.models.Map(wire.Model),
+		Model: o.models.Map(wire.Model),
 	}
 	for i, b := range wire.Content {
 		if b.Type != "text" {

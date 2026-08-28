@@ -2,11 +2,10 @@ package messages
 
 import "github.com/oxa-protocol/oxa/go/modelmap"
 
-// options carries per-converter configuration. In this milestone the package
-// exposes the four package-level conversion functions with fixed signatures,
-// so the model table defaults to the identity (no table installed is exactly
-// an empty table, spec/03 s2); Option and WithModelMap define the injection
-// surface the client API (a later milestone) attaches per-converter tables to.
+// options carries per-converter configuration. The package-level conversion
+// functions accept variadic Options; with none supplied the model table
+// defaults to the identity (no table installed is exactly an empty table,
+// spec/03 s2).
 type options struct {
 	models modelmap.Table
 }
@@ -30,7 +29,3 @@ func newOptions(opts ...Option) *options {
 	}
 	return o
 }
-
-// defaultOptions is the identity default used by the package-level
-// conversion functions: no table, the model string passes through verbatim.
-var defaultOptions = newOptions()

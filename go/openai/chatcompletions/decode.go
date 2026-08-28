@@ -14,7 +14,7 @@ import (
 // user/assistant messages become IR messages with text blocks (string or
 // parts-array content); temperature/top_p/max_tokens/stop map to Params;
 // logprobs/top_logprobs are dropped with unmapped-field losses.
-func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
+func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error) {
 	if wire == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
 	}
@@ -44,7 +44,8 @@ func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
 			Detail: "Chat Completions request metadata has no IR equivalent in v1.",
 		})
 	}
-	req := &ir.Request{Model: defaultOptions.models.Map(wire.Model)}
+	o := newOptions(opts...)
+	req := &ir.Request{Model: o.models.Map(wire.Model)}
 	for i, m := range wire.Messages {
 		content, err := decodeContent(m.Content, fmt.Sprintf("messages[%d].content", i))
 		if err != nil {
@@ -117,7 +118,7 @@ func contentSystem(blocks []ir.Block) []ir.SystemBlock {
 // exempt from losses (vectors/README.md loss conventions); usage.total_tokens
 // is derived. Unknown finish_reason values map to other plus an unmapped-value
 // loss (spec/01 s4.1).
-func DecodeResponse(wire *Response) (*ir.Response, []ir.Loss, error) {
+func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, error) {
 	if wire == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil response")
 	}
@@ -137,9 +138,10 @@ func DecodeResponse(wire *Response) (*ir.Response, []ir.Loss, error) {
 	if loss != nil {
 		losses = append(losses, *loss)
 	}
+	o := newOptions(opts...)
 	resp := &ir.Response{
 		ID:         wire.ID,
-		Model:      defaultOptions.models.Map(wire.Model),
+		Model:      o.models.Map(wire.Model),
 		Content:    blocks,
 		StopReason: stop,
 	}

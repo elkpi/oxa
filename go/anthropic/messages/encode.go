@@ -23,7 +23,7 @@ const defaultMaxTokens = 4096
 // for a request whose entire conversation is a single message of a single
 // text block and that carries no system prompt; every other request renders
 // block arrays.
-func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
+func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil request")
 	}
@@ -40,7 +40,8 @@ func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
 			Detail: "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
 		})
 	}
-	out := &Request{Model: defaultOptions.models.Map(req.Model)}
+	o := newOptions(opts...)
+	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
 		for _, s := range req.System {
@@ -101,18 +102,19 @@ func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
 // response (IR -> face). Near-identity; the envelope fields type ("message")
 // and role ("assistant") are rendered defaults and record no loss
 // (vectors/README.md "From-ir rendering defaults").
-func EncodeResponse(resp *ir.Response) (*Response, []ir.Loss, error) {
+func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, error) {
 	if resp == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil response")
 	}
 	if resp.StopReason == ir.StopToolUse {
 		return nil, nil, fmt.Errorf("anthropic: tool_use stop reason is not reachable in this milestone")
 	}
+	o := newOptions(opts...)
 	out := &Response{
 		ID:    resp.ID,
 		Type:  "message",
 		Role:  "assistant",
-		Model: defaultOptions.models.Map(resp.Model),
+		Model: o.models.Map(resp.Model),
 		Usage: &UsageWire{
 			InputTokens:  resp.Usage.InputTokens,
 			OutputTokens: resp.Usage.OutputTokens,

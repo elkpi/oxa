@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/oxa-protocol/oxa/go/modelmap"
 )
 
 func ptr[T any](v T) *T { return &v }
@@ -237,5 +238,62 @@ func TestMetadataLossesBothDirections(t *testing.T) {
 	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
 		losses[0].Reason != ir.LossUnmappedField {
 		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	}
+}
+
+func TestWithModelMap(t *testing.T) {
+	wire := &Request{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 512,
+		Messages:  []Message{{Role: "user", Content: "Hi"}},
+	}
+	// face -> IR.
+	req, _, err := DecodeRequest(wire, WithModelMap(modelmap.Table{"claude-sonnet-4-5": "claude-opus-4-1"}))
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if req.Model != "claude-opus-4-1" {
+		t.Fatalf("decode model not mapped: %q", req.Model)
+	}
+	// No options: identity passthrough (spec/03 s2).
+	reqDefault, _, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("decode default: %v", err)
+	}
+	if reqDefault.Model != "claude-sonnet-4-5" {
+		t.Fatalf("default must be identity: %q", reqDefault.Model)
+	}
+	// IR -> face.
+	irReq := &ir.Request{
+		Model:    "claude-opus-4-1",
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
+		Params:   ir.Params{MaxTokens: ptr(int64(512))},
+	}
+	out, _, err := EncodeRequest(irReq, WithModelMap(modelmap.Table{"claude-opus-4-1": "claude-sonnet-4-5"}))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.Model != "claude-sonnet-4-5" {
+		t.Fatalf("encode model not mapped: %q", out.Model)
+	}
+	// The table applies to both response directions too.
+	irResp := &ir.Response{ID: "m", Model: "claude-sonnet-4-5", StopReason: ir.StopEndTurn}
+	respOut, _, err := EncodeResponse(irResp, WithModelMap(modelmap.Table{"claude-sonnet-4-5": "claude-opus-4-1"}))
+	if err != nil {
+		t.Fatalf("encode response: %v", err)
+	}
+	if respOut.Model != "claude-opus-4-1" {
+		t.Fatalf("encode response model not mapped: %q", respOut.Model)
+	}
+	wireResp := &Response{
+		ID: "m", Type: "message", Role: "assistant", Model: "claude-opus-4-1",
+		StopReason: "end_turn",
+	}
+	respIn, _, err := DecodeResponse(wireResp, WithModelMap(modelmap.Table{"claude-opus-4-1": "claude-sonnet-4-5"}))
+	if err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if respIn.Model != "claude-sonnet-4-5" {
+		t.Fatalf("decode response model not mapped: %q", respIn.Model)
 	}
 }

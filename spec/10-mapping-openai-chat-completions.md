@@ -62,7 +62,7 @@ The wire objects in scope are:
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_tokens` | `Params.MaxTokens` | 1:1 |
-| `stop` | `Params.StopSequences` | value is lost on CC encode (see Loss Catalog) |
+| `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `parallel_tool_calls` | — | unmapped-field loss |

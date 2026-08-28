@@ -9,58 +9,97 @@ import (
 // DecodeRequest converts a Chat Completions wire request to the IR (face ->
 // IR). Semantic unmappables are losses, never errors; errors are reserved for
 // structural type violations of known fields (spec/02 s4).
-//
-// Mapping: system role messages concatenate, in order, into ir.System;
-// user/assistant messages become IR messages with text blocks (string or
-// parts-array content); temperature/top_p/max_tokens/stop map to Params;
-// logprobs/top_logprobs are dropped with unmapped-field losses.
 func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error) {
 	if wire == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
 	}
 	var losses []ir.Loss
-	if wire.Logprobs != nil {
-		losses = append(losses, ir.Loss{
-			Path:   "logprobs",
-			Field:  "logprobs",
-			Reason: ir.LossUnmappedField,
-			Detail: "Chat Completions log-probability sampling has no IR equivalent in v1.",
-		})
-	}
-	if wire.TopLogprobs != nil {
-		losses = append(losses, ir.Loss{
-			Path:   "top_logprobs",
-			Field:  "top_logprobs",
-			Reason: ir.LossUnmappedField,
-			Detail: "Chat Completions log-probability sampling has no IR equivalent in v1.",
-		})
+	for _, field := range []struct {
+		name    string
+		present bool
+		detail  string
+	}{
+		{"parallel_tool_calls", wire.ParallelToolCalls != nil, "Chat Completions parallel tool calls have no IR equivalent in v1."},
+		{"functions", wire.Functions != nil, "legacy Chat Completions functions have no IR equivalent in v1."},
+		{"function_call", wire.FunctionCall != nil, "legacy Chat Completions function_call has no IR equivalent in v1."},
+		{"response_format", wire.ResponseFormat != nil, "Chat Completions response_format has no IR equivalent in v1."},
+		{"logprobs", wire.Logprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
+		{"top_logprobs", wire.TopLogprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
+		{"metadata", wire.Metadata != nil, "Chat Completions request metadata has no IR equivalent in v1."},
+	} {
+		if field.present {
+			losses = append(losses, loss(field.name, field.name, ir.LossUnmappedField, field.detail))
+		}
 	}
 
-	if wire.Metadata != nil {
-		losses = append(losses, ir.Loss{
-			Path:   "metadata",
-			Field:  "metadata",
-			Reason: ir.LossUnmappedField,
-			Detail: "Chat Completions request metadata has no IR equivalent in v1.",
-		})
-	}
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
-	for i, m := range wire.Messages {
-		content, err := decodeContent(m.Content, fmt.Sprintf("messages[%d].content", i))
+	for i, tool := range wire.Tools {
+		if tool.Type != "function" {
+			losses = append(losses, loss(
+				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
+				fmt.Sprintf("Chat Completions tool type %q has no IR equivalent", tool.Type),
+			))
+			continue
+		}
+		req.Tools = append(req.Tools, ir.Tool{
+			Name:        tool.Function.Name,
+			Description: tool.Function.Description,
+			InputSchema: tool.Function.Parameters,
+		})
+	}
+	choice, choiceLosses := decodeToolChoice(wire.ToolChoice)
+	req.ToolChoice = choice
+	losses = append(losses, choiceLosses...)
+
+	for i := 0; i < len(wire.Messages); {
+		message := wire.Messages[i]
+		if message.Role == "tool" {
+			merged, next, resultLosses, err := decodeToolResultRun(wire.Messages, i)
+			if err != nil {
+				return nil, nil, err
+			}
+			req.Messages = append(req.Messages, merged)
+			losses = append(losses, resultLosses...)
+			i = next
+			continue
+		}
+
+		content, contentLosses, err := decodeContent(message.Content, fmt.Sprintf("messages[%d].content", i))
 		if err != nil {
 			return nil, nil, err
 		}
-		switch m.Role {
+		losses = append(losses, contentLosses...)
+		if message.Role != "system" && len(content) == 0 {
+			// IR conversation messages cannot have empty content (spec/01 s3.3).
+			content = []ir.Block{ir.TextBlock{Text: ""}}
+		}
+		switch message.Role {
 		case "system":
-			req.System = append(req.System, contentSystem(content)...)
+			system, systemLosses := contentSystem(content, fmt.Sprintf("messages[%d].content", i))
+			req.System = append(req.System, system...)
+			losses = append(losses, systemLosses...)
 		case "user":
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleUser, Content: content})
 		case "assistant":
+			toolCalls, toolLosses := decodeToolCalls(message.ToolCalls, fmt.Sprintf("messages[%d].tool_calls", i))
+			if message.Content == nil && len(toolCalls) > 0 {
+				// A tool-only assistant message has no normal content to prepend.
+				content = nil
+			}
+			content = append(content, toolCalls...)
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleAssistant, Content: content})
+			losses = append(losses, toolLosses...)
 		default:
-			return nil, nil, fmt.Errorf("chatcompletions: messages[%d]: unknown role %q", i, m.Role)
+			return nil, nil, fmt.Errorf("chatcompletions: messages[%d]: unknown role %q", i, message.Role)
 		}
+		if message.FunctionCall != nil {
+			losses = append(losses, loss(
+				fmt.Sprintf("messages[%d].function_call", i), "function_call", ir.LossUnmappedField,
+				"legacy Chat Completions function_call has no IR equivalent",
+			))
+		}
+		i++
 	}
 	if len(req.Messages) == 0 {
 		return nil, nil, fmt.Errorf("chatcompletions: request carries no conversation messages")
@@ -72,45 +111,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		StopSequences: wire.Stop,
 	}
 	return req, losses, nil
-}
-
-// decodeContent converts string or parts-array wire content into IR text
-// blocks.
-func decodeContent(content any, path string) ([]ir.Block, error) {
-	switch v := content.(type) {
-	case nil:
-		// An empty message is not representable in IR; use an empty text
-		// block (spec/01 s3.3).
-		return []ir.Block{ir.TextBlock{Text: ""}}, nil
-	case string:
-		return []ir.Block{ir.TextBlock{Text: v}}, nil
-	case []any:
-		blocks := make([]ir.Block, 0, len(v))
-		for j, part := range v {
-			raw, ok := part.(map[string]any)
-			if !ok {
-				return nil, fmt.Errorf("chatcompletions: %s[%d]: part is not an object", path, j)
-			}
-			if t, _ := raw["type"].(string); t != "text" {
-				return nil, fmt.Errorf("chatcompletions: %s[%d]: unsupported part type %q", path, j, t)
-			}
-			text, _ := raw["text"].(string)
-			blocks = append(blocks, ir.TextBlock{Text: text})
-		}
-		return blocks, nil
-	default:
-		return nil, fmt.Errorf("chatcompletions: %s: content is neither string nor parts array", path)
-	}
-}
-
-func contentSystem(blocks []ir.Block) []ir.SystemBlock {
-	out := make([]ir.SystemBlock, 0, len(blocks))
-	for _, b := range blocks {
-		if t, ok := b.(ir.TextBlock); ok {
-			out = append(out, ir.SystemBlock{Text: t.Text})
-		}
-	}
-	return out
 }
 
 // DecodeResponse converts a Chat Completions wire response to the IR (face ->
@@ -127,16 +127,30 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	var losses []ir.Loss
 	choice := wire.Choices[0]
-	blocks, err := decodeContent(choice.Message.Content, "choices[0].message.content")
+	blocks, contentLosses, err := decodeContent(choice.Message.Content, "choices[0].message.content")
 	if err != nil {
 		return nil, nil, err
 	}
-	stop, loss, err := decodeFinishReason(choice.FinishReason)
+	losses = append(losses, contentLosses...)
+	toolCalls, toolLosses := decodeToolCalls(choice.Message.ToolCalls, "choices[0].message.tool_calls")
+	if choice.Message.Content == nil && len(toolCalls) > 0 {
+		// A tool-only assistant response has no normal content to prepend.
+		blocks = nil
+	}
+	blocks = append(blocks, toolCalls...)
+	losses = append(losses, toolLosses...)
+	if choice.Message.FunctionCall != nil {
+		losses = append(losses, loss(
+			"choices[0].message.function_call", "function_call", ir.LossUnmappedField,
+			"legacy Chat Completions function_call has no IR equivalent",
+		))
+	}
+	stop, finishLoss, err := decodeFinishReason(choice.FinishReason)
 	if err != nil {
 		return nil, nil, err
 	}
-	if loss != nil {
-		losses = append(losses, *loss)
+	if finishLoss != nil {
+		losses = append(losses, *finishLoss)
 	}
 	o := newOptions(opts...)
 	resp := &ir.Response{

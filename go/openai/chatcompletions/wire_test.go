@@ -1,6 +1,7 @@
 package chatcompletions
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/oxa-protocol/oxa/go/ir"
@@ -230,6 +231,277 @@ func TestMetadataLossesBothDirections(t *testing.T) {
 	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
 		losses[0].Reason != ir.LossUnmappedField {
 		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	}
+}
+
+func TestDecodeRequestToolCallsAndConsecutiveResults(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{
+		"model":"gpt-4o-mini",
+		"tools":[{"type":"function","function":{"name":"weather","description":"Get weather","parameters":{"type":"object"}}}],
+		"tool_choice":"required",
+		"messages":[
+			{"role":"user","content":"Weather?"},
+			{"role":"assistant","content":"Checking.","tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Paris\"}"}},
+				{"id":"call_2","type":"function","function":{"name":"weather","arguments":"{\"city\":\"Lyon\"}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_1","content":"Sunny"},
+			{"role":"tool","tool_call_id":"call_2","content":"Rainy"},
+			{"role":"assistant","content":"Done."}
+		]
+	}`), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	req, losses, err := DecodeRequest(&wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: err=%v losses=%+v", err, losses)
+	}
+	if len(req.Tools) != 1 || req.Tools[0].Name != "weather" || req.ToolChoice == nil || req.ToolChoice.Mode != "any" {
+		t.Fatalf("tools/tool choice not mapped: %+v %+v", req.Tools, req.ToolChoice)
+	}
+	if len(req.Messages) != 4 {
+		t.Fatalf("message count: %+v", req.Messages)
+	}
+	call, ok := req.Messages[1].Content[1].(ir.ToolUseBlock)
+	if !ok || call.ID != "call_1" || string(call.Input) != `"{\"city\":\"Paris\"}"` {
+		t.Fatalf("first tool call not mapped: %+v", req.Messages[1].Content)
+	}
+	if req.Messages[2].Role != ir.RoleUser || len(req.Messages[2].Content) != 2 {
+		t.Fatalf("tool messages did not merge: %+v", req.Messages[2])
+	}
+	firstResult, ok := req.Messages[2].Content[0].(ir.ToolResultBlock)
+	if !ok || firstResult.ToolUseID != "call_1" || len(firstResult.Content) != 1 || firstResult.Content[0].(ir.TextBlock).Text != "Sunny" {
+		t.Fatalf("first tool result not mapped: %+v", req.Messages[2].Content)
+	}
+}
+
+func TestDecodeRequestImageParts(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{
+		"model":"gpt-4o-mini",
+		"messages":[{"role":"user","content":[
+			{"type":"text","text":"Inspect these"},
+			{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}},
+			{"type":"image_url","image_url":{"url":"https://example.test/image.jpg"}}
+		]}]
+	}`), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	req, losses, err := DecodeRequest(&wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: err=%v losses=%+v", err, losses)
+	}
+	blocks := req.Messages[0].Content
+	if len(blocks) != 3 {
+		t.Fatalf("image blocks: %+v", blocks)
+	}
+	dataImage, ok := blocks[1].(ir.ImageBlock)
+	if !ok || dataImage.MediaType != "image/png" || dataImage.Data != "aGVsbG8=" {
+		t.Fatalf("data image: %+v", blocks[1])
+	}
+	urlImage, ok := blocks[2].(ir.ImageBlock)
+	if !ok || urlImage.URL != "https://example.test/image.jpg" {
+		t.Fatalf("URL image: %+v", blocks[2])
+	}
+}
+
+func TestEncodeRequestToolResultsAndImage(t *testing.T) {
+	req := &ir.Request{
+		Model:      "gpt-4o-mini",
+		Tools:      []ir.Tool{{Name: "weather", InputSchema: json.RawMessage(`{"type":"object"}`)}},
+		ToolChoice: &ir.ToolChoice{Mode: "tool", Name: "weather"},
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{
+				ir.ImageBlock{URL: "https://example.test/image.jpg"},
+				ir.ImageBlock{MediaType: "image/png", Data: "aGVsbG8="},
+			}},
+			{Role: ir.RoleAssistant, Content: []ir.Block{ir.ToolUseBlock{ID: "call_1", Name: "weather", Input: json.RawMessage(`"{\"city\":\"Paris\"}"`)}}},
+			{Role: ir.RoleUser, Content: []ir.Block{ir.ToolResultBlock{ToolUseID: "call_1", Content: []ir.Block{ir.TextBlock{Text: "Sunny"}}}}},
+		},
+	}
+	wire, losses, err := EncodeRequest(req)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("encode: err=%v losses=%+v", err, losses)
+	}
+	out, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal output: %v", err)
+	}
+	if got["tool_choice"].(map[string]any)["function"].(map[string]any)["name"] != "weather" {
+		t.Fatalf("tool choice: %s", out)
+	}
+	messages := got["messages"].([]any)
+	userParts := messages[0].(map[string]any)["content"].([]any)
+	if userParts[0].(map[string]any)["image_url"].(map[string]any)["url"] != "https://example.test/image.jpg" ||
+		userParts[1].(map[string]any)["image_url"].(map[string]any)["url"] != "data:image/png;base64,aGVsbG8=" {
+		t.Fatalf("images not rendered: %s", out)
+	}
+	assistant := messages[1].(map[string]any)
+	if assistant["tool_calls"].([]any)[0].(map[string]any)["function"].(map[string]any)["arguments"] != `{"city":"Paris"}` {
+		t.Fatalf("tool call: %s", out)
+	}
+	tool := messages[2].(map[string]any)
+	if tool["role"] != "tool" || tool["tool_call_id"] != "call_1" || tool["content"] != "Sunny" {
+		t.Fatalf("tool result: %s", out)
+	}
+}
+
+func TestMalformedAndNonImageDataURLsProduceLosses(t *testing.T) {
+	wire := &Request{Model: "m", Messages: []Message{{
+		Role: "user",
+		Content: []any{
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:text/plain;base64,aGVsbG8="}},
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": "data:image/png,aGVsbG8="}},
+		},
+	}}}
+	req, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(req.Messages[0].Content) != 1 || req.Messages[0].Content[0] != (ir.TextBlock{}) {
+		t.Fatalf("unsupported images must leave an empty text block: %+v", req.Messages[0].Content)
+	}
+	if len(losses) != 2 {
+		t.Fatalf("want two semantic losses, got %+v", losses)
+	}
+	for _, loss := range losses {
+		if loss.Reason != ir.LossUnsupportedSemantic {
+			t.Fatalf("wrong loss: %+v", loss)
+		}
+	}
+}
+
+func TestToolArgumentsPreserveRawText(t *testing.T) {
+	const arguments = "{\"city\":\"\\u0041BC\"}"
+	wire := &Request{
+		Model: "gpt-4o-mini",
+		Messages: []Message{
+			{Role: "user", Content: "Weather?"},
+			{Role: "assistant", ToolCalls: []ToolCall{{
+				ID: "call_1", Type: "function",
+				Function: FunctionWire{Name: "weather", Arguments: arguments},
+			}}},
+		},
+	}
+
+	req, losses, err := DecodeRequest(wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: err=%v losses=%+v", err, losses)
+	}
+	call, ok := req.Messages[1].Content[0].(ir.ToolUseBlock)
+	if !ok {
+		t.Fatalf("assistant tool call not mapped: %+v", req.Messages[1].Content)
+	}
+	if got, want := string(call.Input), `"{\"city\":\"\\u0041BC\"}"`; got != want {
+		t.Fatalf("tool input token changed:\nwant %s\ngot  %s", want, got)
+	}
+
+	out, losses, err := EncodeRequest(req)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("encode: err=%v losses=%+v", err, losses)
+	}
+	if got := out.Messages[1].ToolCalls[0].Function.Arguments; got != arguments {
+		t.Fatalf("function arguments changed:\nwant %s\ngot  %s", arguments, got)
+	}
+}
+
+func TestToolChoiceMappings(t *testing.T) {
+	named := ToolChoiceWire{Type: "function"}
+	named.Function.Name = "weather"
+	cases := []struct {
+		name     string
+		wire     any
+		mode     string
+		toolName string
+	}{
+		{name: "auto", wire: "auto", mode: "auto"},
+		{name: "none", wire: "none", mode: "none"},
+		{name: "required", wire: "required", mode: "any"},
+		{name: "named", wire: named, mode: "tool", toolName: "weather"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			in := &Request{Model: "m", ToolChoice: tc.wire, Messages: []Message{{Role: "user", Content: "x"}}}
+			req, losses, err := DecodeRequest(in)
+			if err != nil || len(losses) != 0 {
+				t.Fatalf("decode: err=%v losses=%+v", err, losses)
+			}
+			if req.ToolChoice == nil || req.ToolChoice.Mode != tc.mode || req.ToolChoice.Name != tc.toolName {
+				t.Fatalf("decoded choice: %+v", req.ToolChoice)
+			}
+			out, losses, err := EncodeRequest(req)
+			if err != nil || len(losses) != 0 {
+				t.Fatalf("encode: err=%v losses=%+v", err, losses)
+			}
+			switch want := tc.wire.(type) {
+			case string:
+				if got, ok := out.ToolChoice.(string); !ok || got != want {
+					t.Fatalf("encoded choice: %#v", out.ToolChoice)
+				}
+			case ToolChoiceWire:
+				got, ok := out.ToolChoice.(ToolChoiceWire)
+				if !ok || got.Type != want.Type || got.Function.Name != want.Function.Name {
+					t.Fatalf("encoded choice: %#v", out.ToolChoice)
+				}
+			}
+		})
+	}
+}
+
+func TestUnsupportedRequestContentProducesLoss(t *testing.T) {
+	wire := &Request{
+		Model:             "m",
+		ParallelToolCalls: ptr(true),
+		FunctionCall:      map[string]any{"name": "legacy"},
+		Messages: []Message{{
+			Role:    "user",
+			Content: []any{map[string]any{"type": "audio_url", "audio_url": map[string]any{"url": "https://example.test/a.wav"}}},
+		}},
+	}
+	req, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 1 || req.Messages[0].Content[0] != (ir.TextBlock{}) {
+		t.Fatalf("unsupported content must leave an empty text block: %+v", req.Messages)
+	}
+	if len(losses) != 3 {
+		t.Fatalf("want three losses, got %+v", losses)
+	}
+	for _, loss := range losses {
+		if loss.Reason != ir.LossUnmappedField && loss.Reason != ir.LossUnsupportedSemantic {
+			t.Fatalf("unexpected loss: %+v", loss)
+		}
+	}
+}
+
+func TestEncodeToolResultUnsupportedContentRecordsLoss(t *testing.T) {
+	req := &ir.Request{
+		Model: "m",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "x"}}},
+			{Role: ir.RoleAssistant, Content: []ir.Block{ir.ToolUseBlock{ID: "call_1", Name: "weather", Input: json.RawMessage(`"{}"`)}}},
+			{Role: ir.RoleUser, Content: []ir.Block{ir.ToolResultBlock{
+				ToolUseID: "call_1",
+				Content:   []ir.Block{ir.TextBlock{Text: "sunny"}, ir.ImageBlock{URL: "https://example.test/weather.png"}},
+			}}},
+		},
+	}
+	out, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if len(out.Messages) != 3 || out.Messages[2].Content != "sunny" {
+		t.Fatalf("tool result not rendered: %+v", out.Messages)
+	}
+	if len(losses) != 1 || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Fatalf("unsupported tool result content needs semantic loss: %+v", losses)
 	}
 }
 

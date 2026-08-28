@@ -203,3 +203,39 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		t.Fatalf("third message drifted: %s", b)
 	}
 }
+
+func TestMetadataLossesBothDirections(t *testing.T) {
+	// face -> IR: wire metadata (user_id semantic) dropped with one loss.
+	wire := &Request{
+		Model:     "claude-sonnet-4-5",
+		MaxTokens: 512,
+		Messages:  []Message{{Role: "user", Content: "Hi"}},
+		Metadata:  map[string]any{"user_id": "u1"},
+	}
+	_, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
+		losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("decode metadata loss wrong: %+v", losses)
+	}
+	// IR -> face: IR metadata map dropped with one loss.
+	irReq := &ir.Request{
+		Model:    "claude-sonnet-4-5",
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
+		Params:   ir.Params{MaxTokens: ptr(int64(512))},
+		Metadata: map[string]string{"k": "v"},
+	}
+	out, losses, err := EncodeRequest(irReq)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.Metadata != nil {
+		t.Fatalf("IR metadata must not be rendered: %+v", out.Metadata)
+	}
+	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
+		losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	}
+}

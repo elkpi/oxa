@@ -20,6 +20,10 @@ type Request struct {
 	// unmapped-field losses (spec/02 s4).
 	Logprobs    any `json:"logprobs,omitempty"`
 	TopLogprobs any `json:"top_logprobs,omitempty"`
+
+	// Metadata has no Chat Completions request equivalent in v1; presence is
+	// dropped with an unmapped-field loss (vectors/README.md bucket 3).
+	Metadata any `json:"metadata,omitempty"`
 }
 
 // Message is a wire message. Content is either a string or an array of parts

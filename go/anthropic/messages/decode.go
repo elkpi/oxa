@@ -20,6 +20,18 @@ func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
 	if wire.MaxTokens <= 0 {
 		return nil, nil, fmt.Errorf("anthropic: max_tokens is required and must be positive")
 	}
+	if wire.Metadata != nil {
+		// Anthropic's wire metadata is the specific {user_id} semantic, not
+		// an arbitrary string map, so it is dropped symmetrically with a
+		// single unmapped-field loss (spec/12 will pin this in the loss
+		// catalog).
+		losses = append(losses, ir.Loss{
+			Path:   "metadata",
+			Field:  "metadata",
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic request metadata (user_id) has no IR equivalent in v1.",
+		})
+	}
 	maxTokens := wire.MaxTokens
 	req := &ir.Request{
 		Model:  defaultOptions.models.Map(wire.Model),
@@ -62,16 +74,6 @@ func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
 	}
 	if len(wire.StopSequences) > 0 {
 		req.Params.StopSequences = wire.StopSequences
-	}
-	if md, ok := wire.Metadata.(map[string]any); ok {
-		if _, present := md["user_id"]; present {
-			losses = append(losses, ir.Loss{
-				Path:   "metadata.user_id",
-				Field:  "user_id",
-				Reason: ir.LossUnmappedField,
-				Detail: "Anthropic metadata.user_id has no IR equivalent in v1.",
-			})
-		}
 	}
 	return req, losses, nil
 }

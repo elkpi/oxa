@@ -32,6 +32,14 @@ func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
 		return nil, nil, fmt.Errorf("anthropic: tool requests are not supported in this milestone")
 	}
 
+	if len(req.Metadata) > 0 {
+		losses = append(losses, ir.Loss{
+			Path:   "metadata",
+			Field:  "metadata",
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
+		})
+	}
 	out := &Request{Model: defaultOptions.models.Map(req.Model)}
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))

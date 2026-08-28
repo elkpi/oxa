@@ -18,6 +18,14 @@ func EncodeRequest(req *ir.Request) (*Request, []ir.Loss, error) {
 	if len(req.Tools) > 0 || req.ToolChoice != nil {
 		return nil, nil, fmt.Errorf("chatcompletions: tool requests are not supported in this milestone")
 	}
+	if len(req.Metadata) > 0 {
+		losses = append(losses, ir.Loss{
+			Path:   "metadata",
+			Field:  "metadata",
+			Reason: ir.LossUnmappedField,
+			Detail: "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
+		})
+	}
 	out := &Request{Model: defaultOptions.models.Map(req.Model)}
 	if len(req.System) > 0 {
 		text := ""

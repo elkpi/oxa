@@ -36,6 +36,14 @@ func DecodeRequest(wire *Request) (*ir.Request, []ir.Loss, error) {
 		})
 	}
 
+	if wire.Metadata != nil {
+		losses = append(losses, ir.Loss{
+			Path:   "metadata",
+			Field:  "metadata",
+			Reason: ir.LossUnmappedField,
+			Detail: "Chat Completions request metadata has no IR equivalent in v1.",
+		})
+	}
 	req := &ir.Request{Model: defaultOptions.models.Map(wire.Model)}
 	for i, m := range wire.Messages {
 		content, err := decodeContent(m.Content, fmt.Sprintf("messages[%d].content", i))

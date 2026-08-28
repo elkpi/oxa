@@ -447,3 +447,75 @@ func TestWithModelMap(t *testing.T) {
 		t.Fatalf("decode response model not mapped: %q err=%v", respIn.Model, err)
 	}
 }
+
+func TestEncodeRequestShorthandConditions(t *testing.T) {
+	single := func(content []ir.Block, system []ir.SystemBlock) *ir.Request {
+		return &ir.Request{
+			Model:    "gpt-4o-mini",
+			System:   system,
+			Messages: []ir.Message{{Role: ir.RoleUser, Content: content}},
+		}
+	}
+	// One text block, no system: the string shorthand.
+	out, _, err := EncodeRequest(single([]ir.Block{ir.TextBlock{Text: "Hi"}}, nil))
+	if err != nil || out.Input.Text == nil || *out.Input.Text != "Hi" {
+		t.Fatalf("shorthand must render: err=%v input=%+v", err, out.Input)
+	}
+	// Instructions present: the array form even for a single text block.
+	out, _, err = EncodeRequest(single([]ir.Block{ir.TextBlock{Text: "Hi"}},
+		[]ir.SystemBlock{{Text: "You are terse."}}))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.Input.Text != nil || len(out.Input.Items) != 1 || out.Input.Items[0].Role != "user" {
+		t.Fatalf("instructions must force the array form: %+v", out.Input)
+	}
+	if out.Instructions == nil || *out.Instructions != "You are terse." {
+		t.Fatalf("instructions not rendered: %+v", out.Instructions)
+	}
+	// One user message, two text blocks: the array form with a parts array.
+	out, _, err = EncodeRequest(single([]ir.Block{
+		ir.TextBlock{Text: "Hello, "}, ir.TextBlock{Text: "world."},
+	}, nil))
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.Input.Text != nil || len(out.Input.Items) != 1 {
+		t.Fatalf("two text blocks must force the array form: %+v", out.Input)
+	}
+	parts, ok := out.Input.Items[0].Content.([]ContentPart)
+	if !ok || len(parts) != 2 || parts[0].Type != "input_text" || parts[1].Text != "world." {
+		t.Fatalf("two text blocks must render as parts: %+v", out.Input.Items[0].Content)
+	}
+}
+
+func TestDecodeAssistantRunOrdersTextBeforeToolUse(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{
+		"model":"gpt-4o-mini",
+		"input":[
+			{"role":"user","content":"Weather?"},
+			{"type":"function_call","call_id":"call_1","name":"weather","arguments":"{\"city\":\"Paris\"}"},
+			{"role":"assistant","content":"Checking."}
+		]
+	}`), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	req, losses, err := DecodeRequest(&wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: err=%v losses=%+v", err, losses)
+	}
+	if len(req.Messages) != 2 || req.Messages[1].Role != ir.RoleAssistant {
+		t.Fatalf("messages: %+v", req.Messages)
+	}
+	content := req.Messages[1].Content
+	if len(content) != 2 {
+		t.Fatalf("run did not merge: %+v", content)
+	}
+	if _, ok := content[0].(ir.TextBlock); !ok {
+		t.Fatalf("text must come first: %+v", content)
+	}
+	if _, ok := content[1].(ir.ToolUseBlock); !ok {
+		t.Fatalf("tool use must come second: %+v", content)
+	}
+}

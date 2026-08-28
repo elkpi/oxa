@@ -159,10 +159,12 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 }
 
 // decodeAssistantRun converts a maximal run of assistant message items and
-// function_call items into one IR assistant message (N-R-5): text blocks
-// first (in document order), then ToolUseBlocks.
+// function_call items into one IR assistant message (N-R-5): the text blocks
+// first (in document order), then the ToolUseBlocks, regardless of how the
+// wire interleaved message items and function_call items.
 func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Loss, error) {
-	var blocks []ir.Block
+	var texts []ir.Block
+	var calls []ir.Block
 	var losses []ir.Loss
 	i := start
 	for ; i < len(items); i++ {
@@ -172,7 +174,7 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 			if err != nil {
 				return nil, 0, nil, fmt.Errorf("responses: input[%d].arguments: %w", i, err)
 			}
-			blocks = append(blocks, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
 			continue
 		}
 		if item.Type != "" && item.Type != "message" {
@@ -186,8 +188,11 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 			return nil, 0, nil, err
 		}
 		losses = append(losses, contentLosses...)
-		blocks = append(blocks, content...)
+		texts = append(texts, content...)
 	}
+	blocks := make([]ir.Block, 0, len(texts)+len(calls))
+	blocks = append(blocks, texts...)
+	blocks = append(blocks, calls...)
 	if len(blocks) == 0 {
 		return nil, i, losses, nil
 	}

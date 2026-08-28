@@ -9,8 +9,8 @@ import (
 
 // EncodeRequest converts an IR request to a Responses wire request (IR ->
 // face). System content renders as the instructions string; a conversation
-// of exactly one user text message renders as the input string shorthand
-// (N-R-2).
+// of exactly one user text message and no system content renders as the
+// input string shorthand (N-R-2).
 func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("responses: nil request")
@@ -68,9 +68,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 	}
 
-	// N-R-2: the input string shorthand renders exactly the case of one user
-	// message whose content is one text block.
-	if len(items) == 1 && items[0].Role == "user" {
+	// N-R-2: the input string shorthand renders exactly the case of no system
+	// content and one user message whose content is exactly one text block.
+	if len(req.System) == 0 && len(items) == 1 && items[0].Role == "user" {
 		if text, ok := items[0].Content.(string); ok {
 			out.Input = Input{Text: &text}
 		}
@@ -148,34 +148,39 @@ func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]i
 	return losses, nil
 }
 
-// encodeUserContent renders ordinary user content as a string when text-only
-// and as a parts array when it contains images (N-R-3, N-R-4).
+// encodeUserContent renders ordinary user content as a string when it is
+// exactly one text block and as a parts array otherwise (N-R-3, N-R-4).
 func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	parts := make([]ContentPart, 0, len(blocks))
 	text := ""
-	hasImage := false
+	textBlocks := 0
+	otherBlocks := 0
 	var losses []ir.Loss
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
 			parts = append(parts, ContentPart{Type: "input_text", Text: value.Text})
 			text += value.Text
+			textBlocks++
 		case ir.ImageBlock:
 			part, imageLoss := encodeImagePart(value, fmt.Sprintf("%s[%d]", path, i))
 			if imageLoss != nil {
 				losses = append(losses, *imageLoss)
 				continue
 			}
-			hasImage = true
+			otherBlocks++
 			parts = append(parts, part)
 		default:
+			otherBlocks++
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Responses user message item", block),
 			))
 		}
 	}
-	if !hasImage {
+	// String content is reserved for the single-text-block case; any other
+	// content (multiple text blocks, images) renders as a parts array.
+	if textBlocks <= 1 && otherBlocks == 0 {
 		return text, losses
 	}
 	return parts, losses

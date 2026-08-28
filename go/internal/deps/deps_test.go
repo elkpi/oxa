@@ -21,6 +21,7 @@ const modulePath = "github.com/oxa-protocol/oxa/go"
 // Responses spoke joins when it lands (spec/00).
 var spokePackages = []string{
 	"./openai/chatcompletions",
+	"./openai/responses",
 	"./anthropic/messages",
 }
 

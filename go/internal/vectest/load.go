@@ -16,6 +16,9 @@ import (
 // vectors"). It returns "" when none is found before the filesystem root
 // (the module is being consumed as a dependency outside the monorepo).
 func FindRepoRoot(dir string) string {
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "vectors")); err == nil {
 			if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {

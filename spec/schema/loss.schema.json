@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/loss.schema.json",
+  "title": "oxa loss record",
+  "description": "A single loss record as defined by spec/02-loss-policy.md. Vectors and implementations carry lists of these; each record validates against this schema individually.",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Root-relative dot/bracket path into the source payload, e.g. messages[2].content[0].cache_control; empty string denotes the payload root."
+    },
+    "field": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Leaf field name (or value identifier) at path."
+    },
+    "reason": {
+      "enum": [
+        "unmapped-field",
+        "unmapped-value",
+        "unsupported-semantic",
+        "degraded"
+      ],
+      "description": "Every loss carries a reason code (spec/02 s3). degraded is reserved for best-effort carry with known distortion, never for drops."
+    },
+    "detail": {
+      "type": "string",
+      "description": "Human-readable context; should name what was dropped or distorted."
+    }
+  },
+  "required": ["path", "field", "reason"],
+  "additionalProperties": false
+}

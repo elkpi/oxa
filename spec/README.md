@@ -18,8 +18,8 @@ Read the documents in this order:
 2. [01 — Intermediate Representation](01-intermediate-representation.md)
 3. [02 — Loss Policy](02-loss-policy.md)
 4. [03 — Model Handling](03-model-handling.md)
-5. 10–12 — per-face mapping documents (one per face; planned)
-6. 20 — streaming semantics (planned)
+5. 10–12 — per-face mapping documents (one per face)
+6. [20 — streaming semantics](20-streaming-semantics.md)
 7. 90 — glossary (planned)
 
 | Document | Scope | Status |
@@ -31,11 +31,11 @@ Read the documents in this order:
 | [10](10-mapping-openai-chat-completions.md) | Chat Completions face mapping | ready |
 | [11](11-mapping-openai-responses.md) | Responses face mapping | ready |
 | [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
-| 20 | streaming semantics | planned |
+| [20](20-streaming-semantics.md) | streaming semantics | ready |
 | 90 | glossary | planned |
 
-Planned documents are intentionally not created yet; each arrives with its
-milestone. Until then, the documents above are complete for their scope.
+Documents marked planned are intentionally not created yet; each arrives with
+its milestone. Documents marked ready are complete for their stated scope.
 
 ## Source-of-truth precedence
 

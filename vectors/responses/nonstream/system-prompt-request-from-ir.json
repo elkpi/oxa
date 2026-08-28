@@ -1,6 +1,6 @@
 {
   "name": "responses.nonstream.system-prompt-request-from-ir",
-  "description": "An IR system block list renders as the Responses instructions string.",
+  "description": "An IR system block list renders as the Responses instructions string; instructions force the easy-input array form even for a single user text message (N-R-2).",
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "from-ir",
@@ -17,8 +17,10 @@
   "expected_output": {
     "model": "gpt-4o-mini",
     "instructions": "You are a terse assistant.",
-    "input": "Hi"
+    "input": [
+      { "role": "user", "content": "Hi" }
+    ]
   },
   "expected_losses": [],
-  "tags": ["system", "request"]
+  "tags": ["system", "request", "N-R-1", "N-R-2"]
 }

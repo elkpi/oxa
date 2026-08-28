@@ -893,9 +893,11 @@
       "file": "responses/nonstream/system-prompt-request-from-ir.json",
       "tags": [
         "system",
-        "request"
+        "request",
+        "N-R-1",
+        "N-R-2"
       ],
-      "sha256": "ca62f621086a100e23b2377fec83d628fc4a1932107ef3b97bedee3248dfc5f1"
+      "sha256": "5c426499a4f7bb555eed82a30adcb68984888b42abb670b5a61fc8a4354bb812"
     },
     {
       "name": "responses.nonstream.system-prompt-request-to-ir",

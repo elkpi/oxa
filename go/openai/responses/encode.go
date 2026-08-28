@@ -187,6 +187,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 // verbatim (N-R-5, INV-1).
 func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) ([]ir.Loss, error) {
 	var losses []ir.Loss
+	var calls []InputItem
 	text := ""
 	hasText := false
 	for i, block := range blocks {
@@ -199,7 +200,7 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			if err != nil {
 				return nil, fmt.Errorf("responses: %s[%d].input: %w", path, i, err)
 			}
-			*items = append(*items, InputItem{
+			calls = append(calls, InputItem{
 				Type: "function_call", CallID: value.ID, Name: value.Name, Arguments: arguments,
 			})
 		case ir.ImageBlock, ir.ToolResultBlock:
@@ -214,9 +215,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			))
 		}
 	}
+	// The message item precedes its function_call items, mirroring the decode
+	// order of text blocks before tool-use blocks (N-R-5).
 	if hasText || len(blocks) == 0 {
 		*items = append(*items, InputItem{Role: "assistant", Content: text})
 	}
+	*items = append(*items, calls...)
 	return losses, nil
 }
 

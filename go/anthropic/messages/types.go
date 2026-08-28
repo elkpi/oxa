@@ -105,6 +105,111 @@ type UsageWire struct {
 	OutputTokens int64 `json:"output_tokens"`
 }
 
+// StreamEvent is one Anthropic Messages streaming SSE event (spec/01 s5).
+// Type is the discriminating head; the per-type payloads reuse the wire types
+// where the shapes coincide: message_start carries its near-identical message
+// envelope as a *Response (MarshalJSON renders its wire null stop_reason),
+// content_block_start carries the opening block, content_block_delta carries
+// a *StreamDelta, and message_delta carries a *StreamDelta (stop_reason /
+// stop_sequence form) plus the cumulative usage. Nil payloads mean "not part
+// of this event type".
+type StreamEvent struct {
+	Type         string       `json:"type"`
+	Message      *Response    `json:"message,omitempty"`
+	Index        int          `json:"index,omitempty"`
+	ContentBlock *BlockWire   `json:"content_block,omitempty"`
+	Delta        *StreamDelta `json:"delta,omitempty"`
+	Usage        *UsageWire   `json:"usage,omitempty"`
+}
+
+// StreamDelta is the delta payload of content_block_delta and message_delta.
+// TextDelta is the text form {type:"text_delta", text}; PartialJSON is
+// declared for input_json_delta detection only (streaming tool calls arrive
+// in M7); the stop_reason/stop_sequence form populates the last two fields.
+type StreamDelta struct {
+	Type         string `json:"type"` // text_delta | input_json_delta | (empty on message_delta)
+	Text         string `json:"text,omitempty"`
+	PartialJSON  string `json:"partial_json,omitempty"`
+	StopReason   string `json:"stop_reason,omitempty"`
+	StopSequence string `json:"stop_sequence,omitempty"`
+}
+
+// MarshalJSON renders type-specific stream envelopes. In particular, index 0
+// is significant for content block events and message_start carries the
+// Anthropic null stop_reason rather than the empty-string convention of the
+// completed-response Response type.
+func (e StreamEvent) MarshalJSON() ([]byte, error) {
+	switch e.Type {
+	case "message_start":
+		if e.Message == nil {
+			return nil, fmt.Errorf("anthropic: message_start without message")
+		}
+		type messageStartWire struct {
+			ID         string      `json:"id"`
+			Type       string      `json:"type"`
+			Role       string      `json:"role"`
+			Model      string      `json:"model"`
+			Content    []BlockWire `json:"content"`
+			StopReason any         `json:"stop_reason"`
+			Usage      *UsageWire  `json:"usage"`
+		}
+		return json.Marshal(struct {
+			Type    string           `json:"type"`
+			Message messageStartWire `json:"message"`
+		}{
+			Type: e.Type,
+			Message: messageStartWire{
+				ID:         e.Message.ID,
+				Type:       e.Message.Type,
+				Role:       e.Message.Role,
+				Model:      e.Message.Model,
+				Content:    e.Message.Content,
+				StopReason: nil,
+				Usage:      e.Message.Usage,
+			},
+		})
+	case "content_block_start":
+		if e.ContentBlock == nil {
+			return nil, fmt.Errorf("anthropic: content_block_start without content_block")
+		}
+		return json.Marshal(struct {
+			Type         string     `json:"type"`
+			Index        int        `json:"index"`
+			ContentBlock *BlockWire `json:"content_block"`
+		}{Type: e.Type, Index: e.Index, ContentBlock: e.ContentBlock})
+	case "content_block_delta":
+		if e.Delta == nil {
+			return nil, fmt.Errorf("anthropic: content_block_delta without delta")
+		}
+		return json.Marshal(struct {
+			Type  string       `json:"type"`
+			Index int          `json:"index"`
+			Delta *StreamDelta `json:"delta"`
+		}{Type: e.Type, Index: e.Index, Delta: e.Delta})
+	case "content_block_stop":
+		return json.Marshal(struct {
+			Type  string `json:"type"`
+			Index int    `json:"index"`
+		}{Type: e.Type, Index: e.Index})
+	case "message_delta":
+		if e.Delta == nil {
+			return nil, fmt.Errorf("anthropic: message_delta without delta")
+		}
+		return json.Marshal(struct {
+			Type  string       `json:"type"`
+			Delta *StreamDelta `json:"delta"`
+			Usage *UsageWire   `json:"usage"`
+		}{Type: e.Type, Delta: e.Delta, Usage: e.Usage})
+	case "message_stop":
+		return json.Marshal(struct {
+			Type string `json:"type"`
+		}{Type: e.Type})
+	default:
+		type plainStreamEvent StreamEvent
+		return json.Marshal(plainStreamEvent(e))
+	}
+}
+
 // inputToIRString converts a wire tool_use.input raw JSON object into the IR
 // string form (spec/01 INV-1): the exact source bytes become the string
 // payload. The object bytes are never parsed or re-serialized as an object.

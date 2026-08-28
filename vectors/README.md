@@ -53,6 +53,38 @@ them verbatim:
    informational and not compared. Every expected loss must be reported and
    every reported loss must be expected.
 
+## Loss conventions
+
+Not every field absent from a conversion's output is a loss. Dropped fields
+fall into three buckets (this section will later migrate into the per-face
+loss catalogs in spec/10–12):
+
+1. **DERIVED fields — exempt.** Fields recomputable from carried data carry
+   no information loss and MUST NOT record a loss. Examples: Chat
+   Completions and Responses `usage.total_tokens` (= prompt + completion /
+   input + output, recomputed on encode).
+2. **ENVELOPE fields — exempt.** Per-face structural/transport fields with
+   no conversational semantics. Examples: Chat Completions `object`,
+   `created`, `choices[].index`, `message.role`, and response `id` when
+   regenerated on encode; Responses `object`, `status`, output-item `id`
+   and `status`, and empty `annotations`; Anthropic `type` and `role`.
+3. **Everything else — MUST record a loss.** Any non-exempt input field with
+   no IR destination is dropped with an `unmapped-field` loss record
+   (path, field, reason), exactly as `loss-logprobs-request-to-ir`,
+   `loss-cache-control-request-to-ir`, and `loss-verbosity-request-to-ir`
+   demonstrate.
+
+### From-ir rendering defaults
+
+from-ir vectors show the converter's **documented envelope rendering
+defaults**, not round-trip guarantees. When an IR document lacks a face
+envelope field, the converter synthesizes a fixed value and NO loss is
+recorded (the direction is IR → face; nothing is being dropped). Examples in
+the seed set: Chat Completions `object: "chat.completion"` and `created: 0`;
+Responses `status: "completed"`, `object: "response"`, regenerated output
+item ids (`msg_abc123`), and `annotations: []`; Anthropic
+`type: "message"` and `role: "assistant"`.
+
 ## Stream self-consistency assertions
 
 For `stream` vectors (arriving at M6), the harness additionally asserts

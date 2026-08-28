@@ -289,8 +289,14 @@ func TestDecodeResponseToolCallAndReasoningLoss(t *testing.T) {
 	if len(blocks) != 2 {
 		t.Fatalf("content: %+v", blocks)
 	}
-	if _, ok := blocks[0].(ir.ToolUseBlock); !ok {
-		t.Fatalf("function call must precede text: %+v", blocks)
+	// N-R-5: text blocks come first, then tool uses, regardless of the wire
+	// order of the output items (here the function_call item preceded the
+	// message item).
+	if _, ok := blocks[0].(ir.TextBlock); !ok {
+		t.Fatalf("text must come first: %+v", blocks)
+	}
+	if _, ok := blocks[1].(ir.ToolUseBlock); !ok {
+		t.Fatalf("tool use must come second: %+v", blocks)
 	}
 }
 

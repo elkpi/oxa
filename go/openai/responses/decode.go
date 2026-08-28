@@ -284,7 +284,8 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		return nil, nil, fmt.Errorf("responses: nil response")
 	}
 	var losses []ir.Loss
-	var blocks []ir.Block
+	var texts []ir.Block
+	var calls []ir.Block
 	hasToolUse := false
 	for i, item := range wire.Output {
 		switch item.Type {
@@ -303,14 +304,14 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 						"Responses output annotations have no IR equivalent in v1.",
 					))
 				}
-				blocks = append(blocks, ir.TextBlock{Text: part.Text})
+				texts = append(texts, ir.TextBlock{Text: part.Text})
 			}
 		case "function_call":
 			input, err := wrapToolArguments(item.Arguments)
 			if err != nil {
 				return nil, nil, fmt.Errorf("responses: output[%d].arguments: %w", i, err)
 			}
-			blocks = append(blocks, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
 			hasToolUse = true
 		default:
 			losses = append(losses, loss(
@@ -325,10 +326,15 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	losses = append(losses, stopLosses...)
 	o := newOptions(opts...)
+	// N-R-5: the IR content is ordered text blocks first, then tool uses,
+	// regardless of how the wire interleaved the output items.
+	content := make([]ir.Block, 0, len(texts)+len(calls))
+	content = append(content, texts...)
+	content = append(content, calls...)
 	resp := &ir.Response{
 		ID:         wire.ID,
 		Model:      o.models.Map(wire.Model),
-		Content:    blocks,
+		Content:    content,
 		StopReason: stop,
 	}
 	if wire.Usage != nil {

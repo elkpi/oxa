@@ -181,11 +181,13 @@ func TestEventStreamRoundTrip(t *testing.T) {
 // TestToolInputByteFidelity pins INV-1: the raw JSON text of tool_use.input
 // and input_json_delta.partial_json is an opaque string token; the codec must
 // carry the exact source bytes, never decoding and re-encoding them. The
-// samples use a A escape that Go's string encoder would never emit on
-// re-encode, so any re-serialization is caught.
+// samples use A-style escapes, which Go's JSON string encoder normalizes
+// back to the literal rune on re-encode; a codec that decoded and re-encoded
+// the text would therefore emit different bytes and fail these byte-equality
+// assertions.
 func TestToolInputByteFidelity(t *testing.T) {
-	const inputToken = `"{\"city\":\"ABC\"}"` // decodes to {"city":"ABC"}
-	const partialToken = `"{\"city\":\"Par"`  // syntactically incomplete fragment
+	const inputToken = `"{\"city\":\"\u0041BC\"}"` // decodes to {"city":"ABC"}
+	const partialToken = `"{\"city\":\"P\u0041r"`  // decodes to {"city":"PAr
 
 	reqDoc := `{"specVersion":"0.1.0","model":"m","messages":[{"role":"user","content":[` +
 		`{"type":"tool_use","id":"t1","name":"n","input":` + inputToken + `}]}]}`

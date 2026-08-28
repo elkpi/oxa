@@ -1,0 +1,97 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    if: hashFiles('go/go.mod') != ''
+    defaults:
+      run:
+        working-directory: go/
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Check gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+      - name: go vet
+        run: go vet ./...
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          working-directory: go/
+      - name: Check for GH_USER placeholder
+        run: |
+          if grep -rn --include="*.go" "GH_USER" . go.mod; then
+            echo "Found GH_USER placeholder: replace the placeholder module path before merging."
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    if: hashFiles('go/go.mod') != ''
+    strategy:
+      matrix:
+        go-version: ["1.23.x", "1.24.x"]
+    defaults:
+      run:
+        working-directory: go/
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      - name: Run tests
+        run: go test ./... -race -covermode=count
+
+  vectors:
+    runs-on: ubuntu-latest
+    if: hashFiles('go/cmd/veccheck/**') != ''
+    defaults:
+      run:
+        working-directory: go/
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Run vector checks
+        run: go run ./cmd/veccheck -root ..
+
+  manifest:
+    runs-on: ubuntu-latest
+    if: hashFiles('go/cmd/veccheck/**') != ''
+    defaults:
+      run:
+        working-directory: go/
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Verify vectors manifest
+        run: go run ./cmd/veccheck -root .. -check-manifest
+
+  release-guard:
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@v5
+      - name: Fail if module path is still a placeholder
+        run: |
+          if [ -f go/go.mod ] && grep -q "oxa-protocol" go/go.mod; then
+            echo "go/go.mod still uses the placeholder module path containing 'oxa-protocol'."
+            echo "Replace it with the real module path before tagging a release."
+            exit 1
+          fi

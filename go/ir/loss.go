@@ -23,8 +23,8 @@ const (
 // Path is root-relative: object keys joined by '.', array elements addressed
 // by zero-based index in brackets.
 type Loss struct {
-	Path   string
-	Field  string
-	Reason LossReason
-	Detail string
+	Path   string     `json:"path"`
+	Field  string     `json:"field"`
+	Reason LossReason `json:"reason"`
+	Detail string     `json:"detail,omitempty"`
 }

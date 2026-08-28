@@ -161,13 +161,20 @@ responsibility; consumers treat `data` as an opaque string.
 | `Model` | `model` | string | yes, non-empty | |
 | `Content` | `content` | `[]Block` | yes | MAY be empty (an event stream with zero blocks aggregates to this) |
 | `StopReason` | `stop_reason` | enum, see below | yes | |
-| `StopSequence` | `stop_sequence` | string | no | MUST be absent/empty unless `StopReason == "stop_sequence"`, in which case it carries the matched sequence |
+| `StopSequence` | `stop_sequence` | string, non-empty | conditional | MUST be absent unless `StopReason == "stop_sequence"`; then permitted but not required (see note below). Both rules are schema-enforced |
 | `Usage` | `usage` | `Usage` | yes | |
 
 `StopReason` enum: `end_turn` | `max_tokens` | `stop_sequence` | `tool_use`
 | `refusal` | `other`. This is the union over the three faces; `other` is
 the escape hatch for face-native stop reasons with no IR equivalent, and
 mapping a value to `other` MUST record a loss (document [02](02-loss-policy.md)).
+
+`stop_sequence` is permitted but not required when `stop_reason` is
+`stop_sequence`: Anthropic Messages names the matched sequence when it
+stops on one, but Chat Completions reports only `finish_reason: "stop"`
+without identifying which stop sequence matched, so a face → IR converter
+can know the stop reason without being able to name the sequence. The
+same conditional rule applies to `MessageDelta` (§5.1).
 
 In v1, responses contain `TextBlock` and `ToolUseBlock` content; the type
 system permits all four block variants, and unused combinations are
@@ -204,7 +211,7 @@ JSON `type` property:
 | `Block` | `block` | `Block` | for `ContentBlockStart`; `tool_result` never occurs in responses (see §4.1) |
 | `Delta` | `delta` | `Delta` | for `ContentBlockDelta` |
 | `StopReason` | `stop_reason` | `Response` stop-reason enum | required on `MessageDelta` |
-| `StopSequence` | `stop_sequence` | string | optional on `MessageDelta`; same rule as §4.1 |
+| `StopSequence` | `stop_sequence` | string, non-empty | conditional on `MessageDelta`; same rule as §4.1, schema-enforced |
 | `Usage` | `usage` | `Usage` | required on `MessageDelta`; carries the final totals |
 
 `MessageDelta` occurs exactly once, immediately before `MessageDone`

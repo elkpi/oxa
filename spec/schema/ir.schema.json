@@ -235,12 +235,23 @@
         "stop_reason": { "$ref": "#/$defs/stopReason" },
         "stop_sequence": {
           "type": "string",
-          "description": "Present only when stop_reason is stop_sequence."
+          "minLength": 1,
+          "description": "The matched stop sequence. MUST be absent unless stop_reason is stop_sequence; then permitted but not required (a converter may not know the matched sequence), and non-empty when present."
         },
         "usage": { "$ref": "#/$defs/usage" }
       },
       "required": ["specVersion", "id", "model", "content", "stop_reason", "usage"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "stop_reason": { "const": "stop_sequence" } },
+            "required": ["stop_reason"]
+          },
+          "then": true,
+          "else": { "not": { "required": ["stop_sequence"] } }
+        }
+      ]
     },
     "stopReason": {
       "enum": [
@@ -319,12 +330,23 @@
         "stop_reason": { "$ref": "#/$defs/stopReason" },
         "stop_sequence": {
           "type": "string",
-          "description": "Present only when stop_reason is stop_sequence."
+          "minLength": 1,
+          "description": "Same conditional rule as response.stop_sequence: MUST be absent unless stop_reason is stop_sequence; then permitted but not required, and non-empty when present."
         },
         "usage": { "$ref": "#/$defs/usage" }
       },
       "required": ["type", "stop_reason", "usage"],
-      "additionalProperties": false
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "stop_reason": { "const": "stop_sequence" } },
+            "required": ["stop_reason"]
+          },
+          "then": true,
+          "else": { "not": { "required": ["stop_sequence"] } }
+        }
+      ]
     },
     "messageDone": {
       "type": "object",

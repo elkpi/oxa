@@ -28,10 +28,6 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, fmt.Errorf("anthropic: nil request")
 	}
 	var losses []ir.Loss
-	if len(req.Tools) > 0 || req.ToolChoice != nil {
-		return nil, nil, fmt.Errorf("anthropic: tool requests are not supported in this milestone")
-	}
-
 	if len(req.Metadata) > 0 {
 		losses = append(losses, ir.Loss{
 			Path:   "metadata",
@@ -50,8 +46,28 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.System = blocks
 	}
 
+	for i, tool := range req.Tools {
+		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
+			return nil, nil, err
+		}
+		out.Tools = append(out.Tools, ToolWire{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+	choice, choiceLosses, err := encodeToolChoice(req.ToolChoice)
+	if err != nil {
+		return nil, nil, err
+	}
+	out.ToolChoice = choice
+	losses = append(losses, choiceLosses...)
+
 	shorthand := len(req.System) == 0 && len(req.Messages) == 1 &&
 		len(req.Messages[0].Content) == 1
+	if shorthand {
+		_, shorthand = req.Messages[0].Content[0].(ir.TextBlock)
+	}
 	for i, m := range req.Messages {
 		var role string
 		switch m.Role {
@@ -62,18 +78,13 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		default:
 			return nil, nil, fmt.Errorf("anthropic: messages[%d]: unknown role %q", i, m.Role)
 		}
-		blocks := make([]BlockWire, 0, len(m.Content))
-		text := ""
-		for _, b := range m.Content {
-			t, ok := b.(ir.TextBlock)
-			if !ok {
-				return nil, nil, fmt.Errorf("anthropic: messages[%d]: non-text blocks are not supported in this milestone", i)
-			}
-			text += t.Text
-			blocks = append(blocks, BlockWire{Type: "text", Text: t.Text})
+		blocks, blockLosses, err := encodeRequestBlocks(m.Content, fmt.Sprintf("messages[%d].content", i))
+		if err != nil {
+			return nil, nil, err
 		}
+		losses = append(losses, blockLosses...)
 		if shorthand {
-			out.Messages = append(out.Messages, Message{Role: role, Content: text})
+			out.Messages = append(out.Messages, Message{Role: role, Content: blocks[0].Text})
 		} else {
 			out.Messages = append(out.Messages, Message{Role: role, Content: blocks})
 		}
@@ -98,6 +109,139 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	return out, losses, nil
 }
 
+func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error) {
+	if choice == nil {
+		return nil, nil, nil
+	}
+	switch choice.Mode {
+	case "auto", "any", "none":
+		return &ToolChoiceWire{Type: choice.Mode}, nil, nil
+	case "tool":
+		if choice.Name == "" {
+			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for mode tool")
+		}
+		return &ToolChoiceWire{Type: "tool", Name: choice.Name}, nil, nil
+	default:
+		return nil, []ir.Loss{{
+			Path:   "tool_choice",
+			Field:  "mode",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: fmt.Sprintf("IR tool_choice mode %q has no Anthropic equivalent", choice.Mode),
+		}}, nil
+	}
+}
+
+func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss, error) {
+	out := make([]BlockWire, 0, len(blocks))
+	var losses []ir.Loss
+	for i, block := range blocks {
+		encoded, blockLosses, mapped, err := encodeRequestBlock(block, fmt.Sprintf("%s[%d]", path, i))
+		if err != nil {
+			return nil, nil, err
+		}
+		if mapped {
+			out = append(out, encoded)
+		}
+		losses = append(losses, blockLosses...)
+	}
+	return out, losses, nil
+}
+
+func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
+	switch b := block.(type) {
+	case ir.TextBlock:
+		return BlockWire{Type: "text", Text: b.Text}, nil, true, nil
+	case ir.ImageBlock:
+		return encodeImageBlock(b, path)
+	case ir.ToolUseBlock:
+		if b.ID == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
+		}
+		if b.Name == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.name is required", path)
+		}
+		input, err := inputFromIRString(b.Input)
+		if err != nil {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
+		}
+		if err := requireJSONObject(input, path+".input"); err != nil {
+			return BlockWire{}, nil, false, err
+		}
+		return BlockWire{Type: "tool_use", ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+	case ir.ToolResultBlock:
+		return encodeToolResultBlock(b, path)
+	default:
+		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
+	}
+}
+
+func encodeImageBlock(image ir.ImageBlock, path string) (BlockWire, []ir.Loss, bool, error) {
+	hasData := image.Data != ""
+	hasURL := image.URL != ""
+	if hasData == hasURL {
+		return BlockWire{}, []ir.Loss{invalidImageLoss(path, "image must contain exactly one of data or url")}, false, nil
+	}
+	if hasData {
+		if image.MediaType == "" {
+			return BlockWire{}, []ir.Loss{invalidImageLoss(path, "base64 image data requires media_type")}, false, nil
+		}
+		return BlockWire{Type: "image", Source: &SourceWire{
+			Type: "base64", MediaType: image.MediaType, Data: image.Data,
+		}}, nil, true, nil
+	}
+	if image.MediaType != "" {
+		return BlockWire{}, []ir.Loss{invalidImageLoss(path, "URL image must not carry media_type")}, false, nil
+	}
+	return BlockWire{Type: "image", Source: &SourceWire{Type: "url", URL: image.URL}}, nil, true, nil
+}
+
+func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, []ir.Loss, bool, error) {
+	if result.ToolUseID == "" {
+		return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
+	}
+	content := make([]BlockWire, 0, len(result.Content))
+	var losses []ir.Loss
+	for i, block := range result.Content {
+		contentPath := fmt.Sprintf("%s.content[%d]", path, i)
+		switch b := block.(type) {
+		case ir.TextBlock:
+			content = append(content, BlockWire{Type: "text", Text: b.Text})
+		case ir.ImageBlock:
+			image, imageLosses, mapped, err := encodeImageBlock(b, contentPath)
+			if err != nil {
+				return BlockWire{}, nil, false, err
+			}
+			if mapped {
+				content = append(content, image)
+			}
+			losses = append(losses, imageLosses...)
+		default:
+			losses = append(losses, unsupportedBlockLoss(contentPath, block))
+		}
+	}
+	return BlockWire{
+		Type: "tool_result", ToolUseID: result.ToolUseID, Content: content, IsError: result.IsError,
+	}, losses, true, nil
+}
+
+func invalidImageLoss(path, detail string) ir.Loss {
+	return ir.Loss{
+		Path:   path,
+		Field:  "image",
+		Reason: ir.LossUnsupportedSemantic,
+		Detail: detail,
+	}
+}
+
+func unsupportedBlockLoss(path string, block ir.Block) ir.Loss {
+	return ir.Loss{
+		Path:   path,
+		Field:  "type",
+		Reason: ir.LossUnsupportedSemantic,
+		Detail: fmt.Sprintf("IR block type %T has no Anthropic equivalent in this position", block),
+	}
+}
+
 // EncodeResponse converts an IR response to an Anthropic Messages wire
 // response (IR -> face). Near-identity; the envelope fields type ("message")
 // and role ("assistant") are rendered defaults and record no loss
@@ -105,9 +249,6 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, error) {
 	if resp == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil response")
-	}
-	if resp.StopReason == ir.StopToolUse {
-		return nil, nil, fmt.Errorf("anthropic: tool_use stop reason is not reachable in this milestone")
 	}
 	o := newOptions(opts...)
 	out := &Response{
@@ -120,12 +261,16 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			OutputTokens: resp.Usage.OutputTokens,
 		},
 	}
-	for i, b := range resp.Content {
-		t, ok := b.(ir.TextBlock)
-		if !ok {
-			return nil, nil, fmt.Errorf("anthropic: content[%d]: non-text blocks are not supported in this milestone", i)
+	var losses []ir.Loss
+	for i, block := range resp.Content {
+		encoded, blockLosses, mapped, err := encodeResponseBlock(block, fmt.Sprintf("content[%d]", i))
+		if err != nil {
+			return nil, nil, err
 		}
-		out.Content = append(out.Content, BlockWire{Type: "text", Text: t.Text})
+		if mapped {
+			out.Content = append(out.Content, encoded)
+		}
+		losses = append(losses, blockLosses...)
 	}
 	switch resp.StopReason {
 	case ir.StopEndTurn:
@@ -134,11 +279,41 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		out.StopReason = "max_tokens"
 	case ir.StopSequence:
 		out.StopReason = "stop_sequence"
-		out.StopSequence = resp.StopSequence
+		if resp.StopSequence != "" {
+			out.StopSequence = resp.StopSequence
+		}
+	case ir.StopToolUse:
+		out.StopReason = "tool_use"
 	case ir.StopRefusal:
 		out.StopReason = "refusal"
 	default:
 		return nil, nil, fmt.Errorf("anthropic: stop reason %q has no Anthropic equivalent", resp.StopReason)
 	}
-	return out, nil, nil
+	return out, losses, nil
+}
+
+func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
+	switch b := block.(type) {
+	case ir.TextBlock:
+		return BlockWire{Type: "text", Text: b.Text}, nil, true, nil
+	case ir.ImageBlock:
+		return encodeImageBlock(b, path)
+	case ir.ToolUseBlock:
+		if b.ID == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
+		}
+		if b.Name == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.name is required", path)
+		}
+		input, err := inputFromIRString(b.Input)
+		if err != nil {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
+		}
+		if err := requireJSONObject(input, path+".input"); err != nil {
+			return BlockWire{}, nil, false, err
+		}
+		return BlockWire{Type: "tool_use", ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+	default:
+		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
+	}
 }

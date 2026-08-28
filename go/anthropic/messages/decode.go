@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 
@@ -38,6 +39,22 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		Model:  o.models.Map(wire.Model),
 		Params: ir.Params{MaxTokens: &maxTokens},
 	}
+	for i, tool := range wire.Tools {
+		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
+			return nil, nil, err
+		}
+		req.Tools = append(req.Tools, ir.Tool{
+			Name:        tool.Name,
+			Description: tool.Description,
+			InputSchema: tool.InputSchema,
+		})
+	}
+	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.ToolChoice = choice
+	losses = append(losses, choiceLosses...)
 
 	system, sysLosses, err := decodeSystem(wire.System)
 	if err != nil {
@@ -129,24 +146,34 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 		for j, part := range v {
 			raw, err := json.Marshal(part)
 			if err != nil {
-				return nil, nil, err
+				return nil, nil, fmt.Errorf("anthropic: %s[%d]: %w", path, j, err)
 			}
 			var w BlockWire
 			if err := json.Unmarshal(raw, &w); err != nil {
 				return nil, nil, fmt.Errorf("anthropic: %s[%d]: %w", path, j, err)
 			}
-			if w.Type != "text" {
-				return nil, nil, fmt.Errorf("anthropic: %s[%d]: unsupported block type %q (later milestone)", path, j, w.Type)
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j))
+			if err != nil {
+				return nil, nil, err
 			}
-			blocks = append(blocks, ir.TextBlock{Text: w.Text})
-			if len(w.CacheControl) > 0 {
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("%s[%d].cache_control", path, j),
-					Field:  "cache_control",
-					Reason: ir.LossUnmappedField,
-					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-				})
+			if mapped {
+				blocks = append(blocks, block)
 			}
+			losses = append(losses, blockLosses...)
+		}
+		return blocks, losses, nil
+	case []BlockWire:
+		blocks := make([]ir.Block, 0, len(v))
+		var losses []ir.Loss
+		for j, w := range v {
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j))
+			if err != nil {
+				return nil, nil, err
+			}
+			if mapped {
+				blocks = append(blocks, block)
+			}
+			losses = append(losses, blockLosses...)
 		}
 		return blocks, losses, nil
 	default:
@@ -154,9 +181,141 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 	}
 }
 
+func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
+	var block ir.Block
+	var losses []ir.Loss
+	switch w.Type {
+	case "text":
+		block = ir.TextBlock{Text: w.Text}
+	case "image":
+		image, imageLoss, err := decodeImage(w.Source, path+".source")
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if imageLoss != nil {
+			return nil, []ir.Loss{*imageLoss}, false, nil
+		}
+		block = image
+	case "tool_use":
+		if w.ID == "" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
+		}
+		if w.Name == "" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.name is required", path)
+		}
+		if err := requireJSONObject(w.Input, path+".input"); err != nil {
+			return nil, nil, false, err
+		}
+		input, err := inputToIRString(w.Input)
+		if err != nil {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
+		}
+		block = ir.ToolUseBlock{ID: w.ID, Name: w.Name, Input: input}
+	case "tool_result":
+		if w.ToolUseID == "" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
+		}
+		content, contentLosses, err := decodeBlocks(w.Content, path+".content")
+		if err != nil {
+			return nil, nil, false, err
+		}
+		block = ir.ToolResultBlock{ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError}
+		losses = append(losses, contentLosses...)
+	default:
+		return nil, []ir.Loss{{
+			Path:   path,
+			Field:  "type",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: fmt.Sprintf("Anthropic block type %q has no IR equivalent", w.Type),
+		}}, false, nil
+	}
+	if len(w.CacheControl) > 0 {
+		losses = append(losses, ir.Loss{
+			Path:   path + ".cache_control",
+			Field:  "cache_control",
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
+		})
+	}
+	return block, losses, true, nil
+}
+
+func decodeImage(source *SourceWire, path string) (ir.ImageBlock, *ir.Loss, error) {
+	if source == nil {
+		return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s is required", path)
+	}
+	switch source.Type {
+	case "base64":
+		if source.MediaType == "" {
+			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.media_type is required", path)
+		}
+		if source.Data == "" {
+			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.data is required", path)
+		}
+		return ir.ImageBlock{MediaType: source.MediaType, Data: source.Data}, nil, nil
+	case "url":
+		if source.URL == "" {
+			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.url is required", path)
+		}
+		return ir.ImageBlock{URL: source.URL}, nil, nil
+	default:
+		return ir.ImageBlock{}, &ir.Loss{
+			Path:   path,
+			Field:  "type",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: fmt.Sprintf("Anthropic image source type %q has no IR equivalent", source.Type),
+		}, nil
+	}
+}
+
+func requireJSONObject(raw json.RawMessage, path string) error {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return fmt.Errorf("anthropic: %s is required", path)
+	}
+	if !json.Valid(trimmed) || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		return fmt.Errorf("anthropic: %s must be a JSON object", path)
+	}
+	return nil
+}
+
+func decodeToolChoice(choice *ToolChoiceWire) (*ir.ToolChoice, []ir.Loss, error) {
+	if choice == nil {
+		return nil, nil, nil
+	}
+	var decoded *ir.ToolChoice
+	var losses []ir.Loss
+	switch choice.Type {
+	case "auto", "any", "none":
+		decoded = &ir.ToolChoice{Mode: choice.Type}
+	case "tool":
+		if choice.Name == "" {
+			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for type tool")
+		}
+		decoded = &ir.ToolChoice{Mode: "tool", Name: choice.Name}
+	default:
+		losses = append(losses, ir.Loss{
+			Path:   "tool_choice",
+			Field:  "type",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: fmt.Sprintf("Anthropic tool_choice type %q has no IR equivalent", choice.Type),
+		})
+	}
+	if choice.DisableParallelToolUse {
+		losses = append(losses, ir.Loss{
+			Path:   "tool_choice.disable_parallel_tool_use",
+			Field:  "disable_parallel_tool_use",
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic disable_parallel_tool_use has no IR equivalent in v1.",
+		})
+	}
+	return decoded, losses, nil
+}
+
 // DecodeResponse converts an Anthropic Messages wire response to the IR
-// (face -> IR). Near-identity: text blocks map 1:1, stop_reason maps by
-// value (stop_sequence also carries the matched sequence), usage maps 1:1.
+// (face -> IR). Text, image, and tool_use blocks map near-identically;
+// stop_reason maps by value (stop_sequence also carries the matched sequence),
+// and usage maps 1:1.
 // The envelope fields type and role are exempt from losses
 // (vectors/README.md loss conventions).
 func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, error) {
@@ -170,10 +329,14 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		Model: o.models.Map(wire.Model),
 	}
 	for i, b := range wire.Content {
-		if b.Type != "text" {
-			return nil, nil, fmt.Errorf("anthropic: content[%d]: unsupported block type %q (later milestone)", i, b.Type)
+		block, blockLosses, mapped, err := decodeBlock(b, fmt.Sprintf("content[%d]", i))
+		if err != nil {
+			return nil, nil, err
 		}
-		resp.Content = append(resp.Content, ir.TextBlock{Text: b.Text})
+		if mapped {
+			resp.Content = append(resp.Content, block)
+		}
+		losses = append(losses, blockLosses...)
 	}
 	stop, loss, err := decodeStopReason(wire.StopReason, wire.StopSequence)
 	if err != nil {

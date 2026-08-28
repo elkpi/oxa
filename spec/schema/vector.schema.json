@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/vector.schema.json",
+  "title": "oxa golden vector",
+  "description": "Validates every file in vectors/ except manifest.json. A vector is one conversion case: an input document, an expected output document, and the losses the conversion MUST report. spec_version must equal the specVersion const pinned in ir.schema.json; veccheck cross-checks that at runtime.",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z0-9.-]+$",
+      "description": "Dotted vector name. MUST equal the file path relative to vectors/ with slashes replaced by dots and the .json suffix removed, e.g. anthropic/nonstream/multiturn-to-ir.json -> anthropic.nonstream.multiturn-to-ir."
+    },
+    "description": {
+      "type": "string",
+      "description": "What the vector exercises."
+    },
+    "spec_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+$",
+      "description": "Spec version the vector targets; MUST equal the specVersion const in ir.schema.json."
+    },
+    "mode": {
+      "enum": ["nonstream", "stream"],
+      "description": "stream vectors carry input_sse and arrive at M6."
+    },
+    "conversion": {
+      "enum": ["to-ir", "from-ir", "protocol-to-protocol"],
+      "description": "to-ir: protocol wire -> expected_ir. from-ir: IR -> expected_output (protocol wire). protocol-to-protocol: reserved for cross-face tests."
+    },
+    "source": {
+      "$ref": "#/$defs/endpoint"
+    },
+    "target": {
+      "$ref": "#/$defs/endpoint"
+    },
+    "input": {
+      "type": "object",
+      "description": "Input document. For to-ir a protocol wire object (or the non-object wrapper fields for faces that need them); for from-ir an IR object."
+    },
+    "input_sse": {
+      "type": "string",
+      "description": "Raw SSE bytes. RESERVED for M6 stream vectors; no seed vectors use it."
+    },
+    "expected_ir": {
+      "type": "object",
+      "description": "Expected IR document. Required when conversion is to-ir; MUST validate against spec/schema/ir.schema.json."
+    },
+    "expected_output": {
+      "type": "object",
+      "description": "Expected protocol wire document. Required when conversion is from-ir or protocol-to-protocol."
+    },
+    "expected_losses": {
+      "type": "array",
+      "items": { "$ref": "loss.schema.json" },
+      "description": "Losses the conversion MUST report; MAY be empty. Loss records validate against loss.schema.json."
+    },
+    "tags": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 },
+      "description": "Free-form labels, e.g. [\"text\", \"params\"]."
+    },
+    "provenance": {
+      "type": "object",
+      "properties": {
+        "doc_url": { "type": "string" },
+        "retrieved": { "type": "string" }
+      },
+      "required": ["doc_url"],
+      "additionalProperties": false,
+      "description": "Where the wire shape was verified against provider documentation."
+    }
+  },
+  "required": [
+    "name",
+    "description",
+    "spec_version",
+    "mode",
+    "conversion",
+    "source",
+    "input",
+    "expected_losses",
+    "tags"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": { "properties": { "conversion": { "const": "to-ir" } }, "required": ["conversion"] },
+      "then": { "required": ["expected_ir"], "not": { "required": ["expected_output"] } }
+    },
+    {
+      "if": {
+        "properties": { "conversion": { "enum": ["from-ir", "protocol-to-protocol"] } },
+        "required": ["conversion"]
+      },
+      "then": { "required": ["target", "expected_output"], "not": { "required": ["expected_ir"] } }
+    },
+    {
+      "if": { "properties": { "mode": { "const": "stream" } }, "required": ["mode"] },
+      "then": { "required": ["input_sse"] },
+      "else": { "not": { "required": ["input_sse"] } }
+    }
+  ],
+  "$defs": {
+    "endpoint": {
+      "type": "object",
+      "properties": {
+        "protocol": { "enum": ["chatcompletions", "responses", "anthropic"] }
+      },
+      "required": ["protocol"],
+      "additionalProperties": false
+    }
+  }
+}

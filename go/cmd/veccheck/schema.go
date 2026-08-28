@@ -108,16 +108,3 @@ func readSpecVersion(path string) (string, error) {
 	}
 	return version, nil
 }
-
-// validateJSON parses data and validates it against schema, returning errors
-// that name the schema for actionable messages.
-func validateJSON(schema *jsonschema.Schema, schemaName string, data []byte) error {
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return fmt.Errorf("invalid JSON: %w", err)
-	}
-	if err := schema.Validate(v); err != nil {
-		return fmt.Errorf("does not validate against %s: %v", schemaName, err)
-	}
-	return nil
-}

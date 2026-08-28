@@ -3,21 +3,27 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ["**"]
   pull_request:
 
 jobs:
   lint:
     runs-on: ubuntu-latest
-    if: hashFiles('go/go.mod') != ''
-    defaults:
-      run:
-        working-directory: go/
     steps:
       - uses: actions/checkout@v5
+      - name: Detect Go module
+        id: go_module
+        run: |
+          if [ ! -f go/go.mod ]; then
+            echo "go/go.mod not yet available — skipping"
+          fi
       - uses: actions/setup-go@v5
+        if: hashFiles('go/go.mod') != ''
         with:
           go-version: "1.24.x"
       - name: Check gofmt
+        if: hashFiles('go/go.mod') != ''
+        working-directory: go/
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -26,61 +32,78 @@ jobs:
             exit 1
           fi
       - name: go vet
+        if: hashFiles('go/go.mod') != ''
+        working-directory: go/
         run: go vet ./...
       - name: golangci-lint
+        if: hashFiles('go/go.mod') != ''
         uses: golangci/golangci-lint-action@v8
         with:
           working-directory: go/
       - name: Check for GH_USER placeholder
+        if: hashFiles('go/go.mod') != ''
+        working-directory: go/
         run: |
-          if grep -rn --include="*.go" "GH_USER" . go.mod; then
+          if grep -rn --include="*.go" "GH_USER" . || { test -f go.mod && grep -n "GH_USER" go.mod; }; then
             echo "Found GH_USER placeholder: replace the placeholder module path before merging."
             exit 1
           fi
 
   test:
     runs-on: ubuntu-latest
-    if: hashFiles('go/go.mod') != ''
     strategy:
       matrix:
         go-version: ["1.23.x", "1.24.x"]
-    defaults:
-      run:
-        working-directory: go/
     steps:
       - uses: actions/checkout@v5
+      - name: Detect Go module
+        run: |
+          if [ ! -f go/go.mod ]; then
+            echo "go/go.mod not yet available — skipping"
+          fi
       - uses: actions/setup-go@v5
+        if: hashFiles('go/go.mod') != ''
         with:
           go-version: ${{ matrix.go-version }}
       - name: Run tests
+        if: hashFiles('go/go.mod') != ''
+        working-directory: go/
         run: go test ./... -race -covermode=count
 
   vectors:
     runs-on: ubuntu-latest
-    if: hashFiles('go/cmd/veccheck/**') != ''
-    defaults:
-      run:
-        working-directory: go/
     steps:
       - uses: actions/checkout@v5
+      - name: Detect veccheck
+        run: |
+          if [ ! -d go/cmd/veccheck ]; then
+            echo "go/cmd/veccheck not yet available — skipping"
+          fi
       - uses: actions/setup-go@v5
+        if: hashFiles('go/cmd/veccheck/**') != ''
         with:
           go-version: "1.24.x"
       - name: Run vector checks
+        if: hashFiles('go/cmd/veccheck/**') != ''
+        working-directory: go/
         run: go run ./cmd/veccheck -root ..
 
   manifest:
     runs-on: ubuntu-latest
-    if: hashFiles('go/cmd/veccheck/**') != ''
-    defaults:
-      run:
-        working-directory: go/
     steps:
       - uses: actions/checkout@v5
+      - name: Detect veccheck
+        run: |
+          if [ ! -d go/cmd/veccheck ]; then
+            echo "go/cmd/veccheck not yet available — skipping"
+          fi
       - uses: actions/setup-go@v5
+        if: hashFiles('go/cmd/veccheck/**') != ''
         with:
           go-version: "1.24.x"
       - name: Verify vectors manifest
+        if: hashFiles('go/cmd/veccheck/**') != ''
+        working-directory: go/
         run: go run ./cmd/veccheck -root .. -check-manifest
 
   release-guard:

@@ -95,10 +95,15 @@ the object into the string payload and MUST NOT parse, validate
 beyond object-ness, or re-serialize the object; the encoder MUST
 unwrap the string token back to those exact bytes. Payload bytes MUST
 survive a round trip byte-identically (key order, whitespace,
-numeric spelling included). This guarantee is normative for every
-decode path, including any generic (untyped) content representation a
-caller supplies; an implementation whose incidental generic path
-re-marshals the object does not conform.
+numeric spelling included). This byte-fidelity guarantee is normative
+for documents obtained by JSON-decoding the wire payload into the
+implementation's typed content representations — the normal decode
+path. For callers that instead supply generic (untyped, in-memory)
+representations such as `map[string]any`, which carry no source
+bytes, the decoder MUST produce the implementation's canonical
+encoding of the supplied value (compact bytes; no key-order or
+spelling preservation is required), and this canonicalization is NOT
+a loss and MUST NOT be recorded as one.
 
 On encode, image blocks MUST carry exactly one of data or URL; data
 requires `media_type`, and a URL image MUST NOT carry `media_type`.
@@ -148,7 +153,9 @@ Each rule has a stable ID usable as a vector tag.
   or block-array content everywhere.
 - **N-AN-4 (raw tool input).** As specified in §4: byte-exact
   conversion between the wire JSON object and the IR raw JSON string
-  token; never parse, never reformat.
+  token on typed (JSON-decoded) paths; never parse, never reformat.
+  Generic in-memory inputs convert with the implementation's
+  canonicalized bytes; this is not a loss.
 - **N-AN-5 (block mapping).** Content blocks map per the table in §4,
   recursively for `tool_result.content`. Unknown block types and
   unknown image source types are dropped as unsupported-semantic

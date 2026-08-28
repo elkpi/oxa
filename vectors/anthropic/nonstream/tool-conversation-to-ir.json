@@ -14,8 +14,8 @@
         "role": "assistant",
         "content": [
           { "type": "text", "text": "Checking both cities." },
-          { "type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": { "city": "Paris" } },
-          { "type": "tool_use", "id": "toolu_2", "name": "get_weather", "input": { "city": "London" } }
+          { "type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city":"Paris"} },
+          { "type": "tool_use", "id": "toolu_2", "name": "get_weather", "input": {"city":"London"} }
         ]
       },
       {

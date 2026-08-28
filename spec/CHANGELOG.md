@@ -5,6 +5,14 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 0.1.1 - 2026-08-28
+
+### Changed
+
+- Clarified N-AN-4: raw tool-input byte fidelity is normative for
+  JSON-decoded (typed) paths; generic in-memory inputs convert with
+  canonicalized bytes. No schema or vector-format change.
+
 ## 0.1.0 - 2026-08-28
 
 Initial spec core (00–03, IR and loss schemas).

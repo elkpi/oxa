@@ -285,7 +285,7 @@
         "n-an-5",
         "inv-4"
       ],
-      "sha256": "cccea2939380cfd6b8b06d7c644a83d37cdc7247cf23bf4b3070f35d2ae00b9b"
+      "sha256": "23f636ab9def554bcde26c06a20ee466712661467d42742cb027e6a79d7d8468"
     },
     {
       "name": "anthropic.nonstream.tools-definition-from-ir",

@@ -1,0 +1,36 @@
+{
+  "name": "responses.nonstream.refusal-response-from-ir",
+  "description": "IR stop_reason refusal renders as status failed with error code refusal.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "resp_10",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "I cannot help with that." }],
+    "stop_reason": "refusal",
+    "usage": { "input_tokens": 5, "output_tokens": 6 }
+  },
+  "expected_output": {
+    "id": "resp_10",
+    "object": "response",
+    "status": "failed",
+    "error": { "code": "refusal", "message": "" },
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "status": "completed",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": "I cannot help with that.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 5, "output_tokens": 6, "total_tokens": 11 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "N-R-11"]
+}

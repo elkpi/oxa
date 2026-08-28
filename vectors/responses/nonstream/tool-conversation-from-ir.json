@@ -1,0 +1,40 @@
+{
+  "name": "responses.nonstream.tool-conversation-from-ir",
+  "description": "An IR tool conversation renders as Responses input items: assistant text as a message item, tool uses as function_call items, tool results as function_call_output items.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] },
+      { "role": "assistant", "content": [
+        { "type": "text", "text": "Checking." },
+        { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\":\"Paris\"}" },
+        { "type": "tool_use", "id": "call_2", "name": "weather", "input": "{\"city\":\"Lyon\"}" }
+      ] },
+      { "role": "user", "content": [
+        { "type": "tool_result", "tool_use_id": "call_1", "content": [{ "type": "text", "text": "Sunny" }] },
+        { "type": "tool_result", "tool_use_id": "call_2", "content": [{ "type": "text", "text": "Rainy" }] }
+      ] },
+      { "role": "assistant", "content": [{ "type": "text", "text": "Done." }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": [
+      { "role": "user", "content": "Weather?" },
+      { "role": "assistant", "content": "Checking." },
+      { "type": "function_call", "call_id": "call_1", "name": "weather", "arguments": "{\"city\":\"Paris\"}" },
+      { "type": "function_call", "call_id": "call_2", "name": "weather", "arguments": "{\"city\":\"Lyon\"}" },
+      { "type": "function_call_output", "call_id": "call_1", "output": "Sunny" },
+      { "type": "function_call_output", "call_id": "call_2", "output": "Rainy" },
+      { "role": "assistant", "content": "Done." }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "multiturn", "request", "N-R-5", "N-R-6"]
+}

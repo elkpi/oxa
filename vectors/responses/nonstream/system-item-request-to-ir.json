@@ -1,0 +1,31 @@
+{
+  "name": "responses.nonstream.system-item-request-to-ir",
+  "description": "Instructions become the first IR system block; system items in the input array follow in document order.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "instructions": "Instructions first.",
+    "input": [
+      { "role": "system", "content": "System item second." },
+      { "role": "system", "content": "System item third." },
+      { "role": "user", "content": "Hi" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "system": [
+      { "type": "text", "text": "Instructions first." },
+      { "type": "text", "text": "System item second." },
+      { "type": "text", "text": "System item third." }
+    ],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["system", "request", "N-R-1"]
+}

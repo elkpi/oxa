@@ -1,0 +1,31 @@
+{
+  "name": "responses.nonstream.unknown-item-loss-request-to-ir",
+  "description": "An unknown input item type is dropped with an unsupported-semantic loss while the conversation proceeds.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "input": [
+      { "type": "web_search_call", "id": "ws_1" },
+      { "role": "user", "content": "Hi" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "input[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "Responses input item type \"web_search_call\" has no IR equivalent"
+    }
+  ],
+  "tags": ["loss", "request", "N-R-8"]
+}

@@ -1,0 +1,44 @@
+{
+  "name": "responses.nonstream.tools-definition-to-ir",
+  "description": "Flat Responses function tool definitions map to IR tools; strict mode is dropped with an unmapped-field loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "tools": [
+      {
+        "type": "function",
+        "name": "weather",
+        "description": "Get weather",
+        "parameters": { "type": "object", "properties": { "city": { "type": "string" } } },
+        "strict": true
+      }
+    ],
+    "input": "Weather?"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "tools": [
+      {
+        "name": "weather",
+        "description": "Get weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tools[0].strict",
+      "field": "strict",
+      "reason": "unmapped-field",
+      "detail": "Responses function tool strict mode has no IR equivalent in v1."
+    }
+  ],
+  "tags": ["tools", "request", "loss", "N-R-8"]
+}

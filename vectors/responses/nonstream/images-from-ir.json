@@ -1,0 +1,35 @@
+{
+  "name": "responses.nonstream.images-from-ir",
+  "description": "A mixed IR user turn renders as a message item with input_text and input_image parts.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [
+        { "type": "text", "text": "Inspect these" },
+        { "type": "image", "media_type": "image/png", "data": "aGVsbG8=" },
+        { "type": "image", "url": "https://example.test/image.jpg" }
+      ] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "input_text", "text": "Inspect these" },
+          { "type": "input_image", "image_url": "data:image/png;base64,aGVsbG8=" },
+          { "type": "input_image", "image_url": "https://example.test/image.jpg" }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["images", "request", "N-R-3", "N-R-4"]
+}

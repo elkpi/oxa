@@ -1,0 +1,23 @@
+{
+  "name": "responses.nonstream.tool-choice-named-to-ir",
+  "description": "The flat named Responses tool_choice form maps to IR mode tool with the name.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "tool_choice": { "type": "function", "name": "weather" },
+    "input": "Hi"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "tool_choice": { "mode": "tool", "name": "weather" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "tool-choice", "N-R-9"]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "responses.nonstream.incomplete-max-tokens-response-to-ir",
+  "description": "status incomplete with incomplete_details.reason max_output_tokens maps to IR stop_reason max_tokens loss-free.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_6",
+    "object": "response",
+    "status": "incomplete",
+    "incomplete_details": { "reason": "max_output_tokens" },
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "incomplete",
+        "content": [{ "type": "output_text", "text": "Truncat", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 100, "total_tokens": 109 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_6",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "Truncat" }],
+    "stop_reason": "max_tokens",
+    "usage": { "input_tokens": 9, "output_tokens": 100 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "N-R-11"]
+}

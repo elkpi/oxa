@@ -1,0 +1,46 @@
+{
+  "name": "responses.nonstream.tool-response-from-ir",
+  "description": "An IR response with text and tool use renders as message and function_call output items with synthesized envelope defaults.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "resp_3",
+    "model": "gpt-4o-mini",
+    "content": [
+      { "type": "text", "text": "Checking." },
+      { "type": "tool_use", "id": "call_9", "name": "weather", "input": "{\"city\":\"Paris\"}" }
+    ],
+    "stop_reason": "tool_use",
+    "usage": { "input_tokens": 10, "output_tokens": 5 }
+  },
+  "expected_output": {
+    "id": "resp_3",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "status": "completed",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": "Checking.", "annotations": [] }]
+      },
+      {
+        "type": "function_call",
+        "id": "fc_abc123",
+        "status": "completed",
+        "call_id": "call_9",
+        "name": "weather",
+        "arguments": "{\"city\":\"Paris\"}"
+      }
+    ],
+    "usage": { "input_tokens": 10, "output_tokens": 5, "total_tokens": 15 }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "response", "N-R-5", "N-R-11", "N-R-12"]
+}

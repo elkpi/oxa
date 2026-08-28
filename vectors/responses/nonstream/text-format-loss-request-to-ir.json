@@ -1,0 +1,29 @@
+{
+  "name": "responses.nonstream.text-format-loss-request-to-ir",
+  "description": "The Responses text.format parameter has no IR equivalent and is dropped with an unmapped-field loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "text": { "format": { "type": "json_object" } },
+    "input": "Hi"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "text.format",
+      "field": "format",
+      "reason": "unmapped-field",
+      "detail": "Responses text output format has no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "request", "N-R-8"]
+}

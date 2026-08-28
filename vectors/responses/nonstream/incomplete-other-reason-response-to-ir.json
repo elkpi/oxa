@@ -1,0 +1,42 @@
+{
+  "name": "responses.nonstream.incomplete-other-reason-response-to-ir",
+  "description": "status incomplete with a reason other than max_output_tokens maps to IR stop_reason other with an unmapped-value loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_8",
+    "object": "response",
+    "status": "incomplete",
+    "incomplete_details": { "reason": "content_filter" },
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "incomplete",
+        "content": [{ "type": "output_text", "text": "Partial", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 2, "total_tokens": 11 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_8",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "Partial" }],
+    "stop_reason": "other",
+    "usage": { "input_tokens": 9, "output_tokens": 2 }
+  },
+  "expected_losses": [
+    {
+      "path": "incomplete_details.reason",
+      "field": "reason",
+      "reason": "unmapped-value",
+      "detail": "Responses incomplete_details reason \"content_filter\" has no IR equivalent"
+    }
+  ],
+  "tags": ["response", "loss", "N-R-11"]
+}

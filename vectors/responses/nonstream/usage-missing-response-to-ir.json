@@ -1,0 +1,33 @@
+{
+  "name": "responses.nonstream.usage-missing-response-to-ir",
+  "description": "A response without usage maps to zero IR token counts with no loss (envelope exemption).",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_11",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Hi.", "annotations": [] }]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_11",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "Hi." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 0, "output_tokens": 0 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage", "N-R-12"]
+}

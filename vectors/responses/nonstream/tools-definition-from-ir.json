@@ -1,0 +1,37 @@
+{
+  "name": "responses.nonstream.tools-definition-from-ir",
+  "description": "IR tools render as flat Responses function tool definitions.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "tools": [
+      {
+        "name": "weather",
+        "description": "Get weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "tools": [
+      {
+        "type": "function",
+        "name": "weather",
+        "description": "Get weather",
+        "parameters": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "input": "Weather?"
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "N-R-8"]
+}

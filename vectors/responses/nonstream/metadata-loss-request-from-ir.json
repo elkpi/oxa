@@ -1,0 +1,30 @@
+{
+  "name": "responses.nonstream.metadata-loss-request-from-ir",
+  "description": "The IR metadata map has no Responses request field; it is dropped with a single unmapped-field loss on encode.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "metadata": { "k": "v" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": "Hi"
+  },
+  "expected_losses": [
+    {
+      "path": "metadata",
+      "field": "metadata",
+      "reason": "unmapped-field",
+      "detail": "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped."
+    }
+  ],
+  "tags": ["loss", "request", "metadata", "N-R-8"]
+}

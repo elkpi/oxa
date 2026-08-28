@@ -1,0 +1,29 @@
+{
+  "name": "responses.nonstream.metadata-loss-request-to-ir",
+  "description": "Responses request metadata has no IR equivalent and is dropped with a single unmapped-field loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "metadata": { "user_id": "u1" },
+    "input": "Hi"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "metadata",
+      "field": "metadata",
+      "reason": "unmapped-field",
+      "detail": "Responses request metadata has no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "request", "metadata", "N-R-8"]
+}

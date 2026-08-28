@@ -1,0 +1,49 @@
+{
+  "name": "responses.nonstream.annotations-loss-response-to-ir",
+  "description": "Non-empty output annotations have no IR equivalent and record an unmapped-field loss; empty annotations are exempt.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_5",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "See docs.",
+            "annotations": [
+              { "type": "url_citation", "url": "https://example.test", "title": "Docs" }
+            ]
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_5",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "See docs." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].content[0].annotations",
+      "field": "annotations",
+      "reason": "unmapped-field",
+      "detail": "Responses output annotations have no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "response", "N-R-12"]
+}

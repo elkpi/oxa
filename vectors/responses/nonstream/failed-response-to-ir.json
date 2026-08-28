@@ -1,0 +1,34 @@
+{
+  "name": "responses.nonstream.failed-response-to-ir",
+  "description": "A failed response with an error object maps to IR stop_reason other with an unsupported-semantic loss naming the error.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_9",
+    "object": "response",
+    "status": "failed",
+    "error": { "code": "rate_limit_exceeded", "message": "Requests too fast" },
+    "model": "gpt-4o-mini",
+    "output": [],
+    "usage": { "input_tokens": 1, "output_tokens": 0, "total_tokens": 1 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_9",
+    "model": "gpt-4o-mini",
+    "content": [],
+    "stop_reason": "other",
+    "usage": { "input_tokens": 1, "output_tokens": 0 }
+  },
+  "expected_losses": [
+    {
+      "path": "error",
+      "field": "error",
+      "reason": "unsupported-semantic",
+      "detail": "failed Responses response carries error \"rate_limit_exceeded\": Requests too fast"
+    }
+  ],
+  "tags": ["response", "loss", "N-R-11"]
+}

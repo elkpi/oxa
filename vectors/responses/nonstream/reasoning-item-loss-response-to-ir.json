@@ -1,0 +1,42 @@
+{
+  "name": "responses.nonstream.reasoning-item-loss-response-to-ir",
+  "description": "A reasoning output item has no IR equivalent and is dropped with one unsupported-semantic loss per item.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_4",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      { "type": "reasoning", "id": "rs_1", "summary": [] },
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Hello there.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_4",
+    "model": "gpt-4o-mini",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "Responses output item type \"reasoning\" has no IR equivalent"
+    }
+  ],
+  "tags": ["loss", "response", "N-R-8"]
+}

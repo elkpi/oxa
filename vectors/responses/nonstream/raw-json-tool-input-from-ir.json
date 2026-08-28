@@ -1,0 +1,28 @@
+{
+  "name": "responses.nonstream.raw-json-tool-input-from-ir",
+  "description": "The IR raw JSON string token unwraps to the function_call arguments string verbatim, preserving escape style.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] },
+      { "role": "assistant", "content": [
+        { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\":\"\\u0041BC\"}" }
+      ] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": [
+      { "role": "user", "content": "Weather?" },
+      { "type": "function_call", "call_id": "call_1", "name": "weather", "arguments": "{\"city\":\"\\u0041BC\"}" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "fidelity", "N-R-5"]
+}

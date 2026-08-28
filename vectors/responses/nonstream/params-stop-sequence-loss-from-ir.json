@@ -1,0 +1,30 @@
+{
+  "name": "responses.nonstream.params-stop-sequence-loss-from-ir",
+  "description": "Responses has no stop-sequences parameter; IR stop sequences are dropped with exactly one unmapped-field loss on encode.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "params": { "stop_sequences": ["END"] },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": "Hi"
+  },
+  "expected_losses": [
+    {
+      "path": "params.stop_sequences",
+      "field": "stop_sequences",
+      "reason": "unmapped-field",
+      "detail": "Responses requests have no stop-sequences parameter; the IR stop sequences are dropped."
+    }
+  ],
+  "tags": ["params", "loss", "N-R-7"]
+}

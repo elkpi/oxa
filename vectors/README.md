@@ -81,9 +81,13 @@ defaults**, not round-trip guarantees. When an IR document lacks a face
 envelope field, the converter synthesizes a fixed value and NO loss is
 recorded (the direction is IR → face; nothing is being dropped). Examples in
 the seed set: Chat Completions `object: "chat.completion"` and `created: 0`;
-Responses `status: "completed"`, `object: "response"`, regenerated output
-item ids (`msg_abc123`), and `annotations: []`; Anthropic
-`type: "message"` and `role: "assistant"`.
+Responses `status: "completed"`, `object: "response"`, synthesized output
+item ids (`msg_abc123` for message items, `fc_abc123` for function_call
+items), output-item `status: "completed"` and `role: "assistant"`,
+`annotations: []` on every output_text part, `usage.total_tokens` recomputed
+as input + output, and the request-side input string shorthand for a
+single-text user turn (spec/11 N-R-2); Anthropic `type: "message"` and
+`role: "assistant"`.
 
 ## Stream self-consistency assertions
 

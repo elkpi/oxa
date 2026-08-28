@@ -1,0 +1,24 @@
+{
+  "name": "responses.nonstream.tool-choice-auto-from-ir",
+  "description": "IR tool_choice mode auto renders as Responses tool_choice auto.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "tool_choice": { "mode": "auto" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "tool_choice": "auto",
+    "input": "Hi"
+  },
+  "expected_losses": [],
+  "tags": ["tools", "tool-choice", "N-R-9"]
+}

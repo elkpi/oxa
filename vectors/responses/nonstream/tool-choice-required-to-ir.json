@@ -1,0 +1,23 @@
+{
+  "name": "responses.nonstream.tool-choice-required-to-ir",
+  "description": "Responses tool_choice required maps to IR mode any; the two are equivalent, so no loss is recorded.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "tool_choice": "required",
+    "input": "Hi"
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "tool_choice": { "mode": "any" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "tool-choice", "N-R-9"]
+}

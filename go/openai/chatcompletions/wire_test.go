@@ -352,6 +352,83 @@ func TestEncodeRequestToolResultsAndImage(t *testing.T) {
 	}
 }
 
+func TestEncodeRequestToolResultOrderingLoss(t *testing.T) {
+	// N-CC-9: tool messages are hoisted ahead of the trailing user content.
+	// A user turn mixing ordinary content with tool results records exactly
+	// one degraded loss when the hoisting does not preserve the source order;
+	// a turn carrying only tool results (the normal post-tool-call case)
+	// records none.
+	cases := []struct {
+		name       string
+		content    []ir.Block
+		wantTurn   []Message
+		wantLosses int
+	}{
+		{
+			name: "mixed turn records one degraded loss",
+			content: []ir.Block{
+				ir.TextBlock{Text: "Answer:"},
+				ir.ToolResultBlock{ToolUseID: "call_1", Content: []ir.Block{ir.TextBlock{Text: "Sunny"}}},
+			},
+			wantTurn: []Message{
+				{Role: "tool", Content: "Sunny", ToolCallID: "call_1"},
+				{Role: "user", Content: "Answer:"},
+			},
+			wantLosses: 1,
+		},
+		{
+			name: "pure tool-result turn records no loss",
+			content: []ir.Block{
+				ir.ToolResultBlock{ToolUseID: "call_1", Content: []ir.Block{ir.TextBlock{Text: "Sunny"}}},
+			},
+			wantTurn: []Message{
+				{Role: "tool", Content: "Sunny", ToolCallID: "call_1"},
+			},
+			wantLosses: 0,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := &ir.Request{
+				Model: "gpt-4o-mini",
+				Messages: []ir.Message{
+					{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Weather?"}}},
+					{Role: ir.RoleAssistant, Content: []ir.Block{
+						ir.TextBlock{Text: "Checking."},
+						ir.ToolUseBlock{ID: "call_1", Name: "weather", Input: json.RawMessage(`"{\"city\":\"Paris\"}"`)},
+					}},
+					{Role: ir.RoleUser, Content: tc.content},
+				},
+			}
+			out, losses, err := EncodeRequest(req)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+			// The turn under test is messages[2]; the fixed prefix renders as
+			// exactly two wire messages before it.
+			got := out.Messages[2:]
+			if len(got) != len(tc.wantTurn) {
+				t.Fatalf("turn wire messages:\nwant %+v\ngot  %+v", tc.wantTurn, got)
+			}
+			for i := range tc.wantTurn {
+				if got[i].Role != tc.wantTurn[i].Role || got[i].Content != tc.wantTurn[i].Content ||
+					got[i].ToolCallID != tc.wantTurn[i].ToolCallID {
+					t.Fatalf("turn wire message %d:\nwant %+v\ngot  %+v", i, tc.wantTurn[i], got[i])
+				}
+			}
+			if len(losses) != tc.wantLosses {
+				t.Fatalf("losses:\nwant %d\ngot  %+v", tc.wantLosses, losses)
+			}
+			if tc.wantLosses > 0 {
+				l := losses[0]
+				if l.Reason != ir.LossDegraded || l.Path != "messages[2]" || l.Field != "ordering" {
+					t.Fatalf("degraded loss: %+v", l)
+				}
+			}
+		})
+	}
+}
+
 func TestMalformedAndNonImageDataURLsProduceLosses(t *testing.T) {
 	wire := &Request{Model: "m", Messages: []Message{{
 		Role: "user",

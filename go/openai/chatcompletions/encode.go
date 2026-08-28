@@ -59,12 +59,26 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		case ir.RoleUser:
 			var normal []ir.Block
 			var results []ir.ToolResultBlock
-			for _, block := range message.Content {
+			// N-CC-9: tool messages are hoisted ahead of the trailing user
+			// content. When ordinary content precedes a tool result in the
+			// source turn, that hoisting does not preserve the source order.
+			lastResult, firstNormal := -1, -1
+			for k, block := range message.Content {
 				if result, ok := block.(ir.ToolResultBlock); ok {
 					results = append(results, result)
+					lastResult = k
 					continue
 				}
+				if firstNormal < 0 {
+					firstNormal = k
+				}
 				normal = append(normal, block)
+			}
+			if firstNormal >= 0 && firstNormal < lastResult {
+				losses = append(losses, loss(
+					fmt.Sprintf("messages[%d]", i), "ordering", ir.LossDegraded,
+					"N-CC-9: tool messages are hoisted ahead of the trailing user content; source order is not preserved",
+				))
 			}
 			// Tool messages must follow the assistant invocation immediately. If
 			// the IR user turn also carries normal content, render it after the

@@ -3,8 +3,8 @@ package chatcompletions
 import (
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
-	"github.com/oxa-protocol/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/modelmap"
 )
 
 // StreamDecoder incrementally converts a Chat Completions chunk stream into IR

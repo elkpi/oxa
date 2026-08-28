@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/oxa-protocol/oxa/go/ir"
-	"github.com/oxa-protocol/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/modelmap"
 )
 
 func ptr[T any](v T) *T { return &v }

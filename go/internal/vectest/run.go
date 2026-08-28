@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/elkpi/oxa/go/ir"
 )
 
 // Converter is the face-implementation surface the harness drives. The four

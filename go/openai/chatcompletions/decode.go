@@ -3,7 +3,7 @@ package chatcompletions
 import (
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/elkpi/oxa/go/ir"
 )
 
 // DecodeRequest converts a Chat Completions wire request to the IR (face ->

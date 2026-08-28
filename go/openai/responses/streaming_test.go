@@ -5,8 +5,8 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/oxa-protocol/oxa/go/ir"
-	"github.com/oxa-protocol/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/modelmap"
 )
 
 func streamCreated(id, model string) *StreamEvent {

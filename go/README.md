@@ -1,7 +1,6 @@
 # oxa Go module
 
-Module path: `github.com/oxa-protocol/oxa/go` (placeholder organization name;
-repointed at release, same as the schema `$id`s).
+Module path: `github.com/elkpi/oxa/go`.
 
 ## Layout
 

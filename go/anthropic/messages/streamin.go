@@ -3,8 +3,8 @@ package messages
 import (
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
-	"github.com/oxa-protocol/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/modelmap"
 )
 
 // StreamDecoder incrementally converts an Anthropic Messages event stream

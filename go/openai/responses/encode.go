@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/elkpi/oxa/go/ir"
 )
 
 // EncodeRequest converts an IR request to a Responses wire request (IR ->

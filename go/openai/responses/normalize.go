@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/elkpi/oxa/go/ir"
 )
 
 func loss(path, field string, reason ir.LossReason, detail string) ir.Loss {

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
-	"github.com/oxa-protocol/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/modelmap"
 )
 
 const streamMessageItemID = "msg_abc123"

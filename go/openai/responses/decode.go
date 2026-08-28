@@ -3,7 +3,7 @@ package responses
 import (
 	"fmt"
 
-	"github.com/oxa-protocol/oxa/go/ir"
+	"github.com/elkpi/oxa/go/ir"
 )
 
 // DecodeRequest converts a Responses wire request to the IR (face -> IR).

@@ -20,3 +20,6 @@ coverage.html
 *.swp
 *.swo
 *~
+
+# veccheck binary (built locally, never committed)
+go/veccheck

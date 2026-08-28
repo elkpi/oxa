@@ -1,0 +1,22 @@
+# Go artifacts (per-language, under go/)
+go/bin/
+go/dist/
+go/vendor/
+go/*.test
+go/*.exe
+go/go.work.sum
+
+# Test and coverage artifacts
+*.out
+*.test
+coverage.txt
+coverage.html
+*.prof
+
+# Editors and OS
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+*~

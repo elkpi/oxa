@@ -1,0 +1,36 @@
+{
+  "name": "responses.nonstream.text-response-to-ir",
+  "description": "A Responses response object maps to an IR response with usage and stop_reason end_turn.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_abc123",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini-2024-07-18",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          { "type": "output_text", "text": "Hello there.", "annotations": [] }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "resp_abc123",
+    "model": "gpt-4o-mini-2024-07-18",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage"]
+}

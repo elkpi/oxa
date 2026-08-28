@@ -1,0 +1,28 @@
+{
+  "name": "anthropic.nonstream.text-response-from-ir",
+  "description": "An IR response renders as an Anthropic message object.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "msg_01ABCdefGHI",
+    "model": "claude-sonnet-4-5",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_output": {
+    "id": "msg_01ABCdefGHI",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage"]
+}

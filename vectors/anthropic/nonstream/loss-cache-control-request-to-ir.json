@@ -1,0 +1,38 @@
+{
+  "name": "anthropic.nonstream.loss-cache-control-request-to-ir",
+  "description": "cache_control on a system block has no IR equivalent and is dropped with an unmapped-field loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 512,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a terse assistant.",
+        "cache_control": { "type": "ephemeral" }
+      }
+    ],
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "system": [{ "type": "text", "text": "You are a terse assistant." }],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ],
+    "params": { "max_tokens": 512 }
+  },
+  "expected_losses": [
+    {
+      "path": "system[0].cache_control",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "Anthropic prompt caching annotations have no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "request", "cache-control"]
+}

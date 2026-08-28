@@ -1,0 +1,36 @@
+{
+  "name": "chatcompletions.nonstream.loss-logprobs-request-to-ir",
+  "description": "Chat Completions logprobs and top_logprobs have no IR equivalent and are dropped with unmapped-field losses.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "logprobs": true,
+    "top_logprobs": 5
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "logprobs",
+      "field": "logprobs",
+      "reason": "unmapped-field",
+      "detail": "Chat Completions log-probability sampling has no IR equivalent in v1."
+    },
+    {
+      "path": "top_logprobs",
+      "field": "top_logprobs",
+      "reason": "unmapped-field",
+      "detail": "Chat Completions log-probability sampling has no IR equivalent in v1."
+    }
+  ],
+  "tags": ["loss", "request", "logprobs"]
+}

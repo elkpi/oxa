@@ -1,0 +1,23 @@
+{
+  "name": "anthropic.nonstream.minimal-text-request-to-ir",
+  "description": "Minimal Anthropic Messages request maps to an IR request; required max_tokens becomes params.max_tokens.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "Hello" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["text", "request", "minimal"]
+}

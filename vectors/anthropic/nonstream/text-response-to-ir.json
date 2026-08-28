@@ -1,0 +1,27 @@
+{
+  "name": "anthropic.nonstream.text-response-to-ir",
+  "description": "An Anthropic message object maps to an IR response with usage and stop_reason end_turn.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "id": "msg_01ABCdefGHI",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "msg_01ABCdefGHI",
+    "model": "claude-sonnet-4-5",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage"]
+}

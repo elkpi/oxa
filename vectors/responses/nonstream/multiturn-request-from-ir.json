@@ -1,0 +1,28 @@
+{
+  "name": "responses.nonstream.multiturn-request-from-ir",
+  "description": "A three-message IR conversation renders as a Responses easy-input message array.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "What is 2+2?" }] },
+      { "role": "assistant", "content": [{ "type": "text", "text": "4" }] },
+      { "role": "user", "content": [{ "type": "text", "text": "And 3+3?" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": [
+      { "role": "user", "content": "What is 2+2?" },
+      { "role": "assistant", "content": "4" },
+      { "role": "user", "content": "And 3+3?" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["multiturn", "request"]
+}

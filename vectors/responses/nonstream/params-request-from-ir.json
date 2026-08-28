@@ -1,0 +1,30 @@
+{
+  "name": "responses.nonstream.params-request-from-ir",
+  "description": "IR params render as Responses temperature, top_p and max_output_tokens.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ],
+    "params": {
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_tokens": 256
+    }
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "temperature": 0.5,
+    "top_p": 0.9,
+    "max_output_tokens": 256,
+    "input": "Hello"
+  },
+  "expected_losses": [],
+  "tags": ["params", "request"]
+}

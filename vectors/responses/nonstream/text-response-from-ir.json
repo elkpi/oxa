@@ -1,0 +1,37 @@
+{
+  "name": "responses.nonstream.text-response-from-ir",
+  "description": "An IR response renders as a Responses response object with a message output item.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "resp_abc123",
+    "model": "gpt-4o-mini-2024-07-18",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_output": {
+    "id": "resp_abc123",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini-2024-07-18",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          { "type": "output_text", "text": "Hello there.", "annotations": [] }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage"]
+}

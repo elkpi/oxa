@@ -1,0 +1,310 @@
+{
+  "vectors": [
+    {
+      "name": "anthropic.nonstream.loss-cache-control-request-to-ir",
+      "file": "anthropic/nonstream/loss-cache-control-request-to-ir.json",
+      "tags": [
+        "loss",
+        "request",
+        "cache-control"
+      ],
+      "sha256": "ec5be36dbd163283ec161af8aa71174c78300d9cf7b3f5fc57f986cc69fe9943"
+    },
+    {
+      "name": "anthropic.nonstream.minimal-text-request-from-ir",
+      "file": "anthropic/nonstream/minimal-text-request-from-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "9b9bb6afbd53fd170debeca9de6d03b004c81775a64d9a9973740aae8ce18137"
+    },
+    {
+      "name": "anthropic.nonstream.minimal-text-request-to-ir",
+      "file": "anthropic/nonstream/minimal-text-request-to-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "c522584c381f2744f8693f461344c51d2c33600a69e052ac12b189a5f4e29cee"
+    },
+    {
+      "name": "anthropic.nonstream.multiturn-request-from-ir",
+      "file": "anthropic/nonstream/multiturn-request-from-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "038fee47f3b48003958a530ba4c953346eb241dac6f2a64a2fc20e16de06f588"
+    },
+    {
+      "name": "anthropic.nonstream.multiturn-request-to-ir",
+      "file": "anthropic/nonstream/multiturn-request-to-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "7ce530775d4f8109e3b275d78f252c85fd83b36977dba2189e0fe2d13fca81b8"
+    },
+    {
+      "name": "anthropic.nonstream.params-request-from-ir",
+      "file": "anthropic/nonstream/params-request-from-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "f1134dcb6f637379d4a4d8b6ea2659df713c802fa52f6de68792f92ca7ba5722"
+    },
+    {
+      "name": "anthropic.nonstream.params-request-to-ir",
+      "file": "anthropic/nonstream/params-request-to-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "c96afcb3e3f90ca6f4baf2383b146166a0c2fbfa0aba6b3496fe7f8166bb76b2"
+    },
+    {
+      "name": "anthropic.nonstream.system-prompt-request-from-ir",
+      "file": "anthropic/nonstream/system-prompt-request-from-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "690900255f254ceb712b7145e6dd8c4331bccafaf4eeda25645660ba867de208"
+    },
+    {
+      "name": "anthropic.nonstream.system-prompt-request-to-ir",
+      "file": "anthropic/nonstream/system-prompt-request-to-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "2859f115b54ec003dedd151f9302edd0a8244c80c9b1e56bdaca76e8f4729416"
+    },
+    {
+      "name": "anthropic.nonstream.text-response-from-ir",
+      "file": "anthropic/nonstream/text-response-from-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "6a9c1a4908411282df9b19e6ad0c9332149bdafcdbe1865218fd7584f5eb33bd"
+    },
+    {
+      "name": "anthropic.nonstream.text-response-to-ir",
+      "file": "anthropic/nonstream/text-response-to-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "d7b3732f3305c95151dea4728e7fe3a4543545e78118eb53c78518ebb8617bbd"
+    },
+    {
+      "name": "chatcompletions.nonstream.loss-logprobs-request-to-ir",
+      "file": "chatcompletions/nonstream/loss-logprobs-request-to-ir.json",
+      "tags": [
+        "loss",
+        "request",
+        "logprobs"
+      ],
+      "sha256": "0dda93f753edb419c51d20edd4289c205eab797efe5fb536862d9331a7e87028"
+    },
+    {
+      "name": "chatcompletions.nonstream.minimal-text-request-from-ir",
+      "file": "chatcompletions/nonstream/minimal-text-request-from-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "09303b5aaa1f91384ab897b28df8419ca27d5742c2c99d2d11d88092ffd88081"
+    },
+    {
+      "name": "chatcompletions.nonstream.minimal-text-request-to-ir",
+      "file": "chatcompletions/nonstream/minimal-text-request-to-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "03de44a7d7ceb222c03a47d816af0f4c9c06b6dd0b774fa113d550bfb5317a26"
+    },
+    {
+      "name": "chatcompletions.nonstream.multiturn-request-from-ir",
+      "file": "chatcompletions/nonstream/multiturn-request-from-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "4387650fc0ac615861124833a19edfc72b511c677c1d6769852b119e6c761311"
+    },
+    {
+      "name": "chatcompletions.nonstream.multiturn-request-to-ir",
+      "file": "chatcompletions/nonstream/multiturn-request-to-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "d9d70a2dd3bafd6b2f915a404c0c02a9fadba889790513e55d8fdda884f070fb"
+    },
+    {
+      "name": "chatcompletions.nonstream.params-request-from-ir",
+      "file": "chatcompletions/nonstream/params-request-from-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "ca0f605373b37240967921488d7ebcff25ea7a112adf5938f07aeeab1f909f90"
+    },
+    {
+      "name": "chatcompletions.nonstream.params-request-to-ir",
+      "file": "chatcompletions/nonstream/params-request-to-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "89f62d16f386a78150cd922b0a9b849121597d8b810a01cc2e439b17a04c2fbd"
+    },
+    {
+      "name": "chatcompletions.nonstream.system-prompt-request-from-ir",
+      "file": "chatcompletions/nonstream/system-prompt-request-from-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "01df3338962fb47ece1a43a976afc06f950c613b18170772d66a32e2dccccc6f"
+    },
+    {
+      "name": "chatcompletions.nonstream.system-prompt-request-to-ir",
+      "file": "chatcompletions/nonstream/system-prompt-request-to-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "10a4fd35473ee3b808a8c9ea0ee7f49a2e5a15d15c1d3269d5c0dc1f63e09180"
+    },
+    {
+      "name": "chatcompletions.nonstream.text-response-from-ir",
+      "file": "chatcompletions/nonstream/text-response-from-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "8e41f49424bdb10db637286ed2a1f3b2a0a892d81dd9c0d302a1996f56e2af44"
+    },
+    {
+      "name": "chatcompletions.nonstream.text-response-to-ir",
+      "file": "chatcompletions/nonstream/text-response-to-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "5698a498581fb91bf763e0cbc641d8e8ed185d2506bc380b521510498603edaa"
+    },
+    {
+      "name": "responses.nonstream.loss-verbosity-request-to-ir",
+      "file": "responses/nonstream/loss-verbosity-request-to-ir.json",
+      "tags": [
+        "loss",
+        "request",
+        "verbosity"
+      ],
+      "sha256": "c9814503372babda10dad5dca9c2af4ee72a4438fd7213f74d47e0a16220376d"
+    },
+    {
+      "name": "responses.nonstream.minimal-text-request-from-ir",
+      "file": "responses/nonstream/minimal-text-request-from-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "2bca2b0d7b95fe169529a42a29b17bcd6fdf3aada93745409f440a943d505bd8"
+    },
+    {
+      "name": "responses.nonstream.minimal-text-request-to-ir",
+      "file": "responses/nonstream/minimal-text-request-to-ir.json",
+      "tags": [
+        "text",
+        "request",
+        "minimal"
+      ],
+      "sha256": "4a12cf1788e610df4d7f95b29a05564b9b398a285de02d34572b78c56316f09f"
+    },
+    {
+      "name": "responses.nonstream.multiturn-request-from-ir",
+      "file": "responses/nonstream/multiturn-request-from-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "8eeb81858a3519871da7eb118cc6f1b87c6e6e644a765793896c26ce3e7f10b7"
+    },
+    {
+      "name": "responses.nonstream.multiturn-request-to-ir",
+      "file": "responses/nonstream/multiturn-request-to-ir.json",
+      "tags": [
+        "multiturn",
+        "request"
+      ],
+      "sha256": "15f53a8c601e840eac4d2d1ae04acbb9d9a32ee7f8341e3364665fab635c3612"
+    },
+    {
+      "name": "responses.nonstream.params-request-from-ir",
+      "file": "responses/nonstream/params-request-from-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "5411a4dd4f4caedd55519574d1817c34c3aa194d8efb5762c0a6d4467c0f3617"
+    },
+    {
+      "name": "responses.nonstream.params-request-to-ir",
+      "file": "responses/nonstream/params-request-to-ir.json",
+      "tags": [
+        "params",
+        "request"
+      ],
+      "sha256": "b096a08d56e13192f5c221b84add9caf8826b880e4abc619dd65d21e5aafd8fe"
+    },
+    {
+      "name": "responses.nonstream.system-prompt-request-from-ir",
+      "file": "responses/nonstream/system-prompt-request-from-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "ca62f621086a100e23b2377fec83d628fc4a1932107ef3b97bedee3248dfc5f1"
+    },
+    {
+      "name": "responses.nonstream.system-prompt-request-to-ir",
+      "file": "responses/nonstream/system-prompt-request-to-ir.json",
+      "tags": [
+        "system",
+        "request"
+      ],
+      "sha256": "81e90d5808b9882e09cbe99a73b57e6b0d21c13ad70423c37ef1433b17a79793"
+    },
+    {
+      "name": "responses.nonstream.text-response-from-ir",
+      "file": "responses/nonstream/text-response-from-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "488ca1d4a32501020068a2763a2ff4885f2517ddb39452f4c608fb1a30c52c12"
+    },
+    {
+      "name": "responses.nonstream.text-response-to-ir",
+      "file": "responses/nonstream/text-response-to-ir.json",
+      "tags": [
+        "response",
+        "usage"
+      ],
+      "sha256": "2a3855edb7569c068602a47fc98c965ee0c9373ca858da6004f1f7b0a5593138"
+    }
+  ]
+}

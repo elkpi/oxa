@@ -1,0 +1,22 @@
+{
+  "name": "chatcompletions.nonstream.minimal-text-request-from-ir",
+  "description": "Minimal IR request renders as a Chat Completions request with string content.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Hello" }]
+  },
+  "expected_losses": [],
+  "tags": ["text", "request", "minimal"]
+}

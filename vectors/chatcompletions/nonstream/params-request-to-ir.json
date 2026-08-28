@@ -1,0 +1,31 @@
+{
+  "name": "chatcompletions.nonstream.params-request-to-ir",
+  "description": "temperature, top_p, max_tokens and stop map to the IR params object.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": "Hello" }],
+    "temperature": 0.5,
+    "top_p": 0.9,
+    "max_tokens": 256,
+    "stop": ["\n\n", "END"]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ],
+    "params": {
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "max_tokens": 256,
+      "stop_sequences": ["\n\n", "END"]
+    }
+  },
+  "expected_losses": [],
+  "tags": ["params", "request"]
+}

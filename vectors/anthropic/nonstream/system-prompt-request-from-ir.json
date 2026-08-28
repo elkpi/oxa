@@ -1,0 +1,28 @@
+{
+  "name": "anthropic.nonstream.system-prompt-request-from-ir",
+  "description": "An IR system block list renders as the Anthropic system block array.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "system": [{ "type": "text", "text": "You are a terse assistant." }],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ],
+    "params": { "max_tokens": 512 }
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 512,
+    "system": [{ "type": "text", "text": "You are a terse assistant." }],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["system", "request"]
+}

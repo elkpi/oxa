@@ -1,0 +1,22 @@
+{
+  "name": "responses.nonstream.minimal-text-request-from-ir",
+  "description": "A minimal single-text-block IR request renders as a Responses request with string input.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "input": "Hello"
+  },
+  "expected_losses": [],
+  "tags": ["text", "request", "minimal"]
+}

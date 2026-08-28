@@ -1,0 +1,33 @@
+{
+  "name": "chatcompletions.nonstream.text-response-from-ir",
+  "description": "An IR response renders as a Chat Completions response object with choices and usage.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "chatcmpl-abc123",
+    "model": "gpt-4o-mini-2024-07-18",
+    "content": [{ "type": "text", "text": "Hello there." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_output": {
+    "id": "chatcmpl-abc123",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini-2024-07-18",
+    "choices": [
+      {
+        "index": 0,
+        "message": { "role": "assistant", "content": "Hello there." },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 9, "completion_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage"]
+}

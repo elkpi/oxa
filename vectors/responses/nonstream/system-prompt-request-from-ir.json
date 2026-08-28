@@ -1,0 +1,24 @@
+{
+  "name": "responses.nonstream.system-prompt-request-from-ir",
+  "description": "An IR system block list renders as the Responses instructions string.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "system": [{ "type": "text", "text": "You are a terse assistant." }],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "instructions": "You are a terse assistant.",
+    "input": "Hi"
+  },
+  "expected_losses": [],
+  "tags": ["system", "request"]
+}

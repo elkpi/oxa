@@ -20,7 +20,7 @@ test:
 	$(call go_target,go test ./...,$@,M3)
 
 vectors:
-	$(call go_target,go test -run TestVectors ./...,$@,M2)
+	$(call go_target,go run ./cmd/veccheck -root ..,$@,M2)
 
 lint:
 	$(call go_target,go vet ./...,$@,M3)

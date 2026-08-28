@@ -29,7 +29,7 @@ Read the documents in this order:
 | [02](02-loss-policy.md) | loss reporting | ready |
 | [03](03-model-handling.md) | model handling | ready |
 | [10](10-mapping-openai-chat-completions.md) | Chat Completions face mapping | ready |
-| 11 | Responses face mapping | planned |
+| [11](11-mapping-openai-responses.md) | Responses face mapping | ready |
 | [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
 | 20 | streaming semantics | planned |
 | 90 | glossary | planned |

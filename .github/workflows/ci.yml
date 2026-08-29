@@ -70,7 +70,7 @@ jobs:
       - name: Run tests
         if: hashFiles('go/go.mod') != ''
         working-directory: go/
-        run: go test ./... -race -covermode=count
+        run: go test ./... -race -covermode=atomic
 
   vectors:
     runs-on: ubuntu-latest

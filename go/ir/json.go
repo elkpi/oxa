@@ -202,9 +202,7 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	}
 	tools := make([]wireTool, 0, len(req.Tools))
 	for _, t := range req.Tools {
-		tools = append(tools, wireTool{
-			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
-		})
+		tools = append(tools, wireTool(t))
 	}
 	var tc *wireToolChoice
 	if req.ToolChoice != nil {
@@ -253,9 +251,7 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 		req.Messages = append(req.Messages, Message{Role: m.Role, Content: content})
 	}
 	for _, t := range w.Tools {
-		req.Tools = append(req.Tools, Tool{
-			Name: t.Name, Description: t.Description, InputSchema: t.InputSchema,
-		})
+		req.Tools = append(req.Tools, Tool(t))
 	}
 	if w.ToolChoice != nil {
 		req.ToolChoice = &ToolChoice{Mode: w.ToolChoice.Mode, Name: w.ToolChoice.Name}

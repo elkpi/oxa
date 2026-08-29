@@ -28,10 +28,13 @@ func loadSchemas(root string) (*schemas, error) {
 		if err != nil {
 			return nil, fmt.Errorf("cannot open schema %s: %w", name, err)
 		}
-		doc, err := jsonschema.UnmarshalJSON(f)
-		f.Close()
-		if err != nil {
-			return nil, fmt.Errorf("cannot parse schema %s: %w", name, err)
+		doc, parseErr := jsonschema.UnmarshalJSON(f)
+		closeErr := f.Close()
+		if parseErr != nil {
+			return nil, fmt.Errorf("cannot parse schema %s: %w", name, parseErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("cannot close schema %s: %w", name, closeErr)
 		}
 		if err := compiler.AddResource(name, doc); err != nil {
 			return nil, fmt.Errorf("cannot load schema %s: %w", name, err)

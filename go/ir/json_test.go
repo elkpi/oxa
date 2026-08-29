@@ -260,7 +260,11 @@ func TestCanonicalJSONValidatesAgainstSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open schema: %v", err)
 	}
-	defer f.Close()
+	t.Cleanup(func() {
+		if err := f.Close(); err != nil {
+			t.Errorf("close schema: %v", err)
+		}
+	})
 	schemaDoc, err := jsonschema.UnmarshalJSON(f)
 	if err != nil {
 		t.Fatalf("parse schema: %v", err)

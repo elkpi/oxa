@@ -80,8 +80,8 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	i := 0
 	for i < len(wire.Input.Items) {
 		item := wire.Input.Items[i]
-		switch {
-		case item.Type == "" || item.Type == "message":
+		switch item.Type {
+		case "", "message":
 			switch item.Role {
 			case "system":
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
@@ -90,7 +90,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				}
 				for j, block := range content {
 					if text, ok := block.(ir.TextBlock); ok {
-						req.System = append(req.System, ir.SystemBlock{Text: text.Text})
+						req.System = append(req.System, ir.SystemBlock(text))
 						continue
 					}
 					losses = append(losses, loss(
@@ -121,7 +121,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case item.Type == "function_call":
+		case "function_call":
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -131,7 +131,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			losses = append(losses, runLosses...)
 			i = next
-		case item.Type == "function_call_output":
+		case "function_call_output":
 			merged, next, runLosses, err := decodeOutputRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err

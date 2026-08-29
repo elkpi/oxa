@@ -373,7 +373,7 @@ func contentSystem(blocks []ir.Block, path string) ([]ir.SystemBlock, []ir.Loss)
 	var losses []ir.Loss
 	for i, block := range blocks {
 		if text, ok := block.(ir.TextBlock); ok {
-			out = append(out, ir.SystemBlock{Text: text.Text})
+			out = append(out, ir.SystemBlock(text))
 			continue
 		}
 		losses = append(losses, loss(

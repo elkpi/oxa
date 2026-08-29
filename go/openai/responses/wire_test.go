@@ -285,7 +285,7 @@ func TestDecodeResponseToolCallAndReasoningLoss(t *testing.T) {
 	if len(losses) != 2 {
 		t.Fatalf("losses: %+v", losses)
 	}
-	var blocks []ir.Block = resp.Content
+	blocks := resp.Content
 	if len(blocks) != 2 {
 		t.Fatalf("content: %+v", blocks)
 	}

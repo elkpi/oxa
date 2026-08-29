@@ -10,7 +10,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect Go module
         id: go_module
         run: |
@@ -56,7 +56,7 @@ jobs:
       matrix:
         go-version: ["1.23.x", "1.24.x"]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect Go module
         run: |
           if [ ! -f go/go.mod ]; then
@@ -75,7 +75,7 @@ jobs:
   vectors:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect veccheck
         run: |
           if [ ! -d go/cmd/veccheck ]; then
@@ -94,7 +94,7 @@ jobs:
   manifest:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Detect veccheck
         run: |
           if [ ! -d go/cmd/veccheck ]; then
@@ -114,7 +114,7 @@ jobs:
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Fail if module path is still a placeholder
         run: |
           if [ -f go/go.mod ] && grep -q "oxa-protocol" go/go.mod; then

@@ -26,7 +26,7 @@ IR event stream.
 
 The M6 profile supports assistant text output only. Streaming tool arguments,
 `input_json_delta`, function-call output items, and tool-call aggregation are
-explicitly deferred to M7 (§10). M6 does not loosen the IR type system in
+defined by the M7 profile (§10). M6 does not loosen the IR type system in
 order to represent those semantics.
 
 ## 2. Shared stream contract
@@ -169,9 +169,9 @@ native finish value maps to `other` with an `unmapped-value` loss. Encoding
 IR `stop_sequence` as `finish_reason: "stop"` records an `unmapped-value`
 loss because CC does not identify the matched sequence.
 
-A CC `delta.tool_calls` payload is an unsupported M6 semantic and records one
-`unsupported-semantic` loss for that chunk field; it adds no IR text event.
-M7 defines its aggregation (N-S-10).
+A CC `delta.tool_calls` payload is a structural error; it violates the M6
+text-only profile and the encoder rules in this document. M7 defines tool
+call aggregation (N-S-10).
 
 ## 4. Responses profile — N-S-6
 
@@ -320,7 +320,7 @@ Each rule has a stable ID usable as a streaming vector tag.
 | N-S-7 | Anthropic Messages block lifecycle and terminal mapping |
 | N-S-8 | SSE framing boundary |
 | N-S-9 | stream comparison and vector expectations |
-| N-S-10 | M7 streaming tool-argument deferrals |
+| N-S-10 | M7 streaming tool-argument aggregation |
 
 ## 9. Loss catalog
 
@@ -328,31 +328,62 @@ Each rule has a stable ID usable as a streaming vector tag.
 |------------------|-----------|-----------------|
 | unknown standalone native event | face → IR | one `unsupported-semantic` loss per event; valid state unchanged |
 | unsupported native block/item/part | face → IR | one `unsupported-semantic` loss per native unit; matching descendants/done events absorbed |
-| CC `delta.tool_calls` | CC → IR | `unsupported-semantic` loss; M7 deferral |
-| RE function-call item / argument stream | RE → IR | `unsupported-semantic` loss at its native unit; M7 deferral |
-| AN `input_json_delta` | AN → IR | `unsupported-semantic` loss; M7 deferral |
+| non-function tool call | CC → IR | one `unsupported-semantic` loss; descendants absorbed |
+| RE `function_call_output` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed |
+| AN `server_tool_use`, thinking, provider-hosted tool | AN → IR | one `unsupported-semantic` loss per unit; descendants absorbed |
 | unknown native stop value | face → IR | mapping-document `unmapped-value` loss and IR `other`, where the face status policy permits it |
 | IR `stop_sequence` for CC or RE | IR → face | native completed/stop form plus `unmapped-value` loss for matched-sequence identity |
 | malformed lifecycle or IR grammar | both | structural error, never a loss |
 
 ## 10. M7 tool-argument profile — N-S-10
 
-M6 makes no conversion guarantee for streaming tool arguments. A future M7
-revision is expected to specify the following native inputs and their complete
-IR lifecycles:
+The M7 profile extends the text-only stream contract with complete support
+for streamed function-tool input across all three faces. It uses the
+already-defined IR types `ToolUseBlock`, `InputJSONDelta`, and
+`MessageDone`; it does not loosen INV-1 or any other IR invariant.
 
-1. CC `tool_calls[].index`, including aggregation when a name and arguments
-   arrive in separate chunks;
-2. RE `response.function_call_arguments.delta` for a native function-call
-   item; and
-3. AN `input_json_delta.partial_json` for a native `tool_use` block.
+### 10.1 Shared aggregation rules — N-S-10
 
-That future profile MUST preserve every argument fragment as raw JSON text
-under INV-1: fragments MUST NOT be parsed or re-serialized, and its
-conformance vectors MUST test byte fidelity across arbitrary fragment
-boundaries. Until then, an implementation MUST apply the M6 loss/absorption
-rule instead of claiming tool-argument support merely because it can receive
-or serialize an unknown native event object.
+A decoder MUST buffer each native function-tool unit until its native
+closure. A decoder MUST replay `ContentBlockStart`, all
+`InputJSONDelta` fragments, and `ContentBlockStop` together only after
+that closure. The `ToolUseBlock` input string MUST equal the exact
+concatenation of its fragments. A decoder MUST preserve empty fragments
+and MUST NOT parse the payload as JSON. A native lifecycle or identity
+disagreement is a structural error; an unsupported native unit is one
+`unsupported-semantic` loss plus descendant absorption.
+
+Face-specific closure boundaries:
+
+- CC: `Flush` after `finish_reason` is observed.
+- RE: `response.output_item.done`.
+- AN: `content_block_stop`.
+
+CC index ordering / interleaving: native `tool_calls[].index` values may
+interleave in chunk encounter order; the decoder replays retained calls
+in increasing index order at `Flush`. RE argument-done is optional for
+acceptance but serves as a validation event when present. AN allows a
+no-delta fallback: if no `input_json_delta` is supplied, the native
+`input` at block start becomes the final input via one synthetic
+`InputJSONDelta`.
+
+Encoder synthesis / validation rules: the CC encoder normalizes text
+before tool calls and emits one `degraded` loss when a tool block is
+followed by a text block in IR; it synthesizes a full-arguments delta
+when no input delta was supplied for a retained call. The RE encoder
+opens one synthesized `function_call` item per `ToolUseBlock` and emits
+`response.function_call_arguments.done` on block stop when deltas were
+supplied. The AN encoder emits a canonical streaming placeholder
+`input: {}` at `content_block_start(type:"tool_use")` and synthesizes a
+full input-json delta when no delta was supplied.
+
+### 10.2 Loss catalog additions — N-S-10
+
+Existing M6 losses for CC `delta.tool_calls`, RE function-call argument
+streams, and AN `input_json_delta` are replaced by full conversion rules.
+`function_call_output` streaming and other non-function tool semantics
+remain unsupported and record one `unsupported-semantic` loss per native
+unit with descendant absorption.
 
 ## 11. References
 

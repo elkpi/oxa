@@ -21,7 +21,7 @@
     },
     "mode": {
       "enum": ["nonstream", "stream"],
-      "description": "stream vectors carry input_sse and arrive at M6."
+      "description": "stream vectors contain parsed native events; M6 arrives as text-only, M7 adds tool-argument aggregation."
     },
     "conversion": {
       "enum": ["to-ir", "from-ir", "protocol-to-protocol"],
@@ -39,7 +39,7 @@
     },
     "input_sse": {
       "type": "string",
-      "description": "Raw SSE bytes. RESERVED for M6 stream vectors; no seed vectors use it."
+      "description": "Raw SSE bytes. Kept optional only for byte-framing adapter vectors; not required for protocol-face stream vectors."
     },
     "expected_ir": {
       "type": "object",
@@ -96,9 +96,12 @@
       "then": { "required": ["target", "expected_output"], "not": { "required": ["expected_ir"] } }
     },
     {
-      "if": { "properties": { "mode": { "const": "stream" } }, "required": ["mode"] },
-      "then": { "required": ["input_sse"] },
-      "else": { "not": { "required": ["input_sse"] } }
+      "if": { "properties": { "mode": {"const": "stream"}, "conversion": {"const": "to-ir"} }, "required": ["mode", "conversion"] },
+      "then": { "required": ["input", "expected_ir"] }
+    },
+    {
+      "if": { "properties": { "mode": {"const": "stream"}, "conversion": {"const": "from-ir"} }, "required": ["mode", "conversion"] },
+      "then": { "required": ["input", "expected_output"] }
     }
   ],
   "$defs": {

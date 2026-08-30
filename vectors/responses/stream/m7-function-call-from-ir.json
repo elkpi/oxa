@@ -1,0 +1,56 @@
+{
+  "name": "responses.stream.m7-function-call-from-ir",
+  "description": "An IR stream of text, a tool block, and text encodes to a completed first message item, a synthesized function_call item with empty initial arguments, argument deltas, arguments done, item done, a new message item for the trailing text, and a terminal completed response carrying all output items in order (N-S-10).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "resp_fc2", "model": "gpt-4o-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Look" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ing." } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "tool_use", "id": "call_7", "name": "clock", "input": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"tz\":" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"Asia\\/Shanghai\"," } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"hour\": 1e+01}" } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "content_block_start", "index": 2, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 2, "delta": { "type": "text_delta", "text": "Done." } },
+      { "type": "content_block_stop", "index": 2 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 6, "output_tokens": 8 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_fc2", "object": "response", "status": "in_progress", "model": "gpt-4o-mini", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_abc123", "status": "in_progress", "role": "assistant", "content": [] } },
+      { "type": "response.content_part.added", "item_id": "msg_abc123", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "annotations": [] } },
+      { "type": "response.output_text.delta", "item_id": "msg_abc123", "output_index": 0, "content_index": 0, "delta": "Look" },
+      { "type": "response.output_text.delta", "item_id": "msg_abc123", "output_index": 0, "content_index": 0, "delta": "ing." },
+      { "type": "response.output_text.done", "item_id": "msg_abc123", "output_index": 0, "content_index": 0, "text": "Looking." },
+      { "type": "response.content_part.done", "item_id": "msg_abc123", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "Looking.", "annotations": [] } },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_abc123", "status": "completed", "role": "assistant", "content": [ { "type": "output_text", "text": "Looking.", "annotations": [] } ] } },
+      { "type": "response.output_item.added", "output_index": 1, "item": { "type": "function_call", "id": "fc_abc123", "call_id": "call_7", "name": "clock", "status": "in_progress" } },
+      { "type": "response.function_call_arguments.delta", "item_id": "fc_abc123", "output_index": 1, "delta": "{\"tz\":" },
+      { "type": "response.function_call_arguments.delta", "item_id": "fc_abc123", "output_index": 1, "delta": " \"Asia\\/Shanghai\"," },
+      { "type": "response.function_call_arguments.delta", "item_id": "fc_abc123", "output_index": 1, "delta": " \"hour\": 1e+01}" },
+      { "type": "response.function_call_arguments.done", "item_id": "fc_abc123", "output_index": 1, "delta": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" },
+      { "type": "response.output_item.done", "output_index": 1, "item": { "type": "function_call", "id": "fc_abc123", "call_id": "call_7", "name": "clock", "status": "completed", "arguments": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } },
+      { "type": "response.output_item.added", "output_index": 2, "item": { "type": "message", "id": "msg_abc456", "status": "in_progress", "role": "assistant", "content": [] } },
+      { "type": "response.content_part.added", "item_id": "msg_abc456", "output_index": 2, "content_index": 0, "part": { "type": "output_text", "annotations": [] } },
+      { "type": "response.output_text.delta", "item_id": "msg_abc456", "output_index": 2, "content_index": 0, "delta": "Done." },
+      { "type": "response.output_text.done", "item_id": "msg_abc456", "output_index": 2, "content_index": 0, "text": "Done." },
+      { "type": "response.content_part.done", "item_id": "msg_abc456", "output_index": 2, "content_index": 0, "part": { "type": "output_text", "text": "Done.", "annotations": [] } },
+      { "type": "response.output_item.done", "output_index": 2, "item": { "type": "message", "id": "msg_abc456", "status": "completed", "role": "assistant", "content": [ { "type": "output_text", "text": "Done.", "annotations": [] } ] } },
+      { "type": "response.completed", "response": { "id": "resp_fc2", "object": "response", "status": "completed", "model": "gpt-4o-mini", "output": [ { "type": "message", "id": "msg_abc123", "status": "completed", "role": "assistant", "content": [ { "type": "output_text", "text": "Looking.", "annotations": [] } ] }, { "type": "function_call", "id": "fc_abc123", "call_id": "call_7", "name": "clock", "status": "completed", "arguments": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" }, { "type": "message", "id": "msg_abc456", "status": "completed", "role": "assistant", "content": [ { "type": "output_text", "text": "Done.", "annotations": [] } ] } ], "usage": { "input_tokens": 6, "output_tokens": 8, "total_tokens": 14 } } }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "m7", "raw-json", "n-s-10"]
+}

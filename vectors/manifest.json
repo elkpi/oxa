@@ -308,6 +308,45 @@
       "sha256": "63e6c259a4395eb26a14372a28a2a9ef451a9810b7ce150164c3926b95709cab"
     },
     {
+      "name": "anthropic.stream.m7-tool-use-from-ir",
+      "file": "anthropic/stream/m7-tool-use-from-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10",
+        "inv-1"
+      ],
+      "sha256": "567f1bde497640c06a31729074e3b2fb21b82d8cc975e5e1c2c641322bc3f4fb"
+    },
+    {
+      "name": "anthropic.stream.m7-tool-use-start-input-fallback-to-ir",
+      "file": "anthropic/stream/m7-tool-use-start-input-fallback-to-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10",
+        "inv-1"
+      ],
+      "sha256": "32cc30849b5d85efb595ea644085664fa7c2e39a57d9c0fb65b234c6b4fa077d"
+    },
+    {
+      "name": "anthropic.stream.m7-tool-use-to-ir",
+      "file": "anthropic/stream/m7-tool-use-to-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10",
+        "inv-1"
+      ],
+      "sha256": "ed5ad3173560bafa7a5bedc398f79c57f50485a7fbc42912d41bf231f3411d4d"
+    },
+    {
       "name": "chatcompletions.nonstream.images-from-ir",
       "file": "chatcompletions/nonstream/images-from-ir.json",
       "tags": [
@@ -669,6 +708,34 @@
         "inv-1"
       ],
       "sha256": "0a4c88ef6ac2fa5d11bc2568e60241b5d2c68d2ab11ab51fde3e3075a4b37fc2"
+    },
+    {
+      "name": "chatcompletions.stream.m7-tool-calls-from-ir",
+      "file": "chatcompletions/stream/m7-tool-calls-from-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "ordering",
+        "loss",
+        "n-s-10"
+      ],
+      "sha256": "0256953d36bacf5638a1bb2a61dcf5d0df2cc03409004df3590d072935037d30"
+    },
+    {
+      "name": "chatcompletions.stream.m7-tool-calls-to-ir",
+      "file": "chatcompletions/stream/m7-tool-calls-to-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10",
+        "inv-1",
+        "inv-6"
+      ],
+      "sha256": "83b0da83af27a663189ea680303d2b44d539aac928a2e2d4b5ad42e1f1c6f495"
     },
     {
       "name": "responses.nonstream.annotations-loss-response-to-ir",
@@ -1083,6 +1150,43 @@
         "N-R-12"
       ],
       "sha256": "e1f64d0b56b95cd57e3ae44c14836ec7973f8812bdb3e865f5bdb6bbae62d772"
+    },
+    {
+      "name": "responses.stream.m7-function-call-from-ir",
+      "file": "responses/stream/m7-function-call-from-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10"
+      ],
+      "sha256": "565fc9067b027926d6a4e369358d157f68def852745bac93fff1aa92b3a9f9c9"
+    },
+    {
+      "name": "responses.stream.m7-function-call-output-loss",
+      "file": "responses/stream/m7-function-call-output-loss.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "loss",
+        "n-s-10"
+      ],
+      "sha256": "0f7d3cda6e997021b1982bc142d62c97a456c5126f1f07109f5bb3a77a8f4bc5"
+    },
+    {
+      "name": "responses.stream.m7-function-call-to-ir",
+      "file": "responses/stream/m7-function-call-to-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "m7",
+        "raw-json",
+        "n-s-10",
+        "inv-1"
+      ],
+      "sha256": "f89fdd3791ca655b8c4646653d1d6983aa75cb5201880c94bc3cbe5574f42805"
     }
   ]
 }

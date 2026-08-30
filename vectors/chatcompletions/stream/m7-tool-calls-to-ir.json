@@ -1,0 +1,43 @@
+{
+  "name": "chatcompletions.stream.m7-tool-calls-to-ir",
+  "description": "Native tool_calls chunks with interleaved indexes 0,1,0,1, fragmented names, an empty arguments fragment, literal \\u and \\/ escapes, whitespace, and a 1e+01 numeric spelling aggregate at Flush into two compact tool blocks replayed in index order after the finish chunk, each input equal to the exact concatenation of its own fragments, with no empty TextBlock (N-S-10, INV-1, INV-6).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "events": [
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "role": "assistant" }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "type": "function", "function": { "name": "wea", "arguments": "" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 1, "id": "call_2", "type": "function", "function": { "name": "clo", "arguments": "" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "name": "ther", "arguments": "{\"city\": \"P\\u0041ris\"," } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 1, "function": { "name": "ck", "arguments": "{\"tz\": \"Asia\\/Shanghai\"," } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": " \"days\": 1e+01}" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 1, "function": { "arguments": " \"hour\": 1e+01}" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": {}, "finish_reason": "tool_calls" }] },
+      { "id": "chatcmpl-1", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [], "usage": { "prompt_tokens": 21, "completion_tokens": 13, "total_tokens": 34 } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "chatcmpl-1", "model": "gpt-4o-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\": \"P\\u0041ris\", \"days\": 1e+01}" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"city\": \"P\\u0041ris\"," } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"days\": 1e+01}" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "tool_use", "id": "call_2", "name": "clock", "input": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"tz\": \"Asia\\/Shanghai\"," } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"hour\": 1e+01}" } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 21, "output_tokens": 13 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "m7", "raw-json", "n-s-10", "inv-1", "inv-6"]
+}

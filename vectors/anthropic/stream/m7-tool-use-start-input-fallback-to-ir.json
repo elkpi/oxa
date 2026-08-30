@@ -1,0 +1,30 @@
+{
+  "name": "anthropic.stream.m7-tool-use-start-input-fallback-to-ir",
+  "description": "A tool_use native start carrying a nontrivial raw object input and no input_json_delta falls back to that exact start input: the replayed IR block synthesizes exactly one input_json_delta equal to the raw start input bytes, with the \\/ escape, whitespace, and 1e+01 spelling preserved verbatim (N-S-10, INV-1).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "events": [
+      { "type": "message_start", "message": { "id": "msg_2", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [], "usage": { "input_tokens": 0, "output_tokens": 0 } } },
+      { "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_2", "name": "clock", "input": { "tz": "Asia\/Shanghai", "hour": 1e+01 } } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "input_tokens": 8, "output_tokens": 3 } },
+      { "type": "message_stop" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "msg_2", "model": "claude-sonnet-4-5" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "tool_use", "id": "toolu_2", "name": "clock", "input": "{ \"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01 }" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{ \"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01 }" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 8, "output_tokens": 3 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "m7", "raw-json", "n-s-10", "inv-1"]
+}

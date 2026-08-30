@@ -14,10 +14,10 @@
       { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Check" } },
       { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ing." } },
       { "type": "content_block_stop", "index": 0 },
-      { "type": "content_block_start", "index": 1, "block": { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\": \"Paris\"}" } },
+      { "type": "content_block_start", "index": 1, "block": { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\": \"Paris\", \"label\": \"东京\"}" } },
       { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"city\":" } },
       { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "" } },
-      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"Paris\"}" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"Paris\", \"label\": \"东京\"}" } },
       { "type": "content_block_stop", "index": 1 },
       { "type": "content_block_start", "index": 2, "block": { "type": "tool_use", "id": "call_2", "name": "clock", "input": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } },
       { "type": "content_block_stop", "index": 2 },
@@ -36,7 +36,7 @@
       { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "content": "Done." }, "finish_reason": null }] },
       { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "type": "function", "function": { "name": "weather", "arguments": "{\"city\":" } }] }, "finish_reason": null }] },
       { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "" } }] }, "finish_reason": null }] },
-      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": " \"Paris\"}" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": " \"Paris\", \"label\": \"东京\"}" } }] }, "finish_reason": null }] },
       { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 1, "id": "call_2", "type": "function", "function": { "name": "clock", "arguments": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } }] }, "finish_reason": null }] },
       { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": {}, "finish_reason": "tool_calls" }], "usage": { "prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12 } }
     ]

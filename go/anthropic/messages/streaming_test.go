@@ -473,11 +473,17 @@ func TestStreamEncoderModelMap(t *testing.T) {
 }
 
 func TestStreamEncoderGrammarErrors(t *testing.T) {
-	// Non-text block.
+	// Tool block without the required input token.
 	e := NewStreamEncoder()
 	_, _, _ = e.Apply(ir.MessageStart{ID: "id"})
 	if _, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "t", Name: "n"}}); err == nil {
-		t.Fatal("non-text block: want error")
+		t.Fatal("tool block without input: want error")
+	}
+	// Unsupported block type.
+	e = NewStreamEncoder()
+	_, _, _ = e.Apply(ir.MessageStart{ID: "id"})
+	if _, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ImageBlock{}}); err == nil {
+		t.Fatal("unsupported block: want error")
 	}
 	// Unexpected index.
 	e = NewStreamEncoder()
@@ -803,6 +809,45 @@ func TestStreamEncoderToolUseValidation(t *testing.T) {
 	}})
 	if _, _, err := e.Apply(ir.ContentBlockStop{Index: 0}); err == nil {
 		t.Fatal("mismatched tool input: want error")
+	}
+}
+
+// Non-string IR tokens (json.RawMessage("null") in particular, which
+// json.Unmarshal into a string would silently accept as "") are structural
+// errors at the streaming boundary, for both tool inputs and partial
+// fragments.
+func TestStreamEncoderRejectsNonStringToolTokens(t *testing.T) {
+	e := NewStreamEncoder()
+	if _, _, err := e.Apply(ir.MessageStart{ID: "msg"}); err != nil {
+		t.Fatalf("MessageStart: %v", err)
+	}
+	ws, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{
+		ID: "toolu", Name: "weather", Input: json.RawMessage("null"),
+	}})
+	if err == nil {
+		t.Fatal("null tool input: want error")
+	}
+	if len(ws) != 0 {
+		t.Fatalf("null tool input: got %d wire events", len(ws))
+	}
+
+	e = NewStreamEncoder()
+	if _, _, err := e.Apply(ir.MessageStart{ID: "msg"}); err != nil {
+		t.Fatalf("MessageStart: %v", err)
+	}
+	if _, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{
+		ID: "toolu", Name: "weather", Input: irStringToken(t, `{}`),
+	}}); err != nil {
+		t.Fatalf("valid tool start: %v", err)
+	}
+	ws, _, err = e.Apply(ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{
+		PartialJSON: json.RawMessage("null"),
+	}})
+	if err == nil {
+		t.Fatal("null partial_json: want error")
+	}
+	if len(ws) != 0 {
+		t.Fatalf("null partial_json: got %d wire events", len(ws))
 	}
 }
 

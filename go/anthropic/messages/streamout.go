@@ -110,7 +110,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			if block.Name == "" {
 				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart tool_use name is required")
 			}
-			input, err := inputFromIRString(block.Input)
+			input, err := streamToolInput(block.Input)
 			if err != nil {
 				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart tool_use input: %w", err)
 			}
@@ -206,9 +206,31 @@ func (e *StreamEncoder) toolStopWithSynthesizedDelta(index int) []*StreamEvent {
 	return wire
 }
 
+// isIRStringToken reports whether tok is an outer JSON string token, as the
+// IR requires for tool inputs and partial fragments. The explicit quote
+// check rejects null and other non-string tokens that json.Unmarshal into a
+// string would otherwise silently accept as ""; the payload is never
+// inspected.
+func isIRStringToken(tok json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(tok))
+	return trimmed != "" && trimmed[0] == '"'
+}
+
+// streamToolInput unwraps an IR tool_use input string token at the streaming
+// boundary, rejecting non-string tokens before the existing verbatim unwrap.
+func streamToolInput(tok json.RawMessage) (json.RawMessage, error) {
+	if !isIRStringToken(tok) {
+		return nil, fmt.Errorf("not an IR string token")
+	}
+	return inputFromIRString(tok)
+}
+
 func streamInputFragment(token json.RawMessage) (string, error) {
 	if len(token) == 0 {
 		return "", fmt.Errorf("partial_json is required")
+	}
+	if !isIRStringToken(token) {
+		return "", fmt.Errorf("partial_json must be an IR string token")
 	}
 	var fragment string
 	if err := json.Unmarshal(token, &fragment); err != nil {

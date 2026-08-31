@@ -345,7 +345,7 @@ func TestStreamEncoderGrammarErrors(t *testing.T) {
 		t.Fatal("ContentBlockStart index 1: want error")
 	}
 
-	// InputJSONDelta is not encodable in M6.
+	// InputJSONDelta on a text block.
 	e = NewStreamEncoder()
 	_, _, _ = e.Apply(ir.MessageStart{ID: "id"})
 	_, _, _ = e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.TextBlock{}})

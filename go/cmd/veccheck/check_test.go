@@ -320,6 +320,29 @@ func TestCheckVectorFileReportsSchemaAndManualStreamErrors(t *testing.T) {
 	}
 }
 
+func TestVectorSchemaRejectsInputSSEForNonstreamVectors(t *testing.T) {
+	s := testSchemas(t)
+	vector := map[string]any{
+		"name":         "nonstream.no-sse",
+		"description":  "schema contract regression",
+		"spec_version": s.specVersion,
+		"mode":         "nonstream",
+		"conversion":   "to-ir",
+		"source":       map[string]any{"protocol": "chatcompletions"},
+		"input":        map[string]any{},
+		"expected_ir":  map[string]any{},
+		"expected_losses": []any{},
+		"tags":            []any{"schema"},
+	}
+	if err := s.vector.Validate(vector); err != nil {
+		t.Fatalf("nonstream vector without input_sse: %v", err)
+	}
+	vector["input_sse"] = "data: ignored"
+	if err := s.vector.Validate(vector); err == nil {
+		t.Fatal("nonstream vector with input_sse: want schema error")
+	}
+}
+
 func testSchemas(t *testing.T) *schemas {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)

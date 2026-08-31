@@ -102,6 +102,10 @@
     {
       "if": { "properties": { "mode": {"const": "stream"}, "conversion": {"const": "from-ir"} }, "required": ["mode", "conversion"] },
       "then": { "required": ["input", "expected_output"] }
+    },
+    {
+      "if": { "properties": { "mode": {"const": "nonstream"} }, "required": ["mode"] },
+      "then": { "not": { "required": ["input_sse"] } }
     }
   ],
   "$defs": {

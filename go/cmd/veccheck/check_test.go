@@ -13,9 +13,10 @@ import (
 
 func TestValidateEventStream(t *testing.T) {
 	tests := []struct {
-		name string
-		doc  string
-		want string
+		name                      string
+		doc                       string
+		allowSynthesizedToolInput bool
+		want                      string
 	}{
 		{
 			name: "missing message_start",
@@ -159,6 +160,61 @@ func TestValidateEventStream(t *testing.T) {
 			want: "events[3]",
 		},
 		{
+			name: "accepts encoder shorthand without input fragments",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"tool_use","id":"call","name":"tool","input":"{\"x\":1e+01}"}},
+				{"type":"content_block_stop","index":0},
+				{"type":"message_delta","stop_reason":"tool_use","usage":{"input_tokens":0,"output_tokens":0}},
+				{"type":"message_done"}
+			]}`,
+			allowSynthesizedToolInput: true,
+		},
+		{
+			name: "rejects decoder output without input fragments",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"tool_use","id":"call","name":"tool","input":"{\"x\":1e+01}"}},
+				{"type":"content_block_stop","index":0},
+				{"type":"message_delta","stop_reason":"tool_use","usage":{"input_tokens":0,"output_tokens":0}},
+				{"type":"message_done"}
+			]}`,
+			want: "events[2].input",
+		},
+		{
+			name: "accepts empty tool input without input fragments",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"tool_use","id":"call","name":"tool","input":""}},
+				{"type":"content_block_stop","index":0},
+				{"type":"message_delta","stop_reason":"tool_use","usage":{"input_tokens":0,"output_tokens":0}},
+				{"type":"message_done"}
+			]}`,
+		},
+		{
+			name: "missing message delta at EOF",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"}
+			]}`,
+			want: "events: missing message_delta",
+		},
+		{
+			name: "missing message done at EOF",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}}
+			]}`,
+			want: "events: missing message_done",
+		},
+		{
+			name: "open block at EOF",
+			doc: `{"specVersion":"0.1.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"text","text":""}}
+			]}`,
+			want: "events: block index 0 is not stopped",
+		},
+		{
 			name: "accepts text and tool block with empty and incomplete raw fragments",
 			doc: `{"specVersion":"0.1.0","events":[
 				{"type":"message_start","id":"m","model":"model"},
@@ -182,7 +238,7 @@ func TestValidateEventStream(t *testing.T) {
 				t.Fatalf("ir.UnmarshalEventStream() error = %v", err)
 			}
 
-			err = validateEventStream(es)
+			err = validateEventStream(es, tt.allowSynthesizedToolInput)
 			if tt.want == "" {
 				if err != nil {
 					t.Fatalf("validateEventStream() unexpected error = %v", err)

@@ -97,8 +97,19 @@ func checkVectorFile(s *schemas, vectorsDir, relFile string, names map[string]bo
 					es, err := ir.UnmarshalEventStream(irRaw)
 					if err != nil {
 						errs = append(errs, fmt.Errorf("%s: %s cannot decode event stream: %v", display, irField, err))
-					} else if err := validateEventStream(es); err != nil {
-						errs = append(errs, fmt.Errorf("%s: %s violates stream invariants: %v", display, irField, err))
+					} else {
+						var validationErr error
+						switch doc.Conversion {
+						case "to-ir":
+							// expected_ir is decoder output and requires exact equality.
+							validationErr = validateEventStream(es, false)
+						case "from-ir":
+							// input is encoder input and may use N-S-10 synthesis shorthand.
+							validationErr = validateEventStream(es, true)
+						}
+						if validationErr != nil {
+							errs = append(errs, fmt.Errorf("%s: %s violates stream invariants: %v", display, irField, validationErr))
+						}
 					}
 				}
 			}
@@ -127,7 +138,7 @@ func dottedName(rel string) string {
 // validateEventStream checks the relational invariants that JSON Schema cannot
 // express for a decoded IR event stream. Tool input and argument fragments are
 // decoded only as their outer JSON string tokens; their contents remain opaque.
-func validateEventStream(es *ir.EventStream) error {
+func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) error {
 	if es == nil {
 		return fmt.Errorf("events: event stream is nil")
 	}
@@ -225,11 +236,16 @@ func validateEventStream(es *ir.EventStream) error {
 			if e.Index != open.index {
 				return fmt.Errorf("%s.index: want open block index %d, got %d", path, open.index, e.Index)
 			}
-			if open.kind == "tool_use" && len(open.parts) > 0 {
+			if open.kind == "tool_use" {
 				joined := strings.Join(open.parts, "")
-				if joined != open.input {
+				switch {
+				case len(open.parts) > 0 && joined != open.input:
 					return fmt.Errorf("%s.input: joined input fragments %q do not equal tool input %q", path, joined, open.input)
+				case len(open.parts) == 0 && !allowSynthesizedToolInput && open.input != "":
+					return fmt.Errorf("%s.input: input mismatch: nonempty tool input %q has no input fragments", path, open.input)
 				}
+				// From-IR encoder synthesis is allowed by spec/20 N-S-10; strict
+				// decoder output still requires an empty input when no fragments exist.
 			}
 			open = nil
 			nextIndex++

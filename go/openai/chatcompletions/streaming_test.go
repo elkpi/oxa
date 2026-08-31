@@ -590,6 +590,79 @@ func TestStreamDecoderToolCallUnsupportedUnitAbsorbsDescendants(t *testing.T) {
 	}
 }
 
+func TestStreamDecoderToolCallAllowsLateInitialMetadata(t *testing.T) {
+	d := NewStreamDecoder()
+	if _, err := d.Feed(chunkRole("chatcmpl-late-metadata", "m")); err != nil {
+		t.Fatalf("message start: %v", err)
+	}
+	if _, err := d.Feed(chunkToolCalls(t, `[{
+		"index":0,"function":{"arguments":"{"}
+	}]`)); err != nil {
+		t.Fatalf("metadata-omitted first delta: %v", err)
+	}
+	if _, err := d.Feed(chunkToolCalls(t, `[{
+		"index":0,"id":"call_0","type":"function","function":{"name":"search","arguments":"}"}
+	}]`)); err != nil {
+		t.Fatalf("metadata completion: %v", err)
+	}
+	if _, err := d.Feed(chunkFinish("tool_calls")); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	got, err := d.Flush()
+	if err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	want := []ir.Event{
+		ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "call_0", Name: "search", Input: irStringToken(t, "{}")}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: irStringToken(t, "{")}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: irStringToken(t, "}")}},
+		ir.ContentBlockStop{Index: 0},
+		ir.MessageDelta{StopReason: ir.StopToolUse},
+		ir.MessageDone{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Flush events\n got %#v\nwant %#v", got, want)
+	}
+	if losses := d.Losses(); len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+}
+
+func TestStreamDecoderToolCallSkipsNonfunctionAndCompactsIRIndex(t *testing.T) {
+	d := NewStreamDecoder()
+	if _, err := d.Feed(chunkRole("chatcmpl-compact", "m")); err != nil {
+		t.Fatalf("message start: %v", err)
+	}
+	if _, err := d.Feed(chunkToolCalls(t, `[{
+		"index":0,"id":"custom_0","type":"custom","function":{"name":"ignored","arguments":"{}"}
+	},{
+		"index":1,"id":"call_1","type":"function","function":{"name":"search","arguments":"{}"}
+	}]`)); err != nil {
+		t.Fatalf("tool calls: %v", err)
+	}
+	if _, err := d.Feed(chunkFinish("tool_calls")); err != nil {
+		t.Fatalf("finish: %v", err)
+	}
+	got, err := d.Flush()
+	if err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	want := []ir.Event{
+		ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "call_1", Name: "search", Input: irStringToken(t, "{}")}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: irStringToken(t, "{}")}},
+		ir.ContentBlockStop{Index: 0},
+		ir.MessageDelta{StopReason: ir.StopToolUse},
+		ir.MessageDone{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Flush events\n got %#v\nwant %#v", got, want)
+	}
+	losses := d.Losses()
+	if len(losses) != 1 || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Fatalf("losses = %#v", losses)
+	}
+}
+
 func TestStreamEncoderToolCallDeltas(t *testing.T) {
 	e := NewStreamEncoder()
 	var chunks []*Chunk

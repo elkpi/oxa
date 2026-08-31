@@ -67,6 +67,13 @@ func newVectorStreamConverter() *vectorConverter {
 	}
 }
 
+func (c *vectorConverter) ResetStreamVector() {
+	c.decoder = NewStreamDecoder()
+	c.decoderFlushed = false
+	c.encoder = NewStreamEncoder()
+	c.encoderDone = false
+}
+
 func (c *vectorConverter) DecodeNativeEvent(raw json.RawMessage) ([]ir.Event, error) {
 	if c.decoder == nil || c.decoderFlushed {
 		c.decoder = NewStreamDecoder()

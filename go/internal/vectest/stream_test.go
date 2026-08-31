@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/ir"
@@ -59,6 +60,51 @@ func (c *fakeStreamConverter) ApplyIREvent(ev ir.Event) ([]json.RawMessage, []ir
 	return c.applyEvents[i], c.applyLosses[i], nil
 }
 
+type resettingFakeStreamConverter struct {
+	face               string
+	resetCount         int
+	dirty              bool
+	secondStartedClean bool
+}
+
+func (c *resettingFakeStreamConverter) Face() string { return c.face }
+
+func (c *resettingFakeStreamConverter) ResetStreamVector() {
+	c.resetCount++
+	c.dirty = false
+}
+
+func (c *resettingFakeStreamConverter) DecodeNativeEvent(raw json.RawMessage) ([]ir.Event, error) {
+	var event struct {
+		Event string `json:"event"`
+	}
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return nil, err
+	}
+	switch event.Event {
+	case "first":
+		c.dirty = true
+	case "second":
+		c.secondStartedClean = !c.dirty
+	default:
+		return nil, errors.New("unexpected fake event")
+	}
+	return []ir.Event{ir.MessageStart{ID: event.Event, Model: "model"}}, nil
+}
+
+func (c *resettingFakeStreamConverter) FlushDecoder() ([]ir.Event, error) {
+	return []ir.Event{
+		ir.MessageDelta{StopReason: ir.StopEndTurn},
+		ir.MessageDone{},
+	}, nil
+}
+
+func (*resettingFakeStreamConverter) DecoderLosses() []ir.Loss { return nil }
+
+func (*resettingFakeStreamConverter) ApplyIREvent(ir.Event) ([]json.RawMessage, []ir.Loss, error) {
+	return nil, nil, errors.New("unexpected ApplyIREvent")
+}
+
 func TestRunStreamToIR(t *testing.T) {
 	root := setupStreamVectorRepo(t)
 	conv := &fakeStreamConverter{
@@ -99,6 +145,35 @@ func TestRunStreamToIR(t *testing.T) {
 	}
 	if !conv.lossesCalledAfterFlush {
 		t.Error("DecoderLosses was not called after FlushDecoder")
+	}
+}
+
+func TestRunStreamResetsOptionalVectorState(t *testing.T) {
+	root := setupStreamVectorRepo(t)
+	conv := &resettingFakeStreamConverter{face: "resetting-fake"}
+	for _, name := range []string{"first", "second"} {
+		writeStreamVector(t, root, conv.face, name+".json", Vector{
+			Name:       "resetting-fake.stream." + name,
+			Mode:       "stream",
+			Conversion: "to-ir",
+			Input: marshalNativeEventEnvelope(t, []json.RawMessage{
+				json.RawMessage(`{"event":"` + name + `"}`),
+			}),
+			ExpectedIR: marshalEventStream(t, []ir.Event{
+				ir.MessageStart{ID: name, Model: "model"},
+				ir.MessageDelta{StopReason: ir.StopEndTurn},
+				ir.MessageDone{},
+			}),
+		})
+	}
+
+	RunStream(t, conv)
+
+	if conv.resetCount != 2 {
+		t.Fatalf("ResetStreamVector calls = %d, want 2", conv.resetCount)
+	}
+	if !conv.secondStartedClean {
+		t.Error("second vector began with dirty state from the first vector")
 	}
 }
 
@@ -145,13 +220,33 @@ func TestRunStreamFromIR(t *testing.T) {
 	}
 }
 
-func TestRunStreamToIRPropagatesConverterFailure(t *testing.T) {
+func TestRunStreamToIRIncludesNativeEventContext(t *testing.T) {
 	conv := &fakeStreamConverter{
 		decodeErr: errors.New("native decode failed"),
 	}
-	_, _, err := runStreamToIR(conv, json.RawMessage(`{"events":[{}]}`))
-	if err == nil || err.Error() != "decode native event 0: native decode failed" {
-		t.Fatalf("runStreamToIR error = %v, want native conversion error", err)
+	_, _, err := runStreamToIR(conv, json.RawMessage(`{"events":[{"type":"broken"}]}`))
+	if err == nil {
+		t.Fatal("runStreamToIR succeeded, want native conversion error")
+	}
+	want := `decode native event 0 ({"type":"broken"}): native decode failed`
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("runStreamToIR error = %q, want substring %q", err, want)
+	}
+}
+
+func TestRunStreamToIRTruncatesNativeEventContext(t *testing.T) {
+	raw := json.RawMessage(`{"type":"` + strings.Repeat("x", 600) + `"}`)
+	conv := &fakeStreamConverter{decodeErr: errors.New("native decode failed")}
+	_, _, err := runStreamToIR(conv, marshalNativeEventEnvelope(t, []json.RawMessage{raw}))
+	if err == nil {
+		t.Fatal("runStreamToIR succeeded, want native conversion error")
+	}
+	want := string(raw[:512]) + "…"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("runStreamToIR error does not contain bounded raw event: %q", err)
+	}
+	if strings.Contains(err.Error(), string(raw)) {
+		t.Fatalf("runStreamToIR error contains unbounded raw event (%d bytes)", len(raw))
 	}
 }
 

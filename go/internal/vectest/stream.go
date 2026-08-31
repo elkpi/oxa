@@ -20,6 +20,13 @@ type StreamConverter interface {
 	ApplyIREvent(ir.Event) ([]json.RawMessage, []ir.Loss, error)
 }
 
+// streamVectorResetter is an optional test-adapter capability. RunStream calls
+// it before each vector so that a converter remains isolated even when a prior
+// vector ends with a conversion error.
+type streamVectorResetter interface {
+	ResetStreamVector()
+}
+
 // RunStream executes every stream golden vector for conv's face. It skips when
 // the vectors repository cannot be located (dependency mode), but requires at
 // least one stream vector when running from the monorepo.
@@ -39,6 +46,9 @@ func RunStream(t *testing.T, conv StreamConverter) {
 	for _, v := range vectors {
 		v := v
 		t.Run(v.Name, func(t *testing.T) {
+			if resetter, ok := conv.(streamVectorResetter); ok {
+				resetter.ResetStreamVector()
+			}
 			switch v.Conversion {
 			case "to-ir":
 				actual, losses, err := runStreamToIR(conv, v.Input)
@@ -79,7 +89,7 @@ func runStreamToIR(conv StreamConverter, input json.RawMessage) (json.RawMessage
 	for i, raw := range nativeEvents {
 		decoded, err := conv.DecodeNativeEvent(raw)
 		if err != nil {
-			return nil, nil, fmt.Errorf("decode native event %d: %w", i, err)
+			return nil, nil, fmt.Errorf("decode native event %d (%s): %w", i, boundedNativeEvent(raw), err)
 		}
 		events = append(events, decoded...)
 	}
@@ -120,6 +130,15 @@ func runStreamFromIR(conv StreamConverter, input json.RawMessage) (json.RawMessa
 		return nil, nil, fmt.Errorf("marshal native event envelope: %w", err)
 	}
 	return out, losses, nil
+}
+
+const maxNativeEventErrorBytes = 512
+
+func boundedNativeEvent(raw json.RawMessage) string {
+	if len(raw) <= maxNativeEventErrorBytes {
+		return string(raw)
+	}
+	return string(raw[:maxNativeEventErrorBytes]) + "…"
 }
 
 func unmarshalNativeEvents(raw json.RawMessage) ([]json.RawMessage, error) {

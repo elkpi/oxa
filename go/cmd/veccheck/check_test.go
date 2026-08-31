@@ -323,14 +323,14 @@ func TestCheckVectorFileReportsSchemaAndManualStreamErrors(t *testing.T) {
 func TestVectorSchemaRejectsInputSSEForNonstreamVectors(t *testing.T) {
 	s := testSchemas(t)
 	vector := map[string]any{
-		"name":         "nonstream.no-sse",
-		"description":  "schema contract regression",
-		"spec_version": s.specVersion,
-		"mode":         "nonstream",
-		"conversion":   "to-ir",
-		"source":       map[string]any{"protocol": "chatcompletions"},
-		"input":        map[string]any{},
-		"expected_ir":  map[string]any{},
+		"name":            "nonstream.no-sse",
+		"description":     "schema contract regression",
+		"spec_version":    s.specVersion,
+		"mode":            "nonstream",
+		"conversion":      "to-ir",
+		"source":          map[string]any{"protocol": "chatcompletions"},
+		"input":           map[string]any{},
+		"expected_ir":     map[string]any{},
 		"expected_losses": []any{},
 		"tags":            []any{"schema"},
 	}

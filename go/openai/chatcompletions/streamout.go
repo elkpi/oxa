@@ -240,6 +240,10 @@ func (e *StreamEncoder) queueToolArguments(block *streamEncodeBlock, arguments s
 // The returned payload is tool parameter text and is intentionally never parsed
 // as JSON itself.
 func unwrapIRString(raw json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed[0] != '"' {
+		return "", fmt.Errorf("IR token is not a JSON string")
+	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return "", err

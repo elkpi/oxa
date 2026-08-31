@@ -360,6 +360,10 @@ func streamGeneratedItemID(prefix string, ordinal int) string {
 // unwrapStreamIRString validates and unwraps only the outer IR raw JSON string
 // token. The returned payload remains opaque function argument text.
 func unwrapStreamIRString(raw json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed[0] != '"' {
+		return "", fmt.Errorf("IR token is not a JSON string")
+	}
 	var value string
 	if err := json.Unmarshal(raw, &value); err != nil {
 		return "", err

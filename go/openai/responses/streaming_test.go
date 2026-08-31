@@ -5,6 +5,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/elkpi/oxa/go/ir"
 	"github.com/elkpi/oxa/go/modelmap"
@@ -959,6 +960,45 @@ func TestStreamEncoderFunctionCallRejectsInvalidDeltasAndAggregate(t *testing.T)
 	}
 }
 
+func TestStreamEncoderFunctionCallRejectsNonStringTokens(t *testing.T) {
+	for _, token := range []string{"null", "true", "1", "{}", "[]"} {
+		raw := json.RawMessage(token)
+		t.Run("tool input "+token, func(t *testing.T) {
+			e := NewStreamEncoder()
+			if _, _, err := e.Apply(ir.MessageStart{ID: "resp_tokens", Model: "m"}); err != nil {
+				t.Fatalf("MessageStart: %v", err)
+			}
+			events, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{
+				ID: "call_1", Name: "weather", Input: raw,
+			}})
+			if err == nil {
+				t.Fatalf("ToolUseBlock input %s: want error", token)
+			}
+			if len(events) != 0 {
+				t.Fatalf("ToolUseBlock input %s: got events %#v", token, events)
+			}
+		})
+		t.Run("partial json "+token, func(t *testing.T) {
+			e := NewStreamEncoder()
+			if _, _, err := e.Apply(ir.MessageStart{ID: "resp_tokens", Model: "m"}); err != nil {
+				t.Fatalf("MessageStart: %v", err)
+			}
+			if _, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{
+				ID: "call_1", Name: "weather", Input: responseIRStringToken(t, `{}`),
+			}}); err != nil {
+				t.Fatalf("ToolUseBlock start: %v", err)
+			}
+			events, _, err := e.Apply(ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: raw}})
+			if err == nil {
+				t.Fatalf("InputJSONDelta %s: want error", token)
+			}
+			if len(events) != 0 {
+				t.Fatalf("InputJSONDelta %s: got events %#v", token, events)
+			}
+		})
+	}
+}
+
 func FuzzStreamFunctionCallArguments(f *testing.F) {
 	for _, seed := range []string{
 		"",
@@ -973,6 +1013,9 @@ func FuzzStreamFunctionCallArguments(f *testing.F) {
 		f.Add(seed)
 	}
 	f.Fuzz(func(t *testing.T, input string) {
+		if !utf8.ValidString(input) {
+			t.Skip()
+		}
 		boundaries := responseRuneBoundaries(input)
 		split := boundaries[len(boundaries)/2]
 		fragments := []string{"", input[:split], "", input[split:]}

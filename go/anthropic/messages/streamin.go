@@ -1,7 +1,9 @@
 package messages
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/ir"
 	"github.com/elkpi/oxa/go/modelmap"
@@ -12,11 +14,11 @@ import (
 // with Feed; unlike Chat Completions, the terminal events are emitted by the
 // message_stop event itself (the wire's own terminator), and the required
 // Flush afterwards only confirms the stream end. Unknown event types and
-// unknown delta types are not decodable in M6 and record one
-// unsupported-semantic loss each without disturbing decoder state; an unknown
-// content block type additionally marks its native index as skipped: later
-// deltas and the stop for that index are absorbed without events and without
-// further losses, while later emitted IR blocks retain contiguous indexes.
+// unknown delta types record one unsupported-semantic loss each without
+// disturbing decoder state. Unsupported content block types additionally mark
+// their native index as skipped: later deltas and the stop for that index are
+// absorbed without events or further losses, while later emitted IR blocks
+// retain contiguous indexes.
 type StreamDecoder struct {
 	models      modelmap.Table
 	losses      []ir.Loss
@@ -26,6 +28,11 @@ type StreamDecoder struct {
 	openIndex   int // native index, valid while blockOpen
 	openIRIndex int // emitted IR index, valid while blockOpen
 	blockOpen   bool
+	openTool    bool
+	toolID      string
+	toolName    string
+	toolInput   json.RawMessage
+	toolParts   []string
 	skippedOpen bool
 	skipped     map[int]bool // indexes absorbed as unknown block types
 	deltaSeen   bool
@@ -81,23 +88,52 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if ev.Index != d.nextIndex {
 			return nil, fmt.Errorf("anthropic: content_block_start index %d, want %d", ev.Index, d.nextIndex)
 		}
-		d.nextIndex++
-		if ev.ContentBlock == nil || ev.ContentBlock.Type != "text" {
-			blockType := ""
-			if ev.ContentBlock != nil {
-				blockType = ev.ContentBlock.Type
-			}
+		if ev.ContentBlock == nil {
+			d.nextIndex++
 			d.skipped[ev.Index] = true
 			d.skippedOpen = true
 			d.losses = append(d.losses, ir.Loss{
 				Path:   fmt.Sprintf("content_block_start[%d].content_block.type", ev.Index),
 				Field:  "content_block.type",
 				Reason: ir.LossUnsupportedSemantic,
-				Detail: fmt.Sprintf("Anthropic streaming block type %q is not decodable in M6; the index is skipped", blockType),
+				Detail: "Anthropic streaming block has no content_block payload; the index is skipped",
 			})
 			return nil, nil
 		}
+		if ev.ContentBlock.Type == "tool_use" {
+			if ev.ContentBlock.ID == "" {
+				return nil, fmt.Errorf("anthropic: content_block_start[%d].content_block.id is required", ev.Index)
+			}
+			if ev.ContentBlock.Name == "" {
+				return nil, fmt.Errorf("anthropic: content_block_start[%d].content_block.name is required", ev.Index)
+			}
+			d.nextIndex++
+			d.blockOpen = true
+			d.openTool = true
+			d.openIndex = ev.Index
+			d.openIRIndex = d.nextIRIndex
+			d.nextIRIndex++
+			d.toolID = ev.ContentBlock.ID
+			d.toolName = ev.ContentBlock.Name
+			d.toolInput = append(d.toolInput[:0], ev.ContentBlock.Input...)
+			d.toolParts = nil
+			return nil, nil
+		}
+		if ev.ContentBlock.Type != "text" {
+			d.nextIndex++
+			d.skipped[ev.Index] = true
+			d.skippedOpen = true
+			d.losses = append(d.losses, ir.Loss{
+				Path:   fmt.Sprintf("content_block_start[%d].content_block.type", ev.Index),
+				Field:  "content_block.type",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("Anthropic streaming block type %q is not decodable in M7; the index is skipped", ev.ContentBlock.Type),
+			})
+			return nil, nil
+		}
+		d.nextIndex++
 		d.blockOpen = true
+		d.openTool = false
 		d.openIndex = ev.Index
 		d.openIRIndex = d.nextIRIndex
 		d.nextIRIndex++
@@ -105,6 +141,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 	case "content_block_delta":
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_delta before message_start")
+		}
+		if ev.Delta == nil {
+			return nil, fmt.Errorf("anthropic: content_block_delta without delta")
 		}
 		if d.skipped[ev.Index] {
 			// The block at this index was an unknown type; its deltas are
@@ -114,22 +153,20 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if !d.blockOpen || ev.Index != d.openIndex {
 			return nil, fmt.Errorf("anthropic: content_block_delta index %d does not match the open block", ev.Index)
 		}
-		if ev.Delta == nil {
-			return nil, fmt.Errorf("anthropic: content_block_delta without delta")
+		if d.openTool {
+			switch ev.Delta.Type {
+			case "text_delta":
+				return nil, fmt.Errorf("anthropic: text_delta on tool_use block")
+			case "input_json_delta":
+				d.toolParts = append(d.toolParts, ev.Delta.PartialJSON)
+				return nil, nil
+			}
 		}
 		switch ev.Delta.Type {
 		case "text_delta":
 			return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.TextDelta{Text: ev.Delta.Text}}}, nil
 		case "input_json_delta":
-			// Provisional id: reserved streaming tool-argument loss
-			// (formalized as a spec/20 N-S id in M7).
-			d.losses = append(d.losses, ir.Loss{
-				Path:   fmt.Sprintf("content_block_delta[%d].delta", ev.Index),
-				Field:  "delta.type",
-				Reason: ir.LossUnsupportedSemantic,
-				Detail: "input_json_delta (streaming tool arguments) is decoded in milestone M7",
-			})
-			return nil, nil
+			return nil, fmt.Errorf("anthropic: input_json_delta on non-tool block")
 		default:
 			d.losses = append(d.losses, ir.Loss{
 				Path:   fmt.Sprintf("content_block_delta[%d].delta.type", ev.Index),
@@ -150,6 +187,51 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if !d.blockOpen || ev.Index != d.openIndex {
 			return nil, fmt.Errorf("anthropic: content_block_stop index %d does not match the open block", ev.Index)
+		}
+		if d.openTool {
+			input := d.toolInput
+			var deltas []ir.Event
+			if len(d.toolParts) > 0 {
+				joined, err := json.Marshal(strings.Join(d.toolParts, ""))
+				if err != nil {
+					return nil, fmt.Errorf("anthropic: tool_use input: %w", err)
+				}
+				input = joined
+				for _, part := range d.toolParts {
+					partial, err := json.Marshal(part)
+					if err != nil {
+						return nil, fmt.Errorf("anthropic: tool_use input fragment: %w", err)
+					}
+					deltas = append(deltas, ir.ContentBlockDelta{
+						Index: d.openIRIndex,
+						Delta: ir.InputJSONDelta{PartialJSON: partial},
+					})
+				}
+			} else {
+				var err error
+				input, err = inputToIRString(d.toolInput)
+				if err != nil {
+					return nil, fmt.Errorf("anthropic: tool_use input: %w", err)
+				}
+				deltas = append(deltas, ir.ContentBlockDelta{
+					Index: d.openIRIndex,
+					Delta: ir.InputJSONDelta{PartialJSON: input},
+				})
+			}
+			events := []ir.Event{
+				ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ToolUseBlock{
+					ID: d.toolID, Name: d.toolName, Input: input,
+				}},
+			}
+			events = append(events, deltas...)
+			events = append(events, ir.ContentBlockStop{Index: d.openIRIndex})
+			d.blockOpen = false
+			d.openTool = false
+			d.toolID = ""
+			d.toolName = ""
+			d.toolInput = nil
+			d.toolParts = nil
+			return events, nil
 		}
 		d.blockOpen = false
 		return []ir.Event{ir.ContentBlockStop{Index: d.openIRIndex}}, nil

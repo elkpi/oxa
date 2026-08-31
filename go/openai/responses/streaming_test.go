@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/ir"
@@ -160,14 +161,13 @@ func TestStreamEncoderHappyPath(t *testing.T) {
 	}
 }
 
-func TestStreamDecoderSkipsUnsupportedItemDescendants(t *testing.T) {
+func TestStreamDecoderSkipsFunctionCallOutputItem(t *testing.T) {
 	d := NewStreamDecoder()
 	var got []ir.Event
 	for _, event := range []*StreamEvent{
 		streamCreated("resp_skip", "gpt-4o-mini"),
-		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fc_1", Type: "function_call"}},
-		{Type: "response.function_call_arguments.delta", ItemID: "fc_1", OutputIndex: 0, Delta: `{"city"`},
-		{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{ID: "fc_1", Type: "function_call"}},
+		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output"}},
+		{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output"}},
 		streamItemAdded(1, "msg_1"),
 		streamPartAdded(1, 0, "msg_1"),
 		streamTextDone(1, 0, "msg_1", ""),
@@ -340,18 +340,33 @@ func TestStreamDecoderRejectsMismatchedUnknownPartDescendant(t *testing.T) {
 	}
 }
 
+func TestStreamDecoderRejectsMismatchedSkippedItemDescendant(t *testing.T) {
+	d := NewStreamDecoder()
+	for _, event := range []*StreamEvent{
+		streamCreated("resp_skip_mismatch", "m"),
+		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output"}},
+	} {
+		if _, err := d.Feed(event); err != nil {
+			t.Fatalf("Feed(%s): %v", event.Type, err)
+		}
+	}
+	if _, err := d.Feed(&StreamEvent{Type: "response.unknown", ItemID: "other", OutputIndex: 0}); err == nil {
+		t.Fatal("mismatched skipped-item descendant: want error")
+	}
+}
+
 func TestStreamDecoderRejectsMissingPartPayloadOnSkippedItem(t *testing.T) {
 	d := NewStreamDecoder()
 	for _, event := range []*StreamEvent{
 		streamCreated("resp_nil_part", "gpt-4o-mini"),
-		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fc_1", Type: "function_call"}},
+		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output"}},
 	} {
 		if _, err := d.Feed(event); err != nil {
 			t.Fatalf("Feed(%s): %v", event.Type, err)
 		}
 	}
 	if _, err := d.Feed(&StreamEvent{
-		Type: "response.content_part.added", ItemID: "fc_1", OutputIndex: 0, ContentIndex: 0,
+		Type: "response.content_part.added", ItemID: "fco_1", OutputIndex: 0, ContentIndex: 0,
 	}); err == nil {
 		t.Fatal("content_part.added without part payload: want error")
 	}
@@ -536,4 +551,481 @@ func TestStreamingRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("round trip\n got %#v\nwant %#v", got, want)
 	}
+}
+
+func responseIRStringToken(t *testing.T, value string) json.RawMessage {
+	t.Helper()
+	token, err := json.Marshal(value)
+	if err != nil {
+		t.Fatalf("marshal IR string token: %v", err)
+	}
+	return token
+}
+
+func responseStreamEventFromJSON(t *testing.T, raw string) *StreamEvent {
+	t.Helper()
+	var event StreamEvent
+	if err := json.Unmarshal([]byte(raw), &event); err != nil {
+		t.Fatalf("unmarshal stream event %s: %v", raw, err)
+	}
+	return &event
+}
+
+func TestStreamEventFunctionCallArgumentWireRoundTrip(t *testing.T) {
+	tests := []struct {
+		name string
+		wire string
+	}{
+		{
+			name: "delta preserves required identity and empty fragment",
+			wire: `{"type":"response.function_call_arguments.delta","item_id":"fc_1","output_index":0,"delta":""}`,
+		},
+		{
+			name: "done preserves call identity and complete arguments",
+			wire: `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"weather","arguments":"{\"city\": 1e+01}"}`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			event := responseStreamEventFromJSON(t, test.wire)
+			got, err := json.Marshal(event)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			if string(got) != test.wire {
+				t.Fatalf("wire JSON\n got %s\nwant %s", got, test.wire)
+			}
+		})
+	}
+}
+
+func TestStreamDecoderFunctionCallArgumentsReplayAtItemDone(t *testing.T) {
+	const input = `{"city": "Tokyo", "count": 1e+01}`
+	fragments := []string{"", `{"city": `, `"Tokyo", `, `"count": 1e+01}`}
+	d := NewStreamDecoder()
+	var got []ir.Event
+	feed := func(event *StreamEvent) []ir.Event {
+		t.Helper()
+		events, err := d.Feed(event)
+		if err != nil {
+			t.Fatalf("Feed(%s): %v", event.Type, err)
+		}
+		got = append(got, events...)
+		return events
+	}
+
+	feed(streamCreated("resp_function", "gpt-4o-mini"))
+	feed(&StreamEvent{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{
+		ID: "fc_1", Type: "function_call", Status: "in_progress", CallID: "call_1", Name: "weather", Arguments: fragments[0],
+	}})
+	for _, fragment := range fragments[1:] {
+		feed(&StreamEvent{Type: "response.function_call_arguments.delta", ItemID: "fc_1", OutputIndex: 0, Delta: fragment})
+	}
+	if events := feed(responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"weather","arguments":"{\"city\": \"Tokyo\", \"count\": 1e+01}"}`)); len(events) != 0 {
+		t.Fatalf("arguments.done emitted IR events = %#v", events)
+	}
+	itemDoneEvents := feed(&StreamEvent{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{
+		ID: "fc_1", Type: "function_call", Status: "completed", CallID: "call_1", Name: "weather", Arguments: input,
+	}})
+	wantReplay := []ir.Event{
+		ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "call_1", Name: "weather", Input: responseIRStringToken(t, input)}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, fragments[0])}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, fragments[1])}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, fragments[2])}},
+		ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, fragments[3])}},
+		ir.ContentBlockStop{Index: 0},
+	}
+	if !reflect.DeepEqual(itemDoneEvents, wantReplay) {
+		t.Fatalf("item completion replay\n got %#v\nwant %#v", itemDoneEvents, wantReplay)
+	}
+	feed(&StreamEvent{Type: "response.completed", Response: &Response{
+		ID: "resp_function", Object: "response", Status: "completed", Model: "gpt-4o-mini",
+		Output: []OutputItem{{ID: "fc_1", Type: "function_call", Status: "completed", CallID: "call_1", Name: "weather", Arguments: input}},
+		Usage:  &UsageWire{InputTokens: 3, OutputTokens: 5, TotalTokens: 8},
+	}})
+	want := append([]ir.Event{ir.MessageStart{ID: "resp_function", Model: "gpt-4o-mini"}}, wantReplay...)
+	want = append(want, ir.MessageDelta{StopReason: ir.StopToolUse, Usage: ir.Usage{InputTokens: 3, OutputTokens: 5}}, ir.MessageDone{})
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("decoded events\n got %#v\nwant %#v", got, want)
+	}
+	if losses := d.Losses(); len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	if _, err := d.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+}
+
+func TestStreamDecoderFunctionCallLifecycleErrors(t *testing.T) {
+	newActiveCall := func(t *testing.T) *StreamDecoder {
+		t.Helper()
+		d := NewStreamDecoder()
+		for _, event := range []*StreamEvent{
+			streamCreated("resp_errors", "m"),
+			{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{
+				ID: "fc_1", Type: "function_call", Status: "in_progress", CallID: "call_1", Name: "weather", Arguments: `{"x":`,
+			}},
+		} {
+			if _, err := d.Feed(event); err != nil {
+				t.Fatalf("Feed(%s): %v", event.Type, err)
+			}
+		}
+		return d
+	}
+	tests := []struct {
+		name string
+		run  func(*StreamDecoder) error
+	}{
+		{
+			name: "argument delta item ID differs",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(&StreamEvent{Type: "response.function_call_arguments.delta", ItemID: "fc_other", OutputIndex: 0, Delta: `1}`})
+				return err
+			},
+		},
+		{
+			name: "argument delta output index differs",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(&StreamEvent{Type: "response.function_call_arguments.delta", ItemID: "fc_1", OutputIndex: 1, Delta: `1}`})
+				return err
+			},
+		},
+		{
+			name: "arguments done call ID differs",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_other","name":"weather","arguments":"{\"x\":"}`))
+				return err
+			},
+		},
+		{
+			name: "arguments done name differs",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"other","arguments":"{\"x\":"}`))
+				return err
+			},
+		},
+		{
+			name: "arguments done final text differs",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"weather","arguments":"{}"}`))
+				return err
+			},
+		},
+		{
+			name: "argument delta follows arguments done",
+			run: func(d *StreamDecoder) error {
+				if _, err := d.Feed(responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"weather","arguments":"{\"x\":"}`)); err != nil {
+					return err
+				}
+				_, err := d.Feed(&StreamEvent{Type: "response.function_call_arguments.delta", ItemID: "fc_1", OutputIndex: 0, Delta: `1}`})
+				return err
+			},
+		},
+		{
+			name: "arguments done is repeated",
+			run: func(d *StreamDecoder) error {
+				done := responseStreamEventFromJSON(t, `{"type":"response.function_call_arguments.done","item_id":"fc_1","output_index":0,"call_id":"call_1","name":"weather","arguments":"{\"x\":"}`)
+				if _, err := d.Feed(done); err != nil {
+					return err
+				}
+				_, err := d.Feed(done)
+				return err
+			},
+		},
+		{
+			name: "terminal response leaves retained call open",
+			run: func(d *StreamDecoder) error {
+				_, err := d.Feed(streamCompleted("resp_errors", "m", 0, 0))
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.run(newActiveCall(t)); err == nil {
+				t.Fatal("want error")
+			}
+		})
+	}
+}
+
+func TestStreamDecoderFunctionCallOutputIsAbsorbedOnce(t *testing.T) {
+	d := NewStreamDecoder()
+	var got []ir.Event
+	for _, event := range []*StreamEvent{
+		streamCreated("resp_output", "m"),
+		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output", Status: "in_progress", CallID: "call_1"}},
+		{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{ID: "fco_1", Type: "function_call_output", Status: "completed", CallID: "call_1"}},
+		streamCompleted("resp_output", "m", 1, 2),
+	} {
+		events, err := d.Feed(event)
+		if err != nil {
+			t.Fatalf("Feed(%s): %v", event.Type, err)
+		}
+		got = append(got, events...)
+	}
+	if _, err := d.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	want := []ir.Event{
+		ir.MessageStart{ID: "resp_output", Model: "m"},
+		ir.MessageDelta{StopReason: ir.StopEndTurn, Usage: ir.Usage{InputTokens: 1, OutputTokens: 2}},
+		ir.MessageDone{},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("events\n got %#v\nwant %#v", got, want)
+	}
+	wantLoss := ir.Loss{
+		Path:   "output[0]",
+		Field:  "type",
+		Reason: ir.LossUnsupportedSemantic,
+		Detail: "N-S-10: Responses function_call_output has no supported IR block mapping; response.output_item.done completes and is absorbed for this item-only lifecycle vector",
+	}
+	if losses := d.Losses(); !reflect.DeepEqual(losses, []ir.Loss{wantLoss}) {
+		t.Fatalf("losses\n got %#v\nwant %#v", losses, []ir.Loss{wantLoss})
+	}
+}
+
+func TestStreamEncoderFunctionCallItemsPreserveSerialOutputOrder(t *testing.T) {
+	e := NewStreamEncoder()
+	var wire []*StreamEvent
+	apply := func(event ir.Event) {
+		t.Helper()
+		events, losses, err := e.Apply(event)
+		if err != nil {
+			t.Fatalf("Apply(%T): %v", event, err)
+		}
+		if len(losses) != 0 {
+			t.Fatalf("Apply(%T) losses = %#v", event, losses)
+		}
+		wire = append(wire, events...)
+	}
+	input := `{"tz": "Asia\/Shanghai", "hour": 1e+01}`
+	apply(ir.MessageStart{ID: "resp_serial", Model: "gpt-4o-mini"})
+	apply(ir.ContentBlockStart{Index: 0, Block: ir.TextBlock{}})
+	apply(ir.ContentBlockDelta{Index: 0, Delta: ir.TextDelta{Text: "Looking."}})
+	apply(ir.ContentBlockStop{Index: 0})
+	apply(ir.ContentBlockStart{Index: 1, Block: ir.ToolUseBlock{ID: "call_7", Name: "clock", Input: responseIRStringToken(t, input)}})
+	apply(ir.ContentBlockDelta{Index: 1, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, `{"tz":`)}})
+	apply(ir.ContentBlockDelta{Index: 1, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, ` "Asia\/Shanghai",`)}})
+	apply(ir.ContentBlockDelta{Index: 1, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, ` "hour": 1e+01}`)}})
+	apply(ir.ContentBlockStop{Index: 1})
+	apply(ir.ContentBlockStart{Index: 2, Block: ir.TextBlock{}})
+	apply(ir.ContentBlockDelta{Index: 2, Delta: ir.TextDelta{Text: "Done."}})
+	apply(ir.ContentBlockStop{Index: 2})
+	apply(ir.MessageDelta{StopReason: ir.StopToolUse, Usage: ir.Usage{InputTokens: 6, OutputTokens: 8}})
+	apply(ir.MessageDone{})
+
+	wantTypes := []string{
+		"response.created",
+		"response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.done", "response.content_part.done", "response.output_item.done",
+		"response.output_item.added", "response.function_call_arguments.delta", "response.function_call_arguments.delta", "response.function_call_arguments.delta", "response.function_call_arguments.done", "response.output_item.done",
+		"response.output_item.added", "response.content_part.added", "response.output_text.delta", "response.output_text.done", "response.content_part.done", "response.output_item.done",
+		"response.completed",
+	}
+	if len(wire) != len(wantTypes) {
+		t.Fatalf("wire count = %d, want %d: %#v", len(wire), len(wantTypes), wire)
+	}
+	for index, wantType := range wantTypes {
+		if wire[index].Type != wantType {
+			t.Fatalf("wire[%d].Type = %q, want %q", index, wire[index].Type, wantType)
+		}
+	}
+	if item := wire[7].Item; item == nil || wire[7].OutputIndex != 1 || item.ID != "fc_abc123" || item.CallID != "call_7" || item.Name != "clock" || item.Arguments != "" {
+		t.Fatalf("function_call item start = %#v", wire[7])
+	}
+	argumentsDone, err := json.Marshal(wire[11])
+	if err != nil {
+		t.Fatalf("marshal arguments.done: %v", err)
+	}
+	const wantArgumentsDone = `{"type":"response.function_call_arguments.done","item_id":"fc_abc123","output_index":1,"call_id":"call_7","name":"clock","arguments":"{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}"}`
+	if string(argumentsDone) != wantArgumentsDone {
+		t.Fatalf("arguments.done JSON\n got %s\nwant %s", argumentsDone, wantArgumentsDone)
+	}
+	if item := wire[12].Item; item == nil || item.ID != "fc_abc123" || item.CallID != "call_7" || item.Name != "clock" || item.Arguments != input {
+		t.Fatalf("function_call item completion = %#v", wire[12])
+	}
+	if item := wire[13].Item; item == nil || wire[13].OutputIndex != 2 || item.ID != "msg_abc456" || item.Type != "message" {
+		t.Fatalf("second message item start = %#v", wire[13])
+	}
+	wantOutput := []OutputItem{
+		{ID: "msg_abc123", Type: "message", Status: "completed", Role: "assistant", Content: []OutputContent{{Type: "output_text", Text: "Looking.", Annotations: []json.RawMessage{}}}},
+		{ID: "fc_abc123", Type: "function_call", Status: "completed", CallID: "call_7", Name: "clock", Arguments: input},
+		{ID: "msg_abc456", Type: "message", Status: "completed", Role: "assistant", Content: []OutputContent{{Type: "output_text", Text: "Done.", Annotations: []json.RawMessage{}}}},
+	}
+	if terminal := wire[len(wire)-1]; terminal.Response == nil || !reflect.DeepEqual(terminal.Response.Output, wantOutput) {
+		t.Fatalf("terminal output\n got %#v\nwant %#v", terminal, wantOutput)
+	}
+}
+
+func TestStreamEncoderFunctionCallWithoutDeltasSynthesizesArguments(t *testing.T) {
+	e := NewStreamEncoder()
+	input := `{"count": 1e+01}`
+	if _, _, err := e.Apply(ir.MessageStart{ID: "resp_synth", Model: "m"}); err != nil {
+		t.Fatalf("MessageStart: %v", err)
+	}
+	start, _, err := e.Apply(ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "call_count", Name: "count", Input: responseIRStringToken(t, input)}})
+	if err != nil {
+		t.Fatalf("ToolUseBlock start: %v", err)
+	}
+	if len(start) != 1 || start[0].Type != "response.output_item.added" || start[0].Item == nil || start[0].Item.ID != "fc_abc123" || start[0].Item.CallID != "call_count" || start[0].Item.Name != "count" || start[0].Item.Arguments != "" {
+		t.Fatalf("function item start = %#v", start)
+	}
+	stop, _, err := e.Apply(ir.ContentBlockStop{Index: 0})
+	if err != nil {
+		t.Fatalf("ToolUseBlock stop: %v", err)
+	}
+	if len(stop) != 3 || stop[0].Type != "response.function_call_arguments.delta" || stop[0].Delta != input || stop[1].Type != "response.function_call_arguments.done" || stop[2].Type != "response.output_item.done" {
+		t.Fatalf("synthesized tool completion = %#v", stop)
+	}
+	argumentsDone, err := json.Marshal(stop[1])
+	if err != nil {
+		t.Fatalf("marshal arguments.done: %v", err)
+	}
+	const wantArgumentsDone = `{"type":"response.function_call_arguments.done","item_id":"fc_abc123","output_index":0,"call_id":"call_count","name":"count","arguments":"{\"count\": 1e+01}"}`
+	if string(argumentsDone) != wantArgumentsDone {
+		t.Fatalf("arguments.done JSON\n got %s\nwant %s", argumentsDone, wantArgumentsDone)
+	}
+}
+
+func TestStreamEncoderFunctionCallRejectsInvalidDeltasAndAggregate(t *testing.T) {
+	newToolEncoder := func(t *testing.T) *StreamEncoder {
+		t.Helper()
+		e := NewStreamEncoder()
+		for _, event := range []ir.Event{
+			ir.MessageStart{ID: "resp_errors", Model: "m"},
+			ir.ContentBlockStart{Index: 0, Block: ir.ToolUseBlock{ID: "call_1", Name: "weather", Input: responseIRStringToken(t, `{"city":1}`)}},
+		} {
+			if _, _, err := e.Apply(event); err != nil {
+				t.Fatalf("Apply(%T): %v", event, err)
+			}
+		}
+		return e
+	}
+	tests := []struct {
+		name string
+		run  func(*StreamEncoder) error
+	}{
+		{
+			name: "text delta on tool block",
+			run: func(e *StreamEncoder) error {
+				_, _, err := e.Apply(ir.ContentBlockDelta{Index: 0, Delta: ir.TextDelta{Text: "not arguments"}})
+				return err
+			},
+		},
+		{
+			name: "input delta index differs",
+			run: func(e *StreamEncoder) error {
+				_, _, err := e.Apply(ir.ContentBlockDelta{Index: 1, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, `{"city":1}`)}})
+				return err
+			},
+		},
+		{
+			name: "joined arguments differ from tool input",
+			run: func(e *StreamEncoder) error {
+				if _, _, err := e.Apply(ir.ContentBlockDelta{Index: 0, Delta: ir.InputJSONDelta{PartialJSON: responseIRStringToken(t, `{"city":2}`)}}); err != nil {
+					return err
+				}
+				_, _, err := e.Apply(ir.ContentBlockStop{Index: 0})
+				return err
+			},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if err := test.run(newToolEncoder(t)); err == nil {
+				t.Fatal("want error")
+			}
+		})
+	}
+}
+
+func FuzzStreamFunctionCallArguments(f *testing.F) {
+	for _, seed := range []string{
+		"",
+		"{}",
+		`{"quote":"say \\"hi\\" and \\\\path"}`,
+		`{"city":"東京"}`,
+		` { "key" : "value" } `,
+		"1e+01",
+		`{"nested":{"text":"hello"}}`,
+		`{"emoji":"🙂"}`,
+	} {
+		f.Add(seed)
+	}
+	f.Fuzz(func(t *testing.T, input string) {
+		boundaries := responseRuneBoundaries(input)
+		split := boundaries[len(boundaries)/2]
+		fragments := []string{"", input[:split], "", input[split:]}
+
+		d := NewStreamDecoder()
+		feed := func(event *StreamEvent) []ir.Event {
+			t.Helper()
+			events, err := d.Feed(event)
+			if err != nil {
+				t.Fatalf("Feed(%s): %v", event.Type, err)
+			}
+			return events
+		}
+		feed(streamCreated("resp_fuzz", "m"))
+		feed(&StreamEvent{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{
+			ID: "fc_fuzz", Type: "function_call", Status: "in_progress", CallID: "call_fuzz", Name: "fuzz", Arguments: fragments[0],
+		}})
+		for _, fragment := range fragments[1:] {
+			feed(&StreamEvent{Type: "response.function_call_arguments.delta", ItemID: "fc_fuzz", OutputIndex: 0, Delta: fragment})
+		}
+		events := feed(&StreamEvent{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{
+			ID: "fc_fuzz", Type: "function_call", Status: "completed", CallID: "call_fuzz", Name: "fuzz", Arguments: input,
+		}})
+		feed(streamCompleted("resp_fuzz", "m", 0, 0))
+		if _, err := d.Flush(); err != nil {
+			t.Fatalf("Flush: %v", err)
+		}
+
+		var toolInput string
+		var decodedFragments []string
+		toolFound := false
+		for _, event := range events {
+			switch event := event.(type) {
+			case ir.ContentBlockStart:
+				block, ok := event.Block.(ir.ToolUseBlock)
+				if !ok {
+					continue
+				}
+				if err := json.Unmarshal(block.Input, &toolInput); err != nil {
+					t.Fatalf("unwrap tool input: %v", err)
+				}
+				toolFound = true
+			case ir.ContentBlockDelta:
+				delta, ok := event.Delta.(ir.InputJSONDelta)
+				if !ok {
+					continue
+				}
+				var fragment string
+				if err := json.Unmarshal(delta.PartialJSON, &fragment); err != nil {
+					t.Fatalf("unwrap input fragment: %v", err)
+				}
+				decodedFragments = append(decodedFragments, fragment)
+			}
+		}
+		if !toolFound {
+			t.Fatal("function_call item did not replay a ToolUseBlock")
+		}
+		if got := strings.Join(decodedFragments, ""); got != toolInput {
+			t.Fatalf("joined fragments = %q, tool input = %q", got, toolInput)
+		}
+		if toolInput != input {
+			t.Fatalf("tool input = %q, want %q", toolInput, input)
+		}
+	})
+}
+
+func responseRuneBoundaries(value string) []int {
+	boundaries := []int{0}
+	for offset := range value {
+		if offset != 0 {
+			boundaries = append(boundaries, offset)
+		}
+	}
+	return append(boundaries, len(value))
 }

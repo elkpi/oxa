@@ -39,6 +39,7 @@ type StreamDecoder struct {
 	skippedItem      bool
 	itemType         string
 	itemID           string
+	skippedCallID    string
 	outputIndex      int
 	nextContentIndex int
 	functionCall     *streamFunctionCall
@@ -104,6 +105,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.itemType = ev.Item.Type
 		d.outputIndex = ev.OutputIndex
 		d.itemID = ev.Item.ID
+		d.skippedCallID = ""
 		d.nextContentIndex = 0
 		d.functionCall = nil
 		switch {
@@ -123,6 +125,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, nil
 		default:
 			d.skippedItem = true
+			if ev.Item.Type == "function_call_output" {
+				d.skippedCallID = ev.Item.CallID
+			}
 			d.losses = append(d.losses, d.unsupportedItemLoss(ev.OutputIndex, ev.Item.Type))
 			return nil, nil
 		}
@@ -276,6 +281,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if ev.Item == nil || ev.Item.ID != d.itemID || ev.Item.Type != d.itemType {
 			return nil, fmt.Errorf("responses: response.output_item.done does not match the open item")
 		}
+		if d.skippedItem && d.itemType == "function_call_output" && ev.Item.CallID != d.skippedCallID {
+			return nil, fmt.Errorf("responses: response.output_item.done does not match the active function_call_output")
+		}
 		if d.blockOpen || d.skippedPart {
 			return nil, fmt.Errorf("responses: response.output_item.done with a content part still open")
 		}
@@ -294,6 +302,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.itemOpen = false
 		d.itemType = ""
+		d.itemID = ""
+		d.skippedCallID = ""
 		d.skippedItem = false
 		d.functionCall = nil
 		return events, nil

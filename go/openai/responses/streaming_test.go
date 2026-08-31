@@ -786,6 +786,25 @@ func TestStreamDecoderFunctionCallOutputIsAbsorbedOnce(t *testing.T) {
 	}
 }
 
+func TestStreamDecoderFunctionCallOutputRejectsMismatchedCallID(t *testing.T) {
+	d := NewStreamDecoder()
+	for _, event := range []*StreamEvent{
+		streamCreated("resp_output_mismatch", "m"),
+		{Type: "response.output_item.added", OutputIndex: 0, Item: &OutputItem{
+			ID: "fco_1", Type: "function_call_output", Status: "in_progress", CallID: "call_A",
+		}},
+	} {
+		if _, err := d.Feed(event); err != nil {
+			t.Fatalf("Feed(%s): %v", event.Type, err)
+		}
+	}
+	if _, err := d.Feed(&StreamEvent{Type: "response.output_item.done", OutputIndex: 0, Item: &OutputItem{
+		ID: "fco_1", Type: "function_call_output", Status: "completed", CallID: "call_B",
+	}}); err == nil {
+		t.Fatal("mismatched function_call_output call_id: want error")
+	}
+}
+
 func TestStreamEncoderFunctionCallItemsPreserveSerialOutputOrder(t *testing.T) {
 	e := NewStreamEncoder()
 	var wire []*StreamEvent

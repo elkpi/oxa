@@ -11,7 +11,12 @@ import (
 // vectorConverter adapts the package-level conversion functions to the
 // vectest.Converter surface: wire JSON is decoded into the face's wire types,
 // IR results are marshaled through the canonical ir codec.
-type vectorConverter struct{}
+type vectorConverter struct {
+	decoder        *StreamDecoder
+	decoderFlushed bool
+	encoder        *StreamEncoder
+	encoderDone    bool
+}
 
 func (vectorConverter) Face() string { return "anthropic" }
 
@@ -55,6 +60,61 @@ func (vectorConverter) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []i
 	return out, losses, nil
 }
 
+func newVectorStreamConverter() *vectorConverter {
+	return &vectorConverter{
+		decoder: NewStreamDecoder(),
+		encoder: NewStreamEncoder(),
+	}
+}
+
+func (c *vectorConverter) DecodeNativeEvent(raw json.RawMessage) ([]ir.Event, error) {
+	if c.decoder == nil || c.decoderFlushed {
+		c.decoder = NewStreamDecoder()
+		c.decoderFlushed = false
+	}
+	var event StreamEvent
+	if err := json.Unmarshal(raw, &event); err != nil {
+		return nil, err
+	}
+	return c.decoder.Feed(&event)
+}
+
+func (c *vectorConverter) FlushDecoder() ([]ir.Event, error) {
+	events, err := c.decoder.Flush()
+	if err == nil {
+		c.decoderFlushed = true
+	}
+	return events, err
+}
+
+func (c *vectorConverter) DecoderLosses() []ir.Loss {
+	return c.decoder.Losses()
+}
+
+func (c *vectorConverter) ApplyIREvent(ev ir.Event) ([]json.RawMessage, []ir.Loss, error) {
+	if c.encoder == nil || c.encoderDone {
+		c.encoder = NewStreamEncoder()
+		c.encoderDone = false
+	}
+	events, losses, err := c.encoder.Apply(ev)
+	if err != nil {
+		return nil, nil, err
+	}
+	if _, ok := ev.(ir.MessageDone); ok {
+		c.encoderDone = true
+	}
+	out := make([]json.RawMessage, 0, len(events))
+	for _, event := range events {
+		raw, err := json.Marshal(event)
+		if err != nil {
+			return nil, nil, err
+		}
+		out = append(out, raw)
+	}
+	return out, losses, nil
+}
+
 func TestVectors(t *testing.T) {
 	vectest.Run(t, vectorConverter{})
+	vectest.RunStream(t, newVectorStreamConverter())
 }

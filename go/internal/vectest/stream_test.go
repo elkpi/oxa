@@ -256,7 +256,18 @@ func setupStreamVectorRepo(t *testing.T) string {
 	if err := os.Mkdir(filepath.Join(root, ".git"), 0o755); err != nil {
 		t.Fatalf("make fake git directory: %v", err)
 	}
-	t.Chdir(root)
+	previous, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("get working directory: %v", err)
+	}
+	if err := os.Chdir(root); err != nil {
+		t.Fatalf("change to fake repository: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(previous); err != nil {
+			t.Errorf("restore working directory: %v", err)
+		}
+	})
 	return root
 }
 

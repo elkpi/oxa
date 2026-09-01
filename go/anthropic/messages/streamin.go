@@ -189,7 +189,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("anthropic: content_block_stop index %d does not match the open block", ev.Index)
 		}
 		if d.openTool {
-			input := d.toolInput
+			var input json.RawMessage
 			var deltas []ir.Event
 			if len(d.toolParts) > 0 {
 				joined, err := json.Marshal(strings.Join(d.toolParts, ""))

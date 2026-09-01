@@ -1,6 +1,6 @@
 # 01 — Intermediate Representation
 
-Status: normative. Spec version 0.1.0.
+Status: normative. The current spec version is declared in [README.md](README.md).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
@@ -260,9 +260,8 @@ relationships between elements and are beyond JSON Schema; they are
 enforced by converter implementations and by vector checking (INV-9).
 
 The schema's `$id`
-(`https://github.com/oxa-protocol/oxa/spec/schema/ir.schema.json`) is an
-identifier, not a fetchable location; `oxa-protocol` is the repository-wide
-placeholder organization name and will be repointed at release.
+(`https://github.com/elkpi/oxa/spec/schema/ir.schema.json`) is an
+identifier, not a fetchable location.
 
 ## 7. Invariants
 

@@ -125,7 +125,7 @@ inside a tool result are unsupported-semantic losses.
 
 ## 6. Streaming Event Mapping
 
-Deferred to spec/20 (streaming semantics, planned). This document
+Deferred to [spec/20](20-streaming-semantics.md) (streaming semantics). This document
 MUST NOT be cited for streaming behavior.
 
 ## 7. Normalization Rules

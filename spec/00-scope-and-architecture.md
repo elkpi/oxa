@@ -1,6 +1,6 @@
 # 00 — Scope and Architecture
 
-Status: normative. Spec version 0.1.0.
+Status: normative. The current spec version is declared in [README.md](README.md).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
@@ -14,9 +14,9 @@ three protocol faces:
 
 | Face | Protocol | Mapping document |
 |------|----------|------------------|
-| CC | OpenAI Chat Completions | 10 (planned) |
-| Responses | OpenAI Responses | 11 (planned) |
-| Anthropic | Anthropic Messages | 12 (planned) |
+| CC | OpenAI Chat Completions | [10](10-mapping-openai-chat-completions.md) |
+| Responses | OpenAI Responses | [11](11-mapping-openai-responses.md) |
+| Anthropic | Anthropic Messages | [12](12-mapping-anthropic-messages.md) |
 
 Version 1 covers:
 
@@ -55,7 +55,7 @@ Concretely, equivalence compares five artifacts, in block order:
 
 1. the **normalized block sequence**: each block's `type`, plus `id` and
    `name` for tool_use blocks, after applying the normalization rules of
-   document 20 (until document 20 lands, normalization is the identity);
+   document [20](20-streaming-semantics.md);
 2. the **concatenated texts**: for each text block, the concatenation of
    all its text deltas;
 3. the **aggregated tool-argument strings**: for each tool_use block, the

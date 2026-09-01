@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/vector.schema.json",
+  "$id": "https://github.com/elkpi/oxa/spec/schema/vector.schema.json",
   "title": "oxa golden vector",
   "description": "Validates every file in vectors/ except manifest.json. A vector is one conversion case: an input document, an expected output document, and the losses the conversion MUST report. spec_version must equal the specVersion const pinned in ir.schema.json; veccheck cross-checks that at runtime.",
   "type": "object",

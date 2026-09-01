@@ -1,10 +1,15 @@
 oxa
 ===
 
-**Status: pre-alpha.** Nothing here works yet — see the badges below.
+Protocol conversion between the OpenAI and Anthropic APIs, as pure
+in-process libraries.
 
-[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-red)]()
-[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)]()
+[![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
+[![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+
+**Status: early development, pre-v1.** The specification, golden vectors,
+and the Go reference implementation are usable today; interfaces may still
+change before v1.
 
 ## What is oxa?
 
@@ -51,7 +56,7 @@ without a corresponding vector update.
 
 | Language | Directory | State |
 |----------|-----------|-------|
-| Go | `go/` | Reference implementation — in progress |
+| Go | `go/` | Reference implementation — usable (pre-v1) |
 | Rust | `rust/` | Roadmap, post-v1 |
 | Python | `python/` | Roadmap, post-v1 (after Rust) |
 | C++ | `cpp/` | Roadmap, post-v1 (after Python) |
@@ -62,16 +67,63 @@ without a corresponding vector update.
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
 go/        Go reference implementation
+docs/      Design docs and the release checklist
 rust/      Rust implementation (post-v1)
 python/    Python implementation (post-v1)
 cpp/       C++ implementation (post-v1)
 ```
 
+## Current capabilities
+
+The Go reference implementation converts between each protocol face and a
+shared intermediate representation (IR):
+
+| Conversion | Nonstream | Streaming |
+|------------|-----------|-----------|
+| Chat Completions ↔ IR | requests and responses | text events + `tool_calls` argument aggregation |
+| Responses ↔ IR | requests and responses | text events + function-call argument aggregation |
+| Anthropic Messages ↔ IR | requests and responses | text events + `input_json_delta` aggregation |
+| Any face → any face | two-step composition (below); locked by cross vectors | not yet |
+
+Semantic gaps are never silent: every conversion also returns an ordered
+loss list describing what could not be carried
+([spec/02](spec/02-loss-policy.md)).
+
 ## Quick start
 
-Coming soon — the Go reference implementation is not merged yet. Once it
-lands, this section will show how to import the converter and translate a
-request in a few lines of code.
+Requires Go 1.23+.
+
+```bash
+go get github.com/elkpi/oxa/go
+```
+
+Any face pair composes through the IR in two steps:
+
+```go
+import (
+    messages "github.com/elkpi/oxa/go/anthropic/messages"
+    "github.com/elkpi/oxa/go/openai/chatcompletions"
+)
+
+irReq, losses, err := chatcompletions.DecodeRequest(ccRequest)
+if err != nil { /* structural input error */ }
+anRequest, encodeLosses, err := messages.EncodeRequest(irReq)
+losses = append(losses, encodeLosses...)
+```
+
+A complete, compile-verified version of this example lives at
+[`go/openai/chatcompletions/example_test.go`](go/openai/chatcompletions/example_test.go)
+(it is also visible in the godoc of that package).
+
+## Documentation
+
+- [spec/README.md](spec/README.md) — the specification: reading order and
+  source-of-truth rules
+- [vectors/README.md](vectors/README.md) — golden vectors and the
+  normative comparison rules
+- [CHANGELOG.md](CHANGELOG.md) — notable changes
+- [docs/release-checklist.md](docs/release-checklist.md) — release
+  preconditions
 
 ## Contributing
 

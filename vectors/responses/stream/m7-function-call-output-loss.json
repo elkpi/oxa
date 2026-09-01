@@ -1,0 +1,33 @@
+{
+  "name": "responses.stream.m7-function-call-output-loss",
+  "description": "A streamed function_call_output item with response.output_item.added followed directly by response.output_item.done and a terminal completed response is an unsupported M7 semantic: exactly one unsupported-semantic loss at the item, item completion is absorbed, and no IR content block is emitted (N-S-10). This vector validates item-completion absorption only; the current typed StreamEvent codec exposes no legal function_call_output descendant event.",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_fco1", "object": "response", "status": "in_progress", "model": "gpt-4o-mini", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "function_call_output", "id": "fco_1", "call_id": "call_1", "status": "in_progress", "output": "" } },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "function_call_output", "id": "fco_1", "call_id": "call_1", "status": "completed", "output": "Sunny, 22" } },
+      { "type": "response.completed", "response": { "id": "resp_fco1", "object": "response", "status": "completed", "model": "gpt-4o-mini", "output": [ { "type": "function_call_output", "id": "fco_1", "call_id": "call_1", "status": "completed", "output": "Sunny, 22" } ], "usage": { "input_tokens": 4, "output_tokens": 2, "total_tokens": 6 } } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "resp_fco1", "model": "gpt-4o-mini" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 4, "output_tokens": 2 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "output[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "N-S-10: Responses function_call_output has no supported IR block mapping; response.output_item.done completes and is absorbed for this item-only lifecycle vector"
+    }
+  ],
+  "tags": ["tools", "stream", "m7", "loss", "n-s-10"]
+}

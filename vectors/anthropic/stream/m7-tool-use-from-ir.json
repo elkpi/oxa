@@ -1,0 +1,36 @@
+{
+  "name": "anthropic.stream.m7-tool-use-from-ir",
+  "description": "An IR tool block encodes to a canonical native content_block_start with the empty object input placeholder, one native input_json_delta per IR argument fragment with escapes, Unicode, and numeric spellings preserved verbatim, then a content_block_stop and the tool_use terminal (N-S-10, INV-1).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "msg_9", "model": "claude-sonnet-4-5" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "tool_use", "id": "toolu_3", "name": "weather", "input": "{\"city\": \"P\\u0041ris\", \"weight\": 1.0}" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"city\":" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"P\\u0041ris\"," } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"weight\": 1.0}" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 3, "output_tokens": 5 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      { "type": "message_start", "message": { "id": "msg_9", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [], "stop_reason": null, "usage": { "input_tokens": 0, "output_tokens": 0 } } },
+      { "type": "content_block_start", "index": 0, "content_block": { "type": "tool_use", "id": "toolu_3", "name": "weather", "input": {} } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"city\":" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"P\\u0041ris\"," } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"weight\": 1.0}" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "delta": { "stop_reason": "tool_use" }, "usage": { "input_tokens": 3, "output_tokens": 5 } },
+      { "type": "message_stop" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "m7", "raw-json", "n-s-10", "inv-1"]
+}

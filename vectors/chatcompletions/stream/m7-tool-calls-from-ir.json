@@ -1,0 +1,53 @@
+{
+  "name": "chatcompletions.stream.m7-tool-calls-from-ir",
+  "description": "An IR stream of text, two tool blocks, and text after a tool block encodes to native chunks with consecutive tool indexes and function start fields on each first tool delta; empty fragments are preserved, a block without input deltas gets one synthesized full-arguments delta, the later text is normalized ahead of the tool calls with exactly one degraded ordering loss (N-S-10).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "chatcmpl-9", "model": "gpt-4o-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "Check" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": "ing." } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "tool_use", "id": "call_1", "name": "weather", "input": "{\"city\": \"Paris\", \"label\": \"东京\"}" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "{\"city\":" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "input_json_delta", "partial_json": " \"Paris\", \"label\": \"东京\"}" } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "content_block_start", "index": 2, "block": { "type": "tool_use", "id": "call_2", "name": "clock", "input": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } },
+      { "type": "content_block_stop", "index": 2 },
+      { "type": "content_block_start", "index": 3, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 3, "delta": { "type": "text_delta", "text": "Done." } },
+      { "type": "content_block_stop", "index": 3 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 5, "output_tokens": 7 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "role": "assistant" }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "content": "Check" }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "content": "ing." }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "content": "Done." }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "id": "call_1", "type": "function", "function": { "name": "weather", "arguments": "{\"city\":" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": "" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 0, "function": { "arguments": " \"Paris\", \"label\": \"东京\"}" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "tool_calls": [{ "index": 1, "id": "call_2", "type": "function", "function": { "name": "clock", "arguments": "{\"tz\": \"Asia\\/Shanghai\", \"hour\": 1e+01}" } }] }, "finish_reason": null }] },
+      { "id": "chatcmpl-9", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": {}, "finish_reason": "tool_calls" }], "usage": { "prompt_tokens": 5, "completion_tokens": 7, "total_tokens": 12 } }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "events",
+      "field": "ordering",
+      "reason": "degraded",
+      "detail": "N-S-10: the text block after a tool block is normalized ahead of the tool calls; IR source order is not preserved"
+    }
+  ],
+  "tags": ["tools", "stream", "m7", "raw-json", "ordering", "loss", "n-s-10"]
+}

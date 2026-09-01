@@ -173,9 +173,9 @@ type UsageWire struct {
 }
 
 // StreamEvent is one OpenAI Responses streaming SSE event. Type is the
-// discriminating head. The payload fields model the text-stream subset: the
-// response envelope, output item and content part lifecycle, and text delta
-// or completion payloads. SequenceNumber is an envelope field and has no IR
+// discriminating head. The payload fields model response and output-item
+// lifecycles, text content parts, and function-call argument deltas and
+// completion validation. SequenceNumber is an envelope field and has no IR
 // equivalent.
 type StreamEvent struct {
 	Type           string         `json:"type"`
@@ -187,6 +187,9 @@ type StreamEvent struct {
 	Part           *OutputContent `json:"part,omitempty"`
 	Delta          string         `json:"delta,omitempty"`
 	Text           string         `json:"text,omitempty"`
+	CallID         string         `json:"call_id,omitempty"`
+	Name           string         `json:"name,omitempty"`
+	Arguments      string         `json:"arguments,omitempty"`
 	SequenceNumber int64          `json:"sequence_number,omitempty"`
 }
 
@@ -231,6 +234,31 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 		}{
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Part: e.Part, sequence: sequence{e.SequenceNumber},
+		})
+	case "response.function_call_arguments.delta":
+		return json.Marshal(struct {
+			Type        string `json:"type"`
+			ItemID      string `json:"item_id"`
+			OutputIndex int    `json:"output_index"`
+			Delta       string `json:"delta"`
+			sequence
+		}{
+			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
+			Delta: e.Delta, sequence: sequence{e.SequenceNumber},
+		})
+	case "response.function_call_arguments.done":
+		return json.Marshal(struct {
+			Type        string `json:"type"`
+			ItemID      string `json:"item_id"`
+			OutputIndex int    `json:"output_index"`
+			CallID      string `json:"call_id"`
+			Name        string `json:"name"`
+			Arguments   string `json:"arguments"`
+			sequence
+		}{
+			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
+			CallID: e.CallID, Name: e.Name, Arguments: e.Arguments,
+			sequence: sequence{e.SequenceNumber},
 		})
 	case "response.output_text.delta":
 		return json.Marshal(struct {

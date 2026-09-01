@@ -91,21 +91,26 @@ single-text user turn (spec/11 N-R-2); Anthropic `type: "message"` and
 
 ## Stream self-consistency assertions
 
-For `stream` vectors (arriving at M6), the harness additionally asserts
-self-consistency of the *expected* side, so that a golden stream can never
-encode an impossible IR:
+For `stream` vectors, the harness validates the following assertions in
+order:
 
-- concatenation of all `text_delta` fragments of a block equals that block's
-  final text in the aggregated (nonstream) response
-- concatenation of all `input_json_delta.partial_json` fragments of a block
-  equals that block's `tool_use.input` string
-- the event sequence obeys the INV-5 grammar and INV-6 index discipline
-  (spec/01 §7)
-- `message_delta.usage` equals the response's `usage`, and
-  `message_delta.stop_reason` equals the response's `stop_reason`
+- the vector document and its `expected_ir` / `expected_output` match
+  their respective JSON schemas;
+- the event sequence obeys the INV-5 grammar and INV-6 contiguous-index
+  discipline (spec/01 §7);
+- every tool-use block's `ToolUseBlock.input` equals the exact
+  concatenation of its `InputJSONDelta.partial_json` fragments in
+  encounter order;
+- text and tool-argument fragments remain in their received order;
+- native events compare as ordered arrays in `input.events` and
+  `expected_output.events`; and
+- losses compare as unordered sets keyed on `(path, field, reason)`.
 
-These checks run even though no stream vectors exist yet; they activate
-automatically when the first `mode: "stream"` vector lands.
+Tool argument payloads compare as exact opaque JSON strings (spec/01
+INV-1); neither the vector format nor the checker re-parses or
+re-serializes them. No assertion compares stream text fragments against
+a generated non-stream aggregate, because a stream vector carries the
+event sequence directly rather than delegating to an aggregated response.
 
 ## manifest.json
 

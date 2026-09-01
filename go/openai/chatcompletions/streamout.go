@@ -1,25 +1,54 @@
 package chatcompletions
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/ir"
 	"github.com/elkpi/oxa/go/modelmap"
 )
 
+type streamBlockKind uint8
+
+const (
+	streamTextBlock streamBlockKind = iota
+	streamToolBlock
+)
+
+// streamEncodeBlock retains the current IR block. Tool input and fragments are
+// decoded only from their outer IR JSON string tokens; their payloads remain
+// opaque and are emitted as CC function.arguments strings without inspection.
+type streamEncodeBlock struct {
+	kind        streamBlockKind
+	index       int
+	toolID      string
+	toolName    string
+	toolInput   string
+	fragments   []string
+	nativeIndex int
+	toolStarted bool
+}
+
 // StreamEncoder incrementally converts an IR event stream into Chat
 // Completions chunks (IR -> face), enforcing the INV-5 grammar. Envelope
 // fields absent from the IR render with the documented defaults (object
 // "chat.completion.chunk", created 0, single choice index 0) and record no
-// loss.
+// loss. Tool chunks remain buffered until MessageDelta so a later text block
+// can be normalized before all native tool_calls.
 type StreamEncoder struct {
-	models    modelmap.Table
-	id        string
-	model     string
-	started   bool
-	blockOpen bool
-	finished  bool // MessageDelta applied
-	done      bool // MessageDone applied
+	models          modelmap.Table
+	id              string
+	model           string
+	started         bool
+	active          *streamEncodeBlock
+	nextIRIndex     int
+	nextNativeTool  int
+	toolSeen        bool
+	orderingDegrade bool
+	pendingTools    []*Chunk
+	finished        bool // MessageDelta applied
+	done            bool // MessageDone applied
 }
 
 // NewStreamEncoder returns an event-stream encoder. The variadic Options match
@@ -39,6 +68,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 	if e.done || (e.finished && !isMessageDone(ev)) {
 		return nil, nil, fmt.Errorf("chatcompletions: event applied after stream termination (%T)", ev)
 	}
+
 	switch event := ev.(type) {
 	case ir.MessageStart:
 		if e.started {
@@ -47,49 +77,94 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		e.started = true
 		e.id = event.ID
 		e.model = e.models.Map(event.Model)
-		return []*Chunk{{
-			ID:      e.id,
-			Object:  "chat.completion.chunk",
-			Created: 0,
-			Model:   e.model,
-			Choices: []ChoiceDelta{{Index: 0, Delta: DeltaPayload{Role: "assistant"}}},
-		}}, nil, nil
+		return []*Chunk{e.chunk(DeltaPayload{Role: "assistant"})}, nil, nil
+
 	case ir.ContentBlockStart:
-		if !e.started || e.blockOpen {
+		if !e.started || e.active != nil {
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart out of grammar order")
 		}
-		if _, ok := event.Block.(ir.TextBlock); !ok {
-			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart carries a non-text block (unreachable in M6)")
+		if event.Index != e.nextIRIndex {
+			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart index %d, want %d", event.Index, e.nextIRIndex)
 		}
-		if event.Index != 0 {
-			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart index %d, want 0", event.Index)
+		e.nextIRIndex++
+		switch block := event.Block.(type) {
+		case ir.TextBlock:
+			if e.toolSeen {
+				e.orderingDegrade = true
+			}
+			e.active = &streamEncodeBlock{kind: streamTextBlock, index: event.Index}
+			return nil, nil, nil
+		case ir.ToolUseBlock:
+			if block.ID == "" || block.Name == "" {
+				return nil, nil, fmt.Errorf("chatcompletions: ToolUseBlock requires nonempty ID and name")
+			}
+			input, err := unwrapIRString(block.Input)
+			if err != nil {
+				return nil, nil, fmt.Errorf("chatcompletions: ToolUseBlock input: %w", err)
+			}
+			e.active = &streamEncodeBlock{
+				kind:        streamToolBlock,
+				index:       event.Index,
+				toolID:      block.ID,
+				toolName:    block.Name,
+				toolInput:   input,
+				nativeIndex: e.nextNativeTool,
+			}
+			e.nextNativeTool++
+			e.toolSeen = true
+			return nil, nil, nil
+		default:
+			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart carries unsupported block %T", block)
 		}
-		e.blockOpen = true
-		return nil, nil, nil
+
 	case ir.ContentBlockDelta:
-		if !e.blockOpen || event.Index != 0 {
+		if e.active == nil || event.Index != e.active.index {
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockDelta out of grammar order")
 		}
-		delta, ok := event.Delta.(ir.TextDelta)
-		if !ok {
-			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockDelta carries a non-text delta (unreachable in M6)")
+		switch e.active.kind {
+		case streamTextBlock:
+			delta, ok := event.Delta.(ir.TextDelta)
+			if !ok {
+				return nil, nil, fmt.Errorf("chatcompletions: TextBlock received non-text delta %T", event.Delta)
+			}
+			text := delta.Text
+			return []*Chunk{e.chunk(DeltaPayload{Content: &text})}, nil, nil
+		case streamToolBlock:
+			delta, ok := event.Delta.(ir.InputJSONDelta)
+			if !ok {
+				return nil, nil, fmt.Errorf("chatcompletions: ToolUseBlock received non-input-json delta %T", event.Delta)
+			}
+			fragment, err := unwrapIRString(delta.PartialJSON)
+			if err != nil {
+				return nil, nil, fmt.Errorf("chatcompletions: InputJSONDelta partial_json: %w", err)
+			}
+			e.active.fragments = append(e.active.fragments, fragment)
+			e.queueToolArguments(e.active, fragment)
+			return nil, nil, nil
+		default:
+			return nil, nil, fmt.Errorf("chatcompletions: unknown active block kind")
 		}
-		text := delta.Text
-		return []*Chunk{{
-			ID:      e.id,
-			Object:  "chat.completion.chunk",
-			Created: 0,
-			Model:   e.model,
-			Choices: []ChoiceDelta{{Index: 0, Delta: DeltaPayload{Content: &text}}},
-		}}, nil, nil
+
 	case ir.ContentBlockStop:
-		if !e.blockOpen || event.Index != 0 {
+		if e.active == nil || event.Index != e.active.index {
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStop out of grammar order")
 		}
-		e.blockOpen = false
+		if e.active.kind == streamToolBlock {
+			if len(e.active.fragments) == 0 {
+				// M7 permits an IR-to-CC ToolUseBlock with no fragments. Emit one
+				// synthesized native arguments delta so CC receives the full input.
+				e.active.fragments = append(e.active.fragments, e.active.toolInput)
+				e.queueToolArguments(e.active, e.active.toolInput)
+			}
+			if strings.Join(e.active.fragments, "") != e.active.toolInput {
+				return nil, nil, fmt.Errorf("chatcompletions: ToolUseBlock input does not equal concatenated InputJSONDelta fragments")
+			}
+		}
+		e.active = nil
 		return nil, nil, nil
+
 	case ir.MessageDelta:
-		if !e.started || e.blockOpen {
+		if !e.started || e.active != nil {
 			return nil, nil, fmt.Errorf("chatcompletions: MessageDelta out of grammar order")
 		}
 		finish, finishLoss, err := encodeFinishReason(event.StopReason)
@@ -100,8 +175,16 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		if finishLoss != nil {
 			losses = append(losses, *finishLoss)
 		}
+		if e.orderingDegrade {
+			losses = append(losses, loss(
+				"events", "ordering", ir.LossDegraded,
+				"N-S-10: the text block after a tool block is normalized ahead of the tool calls; IR source order is not preserved",
+			))
+		}
 		e.finished = true
-		chunk := &Chunk{
+		chunks := append([]*Chunk(nil), e.pendingTools...)
+		e.pendingTools = nil
+		chunks = append(chunks, &Chunk{
 			ID:      e.id,
 			Object:  "chat.completion.chunk",
 			Created: 0,
@@ -112,17 +195,60 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 				CompletionTokens: event.Usage.OutputTokens,
 				TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
 			},
-		}
-		return []*Chunk{chunk}, losses, nil
+		})
+		return chunks, losses, nil
+
 	case ir.MessageDone:
 		if !e.finished {
 			return nil, nil, fmt.Errorf("chatcompletions: MessageDone out of grammar order")
 		}
 		e.done = true
 		return nil, nil, nil
+
 	default:
 		return nil, nil, fmt.Errorf("chatcompletions: unknown event %T", ev)
 	}
+}
+
+func (e *StreamEncoder) chunk(delta DeltaPayload) *Chunk {
+	return &Chunk{
+		ID:      e.id,
+		Object:  "chat.completion.chunk",
+		Created: 0,
+		Model:   e.model,
+		Choices: []ChoiceDelta{{Index: 0, Delta: delta}},
+	}
+}
+
+func (e *StreamEncoder) queueToolArguments(block *streamEncodeBlock, arguments string) {
+	args := arguments
+	function := &FunctionDelta{Arguments: &args}
+	call := ToolCallDelta{Index: block.nativeIndex, Function: function}
+	if !block.toolStarted {
+		id := block.toolID
+		kind := "function"
+		name := block.toolName
+		call.ID = &id
+		call.Type = &kind
+		function.Name = &name
+		block.toolStarted = true
+	}
+	e.pendingTools = append(e.pendingTools, e.chunk(DeltaPayload{ToolCalls: []ToolCallDelta{call}}))
+}
+
+// unwrapIRString validates and unwraps only the outer IR raw JSON string token.
+// The returned payload is tool parameter text and is intentionally never parsed
+// as JSON itself.
+func unwrapIRString(raw json.RawMessage) (string, error) {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed[0] != '"' {
+		return "", fmt.Errorf("IR token is not a JSON string")
+	}
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func isMessageDone(ev ir.Event) bool {

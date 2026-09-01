@@ -133,13 +133,29 @@ type ChoiceDelta struct {
 	FinishReason *string      `json:"finish_reason"`
 }
 
-// DeltaPayload is the incremental delta object of a chunk choice. ToolCalls is
-// not decoded in M6; its presence is detected so the decoder can record an
-// unsupported-semantic loss.
+// DeltaPayload is the incremental delta object of a chunk choice. Pointer
+// fields distinguish an absent wire field from a present empty fragment.
 type DeltaPayload struct {
 	Role      string          `json:"role,omitempty"`
 	Content   *string         `json:"content,omitempty"`
-	ToolCalls json.RawMessage `json:"tool_calls,omitempty"`
+	ToolCalls []ToolCallDelta `json:"tool_calls,omitempty"`
+}
+
+// ToolCallDelta is one incremental Chat Completions tool call. Index is always
+// present in the wire shape, including index zero; its other fields are
+// pointers so absent fields remain distinct from present empty strings.
+type ToolCallDelta struct {
+	Index    int            `json:"index"`
+	ID       *string        `json:"id,omitempty"`
+	Type     *string        `json:"type,omitempty"`
+	Function *FunctionDelta `json:"function,omitempty"`
+}
+
+// FunctionDelta is the incremental function payload of a tool call. Arguments
+// is opaque raw JSON text carried as a Go string; it is never parsed here.
+type FunctionDelta struct {
+	Name      *string `json:"name,omitempty"`
+	Arguments *string `json:"arguments,omitempty"`
 }
 
 // UsageWire is the wire usage object. total_tokens is derived (prompt +

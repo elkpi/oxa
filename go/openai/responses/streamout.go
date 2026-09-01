@@ -9,8 +9,6 @@ import (
 	"github.com/elkpi/oxa/go/modelmap"
 )
 
-const streamMessageItemID = "msg_abc123"
-
 type streamOutputItemKind uint8
 
 const (

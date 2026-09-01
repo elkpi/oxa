@@ -371,9 +371,11 @@ Encoder synthesis / validation rules: the CC encoder normalizes text
 before tool calls and emits one `degraded` loss when a tool block is
 followed by a text block in IR; it synthesizes a full-arguments delta
 when no input delta was supplied for a retained call. The RE encoder
-opens one synthesized `function_call` item per `ToolUseBlock` and emits
-`response.function_call_arguments.done` on block stop when deltas were
-supplied. The AN encoder emits a canonical streaming placeholder
+opens one synthesized `function_call` item per `ToolUseBlock`,
+synthesizes one full-arguments `response.function_call_arguments.delta`
+when no argument deltas were supplied for that block, and emits
+`response.function_call_arguments.done` on block stop. The AN encoder
+emits a canonical streaming placeholder
 `input: {}` at `content_block_start(type:"tool_use")` and synthesizes a
 full input-json delta when no delta was supplied.
 

@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-request",
+  "description": "Cross-protocol: a Responses request (system prompt, multiturn text, one tool call with its tool result, tool definition, sampling params, and a metadata field with no IR equivalent) converted to an Anthropic Messages request through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "anthropic"},
+  "input": {"model": "gpt-4o-mini", "instructions": "You are a helpful weather assistant.", "temperature": 0.5, "max_output_tokens": 512, "metadata": {"user_id": "u1"}, "tools": [{"type": "function", "name": "get_weather", "description": "Get current weather for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}], "input": [{"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": "Checking."}, {"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}, {"type": "function_call_output", "call_id": "call_1", "output": "21C sunny"}]},
+  "expected_output": {"model": "gpt-4o-mini", "system": [{"type": "text", "text": "You are a helpful weather assistant."}], "messages": [{"role": "user", "content": [{"type": "text", "text": "What's the weather in Paris?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Checking."}, {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}}]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": [{"type": "text", "text": "21C sunny"}]}]}], "max_tokens": 512, "temperature": 0.5, "tools": [{"name": "get_weather", "description": "Get current weather for a city.", "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]},
+  "expected_losses": [{"path": "metadata", "field": "metadata", "reason": "unmapped-field", "detail": "Responses request metadata has no IR equivalent in v1."}],
+  "tags": ["cross", "tools", "request", "params", "loss"]
+}

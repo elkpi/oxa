@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-anthropic-request",
+  "description": "Cross-protocol: a Chat Completions request (system prompt, multiturn text, one tool call with its tool result, tool definition, sampling params, and a parallel_tool_calls field with no IR equivalent) converted to an Anthropic Messages request through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "chatcompletions"},
+  "target": {"protocol": "anthropic"},
+  "input": {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a helpful weather assistant."}, {"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": "Checking.", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}}]}, {"role": "tool", "tool_call_id": "call_1", "content": "21C sunny"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}], "temperature": 0.5, "max_tokens": 512, "stop": ["END"], "parallel_tool_calls": true},
+  "expected_output": {"model": "gpt-4o-mini", "system": [{"type": "text", "text": "You are a helpful weather assistant."}], "messages": [{"role": "user", "content": [{"type": "text", "text": "What's the weather in Paris?"}]}, {"role": "assistant", "content": [{"type": "text", "text": "Checking."}, {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}}]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": [{"type": "text", "text": "21C sunny"}]}]}], "max_tokens": 512, "temperature": 0.5, "stop_sequences": ["END"], "tools": [{"name": "get_weather", "description": "Get current weather for a city.", "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]},
+  "expected_losses": [{"path": "parallel_tool_calls", "field": "parallel_tool_calls", "reason": "unmapped-field", "detail": "Chat Completions parallel tool calls have no IR equivalent in v1."}],
+  "tags": ["cross", "tools", "request", "params", "loss"]
+}

@@ -6,7 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/elkpi/oxa/go/anthropic/messages"
 	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/openai/responses"
 )
 
 // fakeCrossConverter is a programmable Converter for harness tests.
@@ -121,5 +124,144 @@ func TestCrossVectorsForFiltersByPair(t *testing.T) {
 	}
 	if got := crossVectorsFor(alpha, &fakeCrossConverter{face: "delta"}, vectors); len(got) != 0 {
 		t.Fatalf("crossVectorsFor() with unknown target = %+v, want empty", got)
+	}
+}
+
+// crossChatCompletions binds the Chat Completions face to the cross runner.
+type crossChatCompletions struct{}
+
+func (crossChatCompletions) Face() string { return "chatcompletions" }
+
+func (crossChatCompletions) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
+	var wire chatcompletions.Request
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return chatcompletions.DecodeRequest(&wire)
+}
+
+func (crossChatCompletions) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
+	var wire chatcompletions.Response
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return chatcompletions.DecodeResponse(&wire)
+}
+
+func (crossChatCompletions) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := chatcompletions.EncodeRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+func (crossChatCompletions) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := chatcompletions.EncodeResponse(resp)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+// crossResponses binds the Responses face to the cross runner.
+type crossResponses struct{}
+
+func (crossResponses) Face() string { return "responses" }
+
+func (crossResponses) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
+	var wire responses.Request
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return responses.DecodeRequest(&wire)
+}
+
+func (crossResponses) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
+	var wire responses.Response
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return responses.DecodeResponse(&wire)
+}
+
+func (crossResponses) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := responses.EncodeRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+func (crossResponses) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := responses.EncodeResponse(resp)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+// crossAnthropic binds the Anthropic Messages face to the cross runner.
+type crossAnthropic struct{}
+
+func (crossAnthropic) Face() string { return "anthropic" }
+
+func (crossAnthropic) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
+	var wire messages.Request
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return messages.DecodeRequest(&wire)
+}
+
+func (crossAnthropic) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
+	var wire messages.Response
+	if err := json.Unmarshal(w, &wire); err != nil {
+		return nil, nil, err
+	}
+	return messages.DecodeResponse(&wire)
+}
+
+func (crossAnthropic) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := messages.EncodeRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+func (crossAnthropic) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := messages.EncodeResponse(resp)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+// TestCrossVectors runs the six ordered face pairs over the
+// cross/nonstream vectors through the real implementations.
+func TestCrossVectors(t *testing.T) {
+	faces := map[string]Converter{
+		"chatcompletions": crossChatCompletions{},
+		"responses":       crossResponses{},
+		"anthropic":       crossAnthropic{},
+	}
+	for _, pair := range [][2]string{
+		{"chatcompletions", "responses"},
+		{"chatcompletions", "anthropic"},
+		{"responses", "chatcompletions"},
+		{"responses", "anthropic"},
+		{"anthropic", "chatcompletions"},
+		{"anthropic", "responses"},
+	} {
+		t.Run(pair[0]+"-to-"+pair[1], func(t *testing.T) {
+			RunCross(t, faces[pair[0]], faces[pair[1]])
+		})
 	}
 }

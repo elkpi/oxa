@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-request",
+  "description": "Cross-protocol: a Anthropic Messages request (system prompt, multiturn text, one tool call with its tool result, tool definition, sampling params, and a metadata field with no IR equivalent) converted to a Chat Completions request through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "anthropic"},
+  "target": {"protocol": "chatcompletions"},
+  "input": {"model": "claude-sonnet-4-5", "system": "You are a helpful weather assistant.", "max_tokens": 512, "temperature": 0.5, "stop_sequences": ["END"], "metadata": {"user_id": "user-99"}, "tools": [{"name": "get_weather", "description": "Get current weather for a city.", "input_schema": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}], "messages": [{"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": [{"type": "text", "text": "Checking."}, {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Paris"}}]}, {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "toolu_1", "content": [{"type": "text", "text": "21C sunny"}]}]}]},
+  "expected_output": {"model": "claude-sonnet-4-5", "messages": [{"role": "system", "content": "You are a helpful weather assistant."}, {"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": "Checking.", "tool_calls": [{"id": "toolu_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}}]}, {"role": "tool", "content": "21C sunny", "tool_call_id": "toolu_1"}], "temperature": 0.5, "max_tokens": 512, "stop": ["END"], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}]},
+  "expected_losses": [{"path": "metadata", "field": "metadata", "reason": "unmapped-field", "detail": "Anthropic request metadata (user_id) has no IR equivalent in v1."}],
+  "tags": ["cross", "tools", "request", "params", "loss"]
+}

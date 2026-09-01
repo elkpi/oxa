@@ -738,6 +738,144 @@
       "sha256": "4635e2c4351247555a1c499f6e8721203a868751b0ce790edde7b2137836157b"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-request",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "f7f192d6dbe7d3696bba59f6fb40f68faef35d0639037032628f483b341a62e6"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-response",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "a97b004e316b5611afc8b7403f5696d4212db8f2b62740a5058dd7814282d826"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-request",
+      "file": "cross/nonstream/anthropic-to-responses-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "a8d6c485e859455c28daeec98673bfceebc8f173602161714e1cfb67d2dad75f"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-response",
+      "file": "cross/nonstream/anthropic-to-responses-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "fd6c3e4131ad83b11eab0dfb53702477fef60e24469650f01acb6bd97f4fa1cd"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-request",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "c542031d06268e6c27e64217ae73cc8e9cd4db81181f79a3293145848c0a71d2"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-response",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "460af3fcff02138c9c14f745a965b32181974de208ca0c7c1751fc5ffb85300e"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-responses-request",
+      "file": "cross/nonstream/chatcompletions-to-responses-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "5f57274c27d6d16b24ab18403291764d5d0383edd069fee5f5924debb9b7d290"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-responses-response",
+      "file": "cross/nonstream/chatcompletions-to-responses-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "02b390c62dec31fa61e366b1ce4fe5e4f8516b2046226e10b8fe07f57a4234fc"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-request",
+      "file": "cross/nonstream/responses-to-anthropic-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "d0cdd6602ed3f00b3df21a63fc20a68b6ef5578a5e077fd281df205b9ca24515"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-response",
+      "file": "cross/nonstream/responses-to-anthropic-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "596f932c4df1cf350b43b1aa9e62d0fd0964b1bfa6601dd9c7d1a57e3c6ebd38"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-request",
+      "file": "cross/nonstream/responses-to-chatcompletions-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "params",
+        "loss"
+      ],
+      "sha256": "e96f17aaa6e104bf3dd09a8401023f8961f49a82b12c2b5fdb184e308c244d7c"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-response",
+      "file": "cross/nonstream/responses-to-chatcompletions-response.json",
+      "tags": [
+        "cross",
+        "tools",
+        "response",
+        "usage"
+      ],
+      "sha256": "efab1e18a40333def1296fc9d0bbac4d36fa91fc3c2426819919c8c5e303ab98"
+    },
+    {
       "name": "responses.nonstream.annotations-loss-response-to-ir",
       "file": "responses/nonstream/annotations-loss-response-to-ir.json",
       "tags": [

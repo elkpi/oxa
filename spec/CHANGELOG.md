@@ -5,18 +5,18 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 0.1.2 - 2026-09-02
+## 0.0.2 - 2026-09-02
 
-The 0.1 series is **frozen** as the baseline for the Rust implementation
-(see the versioning policy in [README.md](README.md)).
+The 0.0 series is **frozen** as the specification baseline for the Rust
+implementation (see the versioning policy in [README.md](README.md)).
 
 ### Added
 
 - Versioning policy (README): the two version axes (spec version vs. the
-  IR contract `specVersion`), the 0.x cadence tied to the implementation
-  roadmap (0.1 Go + Rust baseline, 0.2 Python, 0.3 C++, 1.0 only once
-  every supported language implements the spec against the same vectors),
-  and the additive-only freeze rules.
+  IR contract `specVersion`), the cadence tied to the implementation
+  roadmap (0.0.x Go baseline, 0.1.0 Rust, 0.2.0 Python, 0.3.0 C++, 1.0.0
+  only once every supported language implements the spec against the same
+  vectors), and the additive-only freeze rules.
 
 ### Changed
 

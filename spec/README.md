@@ -8,7 +8,7 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **0.1.2** — the 0.1 series is **frozen** as the
+Current spec version: **0.0.2** — the 0.0 series is **frozen** as the
 baseline for the Rust implementation. See
 [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
@@ -18,7 +18,7 @@ The specification carries two version axes:
 
 - **Spec version** — declared here and recorded in
   [CHANGELOG.md](CHANGELOG.md): the version of the written specification
-  itself. A patch release (0.1.x) clarifies wording without changing any
+  itself. A patch release (0.0.x) clarifies wording without changing any
   rule; a minor release (0.x → 0.(x+1)) may add semantics under the
   evolution rules below.
 - **IR contract version** — the `specVersion` property pinned by `const`
@@ -27,14 +27,15 @@ The specification carries two version axes:
   themselves. It changes only when the IR contract changes and may lag
   the spec version.
 
-The `0.x` series is tied to the implementation roadmap:
+The version series are tied to the implementation roadmap:
 
-| Spec series | Scope |
-|-------------|-------|
-| 0.1 | The Go reference implementation; frozen baseline for the Rust implementation |
-| 0.2 | The Python implementation |
-| 0.3 | The C++ implementation |
-| 1.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
+| Version | Scope |
+|---------|-------|
+| 0.0.x | The specification baseline and the Go reference implementation |
+| 0.1.0 | The Rust implementation |
+| 0.2.0 | The Python implementation |
+| 0.3.0 | The C++ implementation |
+| 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
 
 The version is NOT promoted to 1.0 until every supported language
 implements the spec against the same vectors. Freeze rules for every 0.x

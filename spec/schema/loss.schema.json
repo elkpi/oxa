@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/loss.schema.json",
+  "$id": "https://github.com/elkpi/oxa/spec/schema/loss.schema.json",
   "title": "oxa loss record",
   "description": "A single loss record as defined by spec/02-loss-policy.md. Vectors and implementations carry lists of these; each record validates against this schema individually.",
   "type": "object",

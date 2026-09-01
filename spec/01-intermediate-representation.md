@@ -260,9 +260,8 @@ relationships between elements and are beyond JSON Schema; they are
 enforced by converter implementations and by vector checking (INV-9).
 
 The schema's `$id`
-(`https://github.com/oxa-protocol/oxa/spec/schema/ir.schema.json`) is an
-identifier, not a fetchable location; `oxa-protocol` is the repository-wide
-placeholder organization name and will be repointed at release.
+(`https://github.com/elkpi/oxa/spec/schema/ir.schema.json`) is an
+identifier, not a fetchable location.
 
 ## 7. Invariants
 

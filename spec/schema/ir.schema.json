@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://github.com/oxa-protocol/oxa/spec/schema/ir.schema.json",
+  "$id": "https://github.com/elkpi/oxa/spec/schema/ir.schema.json",
   "title": "oxa IR document",
   "description": "Validates one IR document: a request, a response, or an event stream, as defined by spec/01-intermediate-representation.md. Only per-document structure is checked here; sequence rules (INV-2..INV-6, INV-8) are enforced by converters and vector checking, not by JSON Schema (INV-9).",
   "oneOf": [

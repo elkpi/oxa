@@ -93,7 +93,22 @@ and keeps the vector format simple — an expected event sequence in a
 vector contains only IR events, and expected losses live in a separate
 field of the vector.
 
-## 6. Rules
+## 6. Cross-protocol composition
+
+A `protocol-to-protocol` conversion is the composition of the two
+single-face conversions through the IR:
+
+    source wire --Decode--> IR --Encode--> target wire
+
+The reported loss list is the source-decode losses followed by the
+target-encode losses, in that order. Loss `path` values remain local to
+their own stage — decode losses are rooted at the source wire document,
+encode losses at the IR document — and MUST NOT be rewritten with stage
+prefixes; the `detail` of each loss SHOULD make its stage clear. The
+unordered-set comparison rule used by vectors is unaffected by the
+concatenation.
+
+## 7. Rules
 
 - Every loss MUST have a reason code from the §3 enum (schema-enforced).
 - `degraded` is reserved for best-effort carry with known distortion; a
@@ -107,7 +122,7 @@ field of the vector.
   describes; in particular they are never visible in the IR event stream
   (§5).
 
-## 7. Schema agreement
+## 8. Schema agreement
 
 The JSON shape of the loss record is defined by
 [`spec/schema/loss.schema.json`](schema/loss.schema.json). This document

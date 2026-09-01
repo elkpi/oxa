@@ -14,7 +14,8 @@ against [spec/schema/vector.schema.json](../spec/schema/vector.schema.json).
 
 Vectors live at `vectors/<face>/<mode>/<area>-<case>.json`, where:
 
-- `<face>` is one of `chatcompletions`, `responses`, `anthropic`
+- `<face>` is one of `chatcompletions`, `responses`, `anthropic`, or
+  `cross`
 - `<mode>` is `nonstream` or `stream`
 - `<area>-<case>` is a short kebab-case slug, e.g. `minimal-text-to-ir`
 
@@ -111,6 +112,21 @@ INV-1); neither the vector format nor the checker re-parses or
 re-serializes them. No assertion compares stream text fragments against
 a generated non-stream aggregate, because a stream vector carries the
 event sequence directly rather than delegating to an aggregated response.
+
+## Cross vectors
+
+`vectors/cross/nonstream/` holds `protocol-to-protocol` vectors: a source
+wire document is decoded to the IR and re-encoded to a target face in one
+composition (`source.Decode → IR → target.Encode`). Each vector names its
+`source` and `target` protocols; `input` is the source wire document and
+`expected_output` is the target wire document. `expected_ir` is forbidden
+by the vector schema: the intermediate IR is not part of the cross
+contract — the per-face vectors already lock each stage separately.
+
+`expected_losses` is the concatenation of the source-decode losses
+followed by the target-encode losses (spec/02 §6); it still compares as
+an unordered set keyed on `(path, field, reason)`. Cross vectors are
+nonstream only.
 
 ## manifest.json
 

@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-responses-request",
+  "description": "Cross-protocol: a Chat Completions request (system prompt, multiturn text, one tool call with its tool result, tool definition, sampling params, and a parallel_tool_calls field with no IR equivalent) converted to a Responses request through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "chatcompletions"},
+  "target": {"protocol": "responses"},
+  "input": {"model": "gpt-4o-mini", "messages": [{"role": "system", "content": "You are a helpful weather assistant."}, {"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": "Checking.", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}}]}, {"role": "tool", "tool_call_id": "call_1", "content": "21C sunny"}], "tools": [{"type": "function", "function": {"name": "get_weather", "description": "Get current weather for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}], "temperature": 0.5, "max_tokens": 512, "stop": ["END"], "parallel_tool_calls": true},
+  "expected_output": {"model": "gpt-4o-mini", "input": [{"role": "user", "content": "What's the weather in Paris?"}, {"role": "assistant", "content": "Checking."}, {"type": "function_call", "call_id": "call_1", "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}, {"type": "function_call_output", "call_id": "call_1", "output": "21C sunny"}], "instructions": "You are a helpful weather assistant.", "temperature": 0.5, "max_output_tokens": 512, "tools": [{"type": "function", "name": "get_weather", "description": "Get current weather for a city.", "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}]},
+  "expected_losses": [{"path": "parallel_tool_calls", "field": "parallel_tool_calls", "reason": "unmapped-field", "detail": "Chat Completions parallel tool calls have no IR equivalent in v1."}, {"path": "params.stop_sequences", "field": "stop_sequences", "reason": "unmapped-field", "detail": "Responses requests have no stop-sequences parameter; the IR stop sequences are dropped."}],
+  "tags": ["cross", "tools", "request", "params", "loss"]
+}

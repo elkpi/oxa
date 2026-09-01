@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-response",
+  "description": "Cross-protocol: a Responses response (text plus one tool call, tool_use stop reason, usage) converted to an Anthropic Messages response through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "anthropic"},
+  "input": {"id": "resp_x1", "object": "response", "status": "completed", "model": "gpt-4o-mini", "output": [{"type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "Checking the weather.", "annotations": []}]}, {"type": "function_call", "id": "fc_1", "status": "completed", "call_id": "call_1", "name": "get_weather", "arguments": "{\"city\":\"Paris\"}"}], "usage": {"input_tokens": 10, "output_tokens": 25, "total_tokens": 35}},
+  "expected_output": {"id": "resp_x1", "type": "message", "role": "assistant", "model": "gpt-4o-mini", "content": [{"type": "text", "text": "Checking the weather."}, {"type": "tool_use", "id": "call_1", "name": "get_weather", "input": {"city": "Paris"}}], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 25}},
+  "expected_losses": [],
+  "tags": ["cross", "tools", "response", "usage"]
+}

@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-response",
+  "description": "Cross-protocol: a Anthropic Messages response (text plus one tool call, tool_use stop reason, usage) converted to a Chat Completions response through the IR.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "anthropic"},
+  "target": {"protocol": "chatcompletions"},
+  "input": {"id": "msg_x1", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [{"type": "text", "text": "Checking the weather."}, {"type": "tool_use", "id": "toolu_1", "name": "get_weather", "input": {"city": "Paris"}}], "stop_reason": "tool_use", "usage": {"input_tokens": 10, "output_tokens": 25}},
+  "expected_output": {"id": "msg_x1", "object": "chat.completion", "created": 0, "model": "claude-sonnet-4-5", "choices": [{"index": 0, "message": {"role": "assistant", "content": "Checking the weather.", "tool_calls": [{"id": "toolu_1", "type": "function", "function": {"name": "get_weather", "arguments": "{\"city\": \"Paris\"}"}}]}, "finish_reason": "tool_calls"}], "usage": {"prompt_tokens": 10, "completion_tokens": 25, "total_tokens": 35}},
+  "expected_losses": [],
+  "tags": ["cross", "tools", "response", "usage"]
+}

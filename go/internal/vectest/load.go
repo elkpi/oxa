@@ -33,13 +33,20 @@ func FindRepoRoot(dir string) string {
 	}
 }
 
+// Endpoint names one side of a vector (vector.schema.json $defs/endpoint).
+type Endpoint struct {
+	Protocol string `json:"protocol"`
+}
+
 // Vector is the subset of the vector file format (spec/schema/
 // vector.schema.json) the harness consumes.
 type Vector struct {
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
 	Mode           string          `json:"mode"`
-	Conversion     string          `json:"conversion"` // to-ir | from-ir
+	Conversion     string          `json:"conversion"` // to-ir | from-ir | protocol-to-protocol
+	Source         Endpoint        `json:"source"`
+	Target         Endpoint        `json:"target"`
 	Input          json.RawMessage `json:"input"`
 	ExpectedIR     json.RawMessage `json:"expected_ir"`
 	ExpectedOut    json.RawMessage `json:"expected_output"`

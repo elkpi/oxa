@@ -1,6 +1,6 @@
 # 01 — Intermediate Representation
 
-Status: normative. Spec version 0.1.0.
+Status: normative. The current spec version is declared in [README.md](README.md).
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this

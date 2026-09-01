@@ -5,6 +5,33 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 0.1.2 - 2026-09-02
+
+The 0.1 series is **frozen** as the baseline for the Rust implementation
+(see the versioning policy in [README.md](README.md)).
+
+### Added
+
+- Versioning policy (README): the two version axes (spec version vs. the
+  IR contract `specVersion`), the 0.x cadence tied to the implementation
+  roadmap (0.1 Go + Rust baseline, 0.2 Python, 0.3 C++, 1.0 only once
+  every supported language implements the spec against the same vectors),
+  and the additive-only freeze rules.
+
+### Changed
+
+- Fixed stale forward references: mapping documents 10–12 are no longer
+  marked "planned" in 00 §1 and no longer call 20 "planned" in their
+  §6; 00 §3 cites document 20 as landed; the glossary (90) notes when it
+  will land.
+- Pinned the RE streaming encoder's zero-delta rule: a tool block with no
+  supplied argument deltas synthesizes one full-arguments
+  `response.function_call_arguments.delta`, matching the CC and AN
+  encoders and the Go implementation (20 §10.1).
+- Repointed the schema `$id` identifiers from the `oxa-protocol`
+  placeholder to `elkpi` (01 §6): v0.0.1 already shipped the final module
+  path. Identifier-only change; no validation behavior.
+
 ## 0.1.1 - 2026-08-28
 
 ### Changed

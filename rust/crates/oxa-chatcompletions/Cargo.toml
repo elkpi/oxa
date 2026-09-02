@@ -1,0 +1,16 @@
+[package]
+name = "oxa-chatcompletions"
+description = "OpenAI Chat Completions face of the oxa conversion library"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+oxa-ir = { path = "../oxa-ir" }
+oxa-modelmap = { path = "../oxa-modelmap" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+oxa-vectest = { path = "../oxa-vectest" }

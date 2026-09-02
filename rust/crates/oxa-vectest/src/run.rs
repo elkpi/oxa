@@ -84,14 +84,15 @@ fn run_to_ir(conv: &dyn Converter, vector: &Vector, report: &mut Report) {
         return;
     };
     let outcome: Result<(Value, Vec<Loss>), String> = (|| {
+        let input = vector.input_text();
         let (doc, losses) = if vector.is_request() {
-            let (req, losses) = conv.decode_request_wire(&json_text(&vector.input))?;
+            let (req, losses) = conv.decode_request_wire(&input)?;
             (
                 oxa_ir::to_json(&req).map_err(|err| err.to_string())?,
                 losses,
             )
         } else {
-            let (resp, losses) = conv.decode_response_wire(&json_text(&vector.input))?;
+            let (resp, losses) = conv.decode_response_wire(&input)?;
             (
                 oxa_ir::to_json(&resp).map_err(|err| err.to_string())?,
                 losses,

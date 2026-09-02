@@ -222,6 +222,33 @@ fn runs_to_ir_vectors_through_the_request_direction() {
 }
 
 #[test]
+fn passes_source_wire_text_to_the_decoder_without_reserializing_it() {
+    let (_repo, root) = fake_repo();
+    let raw_input = r#"{ "temperature": 1e+01, "city": "Paris" }"#;
+    let expected_ir =
+        serde_json::to_string(&request_doc(&bare_request("m"))).expect("serialize expected IR");
+    let raw_vector = format!(
+        r#"{{
+  "name": "fake.nonstream.raw-input",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "input": {raw_input},
+  "expected_ir": {expected_ir},
+  "expected_losses": [{{"path":"in","field":"f","reason":"unmapped-field","detail":""}}],
+  "tags": ["request"]
+}}"#
+    );
+    let dir = root.join("vectors").join("fake").join("nonstream");
+    fs::create_dir_all(&dir).expect("make vector directory");
+    fs::write(dir.join("raw-input.json"), raw_vector).expect("write raw vector");
+    let conv = FakeConverter::new();
+
+    assert_clean(run_in(&root, &conv));
+
+    assert_eq!(*conv.decoded_request_wires.borrow(), [raw_input]);
+}
+
+#[test]
 fn routes_response_vectors_to_the_response_direction() {
     let (_repo, root) = fake_repo();
     let resp = bare_response("m");

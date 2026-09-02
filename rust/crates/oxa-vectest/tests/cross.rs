@@ -14,6 +14,7 @@ struct FakeCrossConverter {
     face: &'static str,
     decoded_requests: RefCell<usize>,
     decoded_responses: RefCell<usize>,
+    decoded_request_wires: RefCell<Vec<String>>,
     decode_losses: Vec<Loss>,
     encode_losses: Vec<Loss>,
 }
@@ -24,6 +25,7 @@ impl FakeCrossConverter {
             face,
             decoded_requests: RefCell::new(0),
             decoded_responses: RefCell::new(0),
+            decoded_request_wires: RefCell::new(Vec::new()),
             decode_losses,
             encode_losses,
         }
@@ -35,8 +37,11 @@ impl Converter for FakeCrossConverter {
         self.face
     }
 
-    fn decode_request_wire(&self, _wire: &str) -> Result<(Request, Vec<Loss>), String> {
+    fn decode_request_wire(&self, wire: &str) -> Result<(Request, Vec<Loss>), String> {
         *self.decoded_requests.borrow_mut() += 1;
+        self.decoded_request_wires
+            .borrow_mut()
+            .push(wire.to_string());
         let req = Request {
             model: "m".to_string(),
             system: Vec::new(),
@@ -269,6 +274,42 @@ fn cross_vectors_for_filters_by_pair() {
 
     let delta = FakeCrossConverter::new("delta", Vec::new(), Vec::new());
     assert!(cross_vectors_for(&alpha, &delta, &vectors).is_empty());
+}
+
+#[test]
+fn passes_source_wire_text_to_cross_decoders_without_reserializing_it() {
+    let (_repo, root) = fake_repo();
+    let raw_input = r#"{ "temperature": 1e+01, "city": "Paris" }"#;
+    let raw_vector = format!(
+        r#"{{
+  "name": "cross.nonstream.alpha-to-beta-raw-input",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {{"protocol": "alpha"}},
+  "target": {{"protocol": "beta"}},
+  "input": {raw_input},
+  "expected_output": {{"kind": "output"}},
+  "expected_losses": [],
+  "tags": ["request"]
+}}"#
+    );
+    let dir = root.join("vectors").join("cross").join("nonstream");
+    fs::create_dir_all(&dir).expect("make cross vector directory");
+    fs::write(dir.join("raw-input.json"), raw_vector).expect("write raw cross vector");
+    let alpha = FakeCrossConverter::new("alpha", Vec::new(), Vec::new());
+    let beta = FakeCrossConverter::new("beta", Vec::new(), Vec::new());
+
+    let report = match run_cross_in(&root, &alpha, &beta).expect("run") {
+        Outcome::Ran(report) => report,
+        other => panic!("expected Ran, got {other:?}"),
+    };
+
+    assert!(
+        report.failures.is_empty(),
+        "failures: {:#?}",
+        report.failures
+    );
+    assert_eq!(*alpha.decoded_request_wires.borrow(), [raw_input]);
 }
 
 #[test]

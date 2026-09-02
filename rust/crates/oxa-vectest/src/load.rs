@@ -5,6 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 
 /// Walks up from `dir` looking for a directory containing both `vectors/`
 /// and `.git/`. Returns `None` when none is found before the filesystem root
@@ -71,6 +72,12 @@ pub struct Vector {
     pub target: Endpoint,
     #[serde(rename = "input", default)]
     pub input: serde_json::Value,
+    /// Raw source text of the top-level `input` value, retained by
+    /// [`load_vectors`] for face decoders whose nested fields require lexical
+    /// JSON preservation under INV-1.
+    #[doc(hidden)]
+    #[serde(skip)]
+    pub input_raw: Option<Box<RawValue>>,
     #[serde(rename = "expected_ir", default)]
     pub expected_ir: Option<serde_json::Value>,
     #[serde(rename = "expected_output", default)]
@@ -88,6 +95,25 @@ impl Vector {
     pub fn is_request(&self) -> bool {
         !self.tags.iter().any(|tag| tag == "response")
     }
+
+    /// Returns the original top-level `input` JSON source when the vector was
+    /// loaded from disk. Programmatically constructed vectors fall back to a
+    /// structural serialization for test-fixture ergonomics.
+    pub(crate) fn input_text(&self) -> std::borrow::Cow<'_, str> {
+        match self.input_raw.as_deref() {
+            Some(raw) => std::borrow::Cow::Borrowed(raw.get()),
+            None => std::borrow::Cow::Owned(
+                serde_json::to_string(&self.input)
+                    .expect("vector JSON re-serialization cannot fail"),
+            ),
+        }
+    }
+}
+
+#[derive(Deserialize)]
+struct RawInput {
+    #[serde(rename = "input", default)]
+    input: Option<Box<RawValue>>,
 }
 
 /// Reads every vector file of one face and mode from
@@ -115,8 +141,11 @@ pub fn load_vectors(root: &Path, face: &str, mode: &str) -> Result<Vec<Vector>, 
     for name in names {
         let raw =
             fs::read_to_string(dir.join(&name)).map_err(|err| format!("read {name}: {err}"))?;
-        let vector: Vector =
+        let mut vector: Vector =
             serde_json::from_str(&raw).map_err(|err| format!("parse {name}: {err}"))?;
+        let raw_input: RawInput =
+            serde_json::from_str(&raw).map_err(|err| format!("parse {name}: {err}"))?;
+        vector.input_raw = raw_input.input;
         vectors.push(vector);
     }
     Ok(vectors)

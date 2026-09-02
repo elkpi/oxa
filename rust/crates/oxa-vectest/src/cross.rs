@@ -81,14 +81,13 @@ fn run_cross_vector(
         return;
     };
     let outcome: Result<(serde_json::Value, Vec<oxa_ir::Loss>), String> = (|| {
+        let input = vector.input_text();
         let (out, losses) = if vector.is_request() {
-            let (req, decode_losses) =
-                source.decode_request_wire(&crate::run::json_text(&vector.input))?;
+            let (req, decode_losses) = source.decode_request_wire(&input)?;
             let (out, encode_losses) = target.encode_request_ir(&req)?;
             (out, [decode_losses, encode_losses].concat())
         } else {
-            let (resp, decode_losses) =
-                source.decode_response_wire(&crate::run::json_text(&vector.input))?;
+            let (resp, decode_losses) = source.decode_response_wire(&input)?;
             let (out, encode_losses) = target.encode_response_ir(&resp)?;
             (out, [decode_losses, encode_losses].concat())
         };

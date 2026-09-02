@@ -120,7 +120,10 @@ dependencies = [
 name = "oxa-vectest"
 version = "0.0.2"
 dependencies = [
+ "oxa-anthropic",
+ "oxa-chatcompletions",
  "oxa-ir",
+ "oxa-responses",
  "serde",
  "serde_json",
  "tempfile",

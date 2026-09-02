@@ -1,5 +1,7 @@
 //! Runs the shared Responses golden vectors through the Rust face.
 
+use std::path::Path;
+
 use oxa_responses::{
     Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
 };
@@ -50,13 +52,20 @@ impl oxa_vectest::Converter for VectorConverter {
 
 #[test]
 fn vectors() {
-    match oxa_vectest::run(&VectorConverter {
-        config: Config::default(),
-    }) {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    match oxa_vectest::run_in(
+        manifest_dir,
+        &VectorConverter {
+            config: Config::default(),
+        },
+    ) {
         Ok(oxa_vectest::Outcome::Skipped) => {
-            eprintln!("repo root not found; vector tests skipped (dependency mode)");
+            panic!(
+                "nonstream vectors unexpectedly skipped; integration tests must locate the monorepo vectors"
+            );
         }
         Ok(oxa_vectest::Outcome::Ran(report)) => {
+            assert!(report.executed > 0, "nonstream vectors must execute");
             assert!(
                 report.failures.is_empty(),
                 "vector failures:\n{:#?}",

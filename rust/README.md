@@ -54,5 +54,5 @@ can still build and test outside the monorepo.
 - [x] Chat Completions face (nonstream)
 - [x] Anthropic Messages face (nonstream)
 - [x] Responses face (nonstream)
-- [ ] cross-protocol vectors through the composition
+- [x] cross-protocol vectors through the composition
 - [ ] streaming (text profile, then tool-argument aggregation)

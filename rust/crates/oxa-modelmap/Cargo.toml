@@ -1,0 +1,9 @@
+[package]
+name = "oxa-modelmap"
+description = "The single, optional model-renaming injection point (spec/03)"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

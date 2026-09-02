@@ -19,12 +19,13 @@ independent Go module):
 rust/Cargo.toml          workspace root
 rust/crates/oxa-ir/      the IR types, document codec, and invariant checker
                          (spec/01); implemented
+rust/crates/oxa-vectest/         the dev-only vector harness (dev-dependency
+                                 of face crates); implemented
 rust/crates/oxa-modelmap/        planned
 rust/crates/oxa-chatcompletions/ planned
 rust/crates/oxa-responses/       planned
 rust/crates/oxa-anthropic/       planned
 rust/crates/oxa-sse/             planned
-rust/crates/oxa-vectest/         planned (dev-only vector harness)
 ```
 
 Production crates depend on `serde` and `serde_json` only. Test-only code
@@ -44,8 +45,8 @@ can still build and test outside the monorepo.
 ## Status
 
 - [x] `oxa-ir` — IR types, `specVersion` document codec, INV-5/INV-6
-      event-stream checker
-- [ ] vector harness (`oxa-vectest`) and the walk-up repo-root discovery
+      event-stream checker, loss records (spec/02)
+- [x] vector harness (`oxa-vectest`) and the walk-up repo-root discovery
 - [ ] Chat Completions face (nonstream)
 - [ ] Anthropic Messages face (nonstream)
 - [ ] Responses face (nonstream)

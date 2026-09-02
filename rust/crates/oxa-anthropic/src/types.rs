@@ -6,7 +6,7 @@
 
 use std::fmt;
 
-use serde::de::{SeqAccess, Visitor};
+use serde::de::{Error, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
@@ -94,13 +94,35 @@ pub struct ToolChoiceWire {
 }
 
 /// A wire message. Content is either a string or an array of blocks.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 #[serde(default)]
 pub struct Message {
     #[serde(rename = "role")]
     pub role: String,
     #[serde(rename = "content")]
     pub content: Option<ContentValue>,
+}
+
+#[derive(Default, Deserialize)]
+#[serde(default)]
+struct GenericMessage {
+    #[serde(rename = "role")]
+    role: String,
+    #[serde(rename = "content")]
+    content: Option<Value>,
+}
+
+impl<'de> Deserialize<'de> for Message {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let GenericMessage { role, content } = GenericMessage::deserialize(deserializer)?;
+        let content = content
+            .map(|content| serde_json::from_value(content).map_err(D::Error::custom))
+            .transpose()?;
+        Ok(Message { role, content })
+    }
 }
 
 /// Message and tool-result content: a plain string or a block array.

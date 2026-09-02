@@ -311,9 +311,11 @@ fn block_content_deserializes_raw_tool_input_verbatim() {
 }
 
 #[test]
-fn tool_input_bytes_are_preserved_verbatim() {
-    // The wire input object's exact spelling becomes the IR string payload
-    // (INV-1, N-AN-4): 1e+01 survives as written.
+fn request_json_deserialization_canonicalizes_tool_input_in_generic_content() {
+    // Anthropic request `messages[].content` follows the reference face's
+    // generic content boundary. The intermediate value has no raw source
+    // bytes, so tool input is serialized canonically before reaching the
+    // typed block representation.
     let wire: Request = serde_json::from_str(
         r#"{
             "model":"claude-sonnet-4-5",
@@ -334,13 +336,12 @@ fn tool_input_bytes_are_preserved_verbatim() {
     let oxa_ir::Block::ToolUse { input, .. } = &req.messages[0].content[0] else {
         panic!("expected tool_use block");
     };
-    assert!(input.contains("1e+01"), "exact bytes preserved: {input}");
+    assert_eq!(input, r#"{"x":10.0}"#);
 
-    // And the string unwraps back to an object on encode.
     let (encoded, _) = encode_request(&req, &Config::default()).expect("encode");
     let encoded = serde_json::to_string(&encoded).expect("serialize");
     assert!(
-        encoded.contains(r#""input":{"x":1e+01}"#),
-        "input remains byte-exact in the wire JSON: {encoded}"
+        encoded.contains(r#""input":{"x":10.0}"#),
+        "input remains canonical in the wire JSON: {encoded}"
     );
 }

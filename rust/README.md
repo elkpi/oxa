@@ -25,7 +25,8 @@ rust/crates/oxa-modelmap/        the optional model-renaming table
                                  (spec/03); implemented
 rust/crates/oxa-chatcompletions/ the Chat Completions face (nonstream);
                                  implemented
-rust/crates/oxa-responses/       planned
+rust/crates/oxa-responses/       the OpenAI Responses face (nonstream);
+                                 implemented
 rust/crates/oxa-anthropic/       the Anthropic Messages face (nonstream);
                                  implemented
 rust/crates/oxa-sse/             planned
@@ -52,6 +53,6 @@ can still build and test outside the monorepo.
 - [x] vector harness (`oxa-vectest`) and the walk-up repo-root discovery
 - [x] Chat Completions face (nonstream)
 - [x] Anthropic Messages face (nonstream)
-- [ ] Responses face (nonstream)
+- [x] Responses face (nonstream)
 - [ ] cross-protocol vectors through the composition
 - [ ] streaming (text profile, then tool-argument aggregation)

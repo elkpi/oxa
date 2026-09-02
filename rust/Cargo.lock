@@ -106,6 +106,17 @@ name = "oxa-modelmap"
 version = "0.0.2"
 
 [[package]]
+name = "oxa-responses"
+version = "0.0.2"
+dependencies = [
+ "oxa-ir",
+ "oxa-modelmap",
+ "oxa-vectest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxa-vectest"
 version = "0.0.2"
 dependencies = [

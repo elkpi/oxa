@@ -37,6 +37,8 @@ from oxa.openai.responses.constants import (
 )
 from oxa.openai.responses.decode import decode_request, decode_response
 from oxa.openai.responses.encode import encode_request, encode_response
+from oxa.openai.responses.streamin import StreamDecoder
+from oxa.openai.responses.streamout import StreamEncoder
 
 __all__ = [
     # Constants
@@ -78,4 +80,7 @@ __all__ = [
     "decode_response",
     "encode_request",
     "encode_response",
+    # Streaming Classes
+    "StreamDecoder",
+    "StreamEncoder",
 ]

@@ -8,7 +8,7 @@ from oxa.vectest.load import (
     load_cross_vectors,
     load_vectors,
 )
-from oxa.vectest.runner import run_nonstream_vector
+from oxa.vectest.runner import run_cross_vector, run_nonstream_vector
 
 __all__ = [
     "compare_json",
@@ -19,4 +19,5 @@ __all__ = [
     "load_vectors",
     "load_cross_vectors",
     "run_nonstream_vector",
+    "run_cross_vector",
 ]

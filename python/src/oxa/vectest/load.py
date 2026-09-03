@@ -114,43 +114,4 @@ def load_vectors(root: Path | str, face: str, mode: str) -> list[Vector]:
 
 def load_cross_vectors(root: Path | str) -> list[Vector]:
     """Reads all cross-protocol vectors sorted by filename."""
-    dir_path = Path(root) / "vectors" / "cross"
-    if not dir_path.is_dir():
-        return []
-
-    filenames = sorted(
-        entry.name for entry in dir_path.iterdir() if entry.is_file() and entry.suffix == ".json"
-    )
-
-    vectors: list[Vector] = []
-    for filename in filenames:
-        path = dir_path / filename
-        with open(path, "r", encoding="utf-8") as f:
-            text = f.read()
-        data = json.loads(text)
-        input_raw = _extract_field_raw(text, "input")
-        if not input_raw and "input" in data:
-            input_raw = json.dumps(data["input"], ensure_ascii=False)
-
-        source_proto = data.get("source", {}).get("protocol", "")
-        target_proto = data.get("target", {}).get("protocol", "")
-        losses_raw = data.get("expected_losses", [])
-        expected_losses = [Loss.from_dict(item) for item in losses_raw]
-
-        vectors.append(
-            Vector(
-                name=data.get("name", filename[:-5]),
-                description=data.get("description", ""),
-                mode=data.get("mode", "nonstream"),
-                conversion=data.get("conversion", "protocol-to-protocol"),
-                source=Endpoint(protocol=source_proto),
-                target=Endpoint(protocol=target_proto),
-                input=data.get("input"),
-                input_raw=input_raw,
-                expected_ir=data.get("expected_ir"),
-                expected_output=data.get("expected_output"),
-                expected_losses=expected_losses,
-                tags=data.get("tags", []),
-            )
-        )
-    return vectors
+    return load_vectors(root, "cross", "nonstream")

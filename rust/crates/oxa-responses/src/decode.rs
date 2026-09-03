@@ -282,7 +282,10 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     ))
 }
 
-fn decode_status(wire: &Response, has_tool_use: bool) -> Result<(StopReason, Vec<Loss>), Error> {
+pub(crate) fn decode_status(
+    wire: &Response,
+    has_tool_use: bool,
+) -> Result<(StopReason, Vec<Loss>), Error> {
     if let Some(error) = &wire.error {
         return Ok((
             StopReason::Other,

@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.2.0] - 2026-09-03
+
+### Added
+
+- Python implementation (`python/`): PEP 621 package (`oxa`) targeting the
+  frozen spec baseline with zero runtime dependencies.
+  - `oxa.ir`: neutral request, response, block, event, and loss types; document
+    codec with `specVersion: "0.1.0"`; event-stream grammar (INV-5), block
+    indexing (INV-6), and tool-argument concatenation (INV-1) invariant checker.
+  - `oxa.modelmap`: model renaming table with identity fallback (spec/03).
+  - `oxa.openai.chatcompletions`: nonstream request/response converters, streaming
+    `StreamDecoder` with tool call argument aggregation, and `StreamEncoder`.
+  - `oxa.anthropic.messages`: nonstream request/response converters, streaming
+    `StreamDecoder`, and `StreamEncoder`.
+  - `oxa.openai.responses`: nonstream request/response converters, streaming
+    `StreamDecoder` with function call argument aggregation, and `StreamEncoder`.
+  - `oxa.sse`: standalone byte-level Server-Sent Events frame decoder and encoder with zero
+    external dependencies (spec/20 §6).
+  - `oxa.vectest`: test harness running all shared nonstream, cross-protocol,
+    and stream golden vectors against each Python face with full INV-1 lexical
+    precision.
+  - CI: matrix testing across Python 3.10, 3.11, 3.12, and 3.13.
+
 ## [v0.1.0] - 2026-09-03
 
 ### Added

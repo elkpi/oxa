@@ -57,8 +57,8 @@ without a corresponding vector update.
 | Language | Directory | State |
 |----------|-----------|-------|
 | Go | `go/` | Reference implementation — usable (pre-v1) |
-| Rust | `rust/` | Roadmap, post-v1 |
-| Python | `python/` | Roadmap, post-v1 (after Rust) |
+| Rust | `rust/` | Usable (`v0.1.0`) |
+| Python | `python/` | Usable (`v0.2.0`) |
 | C++ | `cpp/` | Roadmap, post-v1 (after Python) |
 
 ## Directory overview
@@ -68,8 +68,8 @@ spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
 go/        Go reference implementation
 docs/      Design docs and the release checklist
-rust/      Rust implementation (post-v1)
-python/    Python implementation (post-v1)
+rust/      Rust implementation (v0.1.0)
+python/    Python implementation (v0.2.0)
 cpp/       C++ implementation (post-v1)
 ```
 

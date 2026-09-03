@@ -81,10 +81,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		e.model = e.models.Map(event.Model)
 		// Wire envelope defaults: type "message", role "assistant", empty
 		// content, null stop_reason (the Go empty string), zero usage.
-		return []*StreamEvent{{Type: "message_start", Message: &Response{
+		return []*StreamEvent{{Type: EventTypeMessageStart, Message: &Response{
 			ID:      e.id,
-			Type:    "message",
-			Role:    "assistant",
+			Type:    TypeMessage,
+			Role:    RoleAssistant,
 			Model:   e.model,
 			Content: []BlockWire{},
 			Usage:   &UsageWire{},
@@ -102,7 +102,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.blockOpen = true
 			e.openTool = false
 			e.openIndex = event.Index
-			return []*StreamEvent{{Type: "content_block_start", Index: event.Index, ContentBlock: &BlockWire{Type: "text", Text: block.Text}}}, nil, nil
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{Type: BlockTypeText, Text: block.Text}}}, nil, nil
 		case ir.ToolUseBlock:
 			if block.ID == "" {
 				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart tool_use id is required")
@@ -120,8 +120,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.openIndex = event.Index
 			e.toolInput = string(input)
 			e.toolParts = nil
-			return []*StreamEvent{{Type: "content_block_start", Index: event.Index, ContentBlock: &BlockWire{
-				Type: "tool_use", ID: block.ID, Name: block.Name, Input: json.RawMessage("{}"),
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
+				Type: BlockTypeToolUse, ID: block.ID, Name: block.Name, Input: json.RawMessage("{}"),
 			}}}, nil, nil
 		default:
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockStart carries an unsupported block %T", event.Block)
@@ -135,7 +135,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			if e.openTool {
 				return nil, nil, fmt.Errorf("anthropic: TextDelta on tool_use block")
 			}
-			return []*StreamEvent{{Type: "content_block_delta", Index: event.Index, Delta: &StreamDelta{Type: "text_delta", Text: delta.Text}}}, nil, nil
+			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeTextDelta, Text: delta.Text}}}, nil, nil
 		case ir.InputJSONDelta:
 			if !e.openTool {
 				return nil, nil, fmt.Errorf("anthropic: InputJSONDelta on text block")
@@ -145,8 +145,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				return nil, nil, fmt.Errorf("anthropic: InputJSONDelta: %w", err)
 			}
 			e.toolParts = append(e.toolParts, fragment)
-			return []*StreamEvent{{Type: "content_block_delta", Index: event.Index, Delta: &StreamDelta{
-				Type: "input_json_delta", PartialJSON: fragment,
+			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
+				Type: DeltaTypeInputJSONDelta, PartialJSON: fragment,
 			}}}, nil, nil
 		default:
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta carries an unsupported delta %T", event.Delta)
@@ -167,7 +167,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		e.openTool = false
 		e.toolInput = ""
 		e.toolParts = nil
-		return []*StreamEvent{{Type: "content_block_stop", Index: event.Index}}, nil, nil
+		return []*StreamEvent{{Type: EventTypeContentBlockStop, Index: event.Index}}, nil, nil
 	case ir.MessageDelta:
 		if !e.started || e.blockOpen || e.deltaSeen {
 			return nil, nil, fmt.Errorf("anthropic: MessageDelta out of grammar order")
@@ -177,7 +177,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, err
 		}
 		e.deltaSeen = true
-		return []*StreamEvent{{Type: "message_delta", Delta: &StreamDelta{StopReason: reason, StopSequence: seq}, Usage: &UsageWire{
+		return []*StreamEvent{{Type: EventTypeMessageDelta, Delta: &StreamDelta{StopReason: reason, StopSequence: seq}, Usage: &UsageWire{
 			InputTokens:  event.Usage.InputTokens,
 			OutputTokens: event.Usage.OutputTokens,
 		}}}, nil, nil
@@ -186,7 +186,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("anthropic: MessageDone out of grammar order")
 		}
 		e.done = true
-		return []*StreamEvent{{Type: "message_stop"}}, nil, nil
+		return []*StreamEvent{{Type: EventTypeMessageStop}}, nil, nil
 	default:
 		return nil, nil, fmt.Errorf("anthropic: unknown event %T", ev)
 	}
@@ -194,10 +194,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 
 func (e *StreamEncoder) toolStopWithSynthesizedDelta(index int) []*StreamEvent {
 	wire := []*StreamEvent{
-		{Type: "content_block_delta", Index: index, Delta: &StreamDelta{
-			Type: "input_json_delta", PartialJSON: e.toolInput,
+		{Type: EventTypeContentBlockDelta, Index: index, Delta: &StreamDelta{
+			Type: DeltaTypeInputJSONDelta, PartialJSON: e.toolInput,
 		}},
-		{Type: "content_block_stop", Index: index},
+		{Type: EventTypeContentBlockStop, Index: index},
 	}
 	e.blockOpen = false
 	e.openTool = false

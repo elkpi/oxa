@@ -46,7 +46,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	}
 
 	for i, tool := range wire.Tools {
-		if tool.Type != "function" {
+		if tool.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Responses tool type %q has no IR equivalent", tool.Type),
@@ -81,9 +81,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	for i < len(wire.Input.Items) {
 		item := wire.Input.Items[i]
 		switch item.Type {
-		case "", "message":
+		case "", ItemTypeMessage:
 			switch item.Role {
-			case "system":
+			case RoleSystem:
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
 				if err != nil {
 					return nil, nil, err
@@ -100,7 +100,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				}
 				losses = append(losses, contentLosses...)
 				i++
-			case "user":
+			case RoleUser:
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
 				if err != nil {
 					return nil, nil, err
@@ -108,7 +108,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				losses = append(losses, contentLosses...)
 				req.Messages = append(req.Messages, ir.Message{Role: ir.RoleUser, Content: content})
 				i++
-			case "assistant":
+			case RoleAssistant:
 				merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 				if err != nil {
 					return nil, nil, err
@@ -121,7 +121,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case "function_call":
+		case ItemTypeFunctionCall:
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -131,7 +131,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			losses = append(losses, runLosses...)
 			i = next
-		case "function_call_output":
+		case ItemTypeFunctionCallOutput:
 			merged, next, runLosses, err := decodeOutputRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -169,7 +169,7 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
-		if item.Type == "function_call" {
+		if item.Type == ItemTypeFunctionCall {
 			input, err := wrapToolArguments(item.Arguments)
 			if err != nil {
 				return nil, 0, nil, fmt.Errorf("responses: input[%d].arguments: %w", i, err)
@@ -177,10 +177,10 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
 			continue
 		}
-		if item.Type != "" && item.Type != "message" {
+		if item.Type != "" && item.Type != ItemTypeMessage {
 			break
 		}
-		if item.Role != "assistant" {
+		if item.Role != RoleAssistant {
 			break
 		}
 		content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
@@ -204,7 +204,7 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 func decodeOutputRun(items []InputItem, start int) (*ir.Message, int, []ir.Loss, error) {
 	content := make([]ir.Block, 0)
 	i := start
-	for ; i < len(items) && items[i].Type == "function_call_output"; i++ {
+	for ; i < len(items) && items[i].Type == ItemTypeFunctionCallOutput; i++ {
 		content = append(content, ir.ToolResultBlock{
 			ToolUseID: items[i].CallID,
 			Content:   []ir.Block{ir.TextBlock{Text: items[i].Output}},
@@ -289,9 +289,9 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	hasToolUse := false
 	for i, item := range wire.Output {
 		switch item.Type {
-		case "message":
+		case ItemTypeMessage:
 			for j, part := range item.Content {
-				if part.Type != "output_text" {
+				if part.Type != PartTypeOutputText {
 					losses = append(losses, loss(
 						fmt.Sprintf("output[%d].content[%d]", i, j), "type", ir.LossUnsupportedSemantic,
 						fmt.Sprintf("Responses output content type %q has no IR equivalent", part.Type),
@@ -306,7 +306,7 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 				}
 				texts = append(texts, ir.TextBlock{Text: part.Text})
 			}
-		case "function_call":
+		case ItemTypeFunctionCall:
 			input, err := wrapToolArguments(item.Arguments)
 			if err != nil {
 				return nil, nil, fmt.Errorf("responses: output[%d].arguments: %w", i, err)
@@ -356,24 +356,24 @@ func decodeStatus(wire *Response, hasToolUse bool) (ir.StopReason, []ir.Loss, er
 		)}, nil
 	}
 	switch wire.Status {
-	case "completed":
+	case StatusCompleted:
 		if hasToolUse {
 			return ir.StopToolUse, nil, nil
 		}
 		return ir.StopEndTurn, nil, nil
-	case "incomplete":
+	case StatusIncomplete:
 		reason := ""
 		if wire.IncompleteDetails != nil {
 			reason = wire.IncompleteDetails.Reason
 		}
-		if reason == "max_output_tokens" {
+		if reason == IncompleteReasonMaxOutputTokens {
 			return ir.StopMaxTokens, nil, nil
 		}
 		return ir.StopOther, []ir.Loss{loss(
 			"incomplete_details.reason", "reason", ir.LossUnmappedValue,
 			fmt.Sprintf("Responses incomplete_details reason %q has no IR equivalent", reason),
 		)}, nil
-	case "failed":
+	case StatusFailed:
 		return ir.StopOther, []ir.Loss{loss(
 			"error", "error", ir.LossUnsupportedSemantic,
 			"failed Responses response carries no error object",

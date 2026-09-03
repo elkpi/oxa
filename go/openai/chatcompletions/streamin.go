@@ -135,7 +135,7 @@ func (d *StreamDecoder) recordToolCalls(calls []ToolCallDelta) error {
 			}
 			record.id = *call.ID
 		}
-		if call.Type != nil && *call.Type != "function" {
+		if call.Type != nil && *call.Type != ToolTypeFunction {
 			if !record.skipped {
 				d.losses = append(d.losses, loss(
 					fmt.Sprintf("choices[0].delta.tool_calls[%d]", call.Index), "type", ir.LossUnsupportedSemantic,

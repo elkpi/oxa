@@ -87,8 +87,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		e.started = true
 		e.id = event.ID
 		e.model = e.models.Map(event.Model)
-		return []*StreamEvent{{Type: "response.created", Response: &Response{
-			ID: e.id, Object: "response", Status: "in_progress", Model: e.model, Output: []OutputItem{},
+		return []*StreamEvent{{Type: EventTypeResponseCreated, Response: &Response{
+			ID: e.id, Object: ObjectResponse, Status: StatusInProgress, Model: e.model, Output: []OutputItem{},
 		}}}, nil, nil
 
 	case ir.ContentBlockStart:
@@ -129,7 +129,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			}
 			e.activeBlock.text += delta.Text
 			return []*StreamEvent{{
-				Type:         "response.output_text.delta",
+				Type:         EventTypeResponseOutputTextDelta,
 				ItemID:       e.activeItem.id,
 				OutputIndex:  e.activeItem.outputIndex,
 				ContentIndex: e.activeBlock.contentIndex,
@@ -146,7 +146,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			}
 			e.activeBlock.fragments = append(e.activeBlock.fragments, fragment)
 			return []*StreamEvent{{
-				Type:        "response.function_call_arguments.delta",
+				Type:        EventTypeResponseFunctionCallArgsDelta,
 				ItemID:      e.activeItem.id,
 				OutputIndex: e.activeItem.outputIndex,
 				Delta:       fragment,
@@ -212,13 +212,13 @@ func (e *StreamEncoder) startTextBlock(index int, block ir.TextBlock) ([]*Stream
 	}
 	contentIndex := e.activeItem.nextContentIndex
 	e.activeItem.nextContentIndex++
-	part := OutputContent{Type: "output_text", Text: block.Text, Annotations: []json.RawMessage{}}
+	part := OutputContent{Type: PartTypeOutputText, Text: block.Text, Annotations: []json.RawMessage{}}
 	e.activeItem.content = append(e.activeItem.content, part)
 	e.activeBlock = &streamEncodeBlock{
 		index: index, kind: streamMessageOutputItem, contentIndex: contentIndex, text: block.Text,
 	}
 	out = append(out, &StreamEvent{
-		Type:         "response.content_part.added",
+		Type:         EventTypeResponseContentPartAdded,
 		ItemID:       e.activeItem.id,
 		OutputIndex:  e.activeItem.outputIndex,
 		ContentIndex: contentIndex,
@@ -260,14 +260,14 @@ func (e *StreamEncoder) stopTextBlock() ([]*StreamEvent, []ir.Loss, error) {
 	e.activeBlock = nil
 	return []*StreamEvent{
 		{
-			Type:         "response.output_text.done",
+			Type:         EventTypeResponseOutputTextDone,
 			ItemID:       e.activeItem.id,
 			OutputIndex:  e.activeItem.outputIndex,
 			ContentIndex: block.contentIndex,
 			Text:         block.text,
 		},
 		{
-			Type:         "response.content_part.done",
+			Type:         EventTypeResponseContentPartDone,
 			ItemID:       e.activeItem.id,
 			OutputIndex:  e.activeItem.outputIndex,
 			ContentIndex: block.contentIndex,
@@ -285,7 +285,7 @@ func (e *StreamEncoder) stopFunctionCallBlock() ([]*StreamEvent, []ir.Loss, erro
 	if len(block.fragments) == 0 {
 		block.fragments = append(block.fragments, block.toolInput)
 		out = append(out, &StreamEvent{
-			Type:        "response.function_call_arguments.delta",
+			Type:        EventTypeResponseFunctionCallArgsDelta,
 			ItemID:      e.activeItem.id,
 			OutputIndex: e.activeItem.outputIndex,
 			Delta:       block.toolInput,
@@ -296,19 +296,19 @@ func (e *StreamEncoder) stopFunctionCallBlock() ([]*StreamEvent, []ir.Loss, erro
 		return nil, nil, fmt.Errorf("responses: ToolUseBlock input does not equal concatenated InputJSONDelta fragments")
 	}
 	completed := OutputItem{
-		ID: e.activeItem.id, Type: "function_call", Status: "completed",
+		ID: e.activeItem.id, Type: ItemTypeFunctionCall, Status: StatusCompleted,
 		CallID: e.activeItem.callID, Name: e.activeItem.name, Arguments: arguments,
 	}
 	out = append(out,
 		&StreamEvent{
-			Type:        "response.function_call_arguments.done",
+			Type:        EventTypeResponseFunctionCallArgsDone,
 			ItemID:      e.activeItem.id,
 			OutputIndex: e.activeItem.outputIndex,
 			CallID:      e.activeItem.callID,
 			Name:        e.activeItem.name,
 			Arguments:   arguments,
 		},
-		&StreamEvent{Type: "response.output_item.done", OutputIndex: e.activeItem.outputIndex, Item: &completed},
+		&StreamEvent{Type: EventTypeResponseOutputItemDone, OutputIndex: e.activeItem.outputIndex, Item: &completed},
 	)
 	e.completed = append(e.completed, completed)
 	e.activeBlock = nil
@@ -323,8 +323,8 @@ func (e *StreamEncoder) openMessageItem() (*streamOutputItem, *StreamEvent) {
 		kind: streamMessageOutputItem, id: id, outputIndex: e.nextOutputIndex,
 	}
 	e.nextOutputIndex++
-	return item, &StreamEvent{Type: "response.output_item.added", OutputIndex: item.outputIndex, Item: &OutputItem{
-		ID: item.id, Type: "message", Status: "in_progress", Role: "assistant", Content: []OutputContent{},
+	return item, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{
+		ID: item.id, Type: ItemTypeMessage, Status: StatusInProgress, Role: RoleAssistant, Content: []OutputContent{},
 	}}
 }
 
@@ -335,20 +335,20 @@ func (e *StreamEncoder) openFunctionCallItem(callID, name string) (*streamOutput
 		kind: streamFunctionCallOutputItem, id: id, outputIndex: e.nextOutputIndex, callID: callID, name: name,
 	}
 	e.nextOutputIndex++
-	return item, &StreamEvent{Type: "response.output_item.added", OutputIndex: item.outputIndex, Item: &OutputItem{
-		ID: item.id, Type: "function_call", Status: "in_progress", CallID: callID, Name: name, Arguments: "",
+	return item, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{
+		ID: item.id, Type: ItemTypeFunctionCall, Status: StatusInProgress, CallID: callID, Name: name, Arguments: "",
 	}}
 }
 
 func (e *StreamEncoder) closeMessageItem() *StreamEvent {
 	outputIndex := e.activeItem.outputIndex
 	completed := OutputItem{
-		ID: e.activeItem.id, Type: "message", Status: "completed", Role: "assistant",
+		ID: e.activeItem.id, Type: ItemTypeMessage, Status: StatusCompleted, Role: RoleAssistant,
 		Content: append([]OutputContent(nil), e.activeItem.content...),
 	}
 	e.completed = append(e.completed, completed)
 	e.activeItem = nil
-	return &StreamEvent{Type: "response.output_item.done", OutputIndex: outputIndex, Item: &completed}
+	return &StreamEvent{Type: EventTypeResponseOutputItemDone, OutputIndex: outputIndex, Item: &completed}
 }
 
 func streamGeneratedItemID(prefix string, ordinal int) string {
@@ -371,7 +371,7 @@ func unwrapStreamIRString(raw json.RawMessage) (string, error) {
 
 func (e *StreamEncoder) terminal(delta ir.MessageDelta) (*StreamEvent, []ir.Loss, error) {
 	response := &Response{
-		ID: e.id, Object: "response", Model: e.model, Output: []OutputItem{},
+		ID: e.id, Object: ObjectResponse, Model: e.model, Output: []OutputItem{},
 		Usage: &UsageWire{
 			InputTokens: delta.Usage.InputTokens, OutputTokens: delta.Usage.OutputTokens,
 			TotalTokens: delta.Usage.InputTokens + delta.Usage.OutputTokens,
@@ -379,19 +379,19 @@ func (e *StreamEncoder) terminal(delta ir.MessageDelta) (*StreamEvent, []ir.Loss
 	}
 	switch delta.StopReason {
 	case ir.StopEndTurn, ir.StopToolUse:
-		response.Status = "completed"
-		return &StreamEvent{Type: "response.completed", Response: response}, nil, nil
+		response.Status = StatusCompleted
+		return &StreamEvent{Type: EventTypeResponseCompleted, Response: response}, nil, nil
 	case ir.StopMaxTokens:
-		response.Status = "incomplete"
-		response.IncompleteDetails = &IncompleteWire{Reason: "max_output_tokens"}
-		return &StreamEvent{Type: "response.incomplete", Response: response}, nil, nil
+		response.Status = StatusIncomplete
+		response.IncompleteDetails = &IncompleteWire{Reason: IncompleteReasonMaxOutputTokens}
+		return &StreamEvent{Type: EventTypeResponseIncomplete, Response: response}, nil, nil
 	case ir.StopRefusal:
-		response.Status = "failed"
-		response.Error = &ErrorWire{Code: "refusal"}
-		return &StreamEvent{Type: "response.failed", Response: response}, nil, nil
+		response.Status = StatusFailed
+		response.Error = &ErrorWire{Code: ErrorCodeRefusal}
+		return &StreamEvent{Type: EventTypeResponseFailed, Response: response}, nil, nil
 	case ir.StopSequence:
-		response.Status = "completed"
-		return &StreamEvent{Type: "response.completed", Response: response}, []ir.Loss{{
+		response.Status = StatusCompleted
+		return &StreamEvent{Type: EventTypeResponseCompleted, Response: response}, []ir.Loss{{
 			Field:  "stop_sequence",
 			Reason: ir.LossUnmappedValue,
 			Detail: "Responses status carries no stop-sequence identity; the matched IR stop sequence is lost",

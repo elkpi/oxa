@@ -76,7 +76,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 	}
 
 	switch ev.Type {
-	case "response.created":
+	case EventTypeResponseCreated:
 		if d.started {
 			return nil, fmt.Errorf("responses: duplicate response.created")
 		}
@@ -87,8 +87,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return []ir.Event{ir.MessageStart{
 			ID: ev.Response.ID, Model: d.models.Map(ev.Response.Model),
 		}}, nil
-	case "response.output_item.added":
-		if err := d.requireStarted("response.output_item.added"); err != nil {
+	case EventTypeResponseOutputItemAdded:
+		if err := d.requireStarted(EventTypeResponseOutputItemAdded); err != nil {
 			return nil, err
 		}
 		if d.itemOpen {
@@ -109,9 +109,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.nextContentIndex = 0
 		d.functionCall = nil
 		switch {
-		case ev.Item.Type == "message" && ev.Item.Role == "assistant":
+		case ev.Item.Type == ItemTypeMessage && ev.Item.Role == RoleAssistant:
 			return nil, nil
-		case ev.Item.Type == "function_call":
+		case ev.Item.Type == ItemTypeFunctionCall:
 			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Name == "" {
 				return nil, fmt.Errorf("responses: function_call item requires id, call_id, and name")
 			}
@@ -125,14 +125,14 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, nil
 		default:
 			d.skippedItem = true
-			if ev.Item.Type == "function_call_output" {
+			if ev.Item.Type == ItemTypeFunctionCallOutput {
 				d.skippedCallID = ev.Item.CallID
 			}
 			d.losses = append(d.losses, d.unsupportedItemLoss(ev.OutputIndex, ev.Item.Type))
 			return nil, nil
 		}
-	case "response.content_part.added":
-		if err := d.requireActiveItem(ev, "response.content_part.added"); err != nil {
+	case EventTypeResponseContentPartAdded:
+		if err := d.requireActiveItem(ev, EventTypeResponseContentPartAdded); err != nil {
 			return nil, err
 		}
 		if d.functionCall != nil {
@@ -153,7 +153,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.skippedPart = true
 			return nil, nil
 		}
-		if ev.Part.Type != "output_text" {
+		if ev.Part.Type != PartTypeOutputText {
 			d.skippedPart = true
 			d.losses = append(d.losses, ir.Loss{
 				Path:   fmt.Sprintf("output[%d].content[%d]", ev.OutputIndex, ev.ContentIndex),
@@ -170,14 +170,14 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return []ir.Event{ir.ContentBlockStart{
 			Index: d.blockIndex, Block: ir.TextBlock{Text: ev.Part.Text},
 		}}, nil
-	case "response.function_call_arguments.delta":
+	case EventTypeResponseFunctionCallArgsDelta:
 		if d.skippedItem {
-			if err := d.requireActiveItem(ev, "response.function_call_arguments.delta"); err != nil {
+			if err := d.requireActiveItem(ev, EventTypeResponseFunctionCallArgsDelta); err != nil {
 				return nil, err
 			}
 			return nil, nil
 		}
-		if err := d.requireFunctionCall(ev, "response.function_call_arguments.delta"); err != nil {
+		if err := d.requireFunctionCall(ev, EventTypeResponseFunctionCallArgsDelta); err != nil {
 			return nil, err
 		}
 		if d.functionCall.argumentsDone {
@@ -185,14 +185,14 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.functionCall.fragments = append(d.functionCall.fragments, ev.Delta)
 		return nil, nil
-	case "response.function_call_arguments.done":
+	case EventTypeResponseFunctionCallArgsDone:
 		if d.skippedItem {
-			if err := d.requireActiveItem(ev, "response.function_call_arguments.done"); err != nil {
+			if err := d.requireActiveItem(ev, EventTypeResponseFunctionCallArgsDone); err != nil {
 				return nil, err
 			}
 			return nil, nil
 		}
-		if err := d.requireFunctionCall(ev, "response.function_call_arguments.done"); err != nil {
+		if err := d.requireFunctionCall(ev, EventTypeResponseFunctionCallArgsDone); err != nil {
 			return nil, err
 		}
 		if d.functionCall.argumentsDone {
@@ -203,8 +203,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.functionCall.argumentsDone = true
 		return nil, nil
-	case "response.output_text.delta":
-		if err := d.requireActiveItem(ev, "response.output_text.delta"); err != nil {
+	case EventTypeResponseOutputTextDelta:
+		if err := d.requireActiveItem(ev, EventTypeResponseOutputTextDelta); err != nil {
 			return nil, err
 		}
 		if d.functionCall != nil {
@@ -225,8 +225,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return []ir.Event{ir.ContentBlockDelta{
 			Index: d.blockIndex, Delta: ir.TextDelta{Text: ev.Delta},
 		}}, nil
-	case "response.output_text.done":
-		if err := d.requireActiveItem(ev, "response.output_text.done"); err != nil {
+	case EventTypeResponseOutputTextDone:
+		if err := d.requireActiveItem(ev, EventTypeResponseOutputTextDone); err != nil {
 			return nil, err
 		}
 		if d.functionCall != nil {
@@ -246,8 +246,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.textDone = true
 		return nil, nil
-	case "response.content_part.done":
-		if err := d.requireActiveItem(ev, "response.content_part.done"); err != nil {
+	case EventTypeResponseContentPartDone:
+		if err := d.requireActiveItem(ev, EventTypeResponseContentPartDone); err != nil {
 			return nil, err
 		}
 		if d.functionCall != nil {
@@ -271,8 +271,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.blockOpen = false
 		return []ir.Event{ir.ContentBlockStop{Index: d.blockIndex}}, nil
-	case "response.output_item.done":
-		if err := d.requireStarted("response.output_item.done"); err != nil {
+	case EventTypeResponseOutputItemDone:
+		if err := d.requireStarted(EventTypeResponseOutputItemDone); err != nil {
 			return nil, err
 		}
 		if !d.itemOpen || ev.OutputIndex != d.outputIndex {
@@ -281,7 +281,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if ev.Item == nil || ev.Item.ID != d.itemID || ev.Item.Type != d.itemType {
 			return nil, fmt.Errorf("responses: response.output_item.done does not match the open item")
 		}
-		if d.skippedItem && d.itemType == "function_call_output" && ev.Item.CallID != d.skippedCallID {
+		if d.skippedItem && d.itemType == ItemTypeFunctionCallOutput && ev.Item.CallID != d.skippedCallID {
 			return nil, fmt.Errorf("responses: response.output_item.done does not match the active function_call_output")
 		}
 		if d.blockOpen || d.skippedPart {
@@ -307,7 +307,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.skippedItem = false
 		d.functionCall = nil
 		return events, nil
-	case "response.completed", "response.incomplete", "response.failed":
+	case EventTypeResponseCompleted, EventTypeResponseIncomplete, EventTypeResponseFailed:
 		if err := d.requireStarted(ev.Type); err != nil {
 			return nil, err
 		}
@@ -403,7 +403,7 @@ func (d *StreamDecoder) replayFunctionCall(call *streamFunctionCall) ([]ir.Event
 
 func (d *StreamDecoder) unsupportedItemLoss(outputIndex int, itemType string) ir.Loss {
 	detail := fmt.Sprintf("Responses streaming output item type %q is not decoded", itemType)
-	if itemType == "function_call_output" {
+	if itemType == ItemTypeFunctionCallOutput {
 		detail = "N-S-10: Responses function_call_output has no supported IR block mapping; response.output_item.done completes and is absorbed for this item-only lifecycle vector"
 	}
 	return ir.Loss{

@@ -170,13 +170,13 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 
 func decodeFinishReason(finish string) (ir.StopReason, *ir.Loss, error) {
 	switch finish {
-	case "stop":
+	case FinishReasonStop:
 		return ir.StopEndTurn, nil, nil
-	case "length":
+	case FinishReasonLength:
 		return ir.StopMaxTokens, nil, nil
-	case "content_filter":
+	case FinishReasonContentFilter:
 		return ir.StopRefusal, nil, nil
-	case "tool_calls":
+	case FinishReasonToolCalls:
 		return ir.StopToolUse, nil, nil
 	case "":
 		return "", nil, fmt.Errorf("chatcompletions: choices[0].finish_reason is missing")

@@ -66,7 +66,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return nil, fmt.Errorf("anthropic: event fed after message_stop")
 	}
 	switch ev.Type {
-	case "message_start":
+	case EventTypeMessageStart:
 		if d.started {
 			return nil, fmt.Errorf("anthropic: duplicate message_start")
 		}
@@ -78,7 +78,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			ID:    ev.Message.ID,
 			Model: d.models.Map(ev.Message.Model),
 		}}, nil
-	case "content_block_start":
+	case EventTypeContentBlockStart:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_start before message_start")
 		}
@@ -100,7 +100,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			})
 			return nil, nil
 		}
-		if ev.ContentBlock.Type == "tool_use" {
+		if ev.ContentBlock.Type == BlockTypeToolUse {
 			if ev.ContentBlock.ID == "" {
 				return nil, fmt.Errorf("anthropic: content_block_start[%d].content_block.id is required", ev.Index)
 			}
@@ -119,7 +119,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.toolParts = nil
 			return nil, nil
 		}
-		if ev.ContentBlock.Type != "text" {
+		if ev.ContentBlock.Type != BlockTypeText {
 			d.nextIndex++
 			d.skipped[ev.Index] = true
 			d.skippedOpen = true
@@ -138,7 +138,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.openIRIndex = d.nextIRIndex
 		d.nextIRIndex++
 		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text}}}, nil
-	case "content_block_delta":
+	case EventTypeContentBlockDelta:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_delta before message_start")
 		}
@@ -155,17 +155,17 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if d.openTool {
 			switch ev.Delta.Type {
-			case "text_delta":
+			case DeltaTypeTextDelta:
 				return nil, fmt.Errorf("anthropic: text_delta on tool_use block")
-			case "input_json_delta":
+			case DeltaTypeInputJSONDelta:
 				d.toolParts = append(d.toolParts, ev.Delta.PartialJSON)
 				return nil, nil
 			}
 		}
 		switch ev.Delta.Type {
-		case "text_delta":
+		case DeltaTypeTextDelta:
 			return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.TextDelta{Text: ev.Delta.Text}}}, nil
-		case "input_json_delta":
+		case DeltaTypeInputJSONDelta:
 			return nil, fmt.Errorf("anthropic: input_json_delta on non-tool block")
 		default:
 			d.losses = append(d.losses, ir.Loss{
@@ -176,7 +176,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			})
 			return nil, nil
 		}
-	case "content_block_stop":
+	case EventTypeContentBlockStop:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_stop before message_start")
 		}
@@ -235,7 +235,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.blockOpen = false
 		return []ir.Event{ir.ContentBlockStop{Index: d.openIRIndex}}, nil
-	case "message_delta":
+	case EventTypeMessageDelta:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: message_delta before message_start")
 		}
@@ -259,7 +259,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.deltaSeen = true
 		return nil, nil
-	case "message_stop":
+	case EventTypeMessageStop:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: message_stop before message_start")
 		}

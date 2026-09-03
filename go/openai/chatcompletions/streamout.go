@@ -77,7 +77,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		e.started = true
 		e.id = event.ID
 		e.model = e.models.Map(event.Model)
-		return []*Chunk{e.chunk(DeltaPayload{Role: "assistant"})}, nil, nil
+		return []*Chunk{e.chunk(DeltaPayload{Role: RoleAssistant})}, nil, nil
 
 	case ir.ContentBlockStart:
 		if !e.started || e.active != nil {
@@ -186,7 +186,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		e.pendingTools = nil
 		chunks = append(chunks, &Chunk{
 			ID:      e.id,
-			Object:  "chat.completion.chunk",
+			Object:  ObjectChatCompletionChunk,
 			Created: 0,
 			Model:   e.model,
 			Choices: []ChoiceDelta{{Index: 0, Delta: DeltaPayload{}, FinishReason: &finish}},
@@ -213,7 +213,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 func (e *StreamEncoder) chunk(delta DeltaPayload) *Chunk {
 	return &Chunk{
 		ID:      e.id,
-		Object:  "chat.completion.chunk",
+		Object:  ObjectChatCompletionChunk,
 		Created: 0,
 		Model:   e.model,
 		Choices: []ChoiceDelta{{Index: 0, Delta: delta}},
@@ -226,7 +226,7 @@ func (e *StreamEncoder) queueToolArguments(block *streamEncodeBlock, arguments s
 	call := ToolCallDelta{Index: block.nativeIndex, Function: function}
 	if !block.toolStarted {
 		id := block.toolID
-		kind := "function"
+		kind := ToolTypeFunction
 		name := block.toolName
 		call.ID = &id
 		call.Type = &kind

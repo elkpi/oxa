@@ -150,7 +150,7 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
 	case ir.TextBlock:
-		return BlockWire{Type: "text", Text: b.Text}, nil, true, nil
+		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
 	case ir.ImageBlock:
 		return encodeImageBlock(b, path)
 	case ir.ToolUseBlock:
@@ -167,7 +167,7 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 		if err := requireJSONObject(input, path+".input"); err != nil {
 			return BlockWire{}, nil, false, err
 		}
-		return BlockWire{Type: "tool_use", ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
 	case ir.ToolResultBlock:
 		return encodeToolResultBlock(b, path)
 	default:
@@ -185,14 +185,14 @@ func encodeImageBlock(image ir.ImageBlock, path string) (BlockWire, []ir.Loss, b
 		if image.MediaType == "" {
 			return BlockWire{}, []ir.Loss{invalidImageLoss(path, "base64 image data requires media_type")}, false, nil
 		}
-		return BlockWire{Type: "image", Source: &SourceWire{
-			Type: "base64", MediaType: image.MediaType, Data: image.Data,
+		return BlockWire{Type: BlockTypeImage, Source: &SourceWire{
+			Type: SourceTypeBase64, MediaType: image.MediaType, Data: image.Data,
 		}}, nil, true, nil
 	}
 	if image.MediaType != "" {
 		return BlockWire{}, []ir.Loss{invalidImageLoss(path, "URL image must not carry media_type")}, false, nil
 	}
-	return BlockWire{Type: "image", Source: &SourceWire{Type: "url", URL: image.URL}}, nil, true, nil
+	return BlockWire{Type: BlockTypeImage, Source: &SourceWire{Type: SourceTypeURL, URL: image.URL}}, nil, true, nil
 }
 
 func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, []ir.Loss, bool, error) {
@@ -205,7 +205,7 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 		contentPath := fmt.Sprintf("%s.content[%d]", path, i)
 		switch b := block.(type) {
 		case ir.TextBlock:
-			content = append(content, BlockWire{Type: "text", Text: b.Text})
+			content = append(content, BlockWire{Type: BlockTypeText, Text: b.Text})
 		case ir.ImageBlock:
 			image, imageLosses, mapped, err := encodeImageBlock(b, contentPath)
 			if err != nil {
@@ -220,7 +220,7 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 		}
 	}
 	return BlockWire{
-		Type: "tool_result", ToolUseID: result.ToolUseID, Content: content, IsError: result.IsError,
+		Type: BlockTypeToolResult, ToolUseID: result.ToolUseID, Content: content, IsError: result.IsError,
 	}, losses, true, nil
 }
 
@@ -253,8 +253,8 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	o := newOptions(opts...)
 	out := &Response{
 		ID:    resp.ID,
-		Type:  "message",
-		Role:  "assistant",
+		Type:  TypeMessage,
+		Role:  RoleAssistant,
 		Model: o.models.Map(resp.Model),
 		Usage: &UsageWire{
 			InputTokens:  resp.Usage.InputTokens,
@@ -274,18 +274,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	switch resp.StopReason {
 	case ir.StopEndTurn:
-		out.StopReason = "end_turn"
+		out.StopReason = StopReasonEndTurn
 	case ir.StopMaxTokens:
-		out.StopReason = "max_tokens"
+		out.StopReason = StopReasonMaxTokens
 	case ir.StopSequence:
-		out.StopReason = "stop_sequence"
+		out.StopReason = StopReasonStopSequence
 		if resp.StopSequence != "" {
 			out.StopSequence = resp.StopSequence
 		}
 	case ir.StopToolUse:
-		out.StopReason = "tool_use"
+		out.StopReason = StopReasonToolUse
 	case ir.StopRefusal:
-		out.StopReason = "refusal"
+		out.StopReason = StopReasonRefusal
 	default:
 		return nil, nil, fmt.Errorf("anthropic: stop reason %q has no Anthropic equivalent", resp.StopReason)
 	}
@@ -295,7 +295,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
 	case ir.TextBlock:
-		return BlockWire{Type: "text", Text: b.Text}, nil, true, nil
+		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
 	case ir.ImageBlock:
 		return encodeImageBlock(b, path)
 	case ir.ToolUseBlock:
@@ -312,7 +312,7 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 		if err := requireJSONObject(input, path+".input"); err != nil {
 			return BlockWire{}, nil, false, err
 		}
-		return BlockWire{Type: "tool_use", ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
 	default:
 		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
 	}

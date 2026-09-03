@@ -10,6 +10,48 @@ import (
 	"fmt"
 )
 
+const (
+	RoleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleDeveloper = "developer"
+
+	ToolTypeFunction = "function"
+
+	ItemTypeMessage            = "message"
+	ItemTypeFunctionCall       = "function_call"
+	ItemTypeFunctionCallOutput = "function_call_output"
+
+	PartTypeInputText  = "input_text"
+	PartTypeOutputText = "output_text"
+	PartTypeInputImage = "input_image"
+
+	StatusInProgress = "in_progress"
+	StatusCompleted  = "completed"
+	StatusIncomplete = "incomplete"
+	StatusFailed     = "failed"
+
+	IncompleteReasonMaxOutputTokens = "max_output_tokens"
+	IncompleteReasonContentFilter   = "content_filter"
+
+	ErrorCodeRefusal = "refusal"
+
+	ObjectResponse = "response"
+
+	EventTypeResponseCreated               = "response.created"
+	EventTypeResponseOutputItemAdded       = "response.output_item.added"
+	EventTypeResponseOutputItemDone        = "response.output_item.done"
+	EventTypeResponseContentPartAdded      = "response.content_part.added"
+	EventTypeResponseContentPartDone       = "response.content_part.done"
+	EventTypeResponseOutputTextDelta       = "response.output_text.delta"
+	EventTypeResponseOutputTextDone        = "response.output_text.done"
+	EventTypeResponseFunctionCallArgsDelta = "response.function_call_arguments.delta"
+	EventTypeResponseFunctionCallArgsDone  = "response.function_call_arguments.done"
+	EventTypeResponseCompleted             = "response.completed"
+	EventTypeResponseIncomplete            = "response.incomplete"
+	EventTypeResponseFailed                = "response.failed"
+)
+
 // Request is the Responses wire request for the supported non-streaming
 // subset.
 type Request struct {

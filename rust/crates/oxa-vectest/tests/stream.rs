@@ -134,7 +134,7 @@ impl StreamConverter for FakeStreamConverter {
         self.face
     }
 
-    fn decode_native_event(&mut self, _event: &Value) -> Result<Vec<Event>, String> {
+    fn decode_native_event(&mut self, _event: &str) -> Result<Vec<Event>, String> {
         self.decode_calls += 1;
         if let Some(err) = &self.decode_err {
             return Err(err.clone());
@@ -273,8 +273,9 @@ impl StreamConverter for ResettingConverter {
         self.dirty = false;
     }
 
-    fn decode_native_event(&mut self, event: &Value) -> Result<Vec<Event>, String> {
-        let name = event
+    fn decode_native_event(&mut self, event: &str) -> Result<Vec<Event>, String> {
+        let value: Value = serde_json::from_str(event).map_err(|err| err.to_string())?;
+        let name = value
             .get("event")
             .and_then(Value::as_str)
             .ok_or_else(|| "unexpected fake event".to_string())?;

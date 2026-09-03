@@ -342,24 +342,31 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         }
         losses.extend(block_losses);
     }
-    match resp.stop_reason {
-        StopReason::EndTurn => out.stop_reason = "end_turn".to_string(),
-        StopReason::MaxTokens => out.stop_reason = "max_tokens".to_string(),
-        StopReason::StopSequence => {
-            out.stop_reason = "stop_sequence".to_string();
-            if let Some(sequence) = resp.stop_sequence.as_deref().filter(|s| !s.is_empty()) {
-                out.stop_sequence = sequence.to_string();
-            }
-        }
-        StopReason::ToolUse => out.stop_reason = "tool_use".to_string(),
-        StopReason::Refusal => out.stop_reason = "refusal".to_string(),
-        StopReason::Other => {
-            return Err(Error::new(
-                "anthropic: stop reason \"other\" has no Anthropic equivalent",
-            ));
-        }
+    let (reason, seq) = encode_stop_reason(resp.stop_reason, resp.stop_sequence.as_deref())?;
+    out.stop_reason = reason.to_string();
+    if let Some(s) = seq {
+        out.stop_sequence = s;
     }
     Ok((out, losses))
+}
+
+pub(crate) fn encode_stop_reason(
+    stop: StopReason,
+    seq: Option<&str>,
+) -> Result<(&'static str, Option<String>), Error> {
+    match stop {
+        StopReason::EndTurn => Ok(("end_turn", None)),
+        StopReason::MaxTokens => Ok(("max_tokens", None)),
+        StopReason::StopSequence => {
+            let s = seq.filter(|s| !s.is_empty()).map(|s| s.to_string());
+            Ok(("stop_sequence", s))
+        }
+        StopReason::ToolUse => Ok(("tool_use", None)),
+        StopReason::Refusal => Ok(("refusal", None)),
+        StopReason::Other => Err(Error::new(
+            "anthropic: stop reason \"other\" has no Anthropic equivalent",
+        )),
+    }
 }
 
 /// Returns (wire block, losses, mapped).

@@ -270,3 +270,57 @@ pub struct UsageWire {
     #[serde(rename = "output_tokens")]
     pub output_tokens: i64,
 }
+
+/// One Anthropic Messages streaming event.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreamEvent {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "message", skip_serializing_if = "Option::is_none")]
+    pub message: Option<MessageStartWire>,
+    #[serde(rename = "index", skip_serializing_if = "Option::is_none")]
+    pub index: Option<i64>,
+    #[serde(rename = "content_block", skip_serializing_if = "Option::is_none")]
+    pub content_block: Option<BlockWire>,
+    #[serde(rename = "delta", skip_serializing_if = "Option::is_none")]
+    pub delta: Option<StreamDelta>,
+    #[serde(rename = "usage", skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UsageWire>,
+}
+
+/// The message envelope carried by a message_start streaming event.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MessageStartWire {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "role")]
+    pub role: String,
+    #[serde(rename = "model")]
+    pub model: String,
+    #[serde(rename = "content")]
+    pub content: Vec<BlockWire>,
+    #[serde(rename = "stop_reason")]
+    pub stop_reason: Option<String>,
+    #[serde(rename = "usage")]
+    pub usage: Option<UsageWire>,
+}
+
+/// The delta payload of content_block_delta and message_delta.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreamDelta {
+    #[serde(rename = "type", skip_serializing_if = "String::is_empty")]
+    pub kind: String,
+    #[serde(rename = "text", skip_serializing_if = "String::is_empty")]
+    pub text: String,
+    #[serde(rename = "partial_json", skip_serializing_if = "Option::is_none")]
+    pub partial_json: Option<String>,
+    #[serde(rename = "stop_reason", skip_serializing_if = "Option::is_none")]
+    pub stop_reason: Option<String>,
+    #[serde(rename = "stop_sequence", skip_serializing_if = "Option::is_none")]
+    pub stop_sequence: Option<String>,
+}

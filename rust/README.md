@@ -29,7 +29,8 @@ rust/crates/oxa-responses/       the OpenAI Responses face (nonstream);
                                  implemented
 rust/crates/oxa-anthropic/       the Anthropic Messages face (nonstream);
                                  implemented
-rust/crates/oxa-sse/             planned
+rust/crates/oxa-sse/             the byte-level SSE frame adapter
+                                 (spec/20 §6); implemented
 ```
 
 Production crates depend on `serde` and `serde_json` only. Test-only code
@@ -55,4 +56,5 @@ can still build and test outside the monorepo.
 - [x] Anthropic Messages face (nonstream)
 - [x] Responses face (nonstream)
 - [x] cross-protocol vectors through the composition
+- [x] `oxa-sse` — byte-level SSE frame adapter (spec/20 §6)
 - [ ] streaming (text profile, then tool-argument aggregation)

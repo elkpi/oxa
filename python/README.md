@@ -1,18 +1,50 @@
-# oxa Python implementation (roadmap placeholder)
+# oxa — Python Reference Implementation
 
-The Python implementation is planned **after v1**. It is the second language
-to follow the Go reference implementation, per the roadmap order
-Rust → Python → C++.
+Pure, in-process protocol-conversion library for OpenAI Chat Completions,
+OpenAI Responses, and Anthropic Messages in Python.
 
-Once started, this implementation must conform to the **same shared
-`vectors/` golden set** as every other oxa implementation — Python gets no
-vector set of its own, and CI runs the identical vectors against it.
+Like the Go and Rust implementations, oxa in Python is not a proxy, HTTP
+client, router, retry layer, authentication service, or model capability
+database. It provides deterministic, pure conversions between protocol wire
+structures and oxa's shared Intermediate Representation (IR).
 
-## Vectors location convention
+## Architecture
 
-Test code must **not** hard-code a path to the vectors. Instead, starting
-from this implementation directory, **walk up parent directories** until you
-find a directory containing both `vectors/` and `.git/` — that is the
-repository root, and `vectors/` beneath it is the golden set. **Skip the
-vector tests** (with a clear message) if no such root is found, so the
-package can still build and test outside the monorepo.
+- **Hub-and-spoke**: Spoke packages (`oxa.openai.chatcompletions`,
+  `oxa.openai.responses`, `oxa.anthropic.messages`) implement only `face → IR`
+  and `IR → face`. No direct face-to-face conversions.
+- **Zero runtime dependencies**: Pure Python standard library only
+  (`dataclasses`, `typing`, `json`, `enum`, etc.).
+- **Opaque tool inputs (INV-1)**: Tool call arguments and streaming delta
+  fragments remain unparsed raw JSON text.
+- **Shared Golden Vectors**: Conforms to the exact same shared `vectors/` golden
+  suite as Go and Rust.
+
+## Development
+
+The project uses [`uv`](https://docs.astral.sh/uv/) for development and
+environment management:
+
+```bash
+cd python
+
+# Sync virtualenv and development dependencies
+uv sync
+
+# Run tests
+uv run pytest
+
+# Type check
+uv run mypy
+
+# Lint & format check
+uv run ruff check .
+uv run ruff format --check .
+```
+
+## Vectors Location Convention
+
+Test harnesses locate the shared `vectors/` suite by walking up parent
+directories from `python/` until finding a directory containing both `vectors/`
+and `.git/`. Tests skip cleanly if the repository root is absent (e.g. when
+building a standalone package archive).

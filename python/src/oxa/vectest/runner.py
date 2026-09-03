@@ -5,17 +5,13 @@ from __future__ import annotations
 from typing import Any, Callable
 
 from oxa.ir import (
-    EventStream,
     Loss,
     Request,
     Response,
-    dump_event_stream,
     dump_request,
     dump_response,
-    load_event_stream,
     load_request,
     load_response,
-    validate_event_stream,
 )
 from oxa.modelmap import Table
 from oxa.vectest.compare import compare_json, compare_losses
@@ -57,3 +53,25 @@ def run_nonstream_vector(
 
     else:
         raise ValueError(f"unknown nonstream conversion: {vector.conversion}")
+
+
+def run_cross_vector(
+    vector: Vector,
+    source_decode_request: Callable[[Any, str, Table | None], tuple[Request, list[Loss]]],
+    source_decode_response: Callable[[Any, str, Table | None], tuple[Response, list[Loss]]],
+    target_encode_request: Callable[[Request, Table | None], tuple[Any, list[Loss]]],
+    target_encode_response: Callable[[Response, Table | None], tuple[Any, list[Loss]]],
+    table: Table | None = None,
+) -> None:
+    """Executes a cross-protocol vector: source decode -> IR -> target encode."""
+    if vector.is_request():
+        ir_req, dec_losses = source_decode_request(vector.input, vector.input_raw, table)
+        actual_wire, enc_losses = target_encode_request(ir_req, table)
+    else:
+        ir_resp, dec_losses = source_decode_response(vector.input, vector.input_raw, table)
+        actual_wire, enc_losses = target_encode_response(ir_resp, table)
+
+    all_losses = dec_losses + enc_losses
+    assert vector.expected_output is not None, f"vector {vector.name}: expected_output is missing"
+    compare_json(vector.expected_output, actual_wire)
+    compare_losses(vector.expected_losses, all_losses)

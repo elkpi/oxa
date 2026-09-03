@@ -89,7 +89,11 @@ def encode_system(system: list[SystemBlock]) -> list[dict[str, Any]]:
     return [{"type": BLOCK_TYPE_TEXT, "text": b.text} for b in system]
 
 
-def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
+def decode_content(
+    content: Any,
+    path: str,
+    raw_text: str = "",
+) -> tuple[list[Block], list[Loss]]:
     """Decodes wire message content: string or block array."""
     if content is None:
         raise ValueError(f"anthropic: {path} is missing")
@@ -100,7 +104,7 @@ def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
         losses: list[Loss] = []
         for index, block in enumerate(content):
             if isinstance(block, dict):
-                decoded, b_losses, mapped = decode_block(block, f"{path}[{index}]")
+                decoded, b_losses, mapped = decode_block(block, f"{path}[{index}]", raw_text)
                 if mapped:
                     out.extend(decoded)
                 losses.extend(b_losses)
@@ -108,7 +112,39 @@ def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
     raise ValueError(f"anthropic: {path} must be a string or list of blocks")
 
 
-def decode_block(wire: dict[str, Any], path: str) -> tuple[list[Block], list[Loss], bool]:
+def extract_tool_input_raw(raw_text: str, tool_id: str) -> str | None:
+    if not raw_text or not tool_id:
+        return None
+    id_marker = f'"{tool_id}"'
+    id_pos = raw_text.find(id_marker)
+    if id_pos == -1:
+        return None
+
+    input_marker = '"input"'
+    pos = raw_text.find(input_marker, id_pos)
+    if pos == -1 or (pos - id_pos > 1000):
+        pos = raw_text.rfind(input_marker, 0, id_pos)
+    if pos == -1:
+        return None
+
+    colon = raw_text.find(":", pos + len(input_marker))
+    if colon == -1:
+        return None
+    start = colon + 1
+    while start < len(raw_text) and raw_text[start].isspace():
+        start += 1
+    try:
+        _, end = json.JSONDecoder().raw_decode(raw_text, start)
+        return raw_text[start:end]
+    except Exception:
+        return None
+
+
+def decode_block(
+    wire: dict[str, Any],
+    path: str,
+    raw_text: str = "",
+) -> tuple[list[Block], list[Loss], bool]:
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
     losses: list[Loss] = []
@@ -167,7 +203,11 @@ def decode_block(wire: dict[str, Any], path: str) -> tuple[list[Block], list[Los
         if raw_input is None:
             raise ValueError(f"anthropic: {path}.input is required")
         require_json_object(raw_input, f"{path}.input")
-        if isinstance(raw_input, dict):
+
+        raw_slice = extract_tool_input_raw(raw_text, tool_id)
+        if raw_slice is not None:
+            input_text = raw_slice
+        elif isinstance(raw_input, dict):
             input_text = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
         else:
             input_text = str(raw_input)
@@ -182,7 +222,7 @@ def decode_block(wire: dict[str, Any], path: str) -> tuple[list[Block], list[Los
         if isinstance(inner_content, str):
             content_blocks = [TextBlock(text=inner_content)]
         else:
-            content_blocks, c_losses = decode_content(inner_content, f"{path}.content")
+            content_blocks, c_losses = decode_content(inner_content, f"{path}.content", raw_text)
             losses.extend(c_losses)
         is_error = bool(wire.get("is_error", False))
         block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)

@@ -145,7 +145,7 @@ def decode_response(
     content_raw = wire.get("content", [])
     content: list[Block] = []
     for index, block in enumerate(content_raw):
-        decoded, b_losses, mapped = decode_block(block, f"content[{index}]")
+        decoded, b_losses, mapped = decode_block(block, f"content[{index}]", raw_text)
         if mapped:
             content.extend(decoded)
         losses.extend(b_losses)

@@ -20,6 +20,8 @@ from oxa.openai.chatcompletions.constants import (
 )
 from oxa.openai.chatcompletions.decode import decode_request, decode_response
 from oxa.openai.chatcompletions.encode import encode_request, encode_response
+from oxa.openai.chatcompletions.streamin import StreamDecoder
+from oxa.openai.chatcompletions.streamout import StreamEncoder
 
 __all__ = [
     # Constants
@@ -39,9 +41,12 @@ __all__ = [
     "FINISH_REASON_TOOL_CALLS",
     "OBJECT_CHAT_COMPLETION",
     "OBJECT_CHAT_COMPLETION_CHUNK",
-    # Functions
+    # Nonstream Functions
     "decode_request",
     "decode_response",
     "encode_request",
     "encode_response",
+    # Streaming Classes
+    "StreamDecoder",
+    "StreamEncoder",
 ]

@@ -117,6 +117,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxa-sse"
+version = "0.0.2"
+
+[[package]]
 name = "oxa-vectest"
 version = "0.0.2"
 dependencies = [

@@ -7,7 +7,10 @@ use oxa_ir::{
 use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{decode_block, decode_content, decode_system, decode_tool_choice, loss};
-use crate::types::{Request, Response};
+use crate::types::{
+    ROLE_ASSISTANT, ROLE_USER, Request, Response, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
+    STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE,
+};
 
 /// Converts an Anthropic Messages wire request to the IR (face → IR). The
 /// mapping is near-identity: system (string or block array) becomes the IR
@@ -69,8 +72,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
 
     for (index, message) in wire.messages.iter().enumerate() {
         let role = match message.role.as_str() {
-            "user" => oxa_ir::Role::User,
-            "assistant" => oxa_ir::Role::Assistant,
+            ROLE_USER => oxa_ir::Role::User,
+            ROLE_ASSISTANT => oxa_ir::Role::Assistant,
             other => {
                 return Err(Error::new(format!(
                     "anthropic: messages[{index}]: unknown role {other:?}"
@@ -151,11 +154,11 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
 
 pub(crate) fn decode_stop_reason(stop: &str) -> Result<(StopReason, Option<Loss>), Error> {
     match stop {
-        "end_turn" => Ok((StopReason::EndTurn, None)),
-        "max_tokens" => Ok((StopReason::MaxTokens, None)),
-        "stop_sequence" => Ok((StopReason::StopSequence, None)),
-        "tool_use" => Ok((StopReason::ToolUse, None)),
-        "refusal" => Ok((StopReason::Refusal, None)),
+        STOP_REASON_END_TURN => Ok((StopReason::EndTurn, None)),
+        STOP_REASON_MAX_TOKENS => Ok((StopReason::MaxTokens, None)),
+        STOP_REASON_STOP_SEQUENCE => Ok((StopReason::StopSequence, None)),
+        STOP_REASON_TOOL_USE => Ok((StopReason::ToolUse, None)),
+        STOP_REASON_REFUSAL => Ok((StopReason::Refusal, None)),
         "" => Err(Error::new("anthropic: stop_reason is missing")),
         other => Ok((
             StopReason::Other,

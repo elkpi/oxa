@@ -5,6 +5,51 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const ROLE_SYSTEM: &str = "system";
+pub const ROLE_USER: &str = "user";
+pub const ROLE_ASSISTANT: &str = "assistant";
+pub const ROLE_DEVELOPER: &str = "developer";
+
+pub const TOOL_TYPE_FUNCTION: &str = "function";
+
+pub const TOOL_CHOICE_AUTO: &str = "auto";
+pub const TOOL_CHOICE_NONE: &str = "none";
+pub const TOOL_CHOICE_REQUIRED: &str = "required";
+
+pub const ITEM_TYPE_MESSAGE: &str = "message";
+pub const ITEM_TYPE_FUNCTION_CALL: &str = "function_call";
+pub const ITEM_TYPE_FUNCTION_CALL_OUTPUT: &str = "function_call_output";
+
+pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
+pub const PART_TYPE_OUTPUT_TEXT: &str = "output_text";
+pub const PART_TYPE_INPUT_IMAGE: &str = "input_image";
+
+pub const STATUS_IN_PROGRESS: &str = "in_progress";
+pub const STATUS_COMPLETED: &str = "completed";
+pub const STATUS_INCOMPLETE: &str = "incomplete";
+pub const STATUS_FAILED: &str = "failed";
+
+pub const INCOMPLETE_REASON_MAX_OUTPUT_TOKENS: &str = "max_output_tokens";
+
+pub const ERROR_CODE_REFUSAL: &str = "refusal";
+
+pub const OBJECT_RESPONSE: &str = "response";
+
+pub const EVENT_TYPE_RESPONSE_CREATED: &str = "response.created";
+pub const EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED: &str = "response.output_item.added";
+pub const EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE: &str = "response.output_item.done";
+pub const EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED: &str = "response.content_part.added";
+pub const EVENT_TYPE_RESPONSE_CONTENT_PART_DONE: &str = "response.content_part.done";
+pub const EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA: &str = "response.output_text.delta";
+pub const EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE: &str = "response.output_text.done";
+pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA: &str =
+    "response.function_call_arguments.delta";
+pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE: &str =
+    "response.function_call_arguments.done";
+pub const EVENT_TYPE_RESPONSE_COMPLETED: &str = "response.completed";
+pub const EVENT_TYPE_RESPONSE_INCOMPLETE: &str = "response.incomplete";
+pub const EVENT_TYPE_RESPONSE_FAILED: &str = "response.failed";
+
 /// A Responses request.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Request {

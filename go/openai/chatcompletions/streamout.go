@@ -261,15 +261,15 @@ func isMessageDone(ev ir.Event) bool {
 func encodeFinishReason(stop ir.StopReason) (string, *ir.Loss, error) {
 	switch stop {
 	case ir.StopEndTurn:
-		return "stop", nil, nil
+		return FinishReasonStop, nil, nil
 	case ir.StopMaxTokens:
-		return "length", nil, nil
+		return FinishReasonLength, nil, nil
 	case ir.StopRefusal:
-		return "content_filter", nil, nil
+		return FinishReasonContentFilter, nil, nil
 	case ir.StopToolUse:
-		return "tool_calls", nil, nil
+		return FinishReasonToolCalls, nil, nil
 	case ir.StopSequence:
-		return "stop", &ir.Loss{
+		return FinishReasonStop, &ir.Loss{
 			Field:  "stop_sequence",
 			Reason: ir.LossUnmappedValue,
 			Detail: "Chat Completions finish_reason \"stop\" does not identify the matched stop sequence",

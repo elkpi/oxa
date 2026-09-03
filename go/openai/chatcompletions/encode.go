@@ -26,7 +26,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
 		for _, tool := range req.Tools {
 			out.Tools = append(out.Tools, ToolWire{
-				Type: "function",
+				Type: ToolTypeFunction,
 				Function: FunctionWire{
 					Name:        tool.Name,
 					Description: tool.Description,
@@ -45,7 +45,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		for _, system := range req.System {
 			text += system.Text
 		}
-		out.Messages = append(out.Messages, Message{Role: "system", Content: text})
+		out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
 	}
 	for i, message := range req.Messages {
 		switch message.Role {
@@ -90,7 +90,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			}
 			if len(normal) > 0 || len(results) == 0 {
 				content, contentLosses := encodeUserContent(normal, fmt.Sprintf("messages[%d].content", i))
-				out.Messages = append(out.Messages, Message{Role: "user", Content: content})
+				out.Messages = append(out.Messages, Message{Role: RoleUser, Content: content})
 				losses = append(losses, contentLosses...)
 			}
 		default:

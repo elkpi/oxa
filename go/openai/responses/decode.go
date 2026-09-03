@@ -221,10 +221,10 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 	}
 	if choice, ok := value.(string); ok {
 		switch choice {
-		case "auto", "none":
+		case ToolChoiceAuto, ToolChoiceNone:
 			return &ir.ToolChoice{Mode: choice}, nil
-		case "required":
-			return &ir.ToolChoice{Mode: "any"}, nil
+		case ToolChoiceRequired:
+			return &ir.ToolChoice{Mode: ir.ToolChoiceAny}, nil
 		default:
 			return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Responses tool_choice %q has no IR equivalent", choice))}
@@ -246,8 +246,8 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 		return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			"Responses tool_choice has no IR equivalent")}
 	}
-	if kind == "function" && name != "" {
-		return &ir.ToolChoice{Mode: "tool", Name: name}, nil
+	if kind == ToolTypeFunction && name != "" {
+		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: name}, nil
 	}
 	return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 		"only named function Responses tool_choice values are supported")}
@@ -260,16 +260,16 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 		return nil, nil
 	}
 	switch choice.Mode {
-	case "auto", "none":
+	case ir.ToolChoiceAuto, ir.ToolChoiceNone:
 		return choice.Mode, nil
-	case "any":
-		return "required", nil
-	case "tool":
+	case ir.ToolChoiceAny:
+		return ToolChoiceRequired, nil
+	case ir.ToolChoiceTool:
 		if choice.Name == "" {
 			return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 				"IR named tool choice has no function name"))
 		}
-		return ToolChoiceWire{Type: "function", Name: choice.Name}, nil
+		return ToolChoiceWire{Type: ToolTypeFunction, Name: choice.Name}, nil
 	default:
 		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			fmt.Sprintf("IR tool_choice mode %q has no Responses equivalent", choice.Mode)))

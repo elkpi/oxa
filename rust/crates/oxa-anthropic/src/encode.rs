@@ -11,7 +11,10 @@ use crate::normalize::{
     require_json_object, unsupported_block_loss,
 };
 use crate::types::{
-    BlockWire, ContentValue, Message, Request, Response, SourceWire, ToolWire, UsageWire,
+    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire,
+    ContentValue, Message, ROLE_ASSISTANT, ROLE_USER, Request, Response, SOURCE_TYPE_BASE64,
+    SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL,
+    STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE, ToolWire, UsageWire,
 };
 
 /// Applied when an IR request carries no `params.max_tokens` and the
@@ -78,8 +81,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         && matches!(req.messages[0].content[0], Block::Text { .. });
     for (index, message) in req.messages.iter().enumerate() {
         let role = match message.role {
-            oxa_ir::Role::User => "user",
-            oxa_ir::Role::Assistant => "assistant",
+            oxa_ir::Role::User => ROLE_USER,
+            oxa_ir::Role::Assistant => ROLE_ASSISTANT,
         };
         let (blocks, block_losses) =
             encode_request_blocks(&message.content, &format!("messages[{index}].content"))?;
@@ -146,7 +149,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
     match block {
         Block::Text { text } => Ok((
             BlockWire {
-                kind: "text".to_string(),
+                kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 ..BlockWire::default()
             },
@@ -168,7 +171,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             let raw = input_from_ir_string(input, path)?;
             Ok((
                 BlockWire {
-                    kind: "tool_use".to_string(),
+                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
                     id: id.clone(),
                     name: name.clone(),
                     input: Some(raw),
@@ -215,9 +218,9 @@ fn encode_image_block(
         };
         return Ok((
             BlockWire {
-                kind: "image".to_string(),
+                kind: BLOCK_TYPE_IMAGE.to_string(),
                 source: Some(SourceWire {
-                    kind: "base64".to_string(),
+                    kind: SOURCE_TYPE_BASE64.to_string(),
                     media_type: media_type.to_string(),
                     data: data.unwrap_or_default().to_string(),
                     url: String::new(),
@@ -240,9 +243,9 @@ fn encode_image_block(
     }
     Ok((
         BlockWire {
-            kind: "image".to_string(),
+            kind: BLOCK_TYPE_IMAGE.to_string(),
             source: Some(SourceWire {
-                kind: "url".to_string(),
+                kind: SOURCE_TYPE_URL.to_string(),
                 url: url.unwrap_or_default().to_string(),
                 ..SourceWire::default()
             }),
@@ -278,7 +281,7 @@ fn encode_tool_result_block(
         let content_path = format!("{path}.content[{index}]");
         match inner {
             Block::Text { text } => wire_content.push(BlockWire {
-                kind: "text".to_string(),
+                kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 ..BlockWire::default()
             }),
@@ -306,7 +309,7 @@ fn encode_tool_result_block(
     }
     Ok((
         BlockWire {
-            kind: "tool_result".to_string(),
+            kind: BLOCK_TYPE_TOOL_RESULT.to_string(),
             tool_use_id: tool_use_id.clone(),
             content: Some(ContentValue::Blocks(wire_content)),
             is_error: is_error == &Some(true),
@@ -324,8 +327,8 @@ fn encode_tool_result_block(
 pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, Vec<Loss>), Error> {
     let mut out = Response {
         id: resp.id.clone(),
-        kind: "message".to_string(),
-        role: "assistant".to_string(),
+        kind: TYPE_MESSAGE.to_string(),
+        role: ROLE_ASSISTANT.to_string(),
         model: config.map_model(&resp.model),
         usage: Some(UsageWire {
             input_tokens: resp.usage.input_tokens,
@@ -355,14 +358,14 @@ pub(crate) fn encode_stop_reason(
     seq: Option<&str>,
 ) -> Result<(&'static str, Option<String>), Error> {
     match stop {
-        StopReason::EndTurn => Ok(("end_turn", None)),
-        StopReason::MaxTokens => Ok(("max_tokens", None)),
+        StopReason::EndTurn => Ok((STOP_REASON_END_TURN, None)),
+        StopReason::MaxTokens => Ok((STOP_REASON_MAX_TOKENS, None)),
         StopReason::StopSequence => {
             let s = seq.filter(|s| !s.is_empty()).map(|s| s.to_string());
-            Ok(("stop_sequence", s))
+            Ok((STOP_REASON_STOP_SEQUENCE, s))
         }
-        StopReason::ToolUse => Ok(("tool_use", None)),
-        StopReason::Refusal => Ok(("refusal", None)),
+        StopReason::ToolUse => Ok((STOP_REASON_TOOL_USE, None)),
+        StopReason::Refusal => Ok((STOP_REASON_REFUSAL, None)),
         StopReason::Other => Err(Error::new(
             "anthropic: stop reason \"other\" has no Anthropic equivalent",
         )),
@@ -374,7 +377,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
     match block {
         Block::Text { text } => Ok((
             BlockWire {
-                kind: "text".to_string(),
+                kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 ..BlockWire::default()
             },
@@ -396,7 +399,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             let raw: Box<RawValue> = input_from_ir_string(input, path)?;
             Ok((
                 BlockWire {
-                    kind: "tool_use".to_string(),
+                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
                     id: id.clone(),
                     name: name.clone(),
                     input: Some(raw),

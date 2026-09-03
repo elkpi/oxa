@@ -70,7 +70,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 
 	// N-R-2: the input string shorthand renders exactly the case of no system
 	// content and one user message whose content is exactly one text block.
-	if len(req.System) == 0 && len(items) == 1 && items[0].Role == "user" {
+	if len(req.System) == 0 && len(items) == 1 && items[0].Role == RoleUser {
 		if text, ok := items[0].Content.(string); ok {
 			out.Input = Input{Text: &text}
 		}

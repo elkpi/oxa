@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::decode::decode_finish_reason;
 use crate::error::Error;
 use crate::normalize::loss;
-use crate::types::{Chunk, ToolCallDelta};
+use crate::types::{Chunk, TOOL_TYPE_FUNCTION, ToolCallDelta};
 
 #[derive(Default)]
 struct StreamToolCall {
@@ -156,7 +156,7 @@ impl StreamDecoder {
                 record.id = id.clone();
             }
             if let Some(kind) = &call.kind
-                && kind != "function"
+                && kind != TOOL_TYPE_FUNCTION
                 && !record.skipped
             {
                 self.losses.push(loss(

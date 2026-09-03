@@ -54,6 +54,9 @@ const (
 
 	ToolTypeFunction = "function"
 
+	ContentPartTypeText     = "text"
+	ContentPartTypeImageURL = "image_url"
+
 	ToolChoiceAuto     = "auto"
 	ToolChoiceNone     = "none"
 	ToolChoiceRequired = "required"

@@ -6,7 +6,13 @@ use serde_json::value::RawValue;
 use crate::config::Config;
 use crate::encode::encode_stop_reason;
 use crate::error::Error;
-use crate::types::{BlockWire, MessageStartWire, StreamDelta, StreamEvent, UsageWire};
+use crate::types::{
+    BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_USE, BlockWire, DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_TEXT_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START,
+    EVENT_TYPE_CONTENT_BLOCK_STOP, EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START,
+    EVENT_TYPE_MESSAGE_STOP, MessageStartWire, ROLE_ASSISTANT, StreamDelta, StreamEvent,
+    TYPE_MESSAGE, UsageWire,
+};
 
 /// Incrementally converts an IR event stream into Anthropic Messages wire events.
 pub struct StreamEncoder {
@@ -59,11 +65,11 @@ impl StreamEncoder {
                 self.model = self.config.map_model(model);
                 Ok((
                     vec![StreamEvent {
-                        kind: "message_start".to_string(),
+                        kind: EVENT_TYPE_MESSAGE_START.to_string(),
                         message: Some(MessageStartWire {
                             id: self.id.clone(),
-                            kind: "message".to_string(),
-                            role: "assistant".to_string(),
+                            kind: TYPE_MESSAGE.to_string(),
+                            role: ROLE_ASSISTANT.to_string(),
                             model: self.model.clone(),
                             content: Vec::new(),
                             stop_reason: None,
@@ -97,10 +103,10 @@ impl StreamEncoder {
                         self.open_index = *index;
                         Ok((
                             vec![StreamEvent {
-                                kind: "content_block_start".to_string(),
+                                kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
                                 index: Some(*index),
                                 content_block: Some(BlockWire {
-                                    kind: "text".to_string(),
+                                    kind: BLOCK_TYPE_TEXT.to_string(),
                                     text: text.clone(),
                                     ..Default::default()
                                 }),
@@ -130,10 +136,10 @@ impl StreamEncoder {
                             .expect("empty JSON object is valid");
                         Ok((
                             vec![StreamEvent {
-                                kind: "content_block_start".to_string(),
+                                kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
                                 index: Some(*index),
                                 content_block: Some(BlockWire {
-                                    kind: "tool_use".to_string(),
+                                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
                                     id: id.clone(),
                                     name: name.clone(),
                                     input: Some(empty_object),
@@ -162,10 +168,10 @@ impl StreamEncoder {
                         }
                         Ok((
                             vec![StreamEvent {
-                                kind: "content_block_delta".to_string(),
+                                kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
                                 index: Some(*index),
                                 delta: Some(StreamDelta {
-                                    kind: "text_delta".to_string(),
+                                    kind: DELTA_TYPE_TEXT_DELTA.to_string(),
                                     text: text.clone(),
                                     ..Default::default()
                                 }),
@@ -181,10 +187,10 @@ impl StreamEncoder {
                         self.tool_parts.push(partial_json.clone());
                         Ok((
                             vec![StreamEvent {
-                                kind: "content_block_delta".to_string(),
+                                kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
                                 index: Some(*index),
                                 delta: Some(StreamDelta {
-                                    kind: "input_json_delta".to_string(),
+                                    kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
                                     partial_json: Some(partial_json.clone()),
                                     ..Default::default()
                                 }),
@@ -205,10 +211,10 @@ impl StreamEncoder {
                 if self.open_tool {
                     if self.tool_parts.is_empty() {
                         events.push(StreamEvent {
-                            kind: "content_block_delta".to_string(),
+                            kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
                             index: Some(*index),
                             delta: Some(StreamDelta {
-                                kind: "input_json_delta".to_string(),
+                                kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
                                 partial_json: Some(self.tool_input.clone()),
                                 ..Default::default()
                             }),
@@ -221,7 +227,7 @@ impl StreamEncoder {
                     }
                 }
                 events.push(StreamEvent {
-                    kind: "content_block_stop".to_string(),
+                    kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
                     index: Some(*index),
                     ..Default::default()
                 });
@@ -243,7 +249,7 @@ impl StreamEncoder {
                 self.delta_seen = true;
                 Ok((
                     vec![StreamEvent {
-                        kind: "message_delta".to_string(),
+                        kind: EVENT_TYPE_MESSAGE_DELTA.to_string(),
                         delta: Some(StreamDelta {
                             stop_reason: Some(reason.to_string()),
                             stop_sequence: seq,
@@ -265,7 +271,7 @@ impl StreamEncoder {
                 self.done = true;
                 Ok((
                     vec![StreamEvent {
-                        kind: "message_stop".to_string(),
+                        kind: EVENT_TYPE_MESSAGE_STOP.to_string(),
                         ..Default::default()
                     }],
                     Vec::new(),

@@ -6,7 +6,11 @@ use serde_json::value::RawValue;
 use oxa_ir::{Block, Loss, LossReason, SystemBlock, ToolChoice, ToolChoiceMode};
 
 use crate::error::Error;
-use crate::types::{BlockWire, ContentValue, SystemBlockWire, ToolChoiceWire};
+use crate::types::{
+    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire,
+    ContentValue, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL, SystemBlockWire, TOOL_CHOICE_TYPE_ANY,
+    TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE, TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
+};
 
 pub(crate) fn loss(
     path: impl Into<String>,
@@ -71,7 +75,7 @@ pub(crate) fn decode_system(
             let mut out = Vec::with_capacity(blocks.len());
             let mut losses = Vec::new();
             for (index, block) in blocks.iter().enumerate() {
-                if block.kind != "text" {
+                if block.kind != BLOCK_TYPE_TEXT {
                     return Err(Error::new(format!(
                         "anthropic: system[{index}]: unsupported block type {:?}",
                         block.kind
@@ -100,7 +104,7 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
         .iter()
         .map(|block| match block {
             SystemBlock::Text { text } => SystemBlockWire {
-                kind: "text".to_string(),
+                kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 cache_control: None,
             },
@@ -145,17 +149,17 @@ pub(crate) fn decode_block(
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
     match wire.kind.as_str() {
-        "text" => {
+        BLOCK_TYPE_TEXT => {
             block = Some(Block::Text {
                 text: wire.text.clone(),
             });
         }
-        "image" => {
+        BLOCK_TYPE_IMAGE => {
             let Some(source) = wire.source.as_ref() else {
                 return Err(Error::new(format!("anthropic: {path}.source is required")));
             };
             match source.kind.as_str() {
-                "base64" => {
+                SOURCE_TYPE_BASE64 => {
                     if source.media_type.is_empty() {
                         return Err(Error::new(format!(
                             "anthropic: {path}.source.media_type is required"
@@ -172,7 +176,7 @@ pub(crate) fn decode_block(
                         url: None,
                     });
                 }
-                "url" => {
+                SOURCE_TYPE_URL => {
                     if source.url.is_empty() {
                         return Err(Error::new(format!(
                             "anthropic: {path}.source.url is required"
@@ -192,7 +196,7 @@ pub(crate) fn decode_block(
                 )),
             }
         }
-        "tool_use" => {
+        BLOCK_TYPE_TOOL_USE => {
             if wire.id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
             }
@@ -207,7 +211,7 @@ pub(crate) fn decode_block(
                 input: input_to_ir_string(wire.input.as_deref().expect("input checked above")),
             });
         }
-        "tool_result" => {
+        BLOCK_TYPE_TOOL_RESULT => {
             if wire.tool_use_id.is_empty() {
                 return Err(Error::new(format!(
                     "anthropic: {path}.tool_use_id is required"
@@ -253,25 +257,25 @@ pub(crate) fn decode_tool_choice(
     let mut decoded = None;
     let mut losses = Vec::new();
     match choice.kind.as_str() {
-        "auto" => {
+        TOOL_CHOICE_TYPE_AUTO => {
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Auto,
                 name: None,
             })
         }
-        "any" => {
+        TOOL_CHOICE_TYPE_ANY => {
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Any,
                 name: None,
             })
         }
-        "none" => {
+        TOOL_CHOICE_TYPE_NONE => {
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::None,
                 name: None,
             })
         }
-        "tool" => {
+        TOOL_CHOICE_TYPE_TOOL => {
             if choice.name.is_empty() {
                 return Err(Error::new(
                     "anthropic: tool_choice.name is required for type tool",
@@ -309,15 +313,15 @@ pub(crate) fn encode_tool_choice(
     };
     let wire = match choice.mode {
         ToolChoiceMode::Auto => ToolChoiceWire {
-            kind: "auto".to_string(),
+            kind: TOOL_CHOICE_TYPE_AUTO.to_string(),
             ..ToolChoiceWire::default()
         },
         ToolChoiceMode::Any => ToolChoiceWire {
-            kind: "any".to_string(),
+            kind: TOOL_CHOICE_TYPE_ANY.to_string(),
             ..ToolChoiceWire::default()
         },
         ToolChoiceMode::None => ToolChoiceWire {
-            kind: "none".to_string(),
+            kind: TOOL_CHOICE_TYPE_NONE.to_string(),
             ..ToolChoiceWire::default()
         },
         ToolChoiceMode::Tool => {
@@ -327,7 +331,7 @@ pub(crate) fn encode_tool_choice(
                 ));
             };
             ToolChoiceWire {
-                kind: "tool".to_string(),
+                kind: TOOL_CHOICE_TYPE_TOOL.to_string(),
                 name: name.to_string(),
                 disable_parallel_tool_use: false,
             }

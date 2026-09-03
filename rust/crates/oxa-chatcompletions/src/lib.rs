@@ -22,7 +22,10 @@ pub use error::Error;
 pub use streamin::StreamDecoder;
 pub use streamout::StreamEncoder;
 pub use types::{
-    Choice, ChoiceDelta, Chunk, ContentPart, ContentValue, DeltaPayload, FunctionDelta,
-    FunctionWire, ImageURLWire, Message, Request, Response, ToolCall, ToolCallDelta, ToolWire,
-    UsageWire,
+    CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, Choice, ChoiceDelta, Chunk, ContentPart,
+    ContentValue, DeltaPayload, FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH,
+    FINISH_REASON_STOP, FINISH_REASON_TOOL_CALLS, FunctionDelta, FunctionWire, ImageURLWire,
+    Message, OBJECT_CHAT_COMPLETION, OBJECT_CHAT_COMPLETION_CHUNK, ROLE_ASSISTANT, ROLE_SYSTEM,
+    ROLE_TOOL, ROLE_USER, Request, Response, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE,
+    TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION, ToolCall, ToolCallDelta, ToolWire, UsageWire,
 };

@@ -6,6 +6,28 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+pub const ROLE_SYSTEM: &str = "system";
+pub const ROLE_USER: &str = "user";
+pub const ROLE_ASSISTANT: &str = "assistant";
+pub const ROLE_TOOL: &str = "tool";
+
+pub const TOOL_TYPE_FUNCTION: &str = "function";
+
+pub const CONTENT_PART_TYPE_TEXT: &str = "text";
+pub const CONTENT_PART_TYPE_IMAGE_URL: &str = "image_url";
+
+pub const TOOL_CHOICE_AUTO: &str = "auto";
+pub const TOOL_CHOICE_NONE: &str = "none";
+pub const TOOL_CHOICE_REQUIRED: &str = "required";
+
+pub const FINISH_REASON_STOP: &str = "stop";
+pub const FINISH_REASON_LENGTH: &str = "length";
+pub const FINISH_REASON_CONTENT_FILTER: &str = "content_filter";
+pub const FINISH_REASON_TOOL_CALLS: &str = "tool_calls";
+
+pub const OBJECT_CHAT_COMPLETION: &str = "chat.completion";
+pub const OBJECT_CHAT_COMPLETION_CHUNK: &str = "chat.completion.chunk";
+
 /// The Chat Completions wire request for the supported non-streaming subset.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]

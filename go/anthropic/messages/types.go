@@ -24,6 +24,7 @@ const (
 
 	ToolChoiceTypeAuto = "auto"
 	ToolChoiceTypeAny  = "any"
+	ToolChoiceTypeNone = "none"
 	ToolChoiceTypeTool = "tool"
 
 	StopReasonEndTurn      = "end_turn"
@@ -175,7 +176,7 @@ type StreamDelta struct {
 // completed-response Response type.
 func (e StreamEvent) MarshalJSON() ([]byte, error) {
 	switch e.Type {
-	case "message_start":
+	case EventTypeMessageStart:
 		if e.Message == nil {
 			return nil, fmt.Errorf("anthropic: message_start without message")
 		}
@@ -203,7 +204,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 				Usage:      e.Message.Usage,
 			},
 		})
-	case "content_block_start":
+	case EventTypeContentBlockStart:
 		if e.ContentBlock == nil {
 			return nil, fmt.Errorf("anthropic: content_block_start without content_block")
 		}
@@ -212,7 +213,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Index        int        `json:"index"`
 			ContentBlock *BlockWire `json:"content_block"`
 		}{Type: e.Type, Index: e.Index, ContentBlock: e.ContentBlock})
-	case "content_block_delta":
+	case EventTypeContentBlockDelta:
 		if e.Delta == nil {
 			return nil, fmt.Errorf("anthropic: content_block_delta without delta")
 		}
@@ -221,12 +222,12 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Index int          `json:"index"`
 			Delta *StreamDelta `json:"delta"`
 		}{Type: e.Type, Index: e.Index, Delta: e.Delta})
-	case "content_block_stop":
+	case EventTypeContentBlockStop:
 		return json.Marshal(struct {
 			Type  string `json:"type"`
 			Index int    `json:"index"`
 		}{Type: e.Type, Index: e.Index})
-	case "message_delta":
+	case EventTypeMessageDelta:
 		if e.Delta == nil {
 			return nil, fmt.Errorf("anthropic: message_delta without delta")
 		}
@@ -235,7 +236,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Delta *StreamDelta `json:"delta"`
 			Usage *UsageWire   `json:"usage"`
 		}{Type: e.Type, Delta: e.Delta, Usage: e.Usage})
-	case "message_stop":
+	case EventTypeMessageStop:
 		return json.Marshal(struct {
 			Type string `json:"type"`
 		}{Type: e.Type})

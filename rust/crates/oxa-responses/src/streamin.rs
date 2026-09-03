@@ -6,7 +6,15 @@ use crate::config::Config;
 use crate::decode::decode_status;
 use crate::error::Error;
 use crate::normalize::loss;
-use crate::types::StreamEvent;
+use crate::types::{
+    EVENT_TYPE_RESPONSE_COMPLETED, EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED,
+    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED, EVENT_TYPE_RESPONSE_FAILED,
+    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
+    EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_MESSAGE, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
+};
 
 struct StreamFunctionCall {
     call_id: String,
@@ -78,7 +86,7 @@ impl StreamDecoder {
         }
 
         match ev.kind.as_str() {
-            "response.created" => {
+            EVENT_TYPE_RESPONSE_CREATED => {
                 if self.started {
                     return Err(Error::new("responses: duplicate response.created"));
                 }
@@ -91,8 +99,8 @@ impl StreamDecoder {
                     model: self.config.map_model(&response.model),
                 }])
             }
-            "response.output_item.added" => {
-                self.require_started("response.output_item.added")?;
+            EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED => {
+                self.require_started(EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED)?;
                 if self.item_open {
                     return Err(Error::new(
                         "responses: response.output_item.added with an item still open",
@@ -119,10 +127,10 @@ impl StreamDecoder {
                 self.next_content_index = 0;
                 self.function_call = None;
 
-                if item.kind == "message" && item.role == "assistant" {
+                if item.kind == ITEM_TYPE_MESSAGE && item.role == ROLE_ASSISTANT {
                     return Ok(Vec::new());
                 }
-                if item.kind == "function_call" {
+                if item.kind == ITEM_TYPE_FUNCTION_CALL {
                     if item.id.is_empty() || item.call_id.is_empty() || item.name.is_empty() {
                         return Err(Error::new(
                             "responses: function_call item requires id, call_id, and name",
@@ -138,15 +146,15 @@ impl StreamDecoder {
                 }
 
                 self.skipped_item = true;
-                if item.kind == "function_call_output" {
+                if item.kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
                     self.skipped_call_id = item.call_id.clone();
                 }
                 self.losses
                     .push(unsupported_item_loss(output_index, &item.kind));
                 Ok(Vec::new())
             }
-            "response.content_part.added" => {
-                self.require_active_item(ev, "response.content_part.added")?;
+            EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED)?;
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.content_part.added on function_call item",
@@ -175,7 +183,7 @@ impl StreamDecoder {
                     self.skipped_part = true;
                     return Ok(Vec::new());
                 }
-                if part.kind != "output_text" {
+                if part.kind != PART_TYPE_OUTPUT_TEXT {
                     self.skipped_part = true;
                     self.losses.push(loss(
                         format!(
@@ -203,12 +211,12 @@ impl StreamDecoder {
                     },
                 }])
             }
-            "response.function_call_arguments.delta" => {
+            EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA => {
                 if self.skipped_item {
-                    self.require_active_item(ev, "response.function_call_arguments.delta")?;
+                    self.require_active_item(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA)?;
                     return Ok(Vec::new());
                 }
-                self.require_function_call(ev, "response.function_call_arguments.delta")?;
+                self.require_function_call(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA)?;
                 let fc = self.function_call.as_mut().unwrap();
                 if fc.arguments_done {
                     return Err(Error::new(
@@ -218,12 +226,12 @@ impl StreamDecoder {
                 fc.fragments.push(ev.delta.clone().unwrap_or_default());
                 Ok(Vec::new())
             }
-            "response.function_call_arguments.done" => {
+            EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE => {
                 if self.skipped_item {
-                    self.require_active_item(ev, "response.function_call_arguments.done")?;
+                    self.require_active_item(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE)?;
                     return Ok(Vec::new());
                 }
-                self.require_function_call(ev, "response.function_call_arguments.done")?;
+                self.require_function_call(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE)?;
                 let fc = self.function_call.as_mut().unwrap();
                 if fc.arguments_done {
                     return Err(Error::new(
@@ -241,8 +249,8 @@ impl StreamDecoder {
                 fc.arguments_done = true;
                 Ok(Vec::new())
             }
-            "response.output_text.delta" => {
-                self.require_active_item(ev, "response.output_text.delta")?;
+            EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA)?;
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.output_text.delta on function_call item",
@@ -275,8 +283,8 @@ impl StreamDecoder {
                     },
                 }])
             }
-            "response.output_text.done" => {
-                self.require_active_item(ev, "response.output_text.done")?;
+            EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE)?;
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.output_text.done on function_call item",
@@ -303,8 +311,8 @@ impl StreamDecoder {
                 self.text_done = true;
                 Ok(Vec::new())
             }
-            "response.content_part.done" => {
-                self.require_active_item(ev, "response.content_part.done")?;
+            EVENT_TYPE_RESPONSE_CONTENT_PART_DONE => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_CONTENT_PART_DONE)?;
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.content_part.done on function_call item",
@@ -341,8 +349,8 @@ impl StreamDecoder {
                     index: self.block_index,
                 }])
             }
-            "response.output_item.done" => {
-                self.require_started("response.output_item.done")?;
+            EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE => {
+                self.require_started(EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE)?;
                 let output_index = ev.output_index.unwrap_or(-1);
                 if !self.item_open || output_index != self.output_index {
                     return Err(Error::new(
@@ -360,7 +368,7 @@ impl StreamDecoder {
                     ));
                 }
                 if self.skipped_item
-                    && self.item_type == "function_call_output"
+                    && self.item_type == ITEM_TYPE_FUNCTION_CALL_OUTPUT
                     && item.call_id != self.skipped_call_id
                 {
                     return Err(Error::new(
@@ -412,7 +420,9 @@ impl StreamDecoder {
                 self.function_call = None;
                 Ok(events)
             }
-            "response.completed" | "response.incomplete" | "response.failed" => {
+            EVENT_TYPE_RESPONSE_COMPLETED
+            | EVENT_TYPE_RESPONSE_INCOMPLETE
+            | EVENT_TYPE_RESPONSE_FAILED => {
                 self.require_started(&ev.kind)?;
                 if self.item_open || self.block_open || self.skipped_part {
                     return Err(Error::new(format!(
@@ -515,7 +525,7 @@ impl StreamDecoder {
 }
 
 fn unsupported_item_loss(output_index: i64, item_type: &str) -> Loss {
-    let detail = if item_type == "function_call_output" {
+    let detail = if item_type == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
         "N-S-10: Responses function_call_output has no supported IR block mapping; response.output_item.done completes and is absorbed for this item-only lifecycle vector".to_string()
     } else {
         format!("Responses streaming output item type {item_type:?} is not decoded")

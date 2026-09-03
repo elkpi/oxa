@@ -11,6 +11,40 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 use serde_json::value::RawValue;
 
+pub const ROLE_USER: &str = "user";
+pub const ROLE_ASSISTANT: &str = "assistant";
+
+pub const BLOCK_TYPE_TEXT: &str = "text";
+pub const BLOCK_TYPE_IMAGE: &str = "image";
+pub const BLOCK_TYPE_TOOL_USE: &str = "tool_use";
+pub const BLOCK_TYPE_TOOL_RESULT: &str = "tool_result";
+
+pub const SOURCE_TYPE_BASE64: &str = "base64";
+pub const SOURCE_TYPE_URL: &str = "url";
+
+pub const TOOL_CHOICE_TYPE_AUTO: &str = "auto";
+pub const TOOL_CHOICE_TYPE_ANY: &str = "any";
+pub const TOOL_CHOICE_TYPE_NONE: &str = "none";
+pub const TOOL_CHOICE_TYPE_TOOL: &str = "tool";
+
+pub const STOP_REASON_END_TURN: &str = "end_turn";
+pub const STOP_REASON_MAX_TOKENS: &str = "max_tokens";
+pub const STOP_REASON_STOP_SEQUENCE: &str = "stop_sequence";
+pub const STOP_REASON_TOOL_USE: &str = "tool_use";
+pub const STOP_REASON_REFUSAL: &str = "refusal";
+
+pub const EVENT_TYPE_MESSAGE_START: &str = "message_start";
+pub const EVENT_TYPE_CONTENT_BLOCK_START: &str = "content_block_start";
+pub const EVENT_TYPE_CONTENT_BLOCK_DELTA: &str = "content_block_delta";
+pub const EVENT_TYPE_CONTENT_BLOCK_STOP: &str = "content_block_stop";
+pub const EVENT_TYPE_MESSAGE_DELTA: &str = "message_delta";
+pub const EVENT_TYPE_MESSAGE_STOP: &str = "message_stop";
+
+pub const DELTA_TYPE_TEXT_DELTA: &str = "text_delta";
+pub const DELTA_TYPE_INPUT_JSON_DELTA: &str = "input_json_delta";
+
+pub const TYPE_MESSAGE: &str = "message";
+
 /// The Anthropic Messages wire request. `max_tokens` is required by the API
 /// and is therefore not omitted.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

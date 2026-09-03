@@ -6,7 +6,10 @@ use crate::config::Config;
 use crate::encode::encode_finish_reason;
 use crate::error::Error;
 use crate::normalize::loss;
-use crate::types::{ChoiceDelta, Chunk, DeltaPayload, FunctionDelta, ToolCallDelta, UsageWire};
+use crate::types::{
+    ChoiceDelta, Chunk, DeltaPayload, FunctionDelta, OBJECT_CHAT_COMPLETION_CHUNK, ROLE_ASSISTANT,
+    TOOL_TYPE_FUNCTION, ToolCallDelta, UsageWire,
+};
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum StreamBlockKind {
@@ -78,7 +81,7 @@ impl StreamEncoder {
                 self.model = self.config.map_model(model);
                 Ok((
                     vec![self.chunk(DeltaPayload {
-                        role: "assistant".to_string(),
+                        role: ROLE_ASSISTANT.to_string(),
                         ..Default::default()
                     })],
                     Vec::new(),
@@ -234,7 +237,7 @@ impl StreamEncoder {
                 let mut chunks = std::mem::take(&mut self.pending_tools);
                 chunks.push(Chunk {
                     id: self.id.clone(),
-                    object: "chat.completion.chunk".to_string(),
+                    object: OBJECT_CHAT_COMPLETION_CHUNK.to_string(),
                     created: 0,
                     model: self.model.clone(),
                     choices: vec![ChoiceDelta {
@@ -265,7 +268,7 @@ impl StreamEncoder {
     fn chunk(&self, delta: DeltaPayload) -> Chunk {
         Chunk {
             id: self.id.clone(),
-            object: "chat.completion.chunk".to_string(),
+            object: OBJECT_CHAT_COMPLETION_CHUNK.to_string(),
             created: 0,
             model: self.model.clone(),
             choices: vec![ChoiceDelta {
@@ -300,7 +303,7 @@ fn make_tool_argument_chunk(
             None
         },
         kind: if !block.tool_started {
-            Some("function".to_string())
+            Some(TOOL_TYPE_FUNCTION.to_string())
         } else {
             None
         },
@@ -309,7 +312,7 @@ fn make_tool_argument_chunk(
     block.tool_started = true;
     Chunk {
         id: id.to_string(),
-        object: "chat.completion.chunk".to_string(),
+        object: OBJECT_CHAT_COMPLETION_CHUNK.to_string(),
         created: 0,
         model: model.to_string(),
         choices: vec![ChoiceDelta {

@@ -101,11 +101,8 @@ impl oxa_vectest::StreamConverter for StreamVectorConverter {
         "chatcompletions"
     }
 
-    fn decode_native_event(
-        &mut self,
-        event: &serde_json::Value,
-    ) -> Result<Vec<oxa_ir::Event>, String> {
-        let chunk: Chunk = serde_json::from_value(event.clone()).map_err(|err| err.to_string())?;
+    fn decode_native_event(&mut self, event: &str) -> Result<Vec<oxa_ir::Event>, String> {
+        let chunk: Chunk = serde_json::from_str(event).map_err(|err| err.to_string())?;
         self.decoder.feed(&chunk).map_err(|err| err.to_string())
     }
 

@@ -17,8 +17,8 @@ use crate::run::{Outcome, Report, compare_reported_losses, json_text};
 pub trait StreamConverter {
     /// The vectors/ directory name of the face.
     fn face(&self) -> &'static str;
-    /// Decodes one native event (one element of `input.events`).
-    fn decode_native_event(&mut self, event: &Value) -> Result<Vec<Event>, String>;
+    /// Decodes one native event wire string (one element of `input.events`).
+    fn decode_native_event(&mut self, event: &str) -> Result<Vec<Event>, String>;
     /// Supplies decoder terminal output.
     fn flush_decoder(&mut self) -> Result<Vec<Event>, String>;
     /// Returns the full loss list; the runner calls it only after all native
@@ -63,7 +63,7 @@ pub fn run_stream_in(dir: &Path, conv: &mut dyn StreamConverter) -> Result<Outco
                     ));
                     continue;
                 };
-                match stream_to_ir(conv, &vector.input) {
+                match stream_to_ir_text(conv, &vector.input_text()) {
                     Ok((actual, losses)) => {
                         if let Err(err) = compare_json(expected, &actual) {
                             report.failures.push((
@@ -117,19 +117,33 @@ pub fn run_stream_in(dir: &Path, conv: &mut dyn StreamConverter) -> Result<Outco
     Ok(Outcome::Ran(report))
 }
 
-/// Feeds every native event of `input` through the converter, appends the
-/// flush output, and returns the canonical IR event stream document plus the
-/// decoder losses.
-pub fn stream_to_ir(
+#[derive(serde::Deserialize)]
+struct RawEventsEnvelope<'a> {
+    #[serde(borrow)]
+    events: Option<Vec<&'a serde_json::value::RawValue>>,
+}
+
+/// Feeds every native event wire string of `input_text` through the converter,
+/// appends the flush output, and returns the canonical IR event stream
+/// document plus the decoder losses.
+pub fn stream_to_ir_text(
     conv: &mut dyn StreamConverter,
-    input: &Value,
+    input_text: &str,
 ) -> Result<(Value, Vec<Loss>), String> {
-    let native_events = native_events(input)?;
+    let envelope: RawEventsEnvelope<'_> = serde_json::from_str(input_text)
+        .map_err(|err| format!("unmarshal native events envelope: {err}"))?;
+    let Some(raw_events) = envelope.events else {
+        return Err("missing events envelope".to_string());
+    };
     let mut events = Vec::new();
-    for (index, raw) in native_events.iter().enumerate() {
-        let decoded = conv
-            .decode_native_event(raw)
-            .map_err(|err| format!("decode native event {index} ({}): {err}", bounded(raw)))?;
+    for (index, raw) in raw_events.iter().enumerate() {
+        let raw_str = raw.get();
+        let decoded = conv.decode_native_event(raw_str).map_err(|err| {
+            format!(
+                "decode native event {index} ({}): {err}",
+                bounded_str(raw_str)
+            )
+        })?;
         events.extend(decoded);
     }
     let flushed = conv
@@ -140,6 +154,16 @@ pub fn stream_to_ir(
     let doc = oxa_ir::to_json(&EventStream { events }).map_err(|err| err.to_string())?;
     let doc: Value = serde_json::from_str(&doc).map_err(|err| err.to_string())?;
     Ok((doc, losses))
+}
+
+/// Feeds every native event of `input` through the converter, appends the
+/// flush output, and returns the canonical IR event stream document plus the
+/// decoder losses.
+pub fn stream_to_ir(
+    conv: &mut dyn StreamConverter,
+    input: &Value,
+) -> Result<(Value, Vec<Loss>), String> {
+    stream_to_ir_text(conv, &json_text(input))
 }
 
 /// Applies every IR event of the `input` stream through the converter and
@@ -165,10 +189,9 @@ pub fn stream_from_ir(
 
 const MAX_NATIVE_EVENT_ERROR_CHARS: usize = 512;
 
-fn bounded(value: &Value) -> String {
-    let text = json_text(value);
+fn bounded_str(text: &str) -> String {
     if text.chars().count() <= MAX_NATIVE_EVENT_ERROR_CHARS {
-        return text;
+        return text.to_string();
     }
     let mut bounded: String = text.chars().take(MAX_NATIVE_EVENT_ERROR_CHARS).collect();
     bounded.push('…');

@@ -45,6 +45,28 @@ type ToolWire struct {
 	Function FunctionWire `json:"function"`
 }
 
+const (
+	RoleSystem    = "system"
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+	RoleTool      = "tool"
+	RoleDeveloper = "developer"
+
+	ToolTypeFunction = "function"
+
+	ToolChoiceAuto     = "auto"
+	ToolChoiceNone     = "none"
+	ToolChoiceRequired = "required"
+
+	FinishReasonStop          = "stop"
+	FinishReasonLength        = "length"
+	FinishReasonContentFilter = "content_filter"
+	FinishReasonToolCalls     = "tool_calls"
+
+	ObjectChatCompletion      = "chat.completion"
+	ObjectChatCompletionChunk = "chat.completion.chunk"
+)
+
 // FunctionWire is a Chat Completions function definition or call payload.
 // Parameters is a JSON-Schema-shaped object carried verbatim.
 type FunctionWire struct {

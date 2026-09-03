@@ -185,9 +185,9 @@ func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
 	var block ir.Block
 	var losses []ir.Loss
 	switch w.Type {
-	case "text":
+	case BlockTypeText:
 		block = ir.TextBlock{Text: w.Text}
-	case "image":
+	case BlockTypeImage:
 		image, imageLoss, err := decodeImage(w.Source, path+".source")
 		if err != nil {
 			return nil, nil, false, err
@@ -196,7 +196,7 @@ func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
 			return nil, []ir.Loss{*imageLoss}, false, nil
 		}
 		block = image
-	case "tool_use":
+	case BlockTypeToolUse:
 		if w.ID == "" {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
 		}
@@ -211,7 +211,7 @@ func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
 		}
 		block = ir.ToolUseBlock{ID: w.ID, Name: w.Name, Input: input}
-	case "tool_result":
+	case BlockTypeToolResult:
 		if w.ToolUseID == "" {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
 		}
@@ -245,7 +245,7 @@ func decodeImage(source *SourceWire, path string) (ir.ImageBlock, *ir.Loss, erro
 		return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s is required", path)
 	}
 	switch source.Type {
-	case "base64":
+	case SourceTypeBase64:
 		if source.MediaType == "" {
 			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.media_type is required", path)
 		}
@@ -253,7 +253,7 @@ func decodeImage(source *SourceWire, path string) (ir.ImageBlock, *ir.Loss, erro
 			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.data is required", path)
 		}
 		return ir.ImageBlock{MediaType: source.MediaType, Data: source.Data}, nil, nil
-	case "url":
+	case SourceTypeURL:
 		if source.URL == "" {
 			return ir.ImageBlock{}, nil, fmt.Errorf("anthropic: %s.url is required", path)
 		}
@@ -286,13 +286,13 @@ func decodeToolChoice(choice *ToolChoiceWire) (*ir.ToolChoice, []ir.Loss, error)
 	var decoded *ir.ToolChoice
 	var losses []ir.Loss
 	switch choice.Type {
-	case "auto", "any", "none":
+	case ToolChoiceTypeAuto, ToolChoiceTypeAny, ir.ToolChoiceNone:
 		decoded = &ir.ToolChoice{Mode: choice.Type}
-	case "tool":
+	case ToolChoiceTypeTool:
 		if choice.Name == "" {
 			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for type tool")
 		}
-		decoded = &ir.ToolChoice{Mode: "tool", Name: choice.Name}
+		decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: choice.Name}
 	default:
 		losses = append(losses, ir.Loss{
 			Path:   "tool_choice",
@@ -358,15 +358,15 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 
 func decodeStopReason(stop, stopSequence string) (ir.StopReason, *ir.Loss, error) {
 	switch stop {
-	case "end_turn":
+	case StopReasonEndTurn:
 		return ir.StopEndTurn, nil, nil
-	case "max_tokens":
+	case StopReasonMaxTokens:
 		return ir.StopMaxTokens, nil, nil
-	case "stop_sequence":
+	case StopReasonStopSequence:
 		return ir.StopSequence, nil, nil
-	case "tool_use":
+	case StopReasonToolUse:
 		return ir.StopToolUse, nil, nil
-	case "refusal":
+	case StopReasonRefusal:
 		return ir.StopRefusal, nil, nil
 	case "":
 		return "", nil, fmt.Errorf("anthropic: stop_reason is missing")

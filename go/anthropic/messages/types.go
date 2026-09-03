@@ -10,6 +10,41 @@ import (
 	"fmt"
 )
 
+const (
+	RoleUser      = "user"
+	RoleAssistant = "assistant"
+
+	BlockTypeText       = "text"
+	BlockTypeImage      = "image"
+	BlockTypeToolUse    = "tool_use"
+	BlockTypeToolResult = "tool_result"
+
+	SourceTypeBase64 = "base64"
+	SourceTypeURL    = "url"
+
+	ToolChoiceTypeAuto = "auto"
+	ToolChoiceTypeAny  = "any"
+	ToolChoiceTypeTool = "tool"
+
+	StopReasonEndTurn      = "end_turn"
+	StopReasonMaxTokens    = "max_tokens"
+	StopReasonStopSequence = "stop_sequence"
+	StopReasonToolUse      = "tool_use"
+	StopReasonRefusal      = "refusal"
+
+	EventTypeMessageStart      = "message_start"
+	EventTypeContentBlockStart = "content_block_start"
+	EventTypeContentBlockDelta = "content_block_delta"
+	EventTypeContentBlockStop  = "content_block_stop"
+	EventTypeMessageDelta      = "message_delta"
+	EventTypeMessageStop       = "message_stop"
+
+	DeltaTypeTextDelta      = "text_delta"
+	DeltaTypeInputJSONDelta = "input_json_delta"
+
+	TypeMessage = "message"
+)
+
 // Request is the Anthropic Messages wire request. max_tokens is required by
 // the API and is therefore not omitempty.
 type Request struct {

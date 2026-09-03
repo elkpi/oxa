@@ -35,7 +35,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = make([]ToolDef, 0, len(req.Tools))
 		for _, tool := range req.Tools {
 			out.Tools = append(out.Tools, ToolDef{
-				Type:        "function",
+				Type:        ToolTypeFunction,
 				Name:        tool.Name,
 				Description: tool.Description,
 				Parameters:  tool.InputSchema,
@@ -138,11 +138,11 @@ func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]i
 				"Responses function_call_output items have no is_error field",
 			))
 		}
-		*items = append(*items, InputItem{Type: "function_call_output", CallID: result.ToolUseID, Output: output})
+		*items = append(*items, InputItem{Type: ItemTypeFunctionCallOutput, CallID: result.ToolUseID, Output: output})
 	}
 	if len(normal) > 0 || len(results) == 0 {
 		content, contentLosses := encodeUserContent(normal, path+".content")
-		*items = append(*items, InputItem{Role: "user", Content: content})
+		*items = append(*items, InputItem{Role: RoleUser, Content: content})
 		losses = append(losses, contentLosses...)
 	}
 	return losses, nil
@@ -159,7 +159,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
-			parts = append(parts, ContentPart{Type: "input_text", Text: value.Text})
+			parts = append(parts, ContentPart{Type: PartTypeInputText, Text: value.Text})
 			text += value.Text
 			textBlocks++
 		case ir.ImageBlock:
@@ -206,7 +206,7 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 				return nil, fmt.Errorf("responses: %s[%d].input: %w", path, i, err)
 			}
 			calls = append(calls, InputItem{
-				Type: "function_call", CallID: value.ID, Name: value.Name, Arguments: arguments,
+				Type: ItemTypeFunctionCall, CallID: value.ID, Name: value.Name, Arguments: arguments,
 			})
 		case ir.ImageBlock, ir.ToolResultBlock:
 			losses = append(losses, loss(
@@ -223,7 +223,7 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 	// The message item precedes its function_call items, mirroring the decode
 	// order of text blocks before tool-use blocks (N-R-5).
 	if hasText || len(blocks) == 0 {
-		*items = append(*items, InputItem{Role: "assistant", Content: text})
+		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)
 	return losses, nil
@@ -253,7 +253,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 				return nil, nil, fmt.Errorf("responses: content[%d].input: %w", i, err)
 			}
 			output = append(output, OutputItem{
-				Type: "function_call", ID: "fc_abc123", Status: "completed",
+				Type: ItemTypeFunctionCall, ID: "fc_abc123", Status: StatusCompleted,
 				CallID: value.ID, Name: value.Name, Arguments: arguments,
 			})
 		default:
@@ -265,9 +265,9 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	if hasText || len(resp.Content) == 0 {
 		output = append([]OutputItem{{
-			Type: "message", ID: "msg_abc123", Status: "completed", Role: "assistant",
+			Type: ItemTypeMessage, ID: "msg_abc123", Status: StatusCompleted, Role: RoleAssistant,
 			Content: []OutputContent{{
-				Type: "output_text", Text: text, Annotations: []json.RawMessage{},
+				Type: PartTypeOutputText, Text: text, Annotations: []json.RawMessage{},
 			}},
 		}}, output...)
 	}
@@ -278,14 +278,14 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	case ir.StopEndTurn, ir.StopToolUse:
 		// status completed below
 	case ir.StopMaxTokens:
-		incomplete = &IncompleteWire{Reason: "max_output_tokens"}
+		incomplete = &IncompleteWire{Reason: IncompleteReasonMaxOutputTokens}
 	case ir.StopSequence:
 		losses = append(losses, loss(
 			"", "stop_sequence", ir.LossUnmappedValue,
 			"Responses status carries no stop-sequence identity; the matched IR stop sequence is lost",
 		))
 	case ir.StopRefusal:
-		failed = &ErrorWire{Code: "refusal"}
+		failed = &ErrorWire{Code: ErrorCodeRefusal}
 	default:
 		return nil, nil, fmt.Errorf("responses: stop reason %q has no Responses equivalent", resp.StopReason)
 	}
@@ -293,8 +293,8 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	o := newOptions(opts...)
 	out := &Response{
 		ID:     resp.ID,
-		Object: "response",
-		Status: "completed",
+		Object: ObjectResponse,
+		Status: StatusCompleted,
 		Model:  o.models.Map(resp.Model),
 		Output: output,
 		Usage: &UsageWire{
@@ -305,10 +305,10 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		IncompleteDetails: incomplete,
 	}
 	if failed != nil {
-		out.Status = "failed"
+		out.Status = StatusFailed
 		out.Error = failed
 	} else if incomplete != nil {
-		out.Status = "incomplete"
+		out.Status = StatusIncomplete
 	}
 	return out, losses, nil
 }

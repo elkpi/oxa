@@ -53,9 +53,9 @@ func decodeParts(parts []ContentPart, path string) ([]ir.Block, []ir.Loss, error
 	var losses []ir.Loss
 	for i, part := range parts {
 		switch part.Type {
-		case "input_text", "output_text":
+		case PartTypeInputText, PartTypeOutputText:
 			blocks = append(blocks, ir.TextBlock{Text: part.Text})
-		case "input_image":
+		case PartTypeInputImage:
 			image, imageLoss := decodeImageURL(part.ImageURL, fmt.Sprintf("%s[%d].image_url", path, i))
 			if imageLoss != nil {
 				losses = append(losses, *imageLoss)

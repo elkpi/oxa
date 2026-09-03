@@ -122,18 +122,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	finish := ""
 	switch resp.StopReason {
 	case ir.StopEndTurn:
-		finish = "stop"
+		finish = FinishReasonStop
 	case ir.StopMaxTokens:
-		finish = "length"
+		finish = FinishReasonLength
 	case ir.StopRefusal:
-		finish = "content_filter"
+		finish = FinishReasonContentFilter
 	case ir.StopToolUse:
-		finish = "tool_calls"
+		finish = FinishReasonToolCalls
 	case ir.StopSequence:
 		// Chat Completions reports only finish_reason "stop" without
 		// identifying which stop sequence matched, so the sequence value is
 		// lost (spec/01 s4.1 note).
-		finish = "stop"
+		finish = FinishReasonStop
 		losses = append(losses, loss(
 			"", "stop_sequence", ir.LossUnmappedValue,
 			"Chat Completions finish_reason \"stop\" does not identify the matched stop sequence",
@@ -144,7 +144,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	o := newOptions(opts...)
 	return &Response{
 		ID:      resp.ID,
-		Object:  "chat.completion",
+		Object:  ObjectChatCompletion,
 		Created: 0,
 		Model:   o.models.Map(resp.Model),
 		Choices: []Choice{{

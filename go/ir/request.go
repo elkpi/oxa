@@ -45,6 +45,13 @@ type ToolChoice struct {
 	Name string
 }
 
+const (
+	ToolChoiceAuto = "auto"
+	ToolChoiceAny  = "any"
+	ToolChoiceTool = "tool"
+	ToolChoiceNone = "none"
+)
+
 // Params are sampling parameters (spec/01 s3.7). Pointer types mean absence
 // is meaningful; absent and zero are different states. Ranges are face
 // concerns.

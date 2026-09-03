@@ -9,6 +9,15 @@ type Event interface {
 	isEvent()
 }
 
+const (
+	EventTypeMessageStart      = "message_start"
+	EventTypeContentBlockStart = "content_block_start"
+	EventTypeContentBlockDelta = "content_block_delta"
+	EventTypeContentBlockStop  = "content_block_stop"
+	EventTypeMessageDelta      = "message_delta"
+	EventTypeMessageDone       = "message_done"
+)
+
 // MessageStart opens the stream.
 type MessageStart struct {
 	ID    string
@@ -55,6 +64,11 @@ func (MessageDone) isEvent()       {}
 type Delta interface {
 	isDelta()
 }
+
+const (
+	DeltaTypeTextDelta      = "text_delta"
+	DeltaTypeInputJSONDelta = "input_json_delta"
+)
 
 // TextDelta is a text fragment.
 type TextDelta struct {

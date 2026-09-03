@@ -197,7 +197,7 @@ pub struct OutputItem {
 pub struct OutputPart {
     #[serde(rename = "type")]
     pub kind: String,
-    #[serde(rename = "text", default, skip_serializing_if = "String::is_empty")]
+    #[serde(rename = "text", default)]
     pub text: String,
     #[serde(rename = "annotations", default)]
     pub annotations: Vec<Value>,
@@ -228,4 +228,36 @@ pub struct ErrorWire {
     pub code: String,
     #[serde(rename = "message", default)]
     pub message: String,
+}
+
+/// One OpenAI Responses streaming event.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreamEvent {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "response", skip_serializing_if = "Option::is_none")]
+    pub response: Option<Response>,
+    #[serde(rename = "item_id", skip_serializing_if = "Option::is_none")]
+    pub item_id: Option<String>,
+    #[serde(rename = "output_index", skip_serializing_if = "Option::is_none")]
+    pub output_index: Option<i64>,
+    #[serde(rename = "content_index", skip_serializing_if = "Option::is_none")]
+    pub content_index: Option<i64>,
+    #[serde(rename = "item", skip_serializing_if = "Option::is_none")]
+    pub item: Option<OutputItem>,
+    #[serde(rename = "part", skip_serializing_if = "Option::is_none")]
+    pub part: Option<OutputPart>,
+    #[serde(rename = "delta", skip_serializing_if = "Option::is_none")]
+    pub delta: Option<String>,
+    #[serde(rename = "text", skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(rename = "call_id", skip_serializing_if = "Option::is_none")]
+    pub call_id: Option<String>,
+    #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "arguments", skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+    #[serde(rename = "sequence_number", skip_serializing_if = "Option::is_none")]
+    pub sequence_number: Option<i64>,
 }

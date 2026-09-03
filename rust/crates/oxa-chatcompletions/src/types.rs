@@ -181,3 +181,69 @@ pub struct UsageWire {
     #[serde(rename = "total_tokens")]
     pub total_tokens: i64,
 }
+
+/// One Chat Completions streamed chunk (object "chat.completion.chunk").
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Chunk {
+    #[serde(rename = "id")]
+    pub id: String,
+    #[serde(rename = "object")]
+    pub object: String,
+    #[serde(rename = "created")]
+    pub created: i64,
+    #[serde(rename = "model")]
+    pub model: String,
+    #[serde(rename = "choices")]
+    pub choices: Vec<ChoiceDelta>,
+    #[serde(rename = "usage", skip_serializing_if = "Option::is_none")]
+    pub usage: Option<UsageWire>,
+}
+
+/// One element of a wire chunk's choices array.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ChoiceDelta {
+    #[serde(rename = "index")]
+    pub index: i64,
+    #[serde(rename = "delta")]
+    pub delta: DeltaPayload,
+    #[serde(rename = "finish_reason")]
+    pub finish_reason: Option<String>,
+}
+
+/// The incremental delta object of a chunk choice.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DeltaPayload {
+    #[serde(rename = "role", skip_serializing_if = "String::is_empty")]
+    pub role: String,
+    #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(rename = "tool_calls", skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<ToolCallDelta>>,
+}
+
+/// One incremental Chat Completions tool call.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ToolCallDelta {
+    #[serde(rename = "index")]
+    pub index: usize,
+    #[serde(rename = "id", skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    #[serde(rename = "function", skip_serializing_if = "Option::is_none")]
+    pub function: Option<FunctionDelta>,
+}
+
+/// The incremental function payload of a tool call.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FunctionDelta {
+    #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "arguments", skip_serializing_if = "Option::is_none")]
+    pub arguments: Option<String>,
+}

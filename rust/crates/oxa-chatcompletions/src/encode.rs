@@ -158,29 +158,10 @@ fn non_null(value: &serde_json::Value) -> Option<serde_json::Value> {
 /// and recomputed.
 pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, Vec<Loss>), Error> {
     let (message, mut losses) = encode_assistant_message(&resp.content, "content");
-    let finish = match resp.stop_reason {
-        StopReason::EndTurn => "stop",
-        StopReason::MaxTokens => "length",
-        StopReason::Refusal => "content_filter",
-        StopReason::ToolUse => "tool_calls",
-        StopReason::StopSequence => {
-            // Chat Completions reports only finish_reason "stop" without
-            // identifying which stop sequence matched, so the sequence value
-            // is lost (spec/01 §4.1 note).
-            losses.push(loss(
-                "",
-                "stop_sequence",
-                LossReason::UnmappedValue,
-                "Chat Completions finish_reason \"stop\" does not identify the matched stop sequence",
-            ));
-            "stop"
-        }
-        StopReason::Other => {
-            return Err(Error::new(
-                "chatcompletions: stop reason \"other\" has no Chat Completions equivalent",
-            ));
-        }
-    };
+    let (finish, finish_loss) = encode_finish_reason(resp.stop_reason)?;
+    if let Some(l) = finish_loss {
+        losses.push(l);
+    }
     Ok((
         Response {
             id: resp.id.clone(),
@@ -200,4 +181,27 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         },
         losses,
     ))
+}
+
+pub(crate) fn encode_finish_reason(
+    stop: StopReason,
+) -> Result<(&'static str, Option<Loss>), Error> {
+    match stop {
+        StopReason::EndTurn => Ok(("stop", None)),
+        StopReason::MaxTokens => Ok(("length", None)),
+        StopReason::Refusal => Ok(("content_filter", None)),
+        StopReason::ToolUse => Ok(("tool_calls", None)),
+        StopReason::StopSequence => Ok((
+            "stop",
+            Some(loss(
+                "",
+                "stop_sequence",
+                LossReason::UnmappedValue,
+                "Chat Completions finish_reason \"stop\" does not identify the matched stop sequence",
+            )),
+        )),
+        StopReason::Other => Err(Error::new(
+            "chatcompletions: stop reason \"other\" has no Chat Completions equivalent",
+        )),
+    }
 }

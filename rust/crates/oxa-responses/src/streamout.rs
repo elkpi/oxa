@@ -6,7 +6,15 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    ErrorWire, IncompleteWire, OutputItem, OutputPart, Response, StreamEvent, UsageWire,
+    ERROR_CODE_REFUSAL, EVENT_TYPE_RESPONSE_COMPLETED, EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED,
+    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED, EVENT_TYPE_RESPONSE_FAILED,
+    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
+    EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
+    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, IncompleteWire, OBJECT_RESPONSE, OutputItem,
+    OutputPart, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, Response, STATUS_COMPLETED, STATUS_FAILED,
+    STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent, UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -89,11 +97,11 @@ impl StreamEncoder {
                 self.model = self.config.map_model(model);
                 Ok((
                     vec![StreamEvent {
-                        kind: "response.created".to_string(),
+                        kind: EVENT_TYPE_RESPONSE_CREATED.to_string(),
                         response: Some(Response {
                             id: self.id.clone(),
-                            object: "response".to_string(),
-                            status: "in_progress".to_string(),
+                            object: OBJECT_RESPONSE.to_string(),
+                            status: STATUS_IN_PROGRESS.to_string(),
                             model: self.model.clone(),
                             output: Vec::new(),
                             ..Default::default()
@@ -146,7 +154,7 @@ impl StreamEncoder {
                         active_block.text.push_str(text);
                         Ok((
                             vec![StreamEvent {
-                                kind: "response.output_text.delta".to_string(),
+                                kind: EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA.to_string(),
                                 item_id: Some(active_item.id.clone()),
                                 output_index: Some(active_item.output_index),
                                 content_index: Some(active_block.content_index),
@@ -165,7 +173,7 @@ impl StreamEncoder {
                         active_block.fragments.push(partial_json.clone());
                         Ok((
                             vec![StreamEvent {
-                                kind: "response.function_call_arguments.delta".to_string(),
+                                kind: EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA.to_string(),
                                 item_id: Some(active_item.id.clone()),
                                 output_index: Some(active_item.output_index),
                                 delta: Some(partial_json.clone()),
@@ -243,7 +251,7 @@ impl StreamEncoder {
         let content_index = active.next_content_index;
         active.next_content_index += 1;
         let part = OutputPart {
-            kind: "output_text".to_string(),
+            kind: PART_TYPE_OUTPUT_TEXT.to_string(),
             text: text.to_string(),
             annotations: Vec::new(),
         };
@@ -257,7 +265,7 @@ impl StreamEncoder {
             fragments: Vec::new(),
         });
         out.push(StreamEvent {
-            kind: "response.content_part.added".to_string(),
+            kind: EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED.to_string(),
             item_id: Some(active.id.clone()),
             output_index: Some(active.output_index),
             content_index: Some(content_index),
@@ -322,7 +330,7 @@ impl StreamEncoder {
         Ok((
             vec![
                 StreamEvent {
-                    kind: "response.output_text.done".to_string(),
+                    kind: EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE.to_string(),
                     item_id: Some(item_id.clone()),
                     output_index: Some(output_index),
                     content_index: Some(block.content_index),
@@ -330,7 +338,7 @@ impl StreamEncoder {
                     ..Default::default()
                 },
                 StreamEvent {
-                    kind: "response.content_part.done".to_string(),
+                    kind: EVENT_TYPE_RESPONSE_CONTENT_PART_DONE.to_string(),
                     item_id: Some(item_id),
                     output_index: Some(output_index),
                     content_index: Some(block.content_index),
@@ -358,7 +366,7 @@ impl StreamEncoder {
         if block.fragments.is_empty() {
             block.fragments.push(block.tool_input.clone());
             out.push(StreamEvent {
-                kind: "response.function_call_arguments.delta".to_string(),
+                kind: EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA.to_string(),
                 item_id: Some(active_item.id.clone()),
                 output_index: Some(active_item.output_index),
                 delta: Some(block.tool_input.clone()),
@@ -373,15 +381,15 @@ impl StreamEncoder {
         }
         let completed = OutputItem {
             id: active_item.id.clone(),
-            kind: "function_call".to_string(),
-            status: "completed".to_string(),
+            kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
+            status: STATUS_COMPLETED.to_string(),
             call_id: active_item.call_id.clone(),
             name: active_item.name.clone(),
             arguments: arguments.clone(),
             ..Default::default()
         };
         out.push(StreamEvent {
-            kind: "response.function_call_arguments.done".to_string(),
+            kind: EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE.to_string(),
             item_id: Some(active_item.id.clone()),
             output_index: Some(active_item.output_index),
             call_id: Some(active_item.call_id.clone()),
@@ -390,7 +398,7 @@ impl StreamEncoder {
             ..Default::default()
         });
         out.push(StreamEvent {
-            kind: "response.output_item.done".to_string(),
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
             output_index: Some(active_item.output_index),
             item: Some(completed.clone()),
             ..Default::default()
@@ -415,13 +423,13 @@ impl StreamEncoder {
             name: String::new(),
         };
         let event = StreamEvent {
-            kind: "response.output_item.added".to_string(),
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
             output_index: Some(output_index),
             item: Some(OutputItem {
                 id,
-                kind: "message".to_string(),
-                status: "in_progress".to_string(),
-                role: "assistant".to_string(),
+                kind: ITEM_TYPE_MESSAGE.to_string(),
+                status: STATUS_IN_PROGRESS.to_string(),
+                role: ROLE_ASSISTANT.to_string(),
                 ..Default::default()
             }),
             ..Default::default()
@@ -448,12 +456,12 @@ impl StreamEncoder {
             name: name.to_string(),
         };
         let event = StreamEvent {
-            kind: "response.output_item.added".to_string(),
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
             output_index: Some(output_index),
             item: Some(OutputItem {
                 id,
-                kind: "function_call".to_string(),
-                status: "in_progress".to_string(),
+                kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
+                status: STATUS_IN_PROGRESS.to_string(),
                 call_id: call_id.to_string(),
                 name: name.to_string(),
                 arguments: String::new(),
@@ -471,14 +479,14 @@ impl StreamEncoder {
             .expect("active message item to close");
         let completed = OutputItem {
             id: item.id,
-            kind: "message".to_string(),
-            status: "completed".to_string(),
-            role: "assistant".to_string(),
+            kind: ITEM_TYPE_MESSAGE.to_string(),
+            status: STATUS_COMPLETED.to_string(),
+            role: ROLE_ASSISTANT.to_string(),
             content: item.content,
             ..Default::default()
         };
         let event = StreamEvent {
-            kind: "response.output_item.done".to_string(),
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
             output_index: Some(item.output_index),
             item: Some(completed.clone()),
             ..Default::default()
@@ -496,7 +504,7 @@ impl StreamEncoder {
         };
         let mut response = Response {
             id: self.id.clone(),
-            object: "response".to_string(),
+            object: OBJECT_RESPONSE.to_string(),
             model: self.model.clone(),
             output: Vec::new(),
             usage: Some(UsageWire {
@@ -508,10 +516,10 @@ impl StreamEncoder {
         };
         match stop_reason {
             StopReason::EndTurn | StopReason::ToolUse => {
-                response.status = "completed".to_string();
+                response.status = STATUS_COMPLETED.to_string();
                 Ok((
                     StreamEvent {
-                        kind: "response.completed".to_string(),
+                        kind: EVENT_TYPE_RESPONSE_COMPLETED.to_string(),
                         response: Some(response),
                         ..Default::default()
                     },
@@ -519,13 +527,13 @@ impl StreamEncoder {
                 ))
             }
             StopReason::MaxTokens => {
-                response.status = "incomplete".to_string();
+                response.status = STATUS_INCOMPLETE.to_string();
                 response.incomplete_details = Some(IncompleteWire {
-                    reason: "max_output_tokens".to_string(),
+                    reason: INCOMPLETE_REASON_MAX_OUTPUT_TOKENS.to_string(),
                 });
                 Ok((
                     StreamEvent {
-                        kind: "response.incomplete".to_string(),
+                        kind: EVENT_TYPE_RESPONSE_INCOMPLETE.to_string(),
                         response: Some(response),
                         ..Default::default()
                     },
@@ -533,14 +541,14 @@ impl StreamEncoder {
                 ))
             }
             StopReason::Refusal => {
-                response.status = "failed".to_string();
+                response.status = STATUS_FAILED.to_string();
                 response.error = Some(ErrorWire {
-                    code: "refusal".to_string(),
+                    code: ERROR_CODE_REFUSAL.to_string(),
                     message: String::new(),
                 });
                 Ok((
                     StreamEvent {
-                        kind: "response.failed".to_string(),
+                        kind: EVENT_TYPE_RESPONSE_FAILED.to_string(),
                         response: Some(response),
                         ..Default::default()
                     },
@@ -548,10 +556,10 @@ impl StreamEncoder {
                 ))
             }
             StopReason::StopSequence => {
-                response.status = "completed".to_string();
+                response.status = STATUS_COMPLETED.to_string();
                 Ok((
                     StreamEvent {
-                        kind: "response.completed".to_string(),
+                        kind: EVENT_TYPE_RESPONSE_COMPLETED.to_string(),
                         response: Some(response),
                         ..Default::default()
                     },

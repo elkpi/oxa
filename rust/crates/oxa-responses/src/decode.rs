@@ -11,7 +11,11 @@ use crate::normalize::{
     content_system, decode_assistant_run, decode_content, decode_output_run, decode_tool_choice,
     loss,
 };
-use crate::types::{Input, Request, Response};
+use crate::types::{
+    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_MESSAGE, Input, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER,
+    Request, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION,
+};
 
 /// Converts a Responses wire request to the IR (face → IR). Semantic
 /// unmappables are losses, never errors; errors are reserved for structural
@@ -80,7 +84,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
 
     let mut tools = Vec::new();
     for (index, tool) in wire.tools.iter().enumerate() {
-        if tool.kind != "function" {
+        if tool.kind != TOOL_TYPE_FUNCTION {
             losses.push(loss(
                 format!("tools[{index}]"),
                 "type",
@@ -120,8 +124,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             while index < items.len() {
                 let item = &items[index];
                 match item.kind.as_str() {
-                    "" | "message" => match item.role.as_str() {
-                        "system" => {
+                    "" | ITEM_TYPE_MESSAGE => match item.role.as_str() {
+                        ROLE_SYSTEM => {
                             let path = format!("input[{index}].content");
                             let (content, content_losses) =
                                 decode_content(item.content.as_ref(), &path);
@@ -131,7 +135,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             losses.extend(system_losses);
                             index += 1;
                         }
-                        "user" => {
+                        ROLE_USER => {
                             let (mut content, content_losses) = decode_content(
                                 item.content.as_ref(),
                                 &format!("input[{index}].content"),
@@ -148,7 +152,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             losses.extend(content_losses);
                             index += 1;
                         }
-                        "assistant" => {
+                        ROLE_ASSISTANT => {
                             let (message, next, run_losses) = decode_assistant_run(items, index)?;
                             if let Some(message) = message {
                                 request.messages.push(message);
@@ -162,7 +166,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             )));
                         }
                     },
-                    "function_call" => {
+                    ITEM_TYPE_FUNCTION_CALL => {
                         let (message, next, run_losses) = decode_assistant_run(items, index)?;
                         if let Some(message) = message {
                             request.messages.push(message);
@@ -170,7 +174,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         losses.extend(run_losses);
                         index = next;
                     }
-                    "function_call_output" => {
+                    ITEM_TYPE_FUNCTION_CALL_OUTPUT => {
                         let (message, next) = decode_output_run(items, index);
                         request.messages.push(message);
                         index = next;
@@ -219,9 +223,9 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let mut has_tool_use = false;
     for (item_index, item) in wire.output.iter().enumerate() {
         match item.kind.as_str() {
-            "message" => {
+            ITEM_TYPE_MESSAGE => {
                 for (content_index, part) in item.content.iter().enumerate() {
-                    if part.kind != "output_text" {
+                    if part.kind != PART_TYPE_OUTPUT_TEXT {
                         losses.push(loss(
                             format!("output[{item_index}].content[{content_index}]"),
                             "type",
@@ -246,7 +250,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     });
                 }
             }
-            "function_call" => {
+            ITEM_TYPE_FUNCTION_CALL => {
                 calls.push(Block::ToolUse {
                     id: item.call_id.clone(),
                     name: item.name.clone(),
@@ -301,7 +305,7 @@ pub(crate) fn decode_status(
         ));
     }
     match wire.status.as_str() {
-        "completed" => Ok((
+        STATUS_COMPLETED => Ok((
             if has_tool_use {
                 StopReason::ToolUse
             } else {
@@ -309,13 +313,13 @@ pub(crate) fn decode_status(
             },
             Vec::new(),
         )),
-        "incomplete" => {
+        STATUS_INCOMPLETE => {
             let reason = wire
                 .incomplete_details
                 .as_ref()
                 .map(|details| details.reason.as_str())
                 .unwrap_or_default();
-            if reason == "max_output_tokens" {
+            if reason == INCOMPLETE_REASON_MAX_OUTPUT_TOKENS {
                 Ok((StopReason::MaxTokens, Vec::new()))
             } else {
                 Ok((
@@ -331,7 +335,7 @@ pub(crate) fn decode_status(
                 ))
             }
         }
-        "failed" => Ok((
+        STATUS_FAILED => Ok((
             StopReason::Other,
             vec![loss(
                 "error",

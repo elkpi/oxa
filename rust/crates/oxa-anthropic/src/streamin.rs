@@ -8,7 +8,11 @@ use crate::config::Config;
 use crate::decode::decode_stop_reason;
 use crate::error::Error;
 use crate::normalize::loss;
-use crate::types::StreamEvent;
+use crate::types::{
+    BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_USE, DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_TEXT_DELTA,
+    EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START, EVENT_TYPE_CONTENT_BLOCK_STOP,
+    EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START, EVENT_TYPE_MESSAGE_STOP, StreamEvent,
+};
 
 /// Incrementally converts an Anthropic Messages event stream into IR events.
 pub struct StreamDecoder {
@@ -76,7 +80,7 @@ impl StreamDecoder {
         }
 
         match ev.kind.as_str() {
-            "message_start" => {
+            EVENT_TYPE_MESSAGE_START => {
                 if self.started {
                     return Err(Error::new("anthropic: duplicate message_start"));
                 }
@@ -89,7 +93,7 @@ impl StreamDecoder {
                     model: self.config.map_model(&msg.model),
                 }])
             }
-            "content_block_start" => {
+            EVENT_TYPE_CONTENT_BLOCK_START => {
                 if !self.started {
                     return Err(Error::new(
                         "anthropic: content_block_start before message_start",
@@ -119,7 +123,7 @@ impl StreamDecoder {
                     ));
                     return Ok(Vec::new());
                 };
-                if block.kind == "tool_use" {
+                if block.kind == BLOCK_TYPE_TOOL_USE {
                     if block.id.is_empty() {
                         return Err(Error::new(format!(
                             "anthropic: content_block_start[{index}].content_block.id is required"
@@ -147,7 +151,7 @@ impl StreamDecoder {
                     self.tool_parts.clear();
                     return Ok(Vec::new());
                 }
-                if block.kind != "text" {
+                if block.kind != BLOCK_TYPE_TEXT {
                     self.next_index += 1;
                     self.skipped.insert(index);
                     self.skipped_open = true;
@@ -175,7 +179,7 @@ impl StreamDecoder {
                     },
                 }])
             }
-            "content_block_delta" => {
+            EVENT_TYPE_CONTENT_BLOCK_DELTA => {
                 if !self.started {
                     return Err(Error::new(
                         "anthropic: content_block_delta before message_start",
@@ -196,10 +200,10 @@ impl StreamDecoder {
                 }
                 if self.open_tool {
                     match delta.kind.as_str() {
-                        "text_delta" => {
+                        DELTA_TYPE_TEXT_DELTA => {
                             return Err(Error::new("anthropic: text_delta on tool_use block"));
                         }
-                        "input_json_delta" => {
+                        DELTA_TYPE_INPUT_JSON_DELTA => {
                             self.tool_parts
                                 .push(delta.partial_json.clone().unwrap_or_default());
                             return Ok(Vec::new());
@@ -208,13 +212,13 @@ impl StreamDecoder {
                     }
                 }
                 match delta.kind.as_str() {
-                    "text_delta" => Ok(vec![Event::ContentBlockDelta {
+                    DELTA_TYPE_TEXT_DELTA => Ok(vec![Event::ContentBlockDelta {
                         index: self.open_ir_index,
                         delta: Delta::TextDelta {
                             text: delta.text.clone(),
                         },
                     }]),
-                    "input_json_delta" => {
+                    DELTA_TYPE_INPUT_JSON_DELTA => {
                         Err(Error::new("anthropic: input_json_delta on non-tool block"))
                     }
                     other => {
@@ -228,7 +232,7 @@ impl StreamDecoder {
                     }
                 }
             }
-            "content_block_stop" => {
+            EVENT_TYPE_CONTENT_BLOCK_STOP => {
                 if !self.started {
                     return Err(Error::new(
                         "anthropic: content_block_stop before message_start",
@@ -296,7 +300,7 @@ impl StreamDecoder {
                     index: self.open_ir_index,
                 }])
             }
-            "message_delta" => {
+            EVENT_TYPE_MESSAGE_DELTA => {
                 if !self.started {
                     return Err(Error::new("anthropic: message_delta before message_start"));
                 }
@@ -324,7 +328,7 @@ impl StreamDecoder {
                 self.delta_seen = true;
                 Ok(Vec::new())
             }
-            "message_stop" => {
+            EVENT_TYPE_MESSAGE_STOP => {
                 if !self.started {
                     return Err(Error::new("anthropic: message_stop before message_start"));
                 }

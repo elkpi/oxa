@@ -8,7 +8,9 @@ use crate::normalize::{
     encode_assistant_message, encode_tool_choice, encode_tool_result, encode_user_content, loss,
 };
 use crate::types::{
-    Choice, ContentValue, FunctionWire, Message, Request, Response, ToolWire, UsageWire,
+    Choice, ContentValue, FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
+    FINISH_REASON_TOOL_CALLS, FunctionWire, Message, OBJECT_CHAT_COMPLETION, ROLE_SYSTEM,
+    ROLE_USER, Request, Response, TOOL_TYPE_FUNCTION, ToolWire, UsageWire,
 };
 
 /// Converts an IR request to a Chat Completions wire request (IR → face).
@@ -37,7 +39,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             tools
                 .iter()
                 .map(|tool| ToolWire {
-                    kind: "function".to_string(),
+                    kind: TOOL_TYPE_FUNCTION.to_string(),
                     function: FunctionWire {
                         name: tool.name.clone(),
                         description: tool.description.clone().unwrap_or_default(),
@@ -61,7 +63,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
         }
         out.messages.push(Message {
-            role: "system".to_string(),
+            role: ROLE_SYSTEM.to_string(),
             content: Some(ContentValue::Text(text)),
             ..Message::default()
         });
@@ -121,7 +123,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     let (content, content_losses) =
                         encode_user_content(&normal, &format!("messages[{index}].content"));
                     out.messages.push(Message {
-                        role: "user".to_string(),
+                        role: ROLE_USER.to_string(),
                         content: Some(content),
                         ..Message::default()
                     });
@@ -165,7 +167,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     Ok((
         Response {
             id: resp.id.clone(),
-            object: "chat.completion".to_string(),
+            object: OBJECT_CHAT_COMPLETION.to_string(),
             created: 0,
             model: config.map_model(&resp.model),
             choices: vec![Choice {
@@ -187,12 +189,12 @@ pub(crate) fn encode_finish_reason(
     stop: StopReason,
 ) -> Result<(&'static str, Option<Loss>), Error> {
     match stop {
-        StopReason::EndTurn => Ok(("stop", None)),
-        StopReason::MaxTokens => Ok(("length", None)),
-        StopReason::Refusal => Ok(("content_filter", None)),
-        StopReason::ToolUse => Ok(("tool_calls", None)),
+        StopReason::EndTurn => Ok((FINISH_REASON_STOP, None)),
+        StopReason::MaxTokens => Ok((FINISH_REASON_LENGTH, None)),
+        StopReason::Refusal => Ok((FINISH_REASON_CONTENT_FILTER, None)),
+        StopReason::ToolUse => Ok((FINISH_REASON_TOOL_CALLS, None)),
         StopReason::StopSequence => Ok((
-            "stop",
+            FINISH_REASON_STOP,
             Some(loss(
                 "",
                 "stop_sequence",

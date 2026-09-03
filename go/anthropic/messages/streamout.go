@@ -53,7 +53,7 @@ func (d StreamDelta) MarshalJSON() ([]byte, error) {
 		StopReason:   d.StopReason,
 		StopSequence: d.StopSequence,
 	}
-	if d.Type == "input_json_delta" || d.PartialJSON != "" {
+	if d.Type == DeltaTypeInputJSONDelta || d.PartialJSON != "" {
 		partial := d.PartialJSON
 		wire.PartialJSON = &partial
 	}
@@ -245,15 +245,15 @@ func streamInputFragment(token json.RawMessage) (string, error) {
 func encodeStopReason(stop ir.StopReason, stopSequence string) (string, string, error) {
 	switch stop {
 	case ir.StopEndTurn:
-		return "end_turn", "", nil
+		return StopReasonEndTurn, "", nil
 	case ir.StopMaxTokens:
-		return "max_tokens", "", nil
+		return StopReasonMaxTokens, "", nil
 	case ir.StopSequence:
-		return "stop_sequence", stopSequence, nil
+		return StopReasonStopSequence, stopSequence, nil
 	case ir.StopToolUse:
-		return "tool_use", "", nil
+		return StopReasonToolUse, "", nil
 	case ir.StopRefusal:
-		return "refusal", "", nil
+		return StopReasonRefusal, "", nil
 	default:
 		return "", "", fmt.Errorf("anthropic: stop reason %q has no Anthropic equivalent", stop)
 	}

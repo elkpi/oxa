@@ -35,7 +35,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
 	for i, tool := range wire.Tools {
-		if tool.Type != "function" {
+		if tool.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Chat Completions tool type %q has no IR equivalent", tool.Type),
@@ -54,7 +54,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	for i := 0; i < len(wire.Messages); {
 		message := wire.Messages[i]
-		if message.Role == "tool" {
+		if message.Role == RoleTool {
 			merged, next, resultLosses, err := decodeToolResultRun(wire.Messages, i)
 			if err != nil {
 				return nil, nil, err
@@ -70,18 +70,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			return nil, nil, err
 		}
 		losses = append(losses, contentLosses...)
-		if message.Role != "system" && len(content) == 0 {
+		if message.Role != RoleSystem && len(content) == 0 {
 			// IR conversation messages cannot have empty content (spec/01 s3.3).
 			content = []ir.Block{ir.TextBlock{Text: ""}}
 		}
 		switch message.Role {
-		case "system":
+		case RoleSystem:
 			system, systemLosses := contentSystem(content, fmt.Sprintf("messages[%d].content", i))
 			req.System = append(req.System, system...)
 			losses = append(losses, systemLosses...)
-		case "user":
+		case RoleUser:
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleUser, Content: content})
-		case "assistant":
+		case RoleAssistant:
 			toolCalls, toolLosses := decodeToolCalls(message.ToolCalls, fmt.Sprintf("messages[%d].tool_calls", i))
 			if message.Content == nil && len(toolCalls) > 0 {
 				// A tool-only assistant message has no normal content to prepend.

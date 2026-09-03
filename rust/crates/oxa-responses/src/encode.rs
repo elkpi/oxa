@@ -6,8 +6,10 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{encode_assistant_message, encode_tool_choice, encode_user_message, loss};
 use crate::types::{
-    ContentValue, ErrorWire, IncompleteWire, Input, OutputItem, OutputPart, Request, Response,
-    ToolDef, UsageWire,
+    ContentValue, ERROR_CODE_REFUSAL, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
+    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, IncompleteWire, Input, OBJECT_RESPONSE, OutputItem,
+    OutputPart, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response,
+    STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, ToolDef, UsageWire,
 };
 
 /// Converts an IR request to a Responses wire request (IR → face). System
@@ -44,7 +46,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.tools = tools
             .iter()
             .map(|tool| ToolDef {
-                kind: "function".to_string(),
+                kind: TOOL_TYPE_FUNCTION.to_string(),
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 parameters: tool.input_schema.clone(),
@@ -79,7 +81,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     if req.system.is_empty()
         && let [item] = items.as_slice()
-        && item.role == "user"
+        && item.role == ROLE_USER
         && let Some(ContentValue::Text(text)) = &item.content
     {
         out.input = Input::Text(text.clone());
@@ -121,9 +123,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 has_text = true;
             }
             Block::ToolUse { id, name, input } => calls.push(OutputItem {
-                kind: "function_call".to_string(),
+                kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
                 id: "fc_abc123".to_string(),
-                status: "completed".to_string(),
+                status: STATUS_COMPLETED.to_string(),
                 call_id: id.clone(),
                 name: name.clone(),
                 arguments: input.clone(),
@@ -142,12 +144,12 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         output.insert(
             0,
             OutputItem {
-                kind: "message".to_string(),
+                kind: ITEM_TYPE_MESSAGE.to_string(),
                 id: "msg_abc123".to_string(),
-                status: "completed".to_string(),
-                role: "assistant".to_string(),
+                status: STATUS_COMPLETED.to_string(),
+                role: ROLE_ASSISTANT.to_string(),
                 content: vec![OutputPart {
-                    kind: "output_text".to_string(),
+                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text,
                     annotations: Vec::new(),
                 }],
@@ -156,11 +158,11 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         );
     }
     let (status, incomplete_details, error) = match resp.stop_reason {
-        StopReason::EndTurn | StopReason::ToolUse => ("completed".to_string(), None, None),
+        StopReason::EndTurn | StopReason::ToolUse => (STATUS_COMPLETED.to_string(), None, None),
         StopReason::MaxTokens => (
-            "incomplete".to_string(),
+            STATUS_INCOMPLETE.to_string(),
             Some(IncompleteWire {
-                reason: "max_output_tokens".to_string(),
+                reason: INCOMPLETE_REASON_MAX_OUTPUT_TOKENS.to_string(),
             }),
             None,
         ),
@@ -171,13 +173,13 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 LossReason::UnmappedValue,
                 "Responses status carries no stop-sequence identity; the matched IR stop sequence is lost",
             ));
-            ("completed".to_string(), None, None)
+            (STATUS_COMPLETED.to_string(), None, None)
         }
         StopReason::Refusal => (
-            "failed".to_string(),
+            STATUS_FAILED.to_string(),
             None,
             Some(ErrorWire {
-                code: "refusal".to_string(),
+                code: ERROR_CODE_REFUSAL.to_string(),
                 message: String::new(),
             }),
         ),
@@ -190,7 +192,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     Ok((
         Response {
             id: resp.id.clone(),
-            object: "response".to_string(),
+            object: OBJECT_RESPONSE.to_string(),
             status,
             model: config.map_model(&resp.model),
             output,

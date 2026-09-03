@@ -7,7 +7,11 @@ use oxa_ir::{
 };
 
 use crate::error::Error;
-use crate::types::{ContentPart, ContentValue, InputItem};
+use crate::types::{
+    ContentPart, ContentValue, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_MESSAGE, InputItem, PART_TYPE_INPUT_IMAGE, PART_TYPE_INPUT_TEXT, ROLE_ASSISTANT,
+    ROLE_USER, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION,
+};
 
 pub(crate) fn loss(
     path: impl Into<String>,
@@ -53,13 +57,13 @@ pub(crate) fn decode_content(
 
 fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Block>, Vec<Loss>) {
     match part.kind.as_str() {
-        "input_text" => (
+        PART_TYPE_INPUT_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
             }],
             Vec::new(),
         ),
-        "input_image" => {
+        PART_TYPE_INPUT_IMAGE => {
             match decode_image_url(&part.image_url, &format!("{path}[{index}].image_url")) {
                 Ok(block) => (vec![block], Vec::new()),
                 Err(image_loss) => (Vec::new(), vec![image_loss]),
@@ -155,7 +159,7 @@ pub(crate) fn decode_assistant_run(
     let mut index = start;
     while index < items.len() {
         let item = &items[index];
-        if item.kind == "function_call" {
+        if item.kind == ITEM_TYPE_FUNCTION_CALL {
             calls.push(Block::ToolUse {
                 id: item.call_id.clone(),
                 name: item.name.clone(),
@@ -164,7 +168,8 @@ pub(crate) fn decode_assistant_run(
             index += 1;
             continue;
         }
-        if !(item.kind.is_empty() || item.kind == "message") || item.role != "assistant" {
+        if !(item.kind.is_empty() || item.kind == ITEM_TYPE_MESSAGE) || item.role != ROLE_ASSISTANT
+        {
             break;
         }
         let (blocks, block_losses) =
@@ -191,7 +196,7 @@ pub(crate) fn decode_assistant_run(
 pub(crate) fn decode_output_run(items: &[InputItem], start: usize) -> (IrMessage, usize) {
     let mut content = Vec::new();
     let mut index = start;
-    while index < items.len() && items[index].kind == "function_call_output" {
+    while index < items.len() && items[index].kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
         content.push(Block::ToolResult {
             tool_use_id: items[index].call_id.clone(),
             content: vec![Block::Text {
@@ -217,21 +222,21 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
     };
     match value {
         Value::String(choice) => match choice.as_str() {
-            "auto" => (
+            TOOL_CHOICE_AUTO => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Auto,
                     name: None,
                 }),
                 Vec::new(),
             ),
-            "none" => (
+            TOOL_CHOICE_NONE => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::None,
                     name: None,
                 }),
                 Vec::new(),
             ),
-            "required" => (
+            TOOL_CHOICE_REQUIRED => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Any,
                     name: None,
@@ -257,7 +262,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            if kind == "function" && !name.is_empty() {
+            if kind == TOOL_TYPE_FUNCTION && !name.is_empty() {
                 (
                     Some(ToolChoice {
                         mode: ToolChoiceMode::Tool,
@@ -295,13 +300,14 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
         return (None, None);
     };
     match choice.mode {
-        ToolChoiceMode::Auto => (Some(json!("auto")), None),
-        ToolChoiceMode::None => (Some(json!("none")), None),
-        ToolChoiceMode::Any => (Some(json!("required")), None),
+        ToolChoiceMode::Auto => (Some(json!(TOOL_CHOICE_AUTO)), None),
+        ToolChoiceMode::None => (Some(json!(TOOL_CHOICE_NONE)), None),
+        ToolChoiceMode::Any => (Some(json!(TOOL_CHOICE_REQUIRED)), None),
         ToolChoiceMode::Tool => match choice.name.as_deref() {
-            Some(name) if !name.is_empty() => {
-                (Some(json!({ "type": "function", "name": name })), None)
-            }
+            Some(name) if !name.is_empty() => (
+                Some(json!({ "type": TOOL_TYPE_FUNCTION, "name": name })),
+                None,
+            ),
             _ => (
                 None,
                 Some(loss(
@@ -343,7 +349,7 @@ pub(crate) fn encode_image_block(
             ));
         }
         return Ok(ContentPart {
-            kind: "input_image".to_string(),
+            kind: PART_TYPE_INPUT_IMAGE.to_string(),
             text: String::new(),
             image_url: format!("data:{media_type};base64,{data}"),
         });
@@ -352,7 +358,7 @@ pub(crate) fn encode_image_block(
         && is_valid_https_url(url)
     {
         return Ok(ContentPart {
-            kind: "input_image".to_string(),
+            kind: PART_TYPE_INPUT_IMAGE.to_string(),
             text: String::new(),
             image_url: url.to_string(),
         });
@@ -376,7 +382,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
     for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Text { text } => parts.push(ContentPart {
-                kind: "input_text".to_string(),
+                kind: PART_TYPE_INPUT_TEXT.to_string(),
                 text: text.clone(),
                 image_url: String::new(),
             }),
@@ -461,7 +467,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
             ));
         }
         items.push(InputItem {
-            kind: "function_call_output".to_string(),
+            kind: ITEM_TYPE_FUNCTION_CALL_OUTPUT.to_string(),
             call_id: tool_use_id.clone(),
             output,
             ..InputItem::default()
@@ -470,7 +476,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
     if !normal.is_empty() || results.is_empty() {
         let (content, content_losses) = encode_user_content(&normal, &format!("{path}.content"));
         items.push(InputItem {
-            role: "user".to_string(),
+            role: ROLE_USER.to_string(),
             content: Some(content),
             ..InputItem::default()
         });
@@ -496,7 +502,7 @@ pub(crate) fn encode_assistant_message(
                 has_text = true;
             }
             Block::ToolUse { id, name, input } => calls.push(InputItem {
-                kind: "function_call".to_string(),
+                kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
                 call_id: id.clone(),
                 name: name.clone(),
                 arguments: input.clone(),
@@ -513,7 +519,7 @@ pub(crate) fn encode_assistant_message(
     let mut items = Vec::new();
     if has_text || blocks.is_empty() {
         items.push(InputItem {
-            role: "assistant".to_string(),
+            role: ROLE_ASSISTANT.to_string(),
             content: Some(ContentValue::Text(text)),
             ..InputItem::default()
         });

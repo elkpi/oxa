@@ -437,7 +437,7 @@ func (d *StreamDecoder) validateUnknownDescendant(ev *StreamEvent) error {
 	if d.skippedPart && ev.ContentIndex != d.contentIndex {
 		return fmt.Errorf("responses: unknown event %s does not match the open content part", ev.Type)
 	}
-	if (strings.HasPrefix(ev.Type, "response.content_part.") || strings.HasPrefix(ev.Type, "response.output_text.")) &&
+	if (strings.HasPrefix(ev.Type, EventTypeResponseContentPartPrefix) || strings.HasPrefix(ev.Type, EventTypeResponseOutputTextPrefix)) &&
 		(!d.blockOpen || ev.ContentIndex != d.contentIndex) {
 		return fmt.Errorf("responses: unknown event %s does not match the open content part", ev.Type)
 	}

@@ -66,9 +66,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	for i, m := range wire.Messages {
 		var role ir.Role
 		switch m.Role {
-		case "user":
+		case RoleUser:
 			role = ir.RoleUser
-		case "assistant":
+		case RoleAssistant:
 			role = ir.RoleAssistant
 		default:
 			return nil, nil, fmt.Errorf("anthropic: messages[%d]: unknown role %q", i, m.Role)
@@ -115,7 +115,7 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 			if err := json.Unmarshal(raw, &w); err != nil {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: %w", i, err)
 			}
-			if w.Type != "text" {
+			if w.Type != BlockTypeText {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
 			}
 			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
@@ -286,7 +286,7 @@ func decodeToolChoice(choice *ToolChoiceWire) (*ir.ToolChoice, []ir.Loss, error)
 	var decoded *ir.ToolChoice
 	var losses []ir.Loss
 	switch choice.Type {
-	case ToolChoiceTypeAuto, ToolChoiceTypeAny, ir.ToolChoiceNone:
+	case ToolChoiceTypeAuto, ToolChoiceTypeAny, ToolChoiceTypeNone:
 		decoded = &ir.ToolChoice{Mode: choice.Type}
 	case ToolChoiceTypeTool:
 		if choice.Name == "" {

@@ -18,6 +18,10 @@ const (
 
 	ToolTypeFunction = "function"
 
+	ToolChoiceAuto     = "auto"
+	ToolChoiceNone     = "none"
+	ToolChoiceRequired = "required"
+
 	ItemTypeMessage            = "message"
 	ItemTypeFunctionCall       = "function_call"
 	ItemTypeFunctionCallOutput = "function_call_output"
@@ -50,6 +54,9 @@ const (
 	EventTypeResponseCompleted             = "response.completed"
 	EventTypeResponseIncomplete            = "response.incomplete"
 	EventTypeResponseFailed                = "response.failed"
+
+	EventTypeResponseContentPartPrefix = "response.content_part."
+	EventTypeResponseOutputTextPrefix  = "response.output_text."
 )
 
 // Request is the Responses wire request for the supported non-streaming
@@ -243,7 +250,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 		SequenceNumber int64 `json:"sequence_number,omitempty"`
 	}
 	switch e.Type {
-	case "response.created", "response.completed", "response.incomplete", "response.failed":
+	case EventTypeResponseCreated, EventTypeResponseCompleted, EventTypeResponseIncomplete, EventTypeResponseFailed:
 		if e.Response == nil {
 			return nil, fmt.Errorf("responses: %s without response", e.Type)
 		}
@@ -252,7 +259,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Response *Response `json:"response"`
 			sequence
 		}{Type: e.Type, Response: e.Response, sequence: sequence{e.SequenceNumber}})
-	case "response.output_item.added", "response.output_item.done":
+	case EventTypeResponseOutputItemAdded, EventTypeResponseOutputItemDone:
 		if e.Item == nil {
 			return nil, fmt.Errorf("responses: %s without item", e.Type)
 		}
@@ -262,7 +269,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Item        *OutputItem `json:"item"`
 			sequence
 		}{Type: e.Type, OutputIndex: e.OutputIndex, Item: e.Item, sequence: sequence{e.SequenceNumber}})
-	case "response.content_part.added", "response.content_part.done":
+	case EventTypeResponseContentPartAdded, EventTypeResponseContentPartDone:
 		if e.Part == nil {
 			return nil, fmt.Errorf("responses: %s without part", e.Type)
 		}
@@ -277,7 +284,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Part: e.Part, sequence: sequence{e.SequenceNumber},
 		})
-	case "response.function_call_arguments.delta":
+	case EventTypeResponseFunctionCallArgsDelta:
 		return json.Marshal(struct {
 			Type        string `json:"type"`
 			ItemID      string `json:"item_id"`
@@ -288,7 +295,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			Delta: e.Delta, sequence: sequence{e.SequenceNumber},
 		})
-	case "response.function_call_arguments.done":
+	case EventTypeResponseFunctionCallArgsDone:
 		return json.Marshal(struct {
 			Type        string `json:"type"`
 			ItemID      string `json:"item_id"`
@@ -302,7 +309,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			CallID: e.CallID, Name: e.Name, Arguments: e.Arguments,
 			sequence: sequence{e.SequenceNumber},
 		})
-	case "response.output_text.delta":
+	case EventTypeResponseOutputTextDelta:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`
@@ -314,7 +321,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Delta: e.Delta, sequence: sequence{e.SequenceNumber},
 		})
-	case "response.output_text.done":
+	case EventTypeResponseOutputTextDone:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`

@@ -41,7 +41,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
 		for _, s := range req.System {
-			blocks = append(blocks, SystemBlockWire{Type: "text", Text: s.Text})
+			blocks = append(blocks, SystemBlockWire{Type: BlockTypeText, Text: s.Text})
 		}
 		out.System = blocks
 	}
@@ -72,9 +72,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		var role string
 		switch m.Role {
 		case ir.RoleUser:
-			role = "user"
+			role = RoleUser
 		case ir.RoleAssistant:
-			role = "assistant"
+			role = RoleAssistant
 		default:
 			return nil, nil, fmt.Errorf("anthropic: messages[%d]: unknown role %q", i, m.Role)
 		}
@@ -114,13 +114,17 @@ func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error)
 		return nil, nil, nil
 	}
 	switch choice.Mode {
-	case "auto", "any", "none":
-		return &ToolChoiceWire{Type: choice.Mode}, nil, nil
-	case "tool":
+	case ir.ToolChoiceAuto:
+		return &ToolChoiceWire{Type: ToolChoiceTypeAuto}, nil, nil
+	case ir.ToolChoiceAny:
+		return &ToolChoiceWire{Type: ToolChoiceTypeAny}, nil, nil
+	case ir.ToolChoiceNone:
+		return &ToolChoiceWire{Type: ToolChoiceTypeNone}, nil, nil
+	case ir.ToolChoiceTool:
 		if choice.Name == "" {
 			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for mode tool")
 		}
-		return &ToolChoiceWire{Type: "tool", Name: choice.Name}, nil, nil
+		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
 	default:
 		return nil, []ir.Loss{{
 			Path:   "tool_choice",

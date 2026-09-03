@@ -13,7 +13,11 @@ use crate::normalize::{
     content_system, decode_content, decode_tool_calls, decode_tool_choice, decode_tool_result_run,
     loss,
 };
-use crate::types::{Request, Response};
+use crate::types::{
+    FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
+    FINISH_REASON_TOOL_CALLS, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL, ROLE_USER, Request, Response,
+    TOOL_TYPE_FUNCTION,
+};
 
 /// Converts a Chat Completions wire request to the IR (face → IR). Semantic
 /// unmappables are losses, never errors; errors are reserved for structural
@@ -74,7 +78,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
-            if tool.kind != "function" {
+            if tool.kind != TOOL_TYPE_FUNCTION {
                 losses.push(loss(
                     format!("tools[{index}]"),
                     "type",
@@ -105,7 +109,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     let mut index = 0usize;
     while index < wire.messages.len() {
         let message = &wire.messages[index];
-        if message.role == "tool" {
+        if message.role == ROLE_TOOL {
             let (merged, next, result_losses) = decode_tool_result_run(&wire.messages, index)?;
             messages.push(merged);
             losses.extend(result_losses);
@@ -117,23 +121,23 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         let (mut content, content_losses) =
             decode_content(message.content.as_ref(), &content_path)?;
         losses.extend(content_losses);
-        if message.role != "system" && content.is_empty() {
+        if message.role != ROLE_SYSTEM && content.is_empty() {
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
                 text: String::new(),
             });
         }
         match message.role.as_str() {
-            "system" => {
+            ROLE_SYSTEM => {
                 let (system_blocks, system_losses) = content_system(content, &content_path);
                 system.extend(system_blocks);
                 losses.extend(system_losses);
             }
-            "user" => messages.push(oxa_ir::Message {
+            ROLE_USER => messages.push(oxa_ir::Message {
                 role: Role::User,
                 content,
             }),
-            "assistant" => {
+            ROLE_ASSISTANT => {
                 let default_calls = Vec::new();
                 let calls = message.tool_calls.as_deref().unwrap_or(&default_calls);
                 let (tool_blocks, tool_losses) =
@@ -258,10 +262,10 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
 
 pub(crate) fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<Loss>), Error> {
     match finish {
-        "stop" => Ok((StopReason::EndTurn, None)),
-        "length" => Ok((StopReason::MaxTokens, None)),
-        "content_filter" => Ok((StopReason::Refusal, None)),
-        "tool_calls" => Ok((StopReason::ToolUse, None)),
+        FINISH_REASON_STOP => Ok((StopReason::EndTurn, None)),
+        FINISH_REASON_LENGTH => Ok((StopReason::MaxTokens, None)),
+        FINISH_REASON_CONTENT_FILTER => Ok((StopReason::Refusal, None)),
+        FINISH_REASON_TOOL_CALLS => Ok((StopReason::ToolUse, None)),
         "" => Err(Error::new(
             "chatcompletions: choices[0].finish_reason is missing",
         )),

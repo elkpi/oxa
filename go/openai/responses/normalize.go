@@ -111,12 +111,12 @@ func encodeImagePart(image ir.ImageBlock, path string) (ContentPart, *ir.Loss) {
 			return ContentPart{}, ptrLoss(loss(path, "media_type", ir.LossUnsupportedSemantic,
 				"IR image media type has no Responses input_image equivalent"))
 		}
-		return ContentPart{Type: "input_image", ImageURL: "data:" + image.MediaType + ";base64," + image.Data}, nil
+		return ContentPart{Type: PartTypeInputImage, ImageURL: "data:" + image.MediaType + ";base64," + image.Data}, nil
 	}
 	if image.URL != "" {
 		u, err := url.ParseRequestURI(image.URL)
 		if err == nil && u.Scheme == "https" && u.Host != "" {
-			return ContentPart{Type: "input_image", ImageURL: image.URL}, nil
+			return ContentPart{Type: PartTypeInputImage, ImageURL: image.URL}, nil
 		}
 	}
 	return ContentPart{}, ptrLoss(loss(path, "image", ir.LossUnsupportedSemantic,

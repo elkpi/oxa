@@ -6,7 +6,11 @@ use oxa_ir::{
     Block, Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice, ToolChoiceMode,
 };
 
-use crate::types::{ContentPart, ContentValue, FunctionWire, ImageURLWire, Message, ToolCall};
+use crate::types::{
+    CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, ContentPart, ContentValue, FunctionWire,
+    ImageURLWire, Message, ROLE_ASSISTANT, ROLE_TOOL, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE,
+    TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION, ToolCall,
+};
 
 pub(crate) fn loss(
     path: impl Into<String>,
@@ -53,13 +57,13 @@ pub(crate) fn decode_content(
 
 fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Block>, Vec<Loss>) {
     match part.kind.as_str() {
-        "text" => (
+        CONTENT_PART_TYPE_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
             }],
             Vec::new(),
         ),
-        "image_url" => {
+        CONTENT_PART_TYPE_IMAGE_URL => {
             let raw = part
                 .image_url
                 .as_ref()
@@ -159,7 +163,7 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
     let mut blocks = Vec::with_capacity(calls.len());
     let mut losses = Vec::new();
     for (index, call) in calls.iter().enumerate() {
-        if call.kind != "function" {
+        if call.kind != TOOL_TYPE_FUNCTION {
             losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -190,7 +194,7 @@ pub(crate) fn decode_tool_result_run(
     let mut content: Vec<Block> = Vec::new();
     let mut losses = Vec::new();
     let mut index = start;
-    while index < messages.len() && messages[index].role == "tool" {
+    while index < messages.len() && messages[index].role == ROLE_TOOL {
         let (blocks, block_losses) = decode_content(
             messages[index].content.as_ref(),
             &format!("messages[{index}].content"),
@@ -228,21 +232,21 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
     };
     match value {
         Value::String(choice) => match choice.as_str() {
-            "auto" => (
+            TOOL_CHOICE_AUTO => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Auto,
                     name: None,
                 }),
                 Vec::new(),
             ),
-            "none" => (
+            TOOL_CHOICE_NONE => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::None,
                     name: None,
                 }),
                 Vec::new(),
             ),
-            "required" => (
+            TOOL_CHOICE_REQUIRED => (
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Any,
                     name: None,
@@ -269,7 +273,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 .and_then(|function| function.get("name"))
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            if kind == "function" && !name.is_empty() {
+            if kind == TOOL_TYPE_FUNCTION && !name.is_empty() {
                 (
                     Some(ToolChoice {
                         mode: ToolChoiceMode::Tool,
@@ -307,13 +311,13 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
         return (None, None);
     };
     match choice.mode {
-        ToolChoiceMode::Auto => (Some(json!("auto")), None),
-        ToolChoiceMode::None => (Some(json!("none")), None),
-        ToolChoiceMode::Any => (Some(json!("required")), None),
+        ToolChoiceMode::Auto => (Some(json!(TOOL_CHOICE_AUTO)), None),
+        ToolChoiceMode::None => (Some(json!(TOOL_CHOICE_NONE)), None),
+        ToolChoiceMode::Any => (Some(json!(TOOL_CHOICE_REQUIRED)), None),
         ToolChoiceMode::Tool => match choice.name.as_deref() {
             Some(name) if !name.is_empty() => (
                 Some(json!({
-                    "type": "function",
+                    "type": TOOL_TYPE_FUNCTION,
                     "function": { "name": name }
                 })),
                 None,
@@ -359,7 +363,7 @@ pub(crate) fn encode_image_block(
             ));
         }
         return Ok(ContentPart {
-            kind: "image_url".to_string(),
+            kind: CONTENT_PART_TYPE_IMAGE_URL.to_string(),
             text: String::new(),
             image_url: Some(ImageURLWire {
                 url: format!("data:{media_type};base64,{data}"),
@@ -370,7 +374,7 @@ pub(crate) fn encode_image_block(
         && is_valid_https_url(url)
     {
         return Ok(ContentPart {
-            kind: "image_url".to_string(),
+            kind: CONTENT_PART_TYPE_IMAGE_URL.to_string(),
             text: String::new(),
             image_url: Some(ImageURLWire {
                 url: url.to_string(),
@@ -396,7 +400,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
         match block {
             Block::Text { text: value } => {
                 parts.push(ContentPart {
-                    kind: "text".to_string(),
+                    kind: CONTENT_PART_TYPE_TEXT.to_string(),
                     text: value.clone(),
                     image_url: None,
                 });
@@ -438,7 +442,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
 /// text without its JSON string envelope).
 pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message, Vec<Loss>) {
     let mut out = Message {
-        role: "assistant".to_string(),
+        role: ROLE_ASSISTANT.to_string(),
         ..Message::default()
     };
     let mut text = String::new();
@@ -449,7 +453,7 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
             Block::ToolUse { id, name, input } => {
                 out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
                     id: id.clone(),
-                    kind: "function".to_string(),
+                    kind: TOOL_TYPE_FUNCTION.to_string(),
                     function: FunctionWire {
                         name: name.clone(),
                         description: String::new(),
@@ -487,7 +491,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
     else {
         return (
             Message {
-                role: "tool".to_string(),
+                role: ROLE_TOOL.to_string(),
                 ..Message::default()
             },
             vec![loss(
@@ -521,7 +525,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
     }
     (
         Message {
-            role: "tool".to_string(),
+            role: ROLE_TOOL.to_string(),
             content: Some(ContentValue::Text(text)),
             tool_call_id: tool_use_id.clone(),
             ..Message::default()

@@ -88,9 +88,9 @@ func imageURLFromMap(value any, path string) (string, error) {
 
 func decodeContentPart(kind, text, imageURL, path string, index int) ([]ir.Block, []ir.Loss) {
 	switch kind {
-	case "text":
+	case ContentPartTypeText:
 		return []ir.Block{ir.TextBlock{Text: text}}, nil
-	case "image_url":
+	case ContentPartTypeImageURL:
 		image, imageLoss := decodeImageURL(imageURL, fmt.Sprintf("%s[%d].image_url", path, index))
 		if imageLoss != nil {
 			return nil, []ir.Loss{*imageLoss}
@@ -139,7 +139,7 @@ func decodeToolCalls(calls []ToolCall, path string) ([]ir.Block, []ir.Loss) {
 	blocks := make([]ir.Block, 0, len(calls))
 	var losses []ir.Loss
 	for i, call := range calls {
-		if call.Type != "function" {
+		if call.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Chat Completions tool call type %q has no IR equivalent", call.Type),
@@ -169,7 +169,7 @@ func decodeToolResultRun(messages []Message, start int) (ir.Message, int, []ir.L
 	content := make([]ir.Block, 0)
 	var losses []ir.Loss
 	i := start
-	for ; i < len(messages) && messages[i].Role == "tool"; i++ {
+	for ; i < len(messages) && messages[i].Role == RoleTool; i++ {
 		blocks, blockLosses, err := decodeContent(messages[i].Content, fmt.Sprintf("messages[%d].content", i))
 		if err != nil {
 			return ir.Message{}, 0, nil, err
@@ -193,10 +193,10 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 	}
 	if choice, ok := value.(string); ok {
 		switch choice {
-		case "auto", "none":
+		case ToolChoiceAuto, ToolChoiceNone:
 			return &ir.ToolChoice{Mode: choice}, nil
-		case "required":
-			return &ir.ToolChoice{Mode: "any"}, nil
+		case ToolChoiceRequired:
+			return &ir.ToolChoice{Mode: ir.ToolChoiceAny}, nil
 		default:
 			return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Chat Completions tool_choice %q has no IR equivalent", choice))}
@@ -221,8 +221,8 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 		return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			"Chat Completions tool_choice has no IR equivalent")}
 	}
-	if kind == "function" && name != "" {
-		return &ir.ToolChoice{Mode: "tool", Name: name}, nil
+	if kind == ToolTypeFunction && name != "" {
+		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: name}, nil
 	}
 	return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 		"only named function Chat Completions tool_choice values are supported")}
@@ -234,16 +234,16 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 		return nil, nil
 	}
 	switch choice.Mode {
-	case "auto", "none":
+	case ir.ToolChoiceAuto, ir.ToolChoiceNone:
 		return choice.Mode, nil
-	case "any":
-		return "required", nil
-	case "tool":
+	case ir.ToolChoiceAny:
+		return ToolChoiceRequired, nil
+	case ir.ToolChoiceTool:
 		if choice.Name == "" {
 			return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 				"IR named tool choice has no function name"))
 		}
-		out := ToolChoiceWire{Type: "function"}
+		out := ToolChoiceWire{Type: ToolTypeFunction}
 		out.Function.Name = choice.Name
 		return out, nil
 	default:
@@ -263,14 +263,14 @@ func encodeImageBlock(image ir.ImageBlock, path string) (ContentPart, *ir.Loss) 
 			return ContentPart{}, ptrLoss(loss(path, "media_type", ir.LossUnsupportedSemantic,
 				"IR image media type has no Chat Completions image_url equivalent"))
 		}
-		return ContentPart{Type: "image_url", ImageURL: &ImageURLWire{
+		return ContentPart{Type: ContentPartTypeImageURL, ImageURL: &ImageURLWire{
 			URL: "data:" + image.MediaType + ";base64," + image.Data,
 		}}, nil
 	}
 	if image.URL != "" {
 		u, err := url.ParseRequestURI(image.URL)
 		if err == nil && u.Scheme == "https" && u.Host != "" {
-			return ContentPart{Type: "image_url", ImageURL: &ImageURLWire{URL: image.URL}}, nil
+			return ContentPart{Type: ContentPartTypeImageURL, ImageURL: &ImageURLWire{URL: image.URL}}, nil
 		}
 	}
 	return ContentPart{}, ptrLoss(loss(path, "image", ir.LossUnsupportedSemantic,
@@ -287,7 +287,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
-			parts = append(parts, ContentPart{Type: "text", Text: value.Text})
+			parts = append(parts, ContentPart{Type: ContentPartTypeText, Text: value.Text})
 			text += value.Text
 		case ir.ImageBlock:
 			part, imageLoss := encodeImageBlock(value, fmt.Sprintf("%s[%d]", path, i))
@@ -313,7 +313,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 // N-CC-9 renders assistant text and ToolUseBlocks, preserving the opaque
 // function.arguments text while unwrapping only the IR JSON string envelope.
 func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss, error) {
-	out := Message{Role: "assistant"}
+	out := Message{Role: RoleAssistant}
 	text := ""
 	var losses []ir.Loss
 	for i, block := range blocks {
@@ -326,7 +326,7 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 				return Message{}, nil, fmt.Errorf("chatcompletions: %s[%d].input: tool input is not a JSON string: %w", path, i, err)
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
-				ID: value.ID, Type: "function",
+				ID: value.ID, Type: ToolTypeFunction,
 				Function: FunctionWire{Name: value.Name, Arguments: arguments},
 			})
 		case ir.ImageBlock, ir.ToolResultBlock:
@@ -365,7 +365,7 @@ func encodeToolResult(result ir.ToolResultBlock, path string) (Message, []ir.Los
 		losses = append(losses, loss(path+".is_error", "is_error", ir.LossUnmappedField,
 			"Chat Completions tool messages have no is_error field"))
 	}
-	return Message{Role: "tool", Content: text, ToolCallID: result.ToolUseID}, losses
+	return Message{Role: RoleTool, Content: text, ToolCallID: result.ToolUseID}, losses
 }
 
 func contentSystem(blocks []ir.Block, path string) ([]ir.SystemBlock, []ir.Loss) {

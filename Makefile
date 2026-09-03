@@ -14,10 +14,18 @@ define go_target
 	fi
 endef
 
-.PHONY: test vectors lint fmt check-modulepath
+.PHONY: test vectors lint fmt check-modulepath test-python
 
 test:
 	$(call go_target,go test ./...,$@,M3)
+
+test-python:
+	@if [ -d python/src ]; then \
+		cd python && PYTHONPATH=src python3 -m unittest discover -s tests; \
+	else \
+		echo "test-python: python/src directory not found."; \
+		exit 1; \
+	fi
 
 vectors:
 	$(call go_target,go run ./cmd/veccheck -root ..,$@,M2)

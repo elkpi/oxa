@@ -149,7 +149,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     Ok((resp, losses))
 }
 
-fn decode_stop_reason(stop: &str) -> Result<(StopReason, Option<Loss>), Error> {
+pub(crate) fn decode_stop_reason(stop: &str) -> Result<(StopReason, Option<Loss>), Error> {
     match stop {
         "end_turn" => Ok((StopReason::EndTurn, None)),
         "max_tokens" => Ok((StopReason::MaxTokens, None)),

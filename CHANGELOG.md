@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.1.0] - 2026-09-03
+
+### Added
+
+- Rust implementation (`rust/`): Cargo workspace targeting the frozen spec
+  baseline with zero cross-face dependencies.
+  - `oxa-ir`: neutral request, response, block, event, and loss types;
+    document codec with `specVersion: "0.1.0"`; event-stream grammar (INV-5)
+    and block indexing (INV-6) invariant checker.
+  - `oxa-modelmap`: model renaming table with identity fallback.
+  - `oxa-chatcompletions`: nonstream request/response converters, streaming
+    `StreamDecoder` with tool call argument aggregation, and `StreamEncoder`.
+  - `oxa-anthropic`: nonstream request/response converters, streaming
+    `StreamDecoder`, and `StreamEncoder`.
+  - `oxa-responses`: nonstream request/response converters, streaming
+    `StreamDecoder` with function call argument aggregation, and `StreamEncoder`.
+  - `oxa-sse`: byte-level Server-Sent Events frame decoder and encoder with zero
+    external dependencies (spec/20 §6).
+  - `oxa-vectest`: test harness running all shared nonstream, cross-protocol,
+    and stream golden vectors against each Rust face with full INV-1 lexical
+    precision.
+
 ## [v0.0.1] - 2026-09-02
 
 ### Added

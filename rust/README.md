@@ -23,12 +23,9 @@ rust/crates/oxa-vectest/         the dev-only vector harness (dev-dependency
                                  of face crates); implemented
 rust/crates/oxa-modelmap/        the optional model-renaming table
                                  (spec/03); implemented
-rust/crates/oxa-chatcompletions/ the Chat Completions face (nonstream);
-                                 implemented
-rust/crates/oxa-responses/       the OpenAI Responses face (nonstream);
-                                 implemented
-rust/crates/oxa-anthropic/       the Anthropic Messages face (nonstream);
-                                 implemented
+rust/crates/oxa-chatcompletions/ the Chat Completions face; implemented
+rust/crates/oxa-responses/       the OpenAI Responses face; implemented
+rust/crates/oxa-anthropic/       the Anthropic Messages face; implemented
 rust/crates/oxa-sse/             the byte-level SSE frame adapter
                                  (spec/20 §6); implemented
 ```
@@ -52,9 +49,9 @@ can still build and test outside the monorepo.
 - [x] `oxa-ir` — IR types, `specVersion` document codec, INV-5/INV-6
       event-stream checker, loss records (spec/02)
 - [x] vector harness (`oxa-vectest`) and the walk-up repo-root discovery
-- [x] Chat Completions face (nonstream)
-- [x] Anthropic Messages face (nonstream)
-- [x] Responses face (nonstream)
+- [x] Chat Completions face (nonstream and streaming)
+- [x] Anthropic Messages face (nonstream and streaming)
+- [x] Responses face (nonstream and streaming)
 - [x] cross-protocol vectors through the composition
 - [x] `oxa-sse` — byte-level SSE frame adapter (spec/20 §6)
-- [ ] streaming (text profile, then tool-argument aggregation)
+- [x] streaming (text profile and M7 tool-argument aggregation across all three faces)

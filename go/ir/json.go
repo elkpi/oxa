@@ -43,17 +43,17 @@ type wireToolResultBlock struct {
 func MarshalBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
 	case TextBlock:
-		return json.Marshal(wireTextBlock{Type: "text", Text: v.Text})
+		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text})
 	case ImageBlock:
 		return json.Marshal(wireImageBlock{
-			Type: "image", MediaType: v.MediaType, Data: v.Data, URL: v.URL,
+			Type: BlockTypeImage, MediaType: v.MediaType, Data: v.Data, URL: v.URL,
 		})
 	case ToolUseBlock:
 		if len(v.Input) == 0 {
 			return nil, fmt.Errorf("ir: tool_use input is required (INV-1)")
 		}
 		return json.Marshal(wireToolUseBlock{
-			Type: "tool_use", ID: v.ID, Name: v.Name, Input: v.Input,
+			Type: BlockTypeToolUse, ID: v.ID, Name: v.Name, Input: v.Input,
 		})
 	case ToolResultBlock:
 		content, err := marshalBlocks(v.Content)
@@ -61,7 +61,7 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 			return nil, err
 		}
 		return json.Marshal(wireToolResultBlock{
-			Type: "tool_result", ToolUseID: v.ToolUseID, Content: content, IsError: v.IsError,
+			Type: BlockTypeToolResult, ToolUseID: v.ToolUseID, Content: content, IsError: v.IsError,
 		})
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
@@ -92,19 +92,19 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return nil, err
 	}
 	switch head.Type {
-	case "text":
+	case BlockTypeText:
 		var w wireTextBlock
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
 		return TextBlock{Text: w.Text}, nil
-	case "image":
+	case BlockTypeImage:
 		var w wireImageBlock
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
 		return ImageBlock{MediaType: w.MediaType, Data: w.Data, URL: w.URL}, nil
-	case "tool_use":
+	case BlockTypeToolUse:
 		var w wireToolUseBlock
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
@@ -113,7 +113,7 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			return nil, fmt.Errorf("ir: tool_use input is required (INV-1)")
 		}
 		return ToolUseBlock{ID: w.ID, Name: w.Name, Input: w.Input}, nil
-	case "tool_result":
+	case BlockTypeToolResult:
 		var w wireToolResultBlock
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
@@ -190,7 +190,7 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	}
 	system := make([]wireTextBlock, 0, len(req.System))
 	for _, s := range req.System {
-		system = append(system, wireTextBlock{Type: "text", Text: s.Text})
+		system = append(system, wireTextBlock{Type: BlockTypeText, Text: s.Text})
 	}
 	messages := make([]wireMessage, 0, len(req.Messages))
 	for i, m := range req.Messages {
@@ -348,10 +348,10 @@ type wireInputJSONDelta struct {
 func MarshalDelta(d Delta) (json.RawMessage, error) {
 	switch v := d.(type) {
 	case TextDelta:
-		return json.Marshal(wireTextDelta{Type: "text_delta", Text: v.Text})
+		return json.Marshal(wireTextDelta{Type: DeltaTypeTextDelta, Text: v.Text})
 	case InputJSONDelta:
 		return json.Marshal(wireInputJSONDelta{
-			Type: "input_json_delta", PartialJSON: v.PartialJSON,
+			Type: DeltaTypeInputJSONDelta, PartialJSON: v.PartialJSON,
 		})
 	default:
 		return nil, fmt.Errorf("ir: unknown delta type %T", d)
@@ -367,13 +367,13 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 		return nil, err
 	}
 	switch head.Type {
-	case "text_delta":
+	case DeltaTypeTextDelta:
 		var w wireTextDelta
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
 		return TextDelta{Text: w.Text}, nil
-	case "input_json_delta":
+	case DeltaTypeInputJSONDelta:
 		var w wireInputJSONDelta
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
@@ -392,7 +392,7 @@ func MarshalEvent(e Event) (json.RawMessage, error) {
 			Type  string `json:"type"`
 			ID    string `json:"id"`
 			Model string `json:"model"`
-		}{Type: "message_start", ID: v.ID, Model: v.Model})
+		}{Type: EventTypeMessageStart, ID: v.ID, Model: v.Model})
 	case ContentBlockStart:
 		block, err := MarshalBlock(v.Block)
 		if err != nil {
@@ -402,7 +402,7 @@ func MarshalEvent(e Event) (json.RawMessage, error) {
 			Type  string          `json:"type"`
 			Index int             `json:"index"`
 			Block json.RawMessage `json:"block"`
-		}{Type: "content_block_start", Index: v.Index, Block: block})
+		}{Type: EventTypeContentBlockStart, Index: v.Index, Block: block})
 	case ContentBlockDelta:
 		delta, err := MarshalDelta(v.Delta)
 		if err != nil {
@@ -412,24 +412,24 @@ func MarshalEvent(e Event) (json.RawMessage, error) {
 			Type  string          `json:"type"`
 			Index int             `json:"index"`
 			Delta json.RawMessage `json:"delta"`
-		}{Type: "content_block_delta", Index: v.Index, Delta: delta})
+		}{Type: EventTypeContentBlockDelta, Index: v.Index, Delta: delta})
 	case ContentBlockStop:
 		return json.Marshal(struct {
 			Type  string `json:"type"`
 			Index int    `json:"index"`
-		}{Type: "content_block_stop", Index: v.Index})
+		}{Type: EventTypeContentBlockStop, Index: v.Index})
 	case MessageDelta:
 		return json.Marshal(struct {
 			Type         string     `json:"type"`
 			StopReason   StopReason `json:"stop_reason"`
 			StopSequence string     `json:"stop_sequence,omitempty"`
 			Usage        wireUsage  `json:"usage"`
-		}{Type: "message_delta", StopReason: v.StopReason, StopSequence: v.StopSequence,
+		}{Type: EventTypeMessageDelta, StopReason: v.StopReason, StopSequence: v.StopSequence,
 			Usage: wireUsage{InputTokens: v.Usage.InputTokens, OutputTokens: v.Usage.OutputTokens}})
 	case MessageDone:
 		return json.Marshal(struct {
 			Type string `json:"type"`
-		}{Type: "message_done"})
+		}{Type: EventTypeMessageDone})
 	default:
 		return nil, fmt.Errorf("ir: unknown event type %T", e)
 	}
@@ -444,7 +444,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		return nil, err
 	}
 	switch head.Type {
-	case "message_start":
+	case EventTypeMessageStart:
 		var w struct {
 			ID    string `json:"id"`
 			Model string `json:"model"`
@@ -453,7 +453,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, err
 		}
 		return MessageStart{ID: w.ID, Model: w.Model}, nil
-	case "content_block_start":
+	case EventTypeContentBlockStart:
 		var w struct {
 			Index int             `json:"index"`
 			Block json.RawMessage `json:"block"`
@@ -466,7 +466,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, fmt.Errorf("block: %w", err)
 		}
 		return ContentBlockStart{Index: w.Index, Block: block}, nil
-	case "content_block_delta":
+	case EventTypeContentBlockDelta:
 		var w struct {
 			Index int             `json:"index"`
 			Delta json.RawMessage `json:"delta"`
@@ -479,7 +479,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, fmt.Errorf("delta: %w", err)
 		}
 		return ContentBlockDelta{Index: w.Index, Delta: delta}, nil
-	case "content_block_stop":
+	case EventTypeContentBlockStop:
 		var w struct {
 			Index int `json:"index"`
 		}
@@ -487,7 +487,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			return nil, err
 		}
 		return ContentBlockStop{Index: w.Index}, nil
-	case "message_delta":
+	case EventTypeMessageDelta:
 		var w struct {
 			StopReason   StopReason `json:"stop_reason"`
 			StopSequence string     `json:"stop_sequence"`
@@ -501,7 +501,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 			StopSequence: w.StopSequence,
 			Usage:        Usage{InputTokens: w.Usage.InputTokens, OutputTokens: w.Usage.OutputTokens},
 		}, nil
-	case "message_done":
+	case EventTypeMessageDone:
 		return MessageDone{}, nil
 	default:
 		return nil, fmt.Errorf("ir: unknown event type %q", head.Type)

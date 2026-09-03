@@ -14,6 +14,13 @@ type Block interface {
 	isBlock()
 }
 
+const (
+	BlockTypeText       = "text"
+	BlockTypeImage      = "image"
+	BlockTypeToolUse    = "tool_use"
+	BlockTypeToolResult = "tool_result"
+)
+
 // TextBlock is a run of text.
 type TextBlock struct {
 	Text string

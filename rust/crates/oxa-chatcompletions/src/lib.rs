@@ -11,13 +11,18 @@ mod decode;
 mod encode;
 mod error;
 mod normalize;
+mod streamin;
+mod streamout;
 mod types;
 
 pub use config::Config;
 pub use decode::{decode_request, decode_response};
 pub use encode::{encode_request, encode_response};
 pub use error::Error;
+pub use streamin::StreamDecoder;
+pub use streamout::StreamEncoder;
 pub use types::{
-    Choice, ContentPart, ContentValue, FunctionWire, ImageURLWire, Message, Request, Response,
-    ToolCall, ToolWire, UsageWire,
+    Choice, ChoiceDelta, Chunk, ContentPart, ContentValue, DeltaPayload, FunctionDelta,
+    FunctionWire, ImageURLWire, Message, Request, Response, ToolCall, ToolCallDelta, ToolWire,
+    UsageWire,
 };

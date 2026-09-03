@@ -256,7 +256,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     Ok((resp, losses))
 }
 
-fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<Loss>), Error> {
+pub(crate) fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<Loss>), Error> {
     match finish {
         "stop" => Ok((StopReason::EndTurn, None)),
         "length" => Ok((StopReason::MaxTokens, None)),

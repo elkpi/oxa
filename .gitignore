@@ -38,3 +38,8 @@ python/.ruff_cache/
 python/dist/
 python/build/
 python/*.egg-info/
+
+# C++ artifacts (per-language, under cpp/)
+cpp/build/
+cpp/Testing/
+

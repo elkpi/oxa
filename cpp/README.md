@@ -1,18 +1,50 @@
-# oxa C++ implementation (roadmap placeholder)
+# oxa — C++ Reference Implementation
 
-The C++ implementation is planned **after v1**. It is the last language in
-the roadmap order Rust → Python → C++, following the Go reference
-implementation.
+Pure, in-process protocol-conversion library for OpenAI Chat Completions,
+OpenAI Responses, and Anthropic Messages in C++20.
 
-Once started, this implementation must conform to the **same shared
-`vectors/` golden set** as every other oxa implementation — C++ gets no
-vector set of its own, and CI runs the identical vectors against it.
+Like the Go, Rust, and Python implementations, oxa in C++ is not a proxy, HTTP
+client, router, retry layer, authentication service, or model capability
+database. It provides deterministic, pure conversions between protocol wire
+structures and oxa's shared Intermediate Representation (IR).
 
-## Vectors location convention
+## Architecture
 
-Test code must **not** hard-code a path to the vectors. Instead, starting
-from this implementation directory, **walk up parent directories** until you
-find a directory containing both `vectors/` and `.git/` — that is the
-repository root, and `vectors/` beneath it is the golden set. **Skip the
-vector tests** (with a clear message) if no such root is found, so the
-library can still build and test outside the monorepo.
+- **Hub-and-spoke**: Spoke namespaces (`oxa::openai::chatcompletions`,
+  `oxa::openai::responses`, `oxa::anthropic::messages`) implement only
+  `face → IR` and `IR → face`. No direct face-to-face conversions.
+- **Zero third-party runtime dependencies**: Standard C++20 STL only
+  (`<string>`, `<vector>`, `<variant>`, `<optional>`, `<memory>`, etc.).
+- **Exception-free error handling**: Uses `oxa::Status` and `oxa::StatusOr<T>`
+  (Abseil style) with `-fno-exceptions` support across the entire library.
+- **Dedicated lightweight JSON**: Self-contained `oxa::json::Value` with source
+  span tracking, guaranteed raw JSON string preservation (spec/01 INV-1),
+  integer/float distinction (INV-7), and duplicate object key rejection.
+- **Opaque tool inputs (INV-1)**: Tool call arguments and streaming delta
+  fragments remain unparsed raw JSON text.
+- **Shared Golden Vectors**: Conforms to the exact same shared `vectors/` golden
+  suite (34 Chat Completions + 30 Anthropic + 41 Responses + 12 cross-protocol
+  + 8 stream = 125 golden vectors) as Go, Rust, and Python.
+
+## Building and Testing
+
+Requirements: CMake 3.20+ and a C++20 compliant compiler (GCC 11+, Clang 14+,
+AppleClang 14+, or MSVC 19.30+).
+
+```bash
+# Configure CMake
+cmake -B cpp/build -S cpp
+
+# Build library and test suite
+cmake --build cpp/build --parallel
+
+# Run all tests
+ctest --test-dir cpp/build --output-on-failure
+```
+
+## Vectors Location Convention
+
+Test harnesses locate the shared `vectors/` suite by walking up parent
+directories from `cpp/` until finding a directory containing both `vectors/`
+and `.git/`. Tests skip cleanly if the repository root is absent (e.g. when
+building a standalone package archive).

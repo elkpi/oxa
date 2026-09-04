@@ -143,6 +143,49 @@ void codec_tests() {
         CHECK(mt != nullptr && mt->is_int() && mt->as_int() == 0);
         CHECK(p->find("temperature") == nullptr);
     }
+
+    // Strict type error checking (no silent defaults)
+    {
+        // message_start with numeric id/model must be rejected
+        auto ep1 = oxa::json::parse(R"({"type":"message_start","id":7,"model":"m"})");
+        CHECK(ep1.ok());
+        CHECK(!load_event(*ep1).ok());
+
+        // content_block_start with string index must be rejected
+        auto ep2 = oxa::json::parse(R"({"type":"content_block_start","index":"0","block":{"type":"text","text":""}})");
+        CHECK(ep2.ok());
+        CHECK(!load_event(*ep2).ok());
+
+        // message_delta with string usage tokens must be rejected
+        auto ep3 = oxa::json::parse(R"({"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":"4","output_tokens":2}})");
+        CHECK(ep3.ok());
+        CHECK(!load_event(*ep3).ok());
+
+        // unknown delta discriminant must be rejected
+        auto ep4 = oxa::json::parse(R"({"type":"content_block_delta","index":0,"delta":{"type":"unknown_delta","text":"hi"}})");
+        CHECK(ep4.ok());
+        CHECK(!load_event(*ep4).ok());
+
+        // unknown block discriminant must be rejected
+        auto bp = oxa::json::parse(R"({"type":"unknown_block"})");
+        CHECK(bp.ok());
+        CHECK(!load_block(*bp).ok());
+
+        // text block with non-string text must be rejected
+        auto bp2 = oxa::json::parse(R"({"type":"text","text":123})");
+        CHECK(bp2.ok());
+        CHECK(!load_block(*bp2).ok());
+
+        // tool_result with non-array content must be rejected
+        auto bp3 = oxa::json::parse(R"({"type":"tool_result","tool_use_id":"t1","content":"not an array"})");
+        CHECK(bp3.ok());
+        CHECK(!load_block(*bp3).ok());
+
+        // request with non-array messages must be rejected
+        auto rp_bad = oxa::json::parse(R"({"specVersion":"0.1.0","model":"m","messages":"not array"})");
+        CHECK(rp_bad.ok());
+        CHECK(!load_request(*rp_bad).ok());
+    }
 }
 
 // ---- checker helpers -------------------------------------------------------

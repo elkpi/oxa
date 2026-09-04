@@ -13,11 +13,48 @@ StatusOr<std::string> kind_of(const json::Value& v) {
     return t->as_string();
 }
 
-StatusOr<std::reference_wrapper<const json::Value>> required(
+StatusOr<std::string> require_string(const json::Value& v, std::string_view key, const char* ctx = "document") {
+    const json::Value* out = v.find(key);
+    if (out == nullptr) {
+        return invalid_argument(std::string(ctx) + " missing \"" + std::string(key) + "\"");
+    }
+    if (!out->is_string()) {
+        return invalid_argument(std::string(ctx) + " field \"" + std::string(key) + "\" must be a string");
+    }
+    return out->as_string();
+}
+
+StatusOr<std::int64_t> require_int(const json::Value& v, std::string_view key, const char* ctx = "document") {
+    const json::Value* out = v.find(key);
+    if (out == nullptr) {
+        return invalid_argument(std::string(ctx) + " missing \"" + std::string(key) + "\"");
+    }
+    if (!out->is_int()) {
+        return invalid_argument(std::string(ctx) + " field \"" + std::string(key) + "\" must be an integer");
+    }
+    return out->as_int();
+}
+
+StatusOr<std::reference_wrapper<const json::Value>> require_object(
     const json::Value& v, std::string_view key, const char* ctx = "document") {
     const json::Value* out = v.find(key);
     if (out == nullptr) {
         return invalid_argument(std::string(ctx) + " missing \"" + std::string(key) + "\"");
+    }
+    if (!out->is_object()) {
+        return invalid_argument(std::string(ctx) + " field \"" + std::string(key) + "\" must be an object");
+    }
+    return std::cref(*out);
+}
+
+StatusOr<std::reference_wrapper<const json::Value>> require_array(
+    const json::Value& v, std::string_view key, const char* ctx = "document") {
+    const json::Value* out = v.find(key);
+    if (out == nullptr) {
+        return invalid_argument(std::string(ctx) + " missing \"" + std::string(key) + "\"");
+    }
+    if (!out->is_array()) {
+        return invalid_argument(std::string(ctx) + " field \"" + std::string(key) + "\" must be an array");
     }
     return std::cref(*out);
 }
@@ -28,15 +65,6 @@ Status check_spec_version(const json::Value& v) {
         return invalid_argument("unsupported specVersion, want \"" + std::string(SPEC_VERSION) + "\"");
     }
     return ok_status();
-}
-
-StatusOr<std::string> opt_string(const json::Value& v, std::string_view key) {
-    const json::Value* f = v.find(key);
-    if (f == nullptr || f->is_null()) return std::string{};
-    if (!f->is_string()) {
-        return invalid_argument("field \"" + std::string(key) + "\" must be a string");
-    }
-    return f->as_string();
 }
 
 bool has(const json::Value& v, std::string_view key) {
@@ -91,49 +119,53 @@ StatusOr<Block> load_block(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("block must be an object");
     OXA_ASSIGN_OR_RETURN(std::string kind, kind_of(v));
     if (kind == BLOCK_TYPE_TEXT) {
-        OXA_ASSIGN_OR_RETURN(std::string txt, opt_string(v, "text"));
+        OXA_ASSIGN_OR_RETURN(std::string txt, require_string(v, "text", "text block"));
         return Block(TextBlock{std::move(txt)});
     }
     if (kind == BLOCK_TYPE_IMAGE) {
         ImageBlock img;
         if (has(v, "media_type")) {
-            OXA_ASSIGN_OR_RETURN(std::string mt, opt_string(v, "media_type"));
+            OXA_ASSIGN_OR_RETURN(std::string mt, require_string(v, "media_type", "image block"));
             img.media_type = std::move(mt);
         }
         if (has(v, "data")) {
-            OXA_ASSIGN_OR_RETURN(std::string dt, opt_string(v, "data"));
+            OXA_ASSIGN_OR_RETURN(std::string dt, require_string(v, "data", "image block"));
             img.data = std::move(dt);
         }
         if (has(v, "url")) {
-            OXA_ASSIGN_OR_RETURN(std::string u, opt_string(v, "url"));
+            OXA_ASSIGN_OR_RETURN(std::string u, require_string(v, "url", "image block"));
             img.url = std::move(u);
+        }
+        const bool has_data = img.data.has_value() && !img.data->empty();
+        const bool has_url = img.url.has_value() && !img.url->empty();
+        if (has_data == has_url) {
+            return invalid_argument("image block must have either data or url, not both or neither");
+        }
+        if (has_data && !img.media_type.has_value()) {
+            return invalid_argument("image block with data requires media_type");
         }
         return Block(std::move(img));
     }
     if (kind == BLOCK_TYPE_TOOL_USE) {
         ToolUseBlock tu;
-        OXA_ASSIGN_OR_RETURN(auto id_val, required(v, "id", "tool_use block"));
-        tu.id = id_val.get().as_string();
-        OXA_ASSIGN_OR_RETURN(auto name_val, required(v, "name", "tool_use block"));
-        tu.name = name_val.get().as_string();
-        OXA_ASSIGN_OR_RETURN(auto input_val, required(v, "input", "tool_use block"));
-        if (!input_val.get().is_string()) return invalid_argument("tool_use input must be a string");
-        tu.input = input_val.get().as_string();
+        OXA_ASSIGN_OR_RETURN(tu.id, require_string(v, "id", "tool_use block"));
+        OXA_ASSIGN_OR_RETURN(tu.name, require_string(v, "name", "tool_use block"));
+        OXA_ASSIGN_OR_RETURN(tu.input, require_string(v, "input", "tool_use block"));
         return Block(std::move(tu));
     }
     if (kind == BLOCK_TYPE_TOOL_RESULT) {
         ToolResultBlock tr;
-        OXA_ASSIGN_OR_RETURN(auto id_val, required(v, "tool_use_id", "tool_result block"));
-        tr.tool_use_id = id_val.get().as_string();
-        const json::Value* content = v.find("content");
-        if (content != nullptr && content->is_array()) {
-            for (const auto& inner : content->as_array()) {
-                OXA_ASSIGN_OR_RETURN(Block b, load_block(inner));
-                tr.content.push_back(BlockHolder{std::move(b)});
-            }
+        OXA_ASSIGN_OR_RETURN(tr.tool_use_id, require_string(v, "tool_use_id", "tool_result block"));
+        OXA_ASSIGN_OR_RETURN(auto content, require_array(v, "content", "tool_result block"));
+        for (const auto& inner : content.get().as_array()) {
+            OXA_ASSIGN_OR_RETURN(Block b, load_block(inner));
+            tr.content.push_back(BlockHolder{std::move(b)});
         }
         const json::Value* is_err = v.find("is_error");
-        tr.is_error = is_err != nullptr && is_err->is_bool() && is_err->as_bool();
+        if (is_err != nullptr) {
+            if (!is_err->is_bool()) return invalid_argument("tool_result is_error must be a boolean");
+            tr.is_error = is_err->as_bool();
+        }
         return Block(std::move(tr));
     }
     return invalid_argument("unknown block discriminant: " + kind);
@@ -212,11 +244,11 @@ StatusOr<Request> load_request(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("request must be an object");
     OXA_RETURN_IF_ERROR(check_spec_version(v));
     Request r;
-    OXA_ASSIGN_OR_RETURN(auto model_val, required(v, "model", "request"));
-    r.model = model_val.get().as_string();
+    OXA_ASSIGN_OR_RETURN(r.model, require_string(v, "model", "request"));
 
     const json::Value* system = v.find("system");
-    if (system != nullptr && system->is_array()) {
+    if (system != nullptr) {
+        if (!system->is_array()) return invalid_argument("request system must be an array");
         for (const auto& sb : system->as_array()) {
             OXA_ASSIGN_OR_RETURN(Block b, load_block(sb));
             if (!std::holds_alternative<TextBlock>(b)) {
@@ -226,14 +258,21 @@ StatusOr<Request> load_request(const json::Value& v) {
         }
     }
 
-    OXA_ASSIGN_OR_RETURN(auto messages_val, required(v, "messages", "request"));
-    if (!messages_val.get().is_array()) return invalid_argument("request messages must be an array");
+    OXA_ASSIGN_OR_RETURN(auto messages_val, require_array(v, "messages", "request"));
+    if (messages_val.get().as_array().empty()) {
+        return invalid_argument("request messages cannot be empty");
+    }
     for (const auto& mv : messages_val.get().as_array()) {
+        if (!mv.is_object()) return invalid_argument("message must be an object");
         Message m;
-        OXA_ASSIGN_OR_RETURN(auto role_val, required(mv, "role", "message"));
-        m.role = role_val.get().as_string();
-        OXA_ASSIGN_OR_RETURN(auto content_val, required(mv, "content", "message"));
-        if (!content_val.get().is_array()) return invalid_argument("message content must be an array");
+        OXA_ASSIGN_OR_RETURN(m.role, require_string(mv, "role", "message"));
+        if (m.role != ROLE_USER && m.role != ROLE_ASSISTANT) {
+            return invalid_argument("invalid message role: " + m.role);
+        }
+        OXA_ASSIGN_OR_RETURN(auto content_val, require_array(mv, "content", "message"));
+        if (content_val.get().as_array().empty()) {
+            return invalid_argument("message content cannot be empty");
+        }
         for (const auto& cb : content_val.get().as_array()) {
             OXA_ASSIGN_OR_RETURN(Block b, load_block(cb));
             m.content.push_back(std::move(b));
@@ -242,18 +281,20 @@ StatusOr<Request> load_request(const json::Value& v) {
     }
 
     const json::Value* tools = v.find("tools");
-    if (tools != nullptr && tools->is_array()) {
+    if (tools != nullptr) {
+        if (!tools->is_array()) return invalid_argument("request tools must be an array");
         std::vector<Tool> out;
         for (const auto& tv : tools->as_array()) {
+            if (!tv.is_object()) return invalid_argument("tool must be an object");
             Tool t;
-            OXA_ASSIGN_OR_RETURN(auto name_val, required(tv, "name", "tool"));
-            t.name = name_val.get().as_string();
+            OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
             const json::Value* desc = tv.find("description");
-            if (desc != nullptr && desc->is_string()) {
+            if (desc != nullptr) {
+                if (!desc->is_string()) return invalid_argument("tool description must be a string");
                 t.description = desc->as_string();
                 t.has_description = true;
             }
-            OXA_ASSIGN_OR_RETURN(auto is_val, required(tv, "input_schema", "tool"));
+            OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
             t.input_schema = is_val.get();
             out.push_back(std::move(t));
         }
@@ -261,41 +302,57 @@ StatusOr<Request> load_request(const json::Value& v) {
     }
 
     const json::Value* tc = v.find("tool_choice");
-    if (tc != nullptr && tc->is_object()) {
+    if (tc != nullptr) {
+        if (!tc->is_object()) return invalid_argument("request tool_choice must be an object");
         ToolChoice choice;
-        OXA_ASSIGN_OR_RETURN(auto mode_val, required(*tc, "mode", "tool_choice"));
-        choice.mode = mode_val.get().as_string();
+        OXA_ASSIGN_OR_RETURN(choice.mode, require_string(*tc, "mode", "tool_choice"));
         const json::Value* name = tc->find("name");
-        if (name != nullptr && name->is_string()) choice.name = name->as_string();
+        if (name != nullptr) {
+            if (!name->is_string()) return invalid_argument("tool_choice name must be a string");
+            choice.name = name->as_string();
+        }
+        if (choice.mode == TOOL_CHOICE_TOOL && !choice.name.has_value()) {
+            return invalid_argument("tool_choice mode tool requires name");
+        }
         r.tool_choice = std::move(choice);
     }
 
     const json::Value* params = v.find("params");
-    if (params != nullptr && params->is_object()) {
+    if (params != nullptr) {
+        if (!params->is_object()) return invalid_argument("request params must be an object");
         Params p;
         const json::Value* f;
-        if ((f = params->find("temperature")) != nullptr && f->is_number()) {
+        if ((f = params->find("temperature")) != nullptr) {
+            if (!f->is_number()) return invalid_argument("params temperature must be a number");
             p.temperature = f->is_int() ? static_cast<double>(f->as_int()) : f->as_double();
         }
-        if ((f = params->find("top_p")) != nullptr && f->is_number()) {
+        if ((f = params->find("top_p")) != nullptr) {
+            if (!f->is_number()) return invalid_argument("params top_p must be a number");
             p.top_p = f->is_int() ? static_cast<double>(f->as_int()) : f->as_double();
         }
-        if ((f = params->find("max_tokens")) != nullptr && f->is_int()) {
+        if ((f = params->find("max_tokens")) != nullptr) {
+            if (!f->is_int()) return invalid_argument("params max_tokens must be an integer");
             p.max_tokens = f->as_int();
         }
-        if ((f = params->find("stop_sequences")) != nullptr && f->is_array()) {
+        if ((f = params->find("stop_sequences")) != nullptr) {
+            if (!f->is_array()) return invalid_argument("params stop_sequences must be an array");
             std::vector<std::string> stops;
-            for (const auto& s : f->as_array()) stops.push_back(s.as_string());
+            for (const auto& s : f->as_array()) {
+                if (!s.is_string()) return invalid_argument("stop_sequence item must be a string");
+                stops.push_back(s.as_string());
+            }
             p.stop_sequences = std::move(stops);
         }
         r.params = std::move(p);
     }
 
     const json::Value* md = v.find("metadata");
-    if (md != nullptr && md->is_object()) {
+    if (md != nullptr) {
+        if (!md->is_object()) return invalid_argument("request metadata must be an object");
         std::map<std::string, std::string> out;
         for (const auto& [k, val] : md->as_object()) {
-            if (val.is_string()) out.emplace(k, val.as_string());
+            if (!val.is_string()) return invalid_argument("metadata value must be a string");
+            out.emplace(k, val.as_string());
         }
         if (!out.empty()) r.metadata = std::move(out);
     }
@@ -306,16 +363,14 @@ StatusOr<Request> load_request(const json::Value& v) {
 
 namespace {
 
-Usage load_usage(const json::Value& v) {
-    Usage u;
-    const json::Value* f = v.find("usage");
-    if (f != nullptr && f->is_object()) {
-        const json::Value* in = f->find("input_tokens");
-        const json::Value* out = f->find("output_tokens");
-        if (in != nullptr && in->is_int()) u.input_tokens = in->as_int();
-        if (out != nullptr && out->is_int()) u.output_tokens = out->as_int();
+StatusOr<Usage> load_usage(const json::Value& v) {
+    OXA_ASSIGN_OR_RETURN(auto f, require_object(v, "usage", "usage"));
+    OXA_ASSIGN_OR_RETURN(std::int64_t in_tokens, require_int(f.get(), "input_tokens", "usage"));
+    OXA_ASSIGN_OR_RETURN(std::int64_t out_tokens, require_int(f.get(), "output_tokens", "usage"));
+    if (in_tokens < 0 || out_tokens < 0) {
+        return invalid_argument("usage tokens must be non-negative");
     }
-    return u;
+    return Usage{in_tokens, out_tokens};
 }
 
 json::Value dump_usage(const Usage& u) {
@@ -348,21 +403,23 @@ StatusOr<Response> load_response(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("response must be an object");
     OXA_RETURN_IF_ERROR(check_spec_version(v));
     Response r;
-    OXA_ASSIGN_OR_RETURN(auto id_val, required(v, "id", "response"));
-    r.id = id_val.get().as_string();
-    OXA_ASSIGN_OR_RETURN(auto model_val, required(v, "model", "response"));
-    r.model = model_val.get().as_string();
-    OXA_ASSIGN_OR_RETURN(auto content_val, required(v, "content", "response"));
-    if (!content_val.get().is_array()) return invalid_argument("response content must be an array");
+    OXA_ASSIGN_OR_RETURN(r.id, require_string(v, "id", "response"));
+    OXA_ASSIGN_OR_RETURN(r.model, require_string(v, "model", "response"));
+    OXA_ASSIGN_OR_RETURN(auto content_val, require_array(v, "content", "response"));
     for (const auto& cb : content_val.get().as_array()) {
         OXA_ASSIGN_OR_RETURN(Block b, load_block(cb));
         r.content.push_back(std::move(b));
     }
-    OXA_ASSIGN_OR_RETURN(auto sr_val, required(v, "stop_reason", "response"));
-    r.stop_reason = sr_val.get().as_string();
+    OXA_ASSIGN_OR_RETURN(r.stop_reason, require_string(v, "stop_reason", "response"));
     const json::Value* seq = v.find("stop_sequence");
-    if (seq != nullptr && seq->is_string()) r.stop_sequence = seq->as_string();
-    r.usage = load_usage(v);
+    if (seq != nullptr) {
+        if (!seq->is_string()) return invalid_argument("response stop_sequence must be a string");
+        r.stop_sequence = seq->as_string();
+    }
+    if (r.stop_sequence.has_value() && r.stop_reason != STOP_STOP_SEQUENCE) {
+        return invalid_argument("stop_sequence only permitted when stop_reason is stop_sequence");
+    }
+    OXA_ASSIGN_OR_RETURN(r.usage, load_usage(v));
     return r;
 }
 
@@ -420,42 +477,49 @@ StatusOr<Event> load_event(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("event must be an object");
     OXA_ASSIGN_OR_RETURN(std::string kind, kind_of(v));
     if (kind == EVENT_TYPE_MESSAGE_START) {
-        OXA_ASSIGN_OR_RETURN(auto id_val, required(v, "id", "message_start"));
-        OXA_ASSIGN_OR_RETURN(auto model_val, required(v, "model", "message_start"));
-        return Event(MessageStart{id_val.get().as_string(), model_val.get().as_string()});
+        OXA_ASSIGN_OR_RETURN(std::string id, require_string(v, "id", "message_start"));
+        OXA_ASSIGN_OR_RETURN(std::string model, require_string(v, "model", "message_start"));
+        return Event(MessageStart{std::move(id), std::move(model)});
     }
     if (kind == EVENT_TYPE_CONTENT_BLOCK_START) {
-        OXA_ASSIGN_OR_RETURN(auto idx_val, required(v, "index", "content_block_start"));
-        OXA_ASSIGN_OR_RETURN(auto block_val, required(v, "block", "content_block_start"));
+        OXA_ASSIGN_OR_RETURN(std::int64_t idx, require_int(v, "index", "content_block_start"));
+        OXA_ASSIGN_OR_RETURN(auto block_val, require_object(v, "block", "content_block_start"));
         OXA_ASSIGN_OR_RETURN(Block b, load_block(block_val.get()));
-        return Event(ContentBlockStart{idx_val.get().as_int(), std::move(b)});
+        return Event(ContentBlockStart{idx, std::move(b)});
     }
     if (kind == EVENT_TYPE_CONTENT_BLOCK_DELTA) {
-        OXA_ASSIGN_OR_RETURN(auto d_val, required(v, "delta", "content_block_delta"));
+        OXA_ASSIGN_OR_RETURN(std::int64_t idx, require_int(v, "index", "content_block_delta"));
+        OXA_ASSIGN_OR_RETURN(auto d_val, require_object(v, "delta", "content_block_delta"));
         const json::Value& d = d_val.get();
         OXA_ASSIGN_OR_RETURN(std::string dkind, kind_of(d));
         Delta delta;
         if (dkind == DELTA_TYPE_TEXT_DELTA) {
-            OXA_ASSIGN_OR_RETURN(std::string t, opt_string(d, "text"));
+            OXA_ASSIGN_OR_RETURN(std::string t, require_string(d, "text", "text_delta"));
             delta = TextDelta{std::move(t)};
-        } else {
-            OXA_ASSIGN_OR_RETURN(std::string pj, opt_string(d, "partial_json"));
+        } else if (dkind == DELTA_TYPE_INPUT_JSON_DELTA) {
+            OXA_ASSIGN_OR_RETURN(std::string pj, require_string(d, "partial_json", "input_json_delta"));
             delta = InputJsonDelta{std::move(pj)};
+        } else {
+            return invalid_argument("unknown delta discriminant: " + dkind);
         }
-        OXA_ASSIGN_OR_RETURN(auto idx_val, required(v, "index", "content_block_delta"));
-        return Event(ContentBlockDelta{idx_val.get().as_int(), std::move(delta)});
+        return Event(ContentBlockDelta{idx, std::move(delta)});
     }
     if (kind == EVENT_TYPE_CONTENT_BLOCK_STOP) {
-        OXA_ASSIGN_OR_RETURN(auto idx_val, required(v, "index", "content_block_stop"));
-        return Event(ContentBlockStop{idx_val.get().as_int()});
+        OXA_ASSIGN_OR_RETURN(std::int64_t idx, require_int(v, "index", "content_block_stop"));
+        return Event(ContentBlockStop{idx});
     }
     if (kind == EVENT_TYPE_MESSAGE_DELTA) {
         MessageDelta md;
-        OXA_ASSIGN_OR_RETURN(auto sr_val, required(v, "stop_reason", "message_delta"));
-        md.stop_reason = sr_val.get().as_string();
-        md.usage = load_usage(v);
+        OXA_ASSIGN_OR_RETURN(md.stop_reason, require_string(v, "stop_reason", "message_delta"));
+        OXA_ASSIGN_OR_RETURN(md.usage, load_usage(v));
         const json::Value* seq = v.find("stop_sequence");
-        if (seq != nullptr && seq->is_string()) md.stop_sequence = seq->as_string();
+        if (seq != nullptr) {
+            if (!seq->is_string()) return invalid_argument("message_delta stop_sequence must be a string");
+            md.stop_sequence = seq->as_string();
+        }
+        if (md.stop_sequence.has_value() && md.stop_reason != STOP_STOP_SEQUENCE) {
+            return invalid_argument("stop_sequence only permitted when stop_reason is stop_sequence");
+        }
         return Event(std::move(md));
     }
     if (kind == EVENT_TYPE_MESSAGE_DONE) {

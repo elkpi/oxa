@@ -1,10 +1,8 @@
 # oxa Rust implementation
 
-The Rust implementation tracks the frozen spec **0.0.2** baseline and
-targets spec version **0.1.0** (the Rust milestone in the project's
-versioning cadence: 0.0.x Go, 0.1.0 Rust, 0.2.0 Python, 0.3.0 C++, 1.0.0
-once every supported language implements the same spec against the same
-vectors).
+The Rust implementation targets the frozen spec baseline and version **1.0.0**
+(following the project's versioning cadence: 0.0.x Go, 0.1.0 Rust, 0.2.0 Python, 0.3.0 C++,
+and 1.0.0 for all supported languages).
 
 It conforms to the **same shared `vectors/` golden set** as every other
 oxa implementation — Rust gets no vector set of its own, and CI runs the

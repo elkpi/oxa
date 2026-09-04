@@ -42,6 +42,22 @@ cmake --build cpp/build --parallel
 ctest --test-dir cpp/build --output-on-failure
 ```
 
+## Installation and Downstream Consumption
+
+oxa provides standard CMake package configuration targets (`oxa::oxa`):
+
+```bash
+# Install to desired prefix
+cmake --install cpp/build --prefix /path/to/prefix
+```
+
+Downstream CMake projects can consume oxa via `find_package`:
+
+```cmake
+find_package(oxa CONFIG REQUIRED)
+target_link_libraries(your_app PRIVATE oxa::oxa)
+```
+
 ## Vectors Location Convention
 
 Test harnesses locate the shared `vectors/` suite by walking up parent

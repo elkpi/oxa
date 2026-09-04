@@ -9,7 +9,11 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Debug)
 endif()
 
-add_compile_options(-Wall -Wextra -Wpedantic)
+if(MSVC)
+  add_compile_options(/W4 /permissive-)
+else()
+  add_compile_options(-Wall -Wextra -Wpedantic -Werror)
+endif()
 
 add_library(oxa
   src/json.cpp

@@ -148,10 +148,13 @@ jobs:
 
   cpp:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        flags: ["", "-DCMAKE_CXX_FLAGS=-fno-exceptions"]
     steps:
       - uses: actions/checkout@v7
       - name: Configure CMake
-        run: cmake -B cpp/build -S cpp
+        run: cmake -B cpp/build -S cpp ${{ matrix.flags }}
       - name: Build C++ library and tests
         run: cmake --build cpp/build --parallel
       - name: Run C++ tests

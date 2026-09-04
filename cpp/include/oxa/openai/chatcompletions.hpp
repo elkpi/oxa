@@ -58,8 +58,7 @@ private:
         std::string id;
         std::string name;
         std::string arguments;
-        bool started = false;
-        std::int64_t ir_block_index = -1;
+        std::vector<std::string> fragments;
     };
     std::map<std::int64_t, ToolAccum> tools_;
     std::int64_t next_block_index_ = 0;
@@ -76,6 +75,25 @@ private:
     std::string id_;
     std::string model_;
     bool started_ = false;
+    bool tool_seen_ = false;
+    bool ordering_degrade_ = false;
+    std::int64_t next_ir_index_ = 0;
+    std::size_t next_native_tool_ = 0;
+
+    struct ActiveBlock {
+        enum class Kind { Text, Tool } kind;
+        std::int64_t index = 0;
+        std::string tool_id;
+        std::string tool_name;
+        std::string tool_input;
+        std::vector<std::string> fragments;
+        std::size_t native_index = 0;
+        bool tool_started = false;
+    };
+    std::optional<ActiveBlock> active_;
+    std::vector<json::Value> pending_tools_;
+    bool finished_ = false;
+    bool done_ = false;
 };
 
 }  // namespace oxa::openai::chatcompletions

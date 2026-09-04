@@ -778,7 +778,11 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             if (const auto* idv = tc.find("id"); idv && idv->is_string()) record.id = idv->as_string();
             if (const auto* fn = tc.find("function"); fn && fn->is_object()) {
                 if (const auto* nv = fn->find("name"); nv && nv->is_string()) record.name += nv->as_string();
-                if (const auto* av = fn->find("arguments"); av && av->is_string()) record.arguments += av->as_string();
+                if (const auto* av = fn->find("arguments"); av && av->is_string()) {
+                    std::string a = av->as_string();
+                    record.arguments += a;
+                    record.fragments.push_back(std::move(a));
+                }
             }
         }
     }
@@ -811,8 +815,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
         std::int64_t idx = next_block_index_++;
         events.push_back(ir::ContentBlockStart{
             idx, ir::ToolUseBlock{call.id, call.name, call.arguments}});
-        events.push_back(ir::ContentBlockDelta{
-            idx, ir::InputJsonDelta{call.arguments}});
+        for (const auto& frag : call.fragments) {
+            events.push_back(ir::ContentBlockDelta{
+                idx, ir::InputJsonDelta{frag}});
+        }
         events.push_back(ir::ContentBlockStop{idx});
     }
 
@@ -834,58 +840,130 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     std::vector<json::Value> chunks;
     std::vector<ir::Loss> losses;
 
+    auto make_base_chunk = [&](json::Value delta, const std::string& finish_reason = "",
+                               const std::optional<ir::Usage>& usage = std::nullopt) -> json::Value {
+        json::Value chunk = json::Value::object();
+        chunk.set("id", json::Value::string(id_));
+        chunk.set("object", json::Value::string("chat.completion.chunk"));
+        chunk.set("created", json::Value::integer(0));
+        chunk.set("model", json::Value::string(model_));
+        json::Value choices = json::Value::array();
+        json::Value ch = json::Value::object();
+        ch.set("index", json::Value::integer(0));
+        ch.set("delta", std::move(delta));
+        if (!finish_reason.empty()) {
+            ch.set("finish_reason", json::Value::string(finish_reason));
+        } else {
+            ch.set("finish_reason", json::Value::null());
+        }
+        choices.push_back(std::move(ch));
+        chunk.set("choices", std::move(choices));
+        if (usage.has_value()) {
+            json::Value u = json::Value::object();
+            u.set("prompt_tokens", json::Value::integer(usage->input_tokens));
+            u.set("completion_tokens", json::Value::integer(usage->output_tokens));
+            u.set("total_tokens", json::Value::integer(usage->input_tokens + usage->output_tokens));
+            chunk.set("usage", std::move(u));
+        }
+        return chunk;
+    };
+
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
         id_ = ms->id;
         model_ = opts_.model_map.map(ms->model);
         started_ = true;
-        json::Value chunk = json::Value::object();
-        chunk.set("id", json::Value::string(id_));
-        chunk.set("object", json::Value::string("chat.completion.chunk"));
-        chunk.set("created", json::Value::integer(0));
-        chunk.set("model", json::Value::string(model_));
-        json::Value choices = json::Value::array();
-        json::Value ch = json::Value::object();
-        ch.set("index", json::Value::integer(0));
         json::Value delta = json::Value::object();
         delta.set("role", json::Value::string("assistant"));
-        ch.set("delta", std::move(delta));
-        choices.push_back(std::move(ch));
-        chunk.set("choices", std::move(choices));
-        chunks.push_back(std::move(chunk));
+        chunks.push_back(make_base_chunk(std::move(delta)));
+    } else if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
+        if (std::holds_alternative<ir::TextBlock>(cbs->block)) {
+            if (tool_seen_) {
+                ordering_degrade_ = true;
+            }
+            ActiveBlock act;
+            act.kind = ActiveBlock::Kind::Text;
+            act.index = cbs->index;
+            active_ = std::move(act);
+        } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
+            tool_seen_ = true;
+            ActiveBlock act;
+            act.kind = ActiveBlock::Kind::Tool;
+            act.index = cbs->index;
+            act.tool_id = tu->id;
+            act.tool_name = tu->name;
+            act.tool_input = tu->input;
+            act.native_index = next_native_tool_++;
+            active_ = std::move(act);
+        }
     } else if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
-        if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
-            json::Value chunk = json::Value::object();
-            chunk.set("id", json::Value::string(id_));
-            chunk.set("object", json::Value::string("chat.completion.chunk"));
-            chunk.set("created", json::Value::integer(0));
-            chunk.set("model", json::Value::string(model_));
-            json::Value choices = json::Value::array();
-            json::Value ch = json::Value::object();
-            ch.set("index", json::Value::integer(0));
-            json::Value delta = json::Value::object();
-            delta.set("content", json::Value::string(td->text));
-            ch.set("delta", std::move(delta));
-            choices.push_back(std::move(ch));
-            chunk.set("choices", std::move(choices));
-            chunks.push_back(std::move(chunk));
+        if (active_.has_value()) {
+            if (active_->kind == ActiveBlock::Kind::Text) {
+                if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
+                    json::Value delta = json::Value::object();
+                    delta.set("content", json::Value::string(td->text));
+                    chunks.push_back(make_base_chunk(std::move(delta)));
+                }
+            } else if (active_->kind == ActiveBlock::Kind::Tool) {
+                if (const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta)) {
+                    active_->fragments.push_back(ij->partial_json);
+                    json::Value delta = json::Value::object();
+                    json::Value tcs = json::Value::array();
+                    json::Value tc = json::Value::object();
+                    tc.set("index", json::Value::integer(active_->native_index));
+                    if (!active_->tool_started) {
+                        active_->tool_started = true;
+                        tc.set("id", json::Value::string(active_->tool_id));
+                        tc.set("type", json::Value::string("function"));
+                        json::Value fn = json::Value::object();
+                        fn.set("name", json::Value::string(active_->tool_name));
+                        fn.set("arguments", json::Value::string(ij->partial_json));
+                        tc.set("function", std::move(fn));
+                    } else {
+                        json::Value fn = json::Value::object();
+                        fn.set("arguments", json::Value::string(ij->partial_json));
+                        tc.set("function", std::move(fn));
+                    }
+                    tcs.push_back(std::move(tc));
+                    delta.set("tool_calls", std::move(tcs));
+                    pending_tools_.push_back(make_base_chunk(std::move(delta)));
+                }
+            }
+        }
+    } else if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
+        if (active_.has_value()) {
+            if (active_->kind == ActiveBlock::Kind::Tool) {
+                if (active_->fragments.empty()) {
+                    json::Value delta = json::Value::object();
+                    json::Value tcs = json::Value::array();
+                    json::Value tc = json::Value::object();
+                    tc.set("index", json::Value::integer(active_->native_index));
+                    tc.set("id", json::Value::string(active_->tool_id));
+                    tc.set("type", json::Value::string("function"));
+                    json::Value fn = json::Value::object();
+                    fn.set("name", json::Value::string(active_->tool_name));
+                    fn.set("arguments", json::Value::string(active_->tool_input));
+                    tc.set("function", std::move(fn));
+                    tcs.push_back(std::move(tc));
+                    delta.set("tool_calls", std::move(tcs));
+                    pending_tools_.push_back(make_base_chunk(std::move(delta)));
+                }
+            }
+            active_.reset();
         }
     } else if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
         OXA_ASSIGN_OR_RETURN(auto fr_res, encode_finish_reason(md->stop_reason));
         if (fr_res.second.has_value()) losses.push_back(std::move(*fr_res.second));
-
-        json::Value chunk = json::Value::object();
-        chunk.set("id", json::Value::string(id_));
-        chunk.set("object", json::Value::string("chat.completion.chunk"));
-        chunk.set("created", json::Value::integer(0));
-        chunk.set("model", json::Value::string(model_));
-        json::Value choices = json::Value::array();
-        json::Value ch = json::Value::object();
-        ch.set("index", json::Value::integer(0));
-        ch.set("delta", json::Value::object());
-        ch.set("finish_reason", json::Value::string(fr_res.first));
-        choices.push_back(std::move(ch));
-        chunk.set("choices", std::move(choices));
-        chunks.push_back(std::move(chunk));
+        if (ordering_degrade_) {
+            losses.push_back(make_cc_loss(
+                "events", "ordering", ir::LOSS_DEGRADED,
+                "N-S-10: the text block after a tool block is normalized ahead of the tool calls; IR source order is not preserved"));
+        }
+        finished_ = true;
+        chunks = std::move(pending_tools_);
+        json::Value delta = json::Value::object();
+        chunks.push_back(make_base_chunk(std::move(delta), fr_res.first, md->usage));
+    } else if (std::holds_alternative<ir::MessageDone>(event)) {
+        done_ = true;
     }
 
     return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};

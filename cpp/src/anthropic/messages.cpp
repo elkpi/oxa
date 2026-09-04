@@ -553,7 +553,14 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             if (const auto* nv = cb->find("name"); nv && nv->is_string()) tool_name_ = nv->as_string();
             tool_input_.clear();
             tool_parts_.clear();
-            // In Anthropic stream, tool_use start events are deferred until content_block_stop
+            if (const auto* inp = cb->find("input")) {
+                std::string_view raw = inp->raw_slice();
+                if (!raw.empty()) {
+                    tool_input_ = std::string(raw);
+                } else {
+                    tool_input_ = json::serialize(*inp);
+                }
+            }
         } else {
             open_tool_ = false;
             events.push_back(ir::ContentBlockStart{open_ir_index_, ir::TextBlock{""}});
@@ -579,10 +586,17 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
     } else if (type == "content_block_stop") {
         if (open_tool_) {
             std::string full_input;
-            for (const auto& p : tool_parts_) full_input += p;
+            std::vector<std::string> parts;
+            if (!tool_parts_.empty()) {
+                for (const auto& p : tool_parts_) full_input += p;
+                parts = tool_parts_;
+            } else if (!tool_input_.empty() && tool_input_ != "{}") {
+                full_input = tool_input_;
+                parts.push_back(tool_input_);
+            }
             events.push_back(ir::ContentBlockStart{
                 open_ir_index_, ir::ToolUseBlock{tool_id_, tool_name_, full_input}});
-            for (const auto& p : tool_parts_) {
+            for (const auto& p : parts) {
                 events.push_back(ir::ContentBlockDelta{
                     open_ir_index_, ir::InputJsonDelta{p}});
             }
@@ -599,6 +613,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             if (const auto* ssv = d->find("stop_sequence"); ssv && ssv->is_string()) stop_seq_ = ssv->as_string();
         }
         if (const auto* uv = chunk.find("usage"); uv && uv->is_object()) {
+            if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
             if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
         }
         auto [sr, loss] = decode_stop_reason(stop_reason_);
@@ -639,7 +654,6 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         msg.set("model", json::Value::string(model_));
         msg.set("content", json::Value::array());
         msg.set("stop_reason", json::Value::null());
-        msg.set("stop_sequence", json::Value::null());
         json::Value usage = json::Value::object();
         usage.set("input_tokens", json::Value::integer(0));
         usage.set("output_tokens", json::Value::integer(0));
@@ -690,11 +704,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         delta.set("stop_reason", json::Value::string(asr));
         if (md->stop_sequence.has_value() && !md->stop_sequence->empty()) {
             delta.set("stop_sequence", json::Value::string(*md->stop_sequence));
-        } else {
-            delta.set("stop_sequence", json::Value::null());
         }
         chunk.set("delta", std::move(delta));
         json::Value usage = json::Value::object();
+        usage.set("input_tokens", json::Value::integer(md->usage.input_tokens));
         usage.set("output_tokens", json::Value::integer(md->usage.output_tokens));
         chunk.set("usage", std::move(usage));
         chunks.push_back(std::move(chunk));

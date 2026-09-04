@@ -518,6 +518,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 StreamDecoder::StreamDecoder(Options opts) : opts_(std::move(opts)) {}
 
 StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
+    if (flushed_) return invalid_argument("anthropic: event fed after stream flush");
+    if (stopped_) return invalid_argument("anthropic: event fed after message_stop");
     if (!chunk.is_object()) return invalid_argument("anthropic: event must be an object");
     const auto* t = chunk.find("type");
     std::string type = t && t->is_string() ? t->as_string() : "";
@@ -525,32 +527,58 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
     std::vector<ir::Event> events;
 
     if (type == "message_start") {
-        started_ = true;
+        if (started_) return invalid_argument("anthropic: duplicate message_start");
         const auto* msg = chunk.find("message");
-        if (msg && msg->is_object()) {
-            if (const auto* idv = msg->find("id"); idv && idv->is_string()) id_ = idv->as_string();
-            if (const auto* mv = msg->find("model"); mv && mv->is_string()) model_ = opts_.model_map.map(mv->as_string());
-            if (const auto* uv = msg->find("usage"); uv && uv->is_object()) {
-                if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
-                if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
-            }
+        if (!msg || !msg->is_object()) return invalid_argument("anthropic: message_start without message");
+        started_ = true;
+        if (const auto* idv = msg->find("id"); idv && idv->is_string()) id_ = idv->as_string();
+        if (const auto* mv = msg->find("model"); mv && mv->is_string()) model_ = opts_.model_map.map(mv->as_string());
+        if (const auto* uv = msg->find("usage"); uv && uv->is_object()) {
+            if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
+            if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
         }
         events.push_back(ir::MessageStart{id_, model_});
-    } else if (type == "content_block_start") {
-        std::int64_t idx = 0;
+        return events;
+    }
+
+    if (type == "content_block_start") {
+        if (!started_) return invalid_argument("anthropic: content_block_start before message_start");
+        if (block_open_ || skipped_open_) return invalid_argument("anthropic: content_block_start with a block still open");
+        std::int64_t idx = -1;
         if (const auto* iv = chunk.find("index"); iv && iv->is_int()) idx = iv->as_int();
-        open_index_ = idx;
-        open_ir_index_ = next_ir_index_++;
-        block_open_ = true;
+        if (idx != next_index_) {
+            return invalid_argument("anthropic: content_block_start index " + std::to_string(idx) +
+                                    ", want " + std::to_string(next_index_));
+        }
+        next_index_++;
 
         const auto* cb = chunk.find("content_block");
-        const auto* bt = cb ? cb->find("type") : nullptr;
+        if (!cb || !cb->is_object()) {
+            skipped_.insert(idx);
+            skipped_open_ = true;
+            losses_.push_back(make_ant_loss(
+                "content_block_start[" + std::to_string(idx) + "].content_block.type",
+                "content_block.type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Anthropic streaming block has no content_block payload; the index is skipped"));
+            return events;
+        }
+
+        const auto* bt = cb->find("type");
         std::string btype = bt && bt->is_string() ? bt->as_string() : "";
 
         if (btype == "tool_use") {
+            std::string id, name;
+            if (const auto* idv = cb->find("id"); idv && idv->is_string()) id = idv->as_string();
+            if (const auto* nv = cb->find("name"); nv && nv->is_string()) name = nv->as_string();
+            if (id.empty()) return invalid_argument("anthropic: content_block_start tool_use id is required");
+            if (name.empty()) return invalid_argument("anthropic: content_block_start tool_use name is required");
+
+            block_open_ = true;
             open_tool_ = true;
-            if (const auto* idv = cb->find("id"); idv && idv->is_string()) tool_id_ = idv->as_string();
-            if (const auto* nv = cb->find("name"); nv && nv->is_string()) tool_name_ = nv->as_string();
+            open_index_ = idx;
+            open_ir_index_ = next_ir_index_++;
+            tool_id_ = std::move(id);
+            tool_name_ = std::move(name);
             tool_input_.clear();
             tool_parts_.clear();
             if (const auto* inp = cb->find("input")) {
@@ -561,38 +589,99 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
                     tool_input_ = json::serialize(*inp);
                 }
             }
-        } else {
-            open_tool_ = false;
-            events.push_back(ir::ContentBlockStart{open_ir_index_, ir::TextBlock{""}});
+            return events;
         }
-    } else if (type == "content_block_delta") {
+
+        if (btype == "text") {
+            block_open_ = true;
+            open_tool_ = false;
+            open_index_ = idx;
+            open_ir_index_ = next_ir_index_++;
+            std::string text;
+            if (const auto* tv = cb->find("text"); tv && tv->is_string()) text = tv->as_string();
+            events.push_back(ir::ContentBlockStart{open_ir_index_, ir::TextBlock{std::move(text)}});
+            return events;
+        }
+
+        // Unknown block type
+        skipped_.insert(idx);
+        skipped_open_ = true;
+        losses_.push_back(make_ant_loss(
+            "content_block_start[" + std::to_string(idx) + "].content_block.type",
+            "content_block.type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "Anthropic streaming block type \"" + btype + "\" is not decodable in M7; the index is skipped"));
+        return events;
+    }
+
+    if (type == "content_block_delta") {
+        if (!started_) return invalid_argument("anthropic: content_block_delta before message_start");
         const auto* d = chunk.find("delta");
-        const auto* dt = d ? d->find("type") : nullptr;
+        if (!d || !d->is_object()) return invalid_argument("anthropic: content_block_delta without delta");
+        std::int64_t idx = -1;
+        if (const auto* iv = chunk.find("index"); iv && iv->is_int()) idx = iv->as_int();
+        if (skipped_.count(idx)) {
+            return events;
+        }
+        if (!block_open_ || idx != open_index_) {
+            return invalid_argument("anthropic: content_block_delta index " + std::to_string(idx) +
+                                    " does not match the open block");
+        }
+
+        const auto* dt = d->find("type");
         std::string dtype = dt && dt->is_string() ? dt->as_string() : "";
 
         if (open_tool_) {
+            if (dtype == "text_delta") return invalid_argument("anthropic: text_delta on tool_use block");
             if (dtype == "input_json_delta") {
                 const auto* pj = d->find("partial_json");
                 std::string part = pj && pj->is_string() ? pj->as_string() : "";
                 tool_parts_.push_back(std::move(part));
+                return events;
             }
         } else {
             if (dtype == "text_delta") {
                 const auto* txt = d->find("text");
                 std::string t = txt && txt->is_string() ? txt->as_string() : "";
                 events.push_back(ir::ContentBlockDelta{open_ir_index_, ir::TextDelta{std::move(t)}});
+                return events;
+            }
+            if (dtype == "input_json_delta") {
+                return invalid_argument("anthropic: input_json_delta on non-tool block");
             }
         }
-    } else if (type == "content_block_stop") {
+
+        losses_.push_back(make_ant_loss(
+            "content_block_delta[" + std::to_string(idx) + "].delta.type",
+            "delta.type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "Anthropic delta type \"" + dtype + "\" has no IR equivalent"));
+        return events;
+    }
+
+    if (type == "content_block_stop") {
+        if (!started_) return invalid_argument("anthropic: content_block_stop before message_start");
+        std::int64_t idx = -1;
+        if (const auto* iv = chunk.find("index"); iv && iv->is_int()) idx = iv->as_int();
+        if (skipped_.count(idx)) {
+            skipped_.erase(idx);
+            skipped_open_ = false;
+            return events;
+        }
+        if (!block_open_ || idx != open_index_) {
+            return invalid_argument("anthropic: content_block_stop index " + std::to_string(idx) +
+                                    " does not match the open block");
+        }
+
         if (open_tool_) {
             std::string full_input;
             std::vector<std::string> parts;
             if (!tool_parts_.empty()) {
                 for (const auto& p : tool_parts_) full_input += p;
                 parts = tool_parts_;
-            } else if (!tool_input_.empty() && tool_input_ != "{}") {
+            } else if (!tool_input_.empty()) {
                 full_input = tool_input_;
                 parts.push_back(tool_input_);
+            } else {
+                return invalid_argument("anthropic: tool_use input is required");
             }
             events.push_back(ir::ContentBlockStart{
                 open_ir_index_, ir::ToolUseBlock{tool_id_, tool_name_, full_input}});
@@ -602,32 +691,57 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             }
             events.push_back(ir::ContentBlockStop{open_ir_index_});
             open_tool_ = false;
+            tool_id_.clear();
+            tool_name_.clear();
+            tool_input_.clear();
+            tool_parts_.clear();
         } else {
             events.push_back(ir::ContentBlockStop{open_ir_index_});
         }
         block_open_ = false;
-    } else if (type == "message_delta") {
+        return events;
+    }
+
+    if (type == "message_delta") {
+        if (!started_) return invalid_argument("anthropic: message_delta before message_start");
+        if (block_open_ || skipped_open_) return invalid_argument("anthropic: message_delta with a block still open");
         const auto* d = chunk.find("delta");
-        if (d && d->is_object()) {
-            if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) stop_reason_ = srv->as_string();
-            if (const auto* ssv = d->find("stop_sequence"); ssv && ssv->is_string()) stop_seq_ = ssv->as_string();
-        }
+        if (!d || !d->is_object()) return invalid_argument("anthropic: message_delta without delta");
+
+        if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) stop_reason_ = srv->as_string();
+        if (const auto* ssv = d->find("stop_sequence"); ssv && ssv->is_string()) stop_seq_ = ssv->as_string();
+
         if (const auto* uv = chunk.find("usage"); uv && uv->is_object()) {
             if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
             if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
         }
-        auto [sr, loss] = decode_stop_reason(stop_reason_);
-        if (loss.has_value()) losses_.push_back(std::move(*loss));
-        events.push_back(ir::MessageDelta{sr, stop_seq_, usage_});
-    } else if (type == "message_stop") {
-        stopped_ = true;
-        events.push_back(ir::MessageDone{});
+        delta_seen_ = true;
+        return events;
     }
 
+    if (type == "message_stop") {
+        if (!started_) return invalid_argument("anthropic: message_stop before message_start");
+        if (block_open_ || skipped_open_) return invalid_argument("anthropic: message_stop with a block still open");
+        if (!delta_seen_) return invalid_argument("anthropic: message_stop without preceding message_delta");
+        stopped_ = true;
+        auto [sr, loss] = decode_stop_reason(stop_reason_);
+        if (loss.has_value()) losses_.push_back(std::move(*loss));
+        std::optional<std::string> seq;
+        if (sr == ir::STOP_STOP_SEQUENCE) seq = stop_seq_;
+        events.push_back(ir::MessageDelta{sr, seq, usage_});
+        events.push_back(ir::MessageDone{});
+        return events;
+    }
+
+    losses_.push_back(make_ant_loss(
+        "type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+        "Anthropic stream event type \"" + type + "\" is not decoded in this milestone"));
     return events;
 }
 
 StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
+    if (flushed_) return invalid_argument("anthropic: stream flushed twice");
+    if (!stopped_) return invalid_argument("anthropic: stream ended without message_stop");
     flushed_ = true;
     return std::vector<ir::Event>{};
 }
@@ -637,13 +751,16 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
 StreamEncoder::StreamEncoder(Options opts) : opts_(std::move(opts)) {}
 
 StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Event& event) {
+    if (done_) return invalid_argument("anthropic: event applied after MessageDone");
+
     std::vector<json::Value> chunks;
     std::vector<ir::Loss> losses;
 
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
+        if (started_) return invalid_argument("anthropic: duplicate MessageStart");
+        started_ = true;
         id_ = ms->id;
         model_ = opts_.model_map.map(ms->model);
-        started_ = true;
 
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("message_start"));
@@ -660,43 +777,110 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         msg.set("usage", std::move(usage));
         chunk.set("message", std::move(msg));
         chunks.push_back(std::move(chunk));
-    } else if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
-        current_block_index_ = cbs->index;
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
+        if (!started_ || block_open_ || delta_seen_) {
+            return invalid_argument("anthropic: ContentBlockStart out of grammar order");
+        }
+        if (cbs->index != next_index_) {
+            return invalid_argument("anthropic: ContentBlockStart index " + std::to_string(cbs->index) +
+                                    ", want " + std::to_string(next_index_));
+        }
+        next_index_++;
+        block_open_ = true;
+        open_index_ = cbs->index;
+
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_start"));
-        chunk.set("index", json::Value::integer(current_block_index_));
+        chunk.set("index", json::Value::integer(open_index_));
         json::Value cb = json::Value::object();
         if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
+            if (tu->id.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use id is required");
+            if (tu->name.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use name is required");
+            open_tool_ = true;
+            tool_input_ = tu->input;
+            tool_parts_.clear();
             cb.set("type", json::Value::string("tool_use"));
             cb.set("id", json::Value::string(tu->id));
             cb.set("name", json::Value::string(tu->name));
             cb.set("input", json::Value::object());
-        } else {
+        } else if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
+            open_tool_ = false;
             cb.set("type", json::Value::string("text"));
-            cb.set("text", json::Value::string(""));
+            cb.set("text", json::Value::string(tb->text));
+        } else {
+            return invalid_argument("anthropic: ContentBlockStart carries an unsupported block");
         }
         chunk.set("content_block", std::move(cb));
         chunks.push_back(std::move(chunk));
-    } else if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
+        if (!block_open_ || cbd->index != open_index_) {
+            return invalid_argument("anthropic: ContentBlockDelta out of grammar order");
+        }
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_delta"));
         chunk.set("index", json::Value::integer(cbd->index));
         json::Value delta = json::Value::object();
-        if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
-            delta.set("type", json::Value::string("text_delta"));
-            delta.set("text", json::Value::string(td->text));
-        } else if (const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta)) {
+        if (open_tool_) {
+            const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
+            if (!ij) return invalid_argument("anthropic: ToolUseBlock received non-input-json delta");
+            tool_parts_.push_back(ij->partial_json);
             delta.set("type", json::Value::string("input_json_delta"));
             delta.set("partial_json", json::Value::string(ij->partial_json));
+        } else {
+            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
+            if (!td) return invalid_argument("anthropic: TextBlock received non-text delta");
+            delta.set("type", json::Value::string("text_delta"));
+            delta.set("text", json::Value::string(td->text));
         }
         chunk.set("delta", std::move(delta));
         chunks.push_back(std::move(chunk));
-    } else if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
+        if (!block_open_ || cst->index != open_index_) {
+            return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (open_tool_) {
+            if (tool_parts_.empty()) {
+                json::Value d_chunk = json::Value::object();
+                d_chunk.set("type", json::Value::string("content_block_delta"));
+                d_chunk.set("index", json::Value::integer(cst->index));
+                json::Value delta = json::Value::object();
+                delta.set("type", json::Value::string("input_json_delta"));
+                delta.set("partial_json", json::Value::string(tool_input_));
+                d_chunk.set("delta", std::move(delta));
+                chunks.push_back(std::move(d_chunk));
+            } else {
+                std::string joined;
+                for (const auto& p : tool_parts_) joined += p;
+                if (joined != tool_input_) {
+                    return invalid_argument("anthropic: ToolUseBlock input does not equal concatenated InputJSONDelta fragments");
+                }
+            }
+            open_tool_ = false;
+            tool_input_.clear();
+            tool_parts_.clear();
+        }
+        block_open_ = false;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_stop"));
         chunk.set("index", json::Value::integer(cst->index));
         chunks.push_back(std::move(chunk));
-    } else if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
+        if (!started_ || block_open_ || delta_seen_) {
+            return invalid_argument("anthropic: MessageDelta out of grammar order");
+        }
+        delta_seen_ = true;
         OXA_ASSIGN_OR_RETURN(std::string asr, encode_stop_reason(md->stop_reason));
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("message_delta"));
@@ -711,13 +895,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         usage.set("output_tokens", json::Value::integer(md->usage.output_tokens));
         chunk.set("usage", std::move(usage));
         chunks.push_back(std::move(chunk));
-    } else if (std::holds_alternative<ir::MessageDone>(event)) {
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (std::holds_alternative<ir::MessageDone>(event)) {
+        if (!delta_seen_) return invalid_argument("anthropic: MessageDone out of grammar order");
+        done_ = true;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("message_stop"));
         chunks.push_back(std::move(chunk));
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
     }
 
-    return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    return invalid_argument("anthropic: unknown event");
 }
 
 }  // namespace oxa::anthropic::messages

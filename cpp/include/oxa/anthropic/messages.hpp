@@ -1,6 +1,7 @@
 #pragma once
 
 #include <optional>
+#include <set>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -49,14 +50,18 @@ private:
     std::string id_;
     std::string model_;
     bool block_open_ = false;
+    bool skipped_open_ = false;
+    std::set<std::int64_t> skipped_;
     bool open_tool_ = false;
     std::int64_t open_index_ = 0;
     std::int64_t open_ir_index_ = 0;
+    std::int64_t next_index_ = 0;
     std::int64_t next_ir_index_ = 0;
     std::string tool_id_;
     std::string tool_name_;
     std::string tool_input_;
     std::vector<std::string> tool_parts_;
+    bool delta_seen_ = false;
     std::string stop_reason_;
     std::optional<std::string> stop_seq_;
     ir::Usage usage_{0, 0};
@@ -75,7 +80,14 @@ private:
     std::string id_;
     std::string model_;
     bool started_ = false;
-    std::int64_t current_block_index_ = -1;
+    bool block_open_ = false;
+    bool open_tool_ = false;
+    std::int64_t open_index_ = 0;
+    std::int64_t next_index_ = 0;
+    std::string tool_input_;
+    std::vector<std::string> tool_parts_;
+    bool delta_seen_ = false;
+    bool done_ = false;
 };
 
 }  // namespace oxa::anthropic::messages

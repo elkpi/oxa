@@ -59,7 +59,7 @@ without a corresponding vector update.
 | Go | `go/` | Reference implementation — usable (pre-v1) |
 | Rust | `rust/` | Usable (`v0.1.0`) |
 | Python | `python/` | Usable (`v0.2.0`) |
-| C++ | `cpp/` | Roadmap, post-v1 (after Python) |
+| C++ | `cpp/` | Usable (`v0.3.0`) |
 
 ## Directory overview
 
@@ -70,7 +70,7 @@ go/        Go reference implementation
 docs/      Design docs and the release checklist
 rust/      Rust implementation (v0.1.0)
 python/    Python implementation (v0.2.0)
-cpp/       C++ implementation (post-v1)
+cpp/       C++ implementation (v0.3.0)
 ```
 
 ## Current capabilities

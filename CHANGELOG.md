@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.0] - 2026-09-04
+
+### Added
+
+- C++ implementation (`cpp/`): C++20 library (`oxa`) targeting the frozen spec
+  baseline with zero third-party runtime dependencies and exception-free error handling.
+  - `oxa::status`: Abseil-style `Status`, `StatusOr<T>`, and `Conversion<T>` types
+    supporting `-fno-exceptions`.
+  - `oxa::json`: lightweight self-contained JSON value type with source span
+    tracking, byte-for-byte slice extraction (INV-1), float/int preservation (INV-7),
+    and duplicate key rejection.
+  - `oxa::ir`: neutral request, response, block, event, and loss types; document
+    codec with `specVersion: "0.1.0"`; event-stream grammar (INV-5) and block
+    indexing (INV-6) invariant validator.
+  - `oxa::modelmap`: model renaming table with identity fallback (spec/03).
+  - `oxa::openai::chatcompletions`: nonstream request/response converters, streaming
+    `StreamDecoder` with tool call argument aggregation, and `StreamEncoder`.
+  - `oxa::anthropic::messages`: nonstream request/response converters, streaming
+    `StreamDecoder`, and `StreamEncoder`.
+  - `oxa::openai::responses`: nonstream request/response converters, streaming
+    `StreamDecoder` with function call argument aggregation, and `StreamEncoder`.
+  - `oxa::sse`: standalone byte-level Server-Sent Events frame decoder and encoder
+    (spec/20 §6).
+  - `oxa::vectest`: test harness running all shared nonstream (105), cross-protocol
+    (12), and stream (8) golden vectors against each C++ face with full INV-1
+    lexical precision.
+  - CI: CMake build and CTest execution on Ubuntu.
+
 ## [v0.2.0] - 2026-09-03
 
 ### Added

@@ -740,6 +740,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 StreamDecoder::StreamDecoder(Options opts) : opts_(std::move(opts)) {}
 
 StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
+    if (flushed_) return invalid_argument("chatcompletions: chunk fed after stream flush");
     if (!chunk.is_object()) return invalid_argument("chatcompletions: chunk must be an object");
 
     if (const auto* u = chunk.find("usage"); u && u->is_object()) {
@@ -757,6 +758,14 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
     const auto& choice = choices->as_array()[0];
     const auto* delta = choice.find("delta");
     if (!delta || !delta->is_object()) return std::vector<ir::Event>{};
+
+    const auto* role_val = delta->find("role");
+    if (started_ && role_val && role_val->is_string() && !role_val->as_string().empty()) {
+        if (finish_seen_) {
+            return invalid_argument("chatcompletions: chunk stream restarted after finish_reason");
+        }
+        return invalid_argument("chatcompletions: chunk stream already started");
+    }
 
     std::vector<ir::Event> events;
     if (!started_) {
@@ -798,6 +807,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
     }
 
     if (const auto* frv = choice.find("finish_reason"); frv && frv->is_string()) {
+        if (finish_seen_) {
+            return invalid_argument("chatcompletions: duplicate finish_reason");
+        }
+        finish_seen_ = true;
         finish_reason_ = frv->as_string();
     }
 
@@ -805,6 +818,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
 }
 
 StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
+    if (flushed_) return invalid_argument("chatcompletions: stream flushed twice");
+    if (!finish_seen_) return invalid_argument("chatcompletions: stream ended without finish_reason");
+    flushed_ = true;
+
     std::vector<ir::Event> events;
     if (text_open_) {
         events.push_back(ir::ContentBlockStop{text_index_});
@@ -837,6 +854,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
 StreamEncoder::StreamEncoder(Options opts) : opts_(std::move(opts)) {}
 
 StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Event& event) {
+    if (done_ || (finished_ && !std::holds_alternative<ir::MessageDone>(event))) {
+        return invalid_argument("chatcompletions: event applied after stream termination");
+    }
+
     std::vector<json::Value> chunks;
     std::vector<ir::Loss> losses;
 
@@ -869,13 +890,25 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     };
 
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
+        if (started_) return invalid_argument("chatcompletions: duplicate MessageStart");
         id_ = ms->id;
         model_ = opts_.model_map.map(ms->model);
         started_ = true;
         json::Value delta = json::Value::object();
         delta.set("role", json::Value::string("assistant"));
         chunks.push_back(make_base_chunk(std::move(delta)));
-    } else if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
+        if (!started_ || active_.has_value() || finished_) {
+            return invalid_argument("chatcompletions: ContentBlockStart out of grammar order");
+        }
+        if (cbs->index != next_ir_index_) {
+            return invalid_argument("chatcompletions: ContentBlockStart index " + std::to_string(cbs->index) +
+                                    ", want " + std::to_string(next_ir_index_));
+        }
+        next_ir_index_++;
         if (std::holds_alternative<ir::TextBlock>(cbs->block)) {
             if (tool_seen_) {
                 ordering_degrade_ = true;
@@ -884,7 +917,12 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             act.kind = ActiveBlock::Kind::Text;
             act.index = cbs->index;
             active_ = std::move(act);
-        } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
+            if (tu->id.empty() || tu->name.empty()) {
+                return invalid_argument("chatcompletions: ToolUseBlock requires nonempty ID and name");
+            }
             tool_seen_ = true;
             ActiveBlock act;
             act.kind = ActiveBlock::Kind::Tool;
@@ -894,63 +932,88 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             act.tool_input = tu->input;
             act.native_index = next_native_tool_++;
             active_ = std::move(act);
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
-    } else if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
-        if (active_.has_value()) {
-            if (active_->kind == ActiveBlock::Kind::Text) {
-                if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
-                    json::Value delta = json::Value::object();
-                    delta.set("content", json::Value::string(td->text));
-                    chunks.push_back(make_base_chunk(std::move(delta)));
-                }
-            } else if (active_->kind == ActiveBlock::Kind::Tool) {
-                if (const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta)) {
-                    active_->fragments.push_back(ij->partial_json);
-                    json::Value delta = json::Value::object();
-                    json::Value tcs = json::Value::array();
-                    json::Value tc = json::Value::object();
-                    tc.set("index", json::Value::integer(active_->native_index));
-                    if (!active_->tool_started) {
-                        active_->tool_started = true;
-                        tc.set("id", json::Value::string(active_->tool_id));
-                        tc.set("type", json::Value::string("function"));
-                        json::Value fn = json::Value::object();
-                        fn.set("name", json::Value::string(active_->tool_name));
-                        fn.set("arguments", json::Value::string(ij->partial_json));
-                        tc.set("function", std::move(fn));
-                    } else {
-                        json::Value fn = json::Value::object();
-                        fn.set("arguments", json::Value::string(ij->partial_json));
-                        tc.set("function", std::move(fn));
-                    }
-                    tcs.push_back(std::move(tc));
-                    delta.set("tool_calls", std::move(tcs));
-                    pending_tools_.push_back(make_base_chunk(std::move(delta)));
+        return invalid_argument("chatcompletions: ContentBlockStart carries unsupported block");
+    }
+
+    if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
+        if (!active_.has_value() || cbd->index != active_->index) {
+            return invalid_argument("chatcompletions: ContentBlockDelta out of grammar order");
+        }
+        if (active_->kind == ActiveBlock::Kind::Text) {
+            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
+            if (!td) return invalid_argument("chatcompletions: TextBlock received non-text delta");
+            json::Value delta = json::Value::object();
+            delta.set("content", json::Value::string(td->text));
+            chunks.push_back(make_base_chunk(std::move(delta)));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (active_->kind == ActiveBlock::Kind::Tool) {
+            const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
+            if (!ij) return invalid_argument("chatcompletions: ToolUseBlock received non-input-json delta");
+            active_->fragments.push_back(ij->partial_json);
+            json::Value delta = json::Value::object();
+            json::Value tcs = json::Value::array();
+            json::Value tc = json::Value::object();
+            tc.set("index", json::Value::integer(active_->native_index));
+            if (!active_->tool_started) {
+                active_->tool_started = true;
+                tc.set("id", json::Value::string(active_->tool_id));
+                tc.set("type", json::Value::string("function"));
+                json::Value fn = json::Value::object();
+                fn.set("name", json::Value::string(active_->tool_name));
+                fn.set("arguments", json::Value::string(ij->partial_json));
+                tc.set("function", std::move(fn));
+            } else {
+                json::Value fn = json::Value::object();
+                fn.set("arguments", json::Value::string(ij->partial_json));
+                tc.set("function", std::move(fn));
+            }
+            tcs.push_back(std::move(tc));
+            delta.set("tool_calls", std::move(tcs));
+            pending_tools_.push_back(make_base_chunk(std::move(delta)));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        return invalid_argument("chatcompletions: unknown active block kind");
+    }
+
+    if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
+        if (!active_.has_value() || cst->index != active_->index) {
+            return invalid_argument("chatcompletions: ContentBlockStop out of grammar order");
+        }
+        if (active_->kind == ActiveBlock::Kind::Tool) {
+            if (active_->fragments.empty()) {
+                active_->fragments.push_back(active_->tool_input);
+                json::Value delta = json::Value::object();
+                json::Value tcs = json::Value::array();
+                json::Value tc = json::Value::object();
+                tc.set("index", json::Value::integer(active_->native_index));
+                tc.set("id", json::Value::string(active_->tool_id));
+                tc.set("type", json::Value::string("function"));
+                json::Value fn = json::Value::object();
+                fn.set("name", json::Value::string(active_->tool_name));
+                fn.set("arguments", json::Value::string(active_->tool_input));
+                tc.set("function", std::move(fn));
+                tcs.push_back(std::move(tc));
+                delta.set("tool_calls", std::move(tcs));
+                pending_tools_.push_back(make_base_chunk(std::move(delta)));
+            } else {
+                std::string joined;
+                for (const auto& f : active_->fragments) joined += f;
+                if (joined != active_->tool_input) {
+                    return invalid_argument("chatcompletions: ToolUseBlock input does not equal concatenated InputJSONDelta fragments");
                 }
             }
         }
-    } else if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
-        if (active_.has_value()) {
-            if (active_->kind == ActiveBlock::Kind::Tool) {
-                if (active_->fragments.empty()) {
-                    json::Value delta = json::Value::object();
-                    json::Value tcs = json::Value::array();
-                    json::Value tc = json::Value::object();
-                    tc.set("index", json::Value::integer(active_->native_index));
-                    tc.set("id", json::Value::string(active_->tool_id));
-                    tc.set("type", json::Value::string("function"));
-                    json::Value fn = json::Value::object();
-                    fn.set("name", json::Value::string(active_->tool_name));
-                    fn.set("arguments", json::Value::string(active_->tool_input));
-                    tc.set("function", std::move(fn));
-                    tcs.push_back(std::move(tc));
-                    delta.set("tool_calls", std::move(tcs));
-                    pending_tools_.push_back(make_base_chunk(std::move(delta)));
-                }
-            }
-            active_.reset();
+        active_.reset();
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
+        if (!started_ || active_.has_value() || finished_) {
+            return invalid_argument("chatcompletions: MessageDelta out of grammar order");
         }
-    } else if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
         OXA_ASSIGN_OR_RETURN(auto fr_res, encode_finish_reason(md->stop_reason));
         if (fr_res.second.has_value()) losses.push_back(std::move(*fr_res.second));
         if (ordering_degrade_) {
@@ -962,11 +1025,16 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         chunks = std::move(pending_tools_);
         json::Value delta = json::Value::object();
         chunks.push_back(make_base_chunk(std::move(delta), fr_res.first, md->usage));
-    } else if (std::holds_alternative<ir::MessageDone>(event)) {
-        done_ = true;
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
     }
 
-    return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    if (std::holds_alternative<ir::MessageDone>(event)) {
+        if (!finished_) return invalid_argument("chatcompletions: MessageDone out of grammar order");
+        done_ = true;
+        return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    }
+
+    return invalid_argument("chatcompletions: unknown event");
 }
 
 }  // namespace oxa::openai::chatcompletions

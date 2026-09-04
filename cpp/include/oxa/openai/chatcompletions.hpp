@@ -51,6 +51,8 @@ private:
     std::int64_t text_index_ = -1;
     bool text_open_ = false;
     std::string finish_reason_;
+    bool finish_seen_ = false;
+    bool flushed_ = false;
     std::optional<ir::Usage> usage_;
 
     struct ToolAccum {

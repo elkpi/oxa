@@ -252,38 +252,43 @@ private:
     StatusOr<Value> parse_number() {
         const std::size_t start = pos_;
         if (peek() == '-') ++pos_;
-        bool has_digit = false;
-        while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
-            ++pos_;
-            has_digit = true;
-        }
-        if (!has_digit) {
+        if (pos_ >= text_.size()) {
             return invalid_argument("json: invalid number");
         }
+        if (text_[pos_] == '0') {
+            ++pos_;
+            if (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+                return invalid_argument("json: leading zeros are not allowed in numbers");
+            }
+        } else if (text_[pos_] >= '1' && text_[pos_] <= '9') {
+            ++pos_;
+            while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
+                ++pos_;
+            }
+        } else {
+            return invalid_argument("json: invalid number");
+        }
+
         bool is_double = false;
         if (pos_ < text_.size() && text_[pos_] == '.') {
             is_double = true;
             ++pos_;
-            bool frac_digit = false;
+            if (pos_ >= text_.size() || text_[pos_] < '0' || text_[pos_] > '9') {
+                return invalid_argument("json: invalid number fraction");
+            }
             while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
                 ++pos_;
-                frac_digit = true;
-            }
-            if (!frac_digit) {
-                return invalid_argument("json: invalid number fraction");
             }
         }
         if (pos_ < text_.size() && (text_[pos_] == 'e' || text_[pos_] == 'E')) {
             is_double = true;
             ++pos_;
             if (pos_ < text_.size() && (text_[pos_] == '+' || text_[pos_] == '-')) ++pos_;
-            bool exp_digit = false;
+            if (pos_ >= text_.size() || text_[pos_] < '0' || text_[pos_] > '9') {
+                return invalid_argument("json: invalid number exponent");
+            }
             while (pos_ < text_.size() && text_[pos_] >= '0' && text_[pos_] <= '9') {
                 ++pos_;
-                exp_digit = true;
-            }
-            if (!exp_digit) {
-                return invalid_argument("json: invalid number exponent");
             }
         }
         std::string_view tok = text_.substr(start, pos_ - start);
@@ -293,6 +298,10 @@ private:
             if (ec == std::errc()) {
                 return finish(Value::integer(out), start);
             }
+            if (ec == std::errc::result_out_of_range) {
+                return resource_exhausted("json: integer out of range");
+            }
+            return invalid_argument("json: invalid integer");
         }
         double d = 0;
         auto [ptr2, ec2] = std::from_chars(tok.data(), tok.data() + tok.size(), d);

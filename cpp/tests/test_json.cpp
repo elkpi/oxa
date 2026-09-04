@@ -32,6 +32,22 @@ int main() {
         CHECK(!oxa::json::parse("[1, 2").ok());
         CHECK(!oxa::json::parse("1 2").ok());
         CHECK(!oxa::json::parse("\"abc").ok());
+        // Leading zeros not allowed in numbers (RFC 8259)
+        CHECK(!oxa::json::parse("01").ok());
+        CHECK(!oxa::json::parse("-01").ok());
+        CHECK(!oxa::json::parse("00").ok());
+        // Single zero and signed zero allowed
+        CHECK(oxa::json::parse("0").ok() && oxa::json::parse("0")->as_int() == 0);
+        CHECK(oxa::json::parse("-0").ok());
+        CHECK(oxa::json::parse("0.5").ok() && oxa::json::parse("0.5")->as_double() == 0.5);
+        // Incomplete numbers rejected
+        CHECK(!oxa::json::parse("-").ok());
+        CHECK(!oxa::json::parse("1.").ok());
+        CHECK(!oxa::json::parse("1e").ok());
+        CHECK(!oxa::json::parse("1e+").ok());
+        // Integer overflow rejected (not converted to float)
+        auto overflow_res = oxa::json::parse("9223372036854775808");
+        CHECK(!overflow_res.ok());
     }
 
     // --- duplicate keys rejected (Q15) -----------------------------------

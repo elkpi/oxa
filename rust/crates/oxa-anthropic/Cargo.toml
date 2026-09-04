@@ -7,8 +7,8 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-oxa-ir = { path = "../oxa-ir" }
-oxa-modelmap = { path = "../oxa-modelmap" }
+oxa-ir = { workspace = true }
+oxa-modelmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

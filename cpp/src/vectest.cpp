@@ -424,15 +424,15 @@ StatusOr<Report> run_cross(const std::vector<const Converter*>& converters,
             combined_losses.insert(combined_losses.end(), enc->losses.begin(), enc->losses.end());
             actual_output = std::move(enc->value);
         } else {
-            auto dec = tgt->decode_response(vec.input);
+            auto dec = src->decode_response(vec.input);
             if (!dec.ok()) {
-                report.failures.push_back({vec.name, "target decode_response failed: " + std::string(dec.status().message())});
+                report.failures.push_back({vec.name, "source decode_response failed: " + std::string(dec.status().message())});
                 continue;
             }
             combined_losses.insert(combined_losses.end(), dec->losses.begin(), dec->losses.end());
-            auto enc = src->encode_response(dec->value);
+            auto enc = tgt->encode_response(dec->value);
             if (!enc.ok()) {
-                report.failures.push_back({vec.name, "source encode_response failed: " + std::string(enc.status().message())});
+                report.failures.push_back({vec.name, "target encode_response failed: " + std::string(enc.status().message())});
                 continue;
             }
             combined_losses.insert(combined_losses.end(), enc->losses.begin(), enc->losses.end());

@@ -9,7 +9,7 @@ ir::Loss make_ant_loss(std::string path, std::string field, std::string_view rea
 }
 
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
-    const json::Value* content, const std::string& path) {
+    const json::Value* content, const std::string& path, bool keep_raw_input = false) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -64,10 +64,13 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             if (const auto* name_val = item.find("name"); name_val && name_val->is_string()) tu.name = name_val->as_string();
             const auto* inp = item.find("input");
             if (inp) {
-                // INV-1: extract raw slice of the input subtree
-                std::string_view raw = inp->raw_slice();
-                if (!raw.empty()) {
-                    tu.input = std::string(raw);
+                if (keep_raw_input) {
+                    std::string_view raw = inp->raw_slice();
+                    if (!raw.empty()) {
+                        tu.input = std::string(raw);
+                    } else {
+                        tu.input = json::serialize(*inp);
+                    }
                 } else {
                     tu.input = json::serialize(*inp);
                 }
@@ -433,7 +436,7 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
         resp.model = opts.model_map.map(m_val->as_string());
     }
 
-    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(wire.find("content"), "content"));
+    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(wire.find("content"), "content", true));
     losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
     resp.content = std::move(c_res.first);
 

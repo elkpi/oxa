@@ -1,38 +1,39 @@
 # v0.3.0 后路线评审
 
 **日期：** 2026-09-04
+**基线状态：** 以 `v0.3.0` 发布 commit `4cd7a67` 为初始评估快照；后续针对 P0 缺口（README、release checklist、CMake 3.20、跨平台 CI 等）在 PR #20 完成修复收口。
 **范围：** 仅依据仓库的一手资料评审 v1.0.0、生态分发、质量工程与 post-v1 协议演进四个候选方向。
 **结论：** 四个方向不应并列启动。建议采用“发布契约收口 → v1.0.0 → 分发落地 → 正确性 fuzz → 有目的的性能基准 → 协议演进”的串行门禁；其中 v1.0.0 前必须先处理若干文档与分发可达性缺口。
 
 ## 结论摘要
 
-1. **v1.0.0 是下一主线，但不是立刻打 tag。** 规范已把其门槛定义为四种支持语言对同一 spec/vector set 的实现完成（[spec/README.md:30-41](../../spec/README.md#L30-L41)），当前 CI 已覆盖 Go、Rust、Python、C++ 与两个 C++ exception 配置（[.github/workflows/ci.yml:9-175](../../.github/workflows/ci.yml#L9-L175)）。但根 README 仍写着 `early development, pre-v1`（[README.md:10-12](../../README.md#L10-L12)），并把跨 face 流式转换标为 `not yet`（[README.md:76-86](../../README.md#L76-L86)）；这必须在 1.0 发布准备 PR 中澄清和验证。
-2. **分发准备是 v1 之前的最小发布门槛，不等同于立即发布到所有 registry。** 当前 Go module 位于 `go/`（[go/go.mod:1-7](../../go/go.mod#L1-L7)），但远端不存在 `go/v*` module tag；`go list -m -versions github.com/elkpi/oxa/go` 无可用语义版本。Rust 的 face crate `cargo package` 已实测失败，因为其 path dependency 没有版本约束（如 [rust/crates/oxa-chatcompletions/Cargo.toml:9-16](../../rust/crates/oxa-chatcompletions/Cargo.toml#L9-L16)）。CMake 也没有安装或导出规则（[cpp/CMakeLists.txt:18-38](../../cpp/CMakeLists.txt#L18-L38)）。
+1. **v1.0.0 是下一主线，但不是立刻打 tag。** 规范已把其门槛定义为四种支持语言对同一 spec/vector set 的实现完成（[spec/README.md:30-41](../../spec/README.md#L30-L41)），CI 现已覆盖 Go、Rust、Python、C++（跨 Ubuntu、macOS、Windows 及 Ubuntu -fno-exceptions，见 [.github/workflows/ci.yml:9-175](../../.github/workflows/ci.yml#L9-L175)）。在 v0.3.0 初始基线中根 README 仍残留 `early development, pre-v1` 及流式 `not yet`，在进入 1.0 之前必须在发布准备 PR（P0）中完成对齐。
+2. **分发准备是 v1 之前的最小发布门槛，不等同于立即发布到所有 registry。** Go module 位于 `go/`（[go/go.mod:1-7](../../go/go.mod#L1-L7)），远端需要配套子模块 tag 规范（`go/v*`）；Rust 内部依赖需要指定版本约束以支持 packaging dry run；CMake 需要提供标准安装和导出规则以支持外部 `find_package`。
 3. **正确性 fuzz 优先于跨语言性能 benchmark。** 现有 fuzz 只有 Go SSE decoder（[go/sse/sse_fuzz_test.go:8-64](../../go/sse/sse_fuzz_test.go#L8-L64)），而 M7 流式 tool 聚合要求严格保留空 fragment、顺序和原始输入，且生命周期分歧必须报结构错误（[spec/20-streaming-semantics.md:345-368](../../spec/20-streaming-semantics.md#L345-L368)）。这是高风险、高收益的共同测试投资；benchmark 在缺少统一 workload/指标/隔离环境前只会产生不可比数字。
 4. **post-v1 特性必须在 1.0 后规划，且不能笼统命名为“v1.1”。** 规范规定：1.0 后扩展 sealed union 或 enum 属于 major bump（[spec/README.md:44-50](../../spec/README.md#L44-L50)）。Extended Thinking、citation、provider tool 等通常需要新的 IR block/event/loss 表达，因此应预期为 **v2.0.0** 级提案；只增加不改变 sealed union/enum 的可选字段才可能走 v1.x。
 
-## 现状与缺口
+## 现状与缺口（v0.3.0 评估快照）
 
 ### 已满足的发布基础
 
 - 四种实现都已在根 README 的语言矩阵中列为可用，版本分别为 Go pre-v1、Rust 0.1.0、Python 0.2.0、C++ 0.3.0（[README.md:55-73](../../README.md#L55-L73)）。
-- C++ 发布记录明确覆盖了 105 个单 face 非流式、12 个 cross-protocol、8 个 stream 向量（[CHANGELOG.md:10-36](../../CHANGELOG.md#L10-L36)）；根 CI 同时运行 vectors、manifest、Go race 测试、Rust lint/test、Python matrix 与 C++ 默认/`-fno-exceptions` 构建（[.github/workflows/ci.yml:53-175](../../.github/workflows/ci.yml#L53-L175)）。
+- C++ 发布记录明确覆盖了 105 个单 face 非流式、12 个 cross-protocol、8 个 stream 向量（[CHANGELOG.md:10-36](../../CHANGELOG.md#L10-L36)）；根 CI 同时运行 vectors、manifest、Go race 测试、Rust lint/test、Python matrix 与 C++ 跨平台构建（[.github/workflows/ci.yml:53-175](../../.github/workflows/ci.yml#L53-L175)）。
 - 所有已列出的规范文档都是 `ready`；唯一计划中的附录是 glossary 90（[spec/README.md:67-82](../../spec/README.md#L67-L82)）。
 - 项目已明确源真相顺序为 vectors、schema、Markdown（[spec/README.md:84-99](../../spec/README.md#L84-L99)），适合继续作为四语言的共同正确性基线。
 
-### 需要先收口的缺口
+### 需要先收口的缺口及解决状态
 
-| 缺口 | 证据 | 风险 | 建议归属 |
+| 缺口 | v0.3.0 评估证据 | 风险 | 解决状态与归属 |
 |---|---|---|---|
-| 根 README 仍为 pre-v1，且 Quick Start 只有 Go | [README.md:10-12](../../README.md#L10-L12)、[README.md:92-116](../../README.md#L92-L116) | 发布 1.0 后文档与事实冲突；其他三语言没有获得等价入口 | v1 发布准备 PR |
-| “Any face → any face” 的流式单元仍标注 `not yet` | [README.md:81-86](../../README.md#L81-L86) | 与 v1 流式范围（[spec/00-scope-and-architecture.md:21-30](../../spec/00-scope-and-architecture.md#L21-L30)）的可用性叙事不清 | v1 发布准备 PR：增加跨 face composition 测试，或明确 orchestration 是调用方责任 |
-| Release checklist 只列 Go 相关的 CI/precondition | [docs/release-checklist.md:7-25](../../docs/release-checklist.md#L7-L25) | 1.0 可能只复核 Go，遗漏 Rust/Python/C++ 的发布断言 | v1 发布准备 PR |
-| Go 子模块没有可解析的模块 tag | `go/go.mod` 位于子目录（[go/go.mod:1-3](../../go/go.mod#L1-L3)）；远端无 `go/v*` tag，`go list -m -versions` 无版本 | `go get github.com/elkpi/oxa/go@v1.0.0` 不具备稳定发布路径 | v1 发布准备 PR |
-| Rust crates 无法打包 | `cargo package -p oxa-chatcompletions --allow-dirty --no-verify` 报错：`oxa-ir` 未声明版本；依赖是 path-only（[rust/crates/oxa-chatcompletions/Cargo.toml:9-16](../../rust/crates/oxa-chatcompletions/Cargo.toml#L9-L16)） | 不能以 crates.io 包分发；发布流程无法做 dry run | 分发准备 PR |
-| C++ 只能源码 add_subdirectory/build，不能标准安装发现 | [cpp/CMakeLists.txt:18-38](../../cpp/CMakeLists.txt#L18-L38) 没有 `install()`、`EXPORT`、`Config.cmake` | 下游 CMake 消费成本高，v1 作为库的可用性不完整 | 分发准备 PR |
-| CMake 声明与文档最低版本不一致 | `cmake_minimum_required(VERSION 3.16)`（[cpp/CMakeLists.txt:1](../../cpp/CMakeLists.txt#L1)） vs README 要求 3.20+（[cpp/README.md:29-32](../../cpp/README.md#L29-L32)） | 用户无法确定支持基线 | v1 发布准备 PR（选择一个事实并统一） |
-| Python 已有 build metadata 与 `py.typed`，但没有 build/publish 验证 | hatchling/project metadata（[python/pyproject.toml:1-37](../../python/pyproject.toml#L1-L37)）；CI 仅 `unittest`（[.github/workflows/ci.yml:133-147](../../.github/workflows/ci.yml#L133-L147)） | wheel/sdist 的文件和安装行为未被验证 | 分发准备 PR |
-| Fuzz 与 benchmark 基线缺失 | 仅发现 Go SSE fuzz（[go/sse/sse_fuzz_test.go:8-64](../../go/sse/sse_fuzz_test.go#L8-L64)）；仓库没有 benchmark 文件 | 流式状态机高风险路径没有随机分片验证；性能讨论不可复现 | 质量工程阶段 |
+| 根 README 仍为 pre-v1，且 Quick Start 只有 Go | v0.3.0 基线 [README.md:10-12](../../README.md#L10-L12)、[README.md:92-116](../../README.md#L92-L116) | 发布 1.0 后文档与事实冲突；其他三语言没有获得等价入口 | **已在 P0 (PR #20) 完成**：状态升为 v1 ready，增加多语言指南 |
+| “Any face → any face” 的流式单元仍标注 `not yet` | v0.3.0 基线 [README.md:81-86](../../README.md#L81-L86) | 与 v1 流式范围（[spec/00-scope-and-architecture.md:21-30](../../spec/00-scope-and-architecture.md#L21-L30)）的可用性叙事不清 | **已在 P0 (PR #20) 完成**：澄清跨 face 流式由调用方经 IR 组合 |
+| Release checklist 只列 Go 相关的 CI/precondition | [docs/release-checklist.md:7-25](../../docs/release-checklist.md#L7-L25) | 1.0 可能只复核 Go，遗漏 Rust/Python/C++ 的发布断言 | **已在 P0 (PR #20) 完成**：扩充四语言及下游 smoke 断言 |
+| Go 子模块没有可解析的模块 tag | `go/go.mod` 位于子目录（[go/go.mod:1-3](../../go/go.mod#L1-L3)）；远端无 `go/v*` tag，`go list -m -versions` 无版本 | `go get github.com/elkpi/oxa/go@v1.0.0` 不具备稳定发布路径 | **已在 P0 明确规则**：在发布时同步打 `go/vX.Y.Z` 标签 |
+| Rust crates 无法打包 | `cargo package` 报错：`oxa-ir` 依赖未声明版本（[rust/crates/oxa-chatcompletions/Cargo.toml:9-16](../../rust/crates/oxa-chatcompletions/Cargo.toml#L9-L16)） | 不能以 crates.io 包分发；发布流程无法做 dry run | **已修复**：添加 workspace version 依赖及 vectest publish=false |
+| C++ 只能源码 add_subdirectory/build，不能标准安装发现 | [cpp/CMakeLists.txt:18-38](../../cpp/CMakeLists.txt#L18-L38) 无 `install()`、`EXPORT`、`Config.cmake` | 下游 CMake 消费成本高，v1 作为库的可用性不完整 | **已修复**：添加 CMake install 与 oxaTargets/oxaConfig 导出规则 |
+| CMake 声明与文档最低版本不一致 | v0.3.0 中 CMakeLists.txt 声明 3.16 vs README 要求 3.20+（[cpp/README.md:29-32](../../cpp/README.md#L29-L32)） | 用户无法确定支持基线 | **已在 P0 (PR #20) 完成**：统一为 3.20 |
+| Python 已有 build metadata 与 `py.typed`，但没有 build/publish 验证 | hatchling/project metadata（[python/pyproject.toml:1-37](../../python/pyproject.toml#L1-L37)）；CI 仅 `unittest`（[.github/workflows/ci.yml:133-147](../../.github/workflows/ci.yml#L133-L147)） | wheel/sdist 的文件和安装行为未被验证 | 分发准备阶段验证 |
+| Fuzz 与 benchmark 基线缺失 | 仅发现 Go SSE fuzz（[go/sse/sse_fuzz_test.go:8-64](../../go/sse/sse_fuzz_test.go#L8-L64)）；仓库没有 benchmark 文件 | 流式状态机高风险路径没有随机分片验证；性能讨论不可复现 | 质量工程阶段推进 |
 
 ## 推荐路线
 

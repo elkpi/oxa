@@ -7,9 +7,9 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: early development, pre-v1.** The specification, golden vectors,
-and the Go reference implementation are usable today; interfaces may still
-change before v1.
+**Status: multi-language complete, v1 ready.** The specification, golden vectors,
+and all four reference implementations (Go, Rust, Python, and C++) pass the
+identical 125 golden vectors across nonstream, cross-protocol, and stream suites.
 
 ## What is oxa?
 
@@ -56,7 +56,7 @@ without a corresponding vector update.
 
 | Language | Directory | State |
 |----------|-----------|-------|
-| Go | `go/` | Reference implementation — usable (pre-v1) |
+| Go | `go/` | Reference implementation — usable (`v0.0.1`, v1 ready) |
 | Rust | `rust/` | Usable (`v0.1.0`) |
 | Python | `python/` | Usable (`v0.2.0`) |
 | C++ | `cpp/` | Usable (`v0.3.0`) |
@@ -66,7 +66,7 @@ without a corresponding vector update.
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation
+go/        Go reference implementation (v1 ready)
 docs/      Design docs and the release checklist
 rust/      Rust implementation (v0.1.0)
 python/    Python implementation (v0.2.0)
@@ -75,7 +75,7 @@ cpp/       C++ implementation (v0.3.0)
 
 ## Current capabilities
 
-The Go reference implementation converts between each protocol face and a
+The multi-language implementations convert between each protocol face and a
 shared intermediate representation (IR):
 
 | Conversion | Nonstream | Streaming |
@@ -83,7 +83,7 @@ shared intermediate representation (IR):
 | Chat Completions ↔ IR | requests and responses | text events + `tool_calls` argument aggregation |
 | Responses ↔ IR | requests and responses | text events + function-call argument aggregation |
 | Anthropic Messages ↔ IR | requests and responses | text events + `input_json_delta` aggregation |
-| Any face → any face | two-step composition (below); locked by cross vectors | not yet |
+| Any face → any face | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`) |
 
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried
@@ -91,7 +91,9 @@ loss list describing what could not be carried
 
 ## Quick start
 
-Requires Go 1.23+.
+### Go
+
+Requires Go 1.23+. See [`go/README.md`](go/README.md) for package details.
 
 ```bash
 go get github.com/elkpi/oxa/go
@@ -114,6 +116,12 @@ losses = append(losses, encodeLosses...)
 A complete, compile-verified version of this example lives at
 [`go/openai/chatcompletions/example_test.go`](go/openai/chatcompletions/example_test.go)
 (it is also visible in the godoc of that package).
+
+### Other languages
+
+- **Rust**: workspace in [`rust/`](rust/README.md), pure in-process conversion crates targeting spec 0.1.0 baseline.
+- **Python**: PEP 621 package in [`python/`](python/README.md), pure Python standard library with zero runtime dependencies.
+- **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 
 ## Documentation
 

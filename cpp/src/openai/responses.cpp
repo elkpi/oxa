@@ -772,160 +772,779 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
 StreamDecoder::StreamDecoder(Options opts) : opts_(std::move(opts)) {}
 
+Status StreamDecoder::require_started(std::string_view event_type) {
+    if (!started_) {
+        return invalid_argument("responses: " + std::string(event_type) + " before response.created");
+    }
+    return ok_status();
+}
+
+Status StreamDecoder::require_active_item(const json::Value& ev, std::string_view event_type) {
+    OXA_RETURN_IF_ERROR(require_started(event_type));
+    std::int64_t out_idx = -1;
+    if (const auto* oi = ev.find("output_index"); oi && oi->is_int()) out_idx = oi->as_int();
+    std::string item_id;
+    if (const auto* idv = ev.find("item_id"); idv && idv->is_string()) item_id = idv->as_string();
+    if (!item_open_ || out_idx != output_index_ || item_id != item_id_) {
+        return invalid_argument("responses: " + std::string(event_type) + " does not match the open output item");
+    }
+    return ok_status();
+}
+
+Status StreamDecoder::require_function_call(const json::Value& ev, std::string_view event_type) {
+    OXA_RETURN_IF_ERROR(require_active_item(ev, event_type));
+    if (!function_call_.has_value()) {
+        return invalid_argument("responses: " + std::string(event_type) + " without an active function_call item");
+    }
+    return ok_status();
+}
+
+ir::Loss StreamDecoder::unsupported_item_loss(std::int64_t output_index, std::string_view item_type) {
+    std::string detail;
+    if (item_type == "function_call_output") {
+        detail = "N-S-10: Responses function_call_output has no supported IR block mapping; "
+                 "response.output_item.done completes and is absorbed for this item-only lifecycle vector";
+    } else {
+        detail = "Responses streaming output item type \"" + std::string(item_type) + "\" is not decoded";
+    }
+    return make_resp_loss("output[" + std::to_string(output_index) + "]", "type",
+                          ir::LOSS_UNSUPPORTED_SEMANTIC, std::move(detail));
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::replay_function_call(const StreamFunctionCall& call) {
+    std::string joined;
+    for (const auto& f : call.fragments) {
+        joined += f;
+    }
+    std::int64_t index = next_block_index_++;
+    std::vector<ir::Event> events;
+    events.reserve(call.fragments.size() + 2);
+    events.push_back(ir::ContentBlockStart{index, ir::ToolUseBlock{call.call_id, call.name, joined}});
+    for (const auto& f : call.fragments) {
+        events.push_back(ir::ContentBlockDelta{index, ir::InputJsonDelta{f}});
+    }
+    events.push_back(ir::ContentBlockStop{index});
+    return events;
+}
+
 StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
+    if (flushed_) return invalid_argument("responses: event fed after stream flush");
+    if (terminated_) return invalid_argument("responses: event fed after terminal response");
     if (!chunk.is_object()) return invalid_argument("responses: event must be an object");
+
     const auto* t = chunk.find("type");
     std::string type = t && t->is_string() ? t->as_string() : "";
 
     std::vector<ir::Event> events;
 
     if (type == "response.created") {
+        if (started_) return invalid_argument("responses: duplicate response.created");
+        const auto* resp = chunk.find("response");
+        if (!resp || !resp->is_object()) return invalid_argument("responses: response.created without response");
         started_ = true;
-        const auto* resp = chunk.find("response");
-        if (resp && resp->is_object()) {
-            if (const auto* idv = resp->find("id"); idv && idv->is_string()) id_ = idv->as_string();
-            if (const auto* mv = resp->find("model"); mv && mv->is_string()) model_ = opts_.model_map.map(mv->as_string());
-        }
+        std::string raw_model;
+        if (const auto* idv = resp->find("id"); idv && idv->is_string()) id_ = idv->as_string();
+        if (const auto* mv = resp->find("model"); mv && mv->is_string()) raw_model = mv->as_string();
+        model_ = opts_.model_map.map(raw_model);
         events.push_back(ir::MessageStart{id_, model_});
-    } else if (type == "response.output_item.added") {
-        const auto* item = chunk.find("item");
-        const auto* it = item ? item->find("type") : nullptr;
-        std::string ikind = it && it->is_string() ? it->as_string() : "";
-
-        if (ikind == "message") {
-            in_message_ = true;
-            message_ir_index_ = next_ir_index_++;
-            events.push_back(ir::ContentBlockStart{message_ir_index_, ir::TextBlock{""}});
-        } else if (ikind == "function_call") {
-            in_fn_call_ = true;
-            if (const auto* cid = item->find("call_id"); cid && cid->is_string()) fn_call_id_ = cid->as_string();
-            if (const auto* nv = item->find("name"); nv && nv->is_string()) fn_name_ = nv->as_string();
-            fn_args_.clear();
-        }
-    } else if (type == "response.output_text.delta") {
-        if (in_message_) {
-            const auto* dv = chunk.find("delta");
-            std::string d = dv && dv->is_string() ? dv->as_string() : "";
-            events.push_back(ir::ContentBlockDelta{message_ir_index_, ir::TextDelta{std::move(d)}});
-        }
-    } else if (type == "response.function_call_arguments.delta") {
-        if (in_fn_call_) {
-            const auto* dv = chunk.find("delta");
-            std::string d = dv && dv->is_string() ? dv->as_string() : "";
-            fn_args_ += d;
-        }
-    } else if (type == "response.output_item.done") {
-        if (in_message_) {
-            events.push_back(ir::ContentBlockStop{message_ir_index_});
-            in_message_ = false;
-        } else if (in_fn_call_) {
-            std::int64_t idx = next_ir_index_++;
-            events.push_back(ir::ContentBlockStart{idx, ir::ToolUseBlock{fn_call_id_, fn_name_, fn_args_}});
-            events.push_back(ir::ContentBlockDelta{idx, ir::InputJsonDelta{fn_args_}});
-            events.push_back(ir::ContentBlockStop{idx});
-            in_fn_call_ = false;
-        }
-    } else if (type == "response.completed") {
-        completed_ = true;
-        const auto* resp = chunk.find("response");
-        bool has_tool_use = (next_ir_index_ > 1);
-        if (resp && resp->is_object()) {
-            if (const auto* u = resp->find("usage"); u && u->is_object()) {
-                ir::Usage us;
-                if (const auto* in = u->find("input_tokens"); in && in->is_int()) us.input_tokens = in->as_int();
-                if (const auto* out = u->find("output_tokens"); out && out->is_int()) us.output_tokens = out->as_int();
-                usage_ = us;
-            }
-            auto [stop_reason, s_losses] = decode_status(*resp, has_tool_use);
-            status_ = stop_reason;
-            losses_.insert(losses_.end(), s_losses.begin(), s_losses.end());
-        }
-        events.push_back(ir::MessageDelta{status_, std::nullopt, usage_.value_or(ir::Usage{0, 0})});
-        events.push_back(ir::MessageDone{});
+        return events;
     }
 
+    if (type == "response.output_item.added") {
+        OXA_RETURN_IF_ERROR(require_started("response.output_item.added"));
+        if (item_open_) return invalid_argument("responses: response.output_item.added with an item still open");
+        std::int64_t out_idx = -1;
+        if (const auto* oi = chunk.find("output_index"); oi && oi->is_int()) out_idx = oi->as_int();
+        if (out_idx != next_output_index_) {
+            return invalid_argument("responses: output_item.added output_index " + std::to_string(out_idx) +
+                                    ", want " + std::to_string(next_output_index_));
+        }
+        const auto* item = chunk.find("item");
+        if (!item || !item->is_object()) return invalid_argument("responses: response.output_item.added without item");
+
+        next_output_index_++;
+        item_open_ = true;
+        std::string ikind;
+        if (const auto* it = item->find("type"); it && it->is_string()) ikind = it->as_string();
+        item_type_ = ikind;
+        output_index_ = out_idx;
+        if (const auto* idv = item->find("id"); idv && idv->is_string()) item_id_ = idv->as_string();
+        skipped_call_id_.clear();
+        next_content_index_ = 0;
+        function_call_ = std::nullopt;
+
+        std::string role;
+        if (const auto* rv = item->find("role"); rv && rv->is_string()) role = rv->as_string();
+
+        if (ikind == "message" && role == "assistant") {
+            return events;
+        }
+        if (ikind == "function_call") {
+            std::string call_id, name;
+            if (const auto* cid = item->find("call_id"); cid && cid->is_string()) call_id = cid->as_string();
+            if (const auto* nv = item->find("name"); nv && nv->is_string()) name = nv->as_string();
+            if (item_id_.empty() || call_id.empty() || name.empty()) {
+                return invalid_argument("responses: function_call item requires id, call_id, and name");
+            }
+            StreamFunctionCall fc;
+            fc.item_id = item_id_;
+            fc.output_index = out_idx;
+            fc.call_id = call_id;
+            fc.name = name;
+            if (const auto* av = item->find("arguments"); av && av->is_string()) {
+                fc.fragments.push_back(av->as_string());
+            }
+            function_call_ = std::move(fc);
+            return events;
+        }
+
+        skipped_item_ = true;
+        if (ikind == "function_call_output") {
+            if (const auto* cid = item->find("call_id"); cid && cid->is_string()) skipped_call_id_ = cid->as_string();
+        }
+        losses_.push_back(unsupported_item_loss(out_idx, ikind));
+        return events;
+    }
+
+    if (type == "response.content_part.added") {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.content_part.added"));
+        if (function_call_.has_value()) {
+            return invalid_argument("responses: response.content_part.added on function_call item");
+        }
+        if (block_open_ || skipped_part_) {
+            return invalid_argument("responses: response.content_part.added with a part still open");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (content_index != next_content_index_) {
+            return invalid_argument("responses: content_part.added content_index " + std::to_string(content_index) +
+                                    ", want " + std::to_string(next_content_index_));
+        }
+        next_content_index_++;
+        content_index_ = content_index;
+
+        const auto* part = chunk.find("part");
+        if (!part || !part->is_object()) return invalid_argument("responses: response.content_part.added without part");
+        if (skipped_item_) {
+            skipped_part_ = true;
+            return events;
+        }
+        std::string ptype;
+        if (const auto* pt = part->find("type"); pt && pt->is_string()) ptype = pt->as_string();
+        if (ptype != "output_text") {
+            skipped_part_ = true;
+            losses_.push_back(make_resp_loss(
+                "output[" + std::to_string(output_index_) + "].content[" + std::to_string(content_index) + "]",
+                "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Responses streaming content type \"" + ptype + "\" is not decoded in the Responses stream profile"));
+            return events;
+        }
+
+        block_open_ = true;
+        block_index_ = next_block_index_++;
+        text_done_ = false;
+        std::string txt;
+        if (const auto* tv = part->find("text"); tv && tv->is_string()) txt = tv->as_string();
+        events.push_back(ir::ContentBlockStart{block_index_, ir::TextBlock{std::move(txt)}});
+        return events;
+    }
+
+    if (type == "response.function_call_arguments.delta") {
+        if (skipped_item_) {
+            OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.function_call_arguments.delta"));
+            return events;
+        }
+        OXA_RETURN_IF_ERROR(require_function_call(chunk, "response.function_call_arguments.delta"));
+        if (function_call_->arguments_done) {
+            return invalid_argument("responses: response.function_call_arguments.delta after arguments.done");
+        }
+        std::string d;
+        if (const auto* dv = chunk.find("delta"); dv && dv->is_string()) d = dv->as_string();
+        function_call_->fragments.push_back(std::move(d));
+        return events;
+    }
+
+    if (type == "response.function_call_arguments.done") {
+        if (skipped_item_) {
+            OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.function_call_arguments.done"));
+            return events;
+        }
+        OXA_RETURN_IF_ERROR(require_function_call(chunk, "response.function_call_arguments.done"));
+        if (function_call_->arguments_done) {
+            return invalid_argument("responses: duplicate response.function_call_arguments.done");
+        }
+        std::string call_id, name, args;
+        if (const auto* cid = chunk.find("call_id"); cid && cid->is_string()) call_id = cid->as_string();
+        if (const auto* nv = chunk.find("name"); nv && nv->is_string()) name = nv->as_string();
+        if (const auto* av = chunk.find("arguments"); av && av->is_string()) args = av->as_string();
+        std::string joined;
+        for (const auto& f : function_call_->fragments) joined += f;
+        if (call_id != function_call_->call_id || name != function_call_->name || args != joined) {
+            return invalid_argument("responses: response.function_call_arguments.done does not match the active function call");
+        }
+        function_call_->arguments_done = true;
+        return events;
+    }
+
+    if (type == "response.output_text.delta") {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.output_text.delta"));
+        if (function_call_.has_value()) {
+            return invalid_argument("responses: response.output_text.delta on function_call item");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: output_text.delta content_index does not match the skipped part");
+            }
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: output_text.delta does not match the open content part");
+        }
+        if (text_done_) {
+            return invalid_argument("responses: output_text.delta after output_text.done");
+        }
+        std::string d;
+        if (const auto* dv = chunk.find("delta"); dv && dv->is_string()) d = dv->as_string();
+        events.push_back(ir::ContentBlockDelta{block_index_, ir::TextDelta{std::move(d)}});
+        return events;
+    }
+
+    if (type == "response.output_text.done") {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.output_text.done"));
+        if (function_call_.has_value()) {
+            return invalid_argument("responses: response.output_text.done on function_call item");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: output_text.done content_index does not match the skipped part");
+            }
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: output_text.done does not match the open content part");
+        }
+        if (text_done_) {
+            return invalid_argument("responses: duplicate output_text.done");
+        }
+        text_done_ = true;
+        return events;
+    }
+
+    if (type == "response.content_part.done") {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.content_part.done"));
+        if (function_call_.has_value()) {
+            return invalid_argument("responses: response.content_part.done on function_call item");
+        }
+        if (!chunk.find("part")) {
+            return invalid_argument("responses: response.content_part.done without part");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: content_part.done content_index does not match the skipped part");
+            }
+            skipped_part_ = false;
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: content_part.done does not match the open content part");
+        }
+        if (!text_done_) {
+            return invalid_argument("responses: content_part.done before output_text.done");
+        }
+        block_open_ = false;
+        events.push_back(ir::ContentBlockStop{block_index_});
+        return events;
+    }
+
+    if (type == "response.output_item.done") {
+        OXA_RETURN_IF_ERROR(require_started("response.output_item.done"));
+        std::int64_t out_idx = -1;
+        if (const auto* oi = chunk.find("output_index"); oi && oi->is_int()) out_idx = oi->as_int();
+        if (!item_open_ || out_idx != output_index_) {
+            return invalid_argument("responses: response.output_item.done does not match the open item");
+        }
+        const auto* item = chunk.find("item");
+        if (!item || !item->is_object()) {
+            return invalid_argument("responses: response.output_item.done does not match the open item");
+        }
+        std::string i_id, i_type;
+        if (const auto* idv = item->find("id"); idv && idv->is_string()) i_id = idv->as_string();
+        if (const auto* tv = item->find("type"); tv && tv->is_string()) i_type = tv->as_string();
+        if (i_id != item_id_ || i_type != item_type_) {
+            return invalid_argument("responses: response.output_item.done does not match the open item");
+        }
+        if (skipped_item_ && item_type_ == "function_call_output") {
+            std::string cid;
+            if (const auto* cv = item->find("call_id"); cv && cv->is_string()) cid = cv->as_string();
+            if (cid != skipped_call_id_) {
+                return invalid_argument("responses: response.output_item.done does not match the active function_call_output");
+            }
+        }
+        if (block_open_ || skipped_part_) {
+            return invalid_argument("responses: response.output_item.done with a content part still open");
+        }
+
+        if (function_call_.has_value()) {
+            std::string joined;
+            for (const auto& f : function_call_->fragments) joined += f;
+            std::string cid, name, args;
+            if (const auto* cv = item->find("call_id"); cv && cv->is_string()) cid = cv->as_string();
+            if (const auto* nv = item->find("name"); nv && nv->is_string()) name = nv->as_string();
+            if (const auto* av = item->find("arguments"); av && av->is_string()) args = av->as_string();
+            if (cid != function_call_->call_id || name != function_call_->name || args != joined) {
+                return invalid_argument("responses: response.output_item.done does not match the active function call");
+            }
+            OXA_ASSIGN_OR_RETURN(events, replay_function_call(*function_call_));
+            tool_use_seen_ = true;
+            function_call_ = std::nullopt;
+        }
+
+        item_open_ = false;
+        item_type_.clear();
+        item_id_.clear();
+        skipped_call_id_.clear();
+        skipped_item_ = false;
+        return events;
+    }
+
+    if (type == "response.completed" || type == "response.incomplete" || type == "response.failed") {
+        OXA_RETURN_IF_ERROR(require_started(type));
+        if (item_open_ || block_open_ || skipped_part_) {
+            return invalid_argument("responses: " + type + " before output lifecycle completed");
+        }
+        const auto* resp = chunk.find("response");
+        if (!resp || !resp->is_object()) return invalid_argument("responses: " + type + " without response");
+
+        auto [stop_reason, s_losses] = decode_status(*resp, tool_use_seen_);
+        losses_.insert(losses_.end(), s_losses.begin(), s_losses.end());
+        terminated_ = true;
+
+        ir::Usage usage;
+        if (const auto* uv = resp->find("usage"); uv && uv->is_object()) {
+            if (const auto* in = uv->find("input_tokens"); in && in->is_int()) usage.input_tokens = in->as_int();
+            if (const auto* out = uv->find("output_tokens"); out && out->is_int()) usage.output_tokens = out->as_int();
+        }
+
+        events.push_back(ir::MessageDelta{stop_reason, std::nullopt, usage});
+        events.push_back(ir::MessageDone{});
+        return events;
+    }
+
+    losses_.push_back(make_resp_loss(
+        "type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+        "Responses stream event type \"" + type + "\" is not decoded in the Responses stream profile"));
     return events;
 }
 
 StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
+    if (flushed_) return invalid_argument("responses: stream flushed twice");
+    if (!terminated_) return invalid_argument("responses: stream ended without a terminal response event");
+    flushed_ = true;
     return std::vector<ir::Event>{};
 }
 
 // ---- StreamEncoder --------------------------------------------------------
 
+static std::string stream_generated_item_id(std::string_view prefix, std::int64_t ordinal) {
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "%.*s_abc%03lld", static_cast<int>(prefix.size()), prefix.data(),
+                  static_cast<long long>(123 + 333 * ordinal));
+    return std::string(buf);
+}
+
 StreamEncoder::StreamEncoder(Options opts) : opts_(std::move(opts)) {}
 
-StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Event& event) {
-    std::vector<json::Value> chunks;
+std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_message_item() {
+    std::string item_id = stream_generated_item_id("msg", next_message_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item;
+    item.kind = OutputItemKind::Message;
+    item.id = item_id;
+    item.output_index = output_index;
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value i = json::Value::object();
+    i.set("id", json::Value::string(item_id));
+    i.set("type", json::Value::string("message"));
+    i.set("status", json::Value::string("in_progress"));
+    i.set("role", json::Value::string("assistant"));
+    event.set("item", std::move(i));
+
+    return {std::move(item), std::move(event)};
+}
+
+std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_function_call_item(
+    std::string_view call_id, std::string_view name) {
+    std::string item_id = stream_generated_item_id("fc", next_function_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item;
+    item.kind = OutputItemKind::FunctionCall;
+    item.id = item_id;
+    item.output_index = output_index;
+    item.call_id = std::string(call_id);
+    item.name = std::string(name);
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value i = json::Value::object();
+    i.set("id", json::Value::string(item_id));
+    i.set("type", json::Value::string("function_call"));
+    i.set("status", json::Value::string("in_progress"));
+    i.set("call_id", json::Value::string(std::string(call_id)));
+    i.set("name", json::Value::string(std::string(name)));
+    event.set("item", std::move(i));
+
+    return {std::move(item), std::move(event)};
+}
+
+json::Value StreamEncoder::close_message_item() {
+    auto item = std::move(*active_item_);
+    active_item_ = std::nullopt;
+
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(item.id));
+    completed.set("type", json::Value::string("message"));
+    completed.set("status", json::Value::string("completed"));
+    completed.set("role", json::Value::string("assistant"));
+    json::Value content_arr = json::Value::array();
+    for (auto& c : item.content) {
+        content_arr.push_back(std::move(c));
+    }
+    completed.set("content", std::move(content_arr));
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.done"));
+    event.set("output_index", json::Value::integer(item.output_index));
+    event.set("item", completed);
+
+    completed_.push_back(std::move(completed));
+    return event;
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_text_block(
+    std::int64_t index, const ir::TextBlock& block) {
+    std::vector<json::Value> out;
+    if (!active_item_.has_value()) {
+        auto [item, added] = open_message_item();
+        active_item_ = std::move(item);
+        out.push_back(std::move(added));
+    }
+    if (active_item_->kind != OutputItemKind::Message) {
+        return invalid_argument("responses: TextBlock cannot open before the active function_call item completes");
+    }
+    std::int64_t content_index = active_item_->next_content_index++;
+    json::Value part = json::Value::object();
+    part.set("type", json::Value::string("output_text"));
+    part.set("text", json::Value::string(block.text));
+    part.set("annotations", json::Value::array());
+    active_item_->content.push_back(part);
+
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::Message;
+    eb.content_index = content_index;
+    eb.text = block.text;
+    active_block_ = std::move(eb);
+
+    json::Value added_part = json::Value::object();
+    added_part.set("type", json::Value::string("response.content_part.added"));
+    added_part.set("item_id", json::Value::string(active_item_->id));
+    added_part.set("output_index", json::Value::integer(active_item_->output_index));
+    added_part.set("content_index", json::Value::integer(content_index));
+    added_part.set("part", std::move(part));
+    out.push_back(std::move(added_part));
+
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_function_call_block(
+    std::int64_t index, const ir::ToolUseBlock& block) {
+    if (block.id.empty() || block.name.empty()) {
+        return invalid_argument("responses: ToolUseBlock requires nonempty ID and name");
+    }
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind != OutputItemKind::Message) {
+            return invalid_argument("responses: ToolUseBlock cannot open before the active function_call item completes");
+        }
+        out.push_back(close_message_item());
+    }
+    auto [item, added] = open_function_call_item(block.id, block.name);
+    active_item_ = std::move(item);
+
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::FunctionCall;
+    eb.tool_input = block.input;
+    active_block_ = std::move(eb);
+
+    out.push_back(std::move(added));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_text_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::Message) {
+        return invalid_argument("responses: text block without an active message item");
+    }
+    auto block = std::move(*active_block_);
+    active_block_ = std::nullopt;
+
+    json::Value part = json::Value::object();
+    part.set("type", json::Value::string("output_text"));
+    part.set("text", json::Value::string(block.text));
+    part.set("annotations", json::Value::array());
+    active_item_->content[block.content_index] = part;
+
+    std::string item_id = active_item_->id;
+    std::int64_t output_index = active_item_->output_index;
+
+    std::vector<json::Value> out;
+    json::Value text_done = json::Value::object();
+    text_done.set("type", json::Value::string("response.output_text.done"));
+    text_done.set("item_id", json::Value::string(item_id));
+    text_done.set("output_index", json::Value::integer(output_index));
+    text_done.set("content_index", json::Value::integer(block.content_index));
+    text_done.set("text", json::Value::string(block.text));
+    out.push_back(std::move(text_done));
+
+    json::Value part_done = json::Value::object();
+    part_done.set("type", json::Value::string("response.content_part.done"));
+    part_done.set("item_id", json::Value::string(item_id));
+    part_done.set("output_index", json::Value::integer(output_index));
+    part_done.set("content_index", json::Value::integer(block.content_index));
+    part_done.set("part", std::move(part));
+    out.push_back(std::move(part_done));
+
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_function_call_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::FunctionCall) {
+        return invalid_argument("responses: tool block without an active function_call item");
+    }
+    auto block = std::move(*active_block_);
+    active_block_ = std::nullopt;
+
+    std::vector<json::Value> out;
+    if (block.fragments.empty()) {
+        block.fragments.push_back(block.tool_input);
+        json::Value delta = json::Value::object();
+        delta.set("type", json::Value::string("response.function_call_arguments.delta"));
+        delta.set("item_id", json::Value::string(active_item_->id));
+        delta.set("output_index", json::Value::integer(active_item_->output_index));
+        delta.set("delta", json::Value::string(block.tool_input));
+        out.push_back(std::move(delta));
+    }
+    std::string arguments;
+    for (const auto& f : block.fragments) {
+        arguments += f;
+    }
+    if (arguments != block.tool_input) {
+        return invalid_argument("responses: ToolUseBlock input does not equal concatenated InputJSONDelta fragments");
+    }
+
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(active_item_->id));
+    completed.set("type", json::Value::string("function_call"));
+    completed.set("status", json::Value::string("completed"));
+    completed.set("call_id", json::Value::string(active_item_->call_id));
+    completed.set("name", json::Value::string(active_item_->name));
+    completed.set("arguments", json::Value::string(arguments));
+
+    json::Value args_done = json::Value::object();
+    args_done.set("type", json::Value::string("response.function_call_arguments.done"));
+    args_done.set("item_id", json::Value::string(active_item_->id));
+    args_done.set("output_index", json::Value::integer(active_item_->output_index));
+    args_done.set("call_id", json::Value::string(active_item_->call_id));
+    args_done.set("name", json::Value::string(active_item_->name));
+    args_done.set("arguments", json::Value::string(arguments));
+    out.push_back(std::move(args_done));
+
+    json::Value item_done = json::Value::object();
+    item_done.set("type", json::Value::string("response.output_item.done"));
+    item_done.set("output_index", json::Value::integer(active_item_->output_index));
+    item_done.set("item", completed);
+    out.push_back(std::move(item_done));
+
+    completed_.push_back(std::move(completed));
+    active_item_ = std::nullopt;
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> StreamEncoder::terminal(const ir::MessageDelta& delta) {
+    json::Value resp = json::Value::object();
+    resp.set("id", json::Value::string(id_));
+    resp.set("object", json::Value::string("response"));
+    resp.set("model", json::Value::string(model_));
+
+    json::Value output_arr = json::Value::array();
+    for (const auto& item : completed_) {
+        output_arr.push_back(item);
+    }
+    resp.set("output", std::move(output_arr));
+
+    json::Value usage = json::Value::object();
+    usage.set("input_tokens", json::Value::integer(delta.usage.input_tokens));
+    usage.set("output_tokens", json::Value::integer(delta.usage.output_tokens));
+    usage.set("total_tokens", json::Value::integer(delta.usage.input_tokens + delta.usage.output_tokens));
+    resp.set("usage", std::move(usage));
+
     std::vector<ir::Loss> losses;
+    json::Value event = json::Value::object();
+
+    if (delta.stop_reason == ir::STOP_END_TURN || delta.stop_reason == ir::STOP_TOOL_USE) {
+        resp.set("status", json::Value::string("completed"));
+        event.set("type", json::Value::string("response.completed"));
+        event.set("response", std::move(resp));
+    } else if (delta.stop_reason == ir::STOP_MAX_TOKENS) {
+        resp.set("status", json::Value::string("incomplete"));
+        json::Value inc = json::Value::object();
+        inc.set("reason", json::Value::string("max_output_tokens"));
+        resp.set("incomplete_details", std::move(inc));
+        event.set("type", json::Value::string("response.incomplete"));
+        event.set("response", std::move(resp));
+    } else if (delta.stop_reason == ir::STOP_REFUSAL) {
+        resp.set("status", json::Value::string("failed"));
+        json::Value err = json::Value::object();
+        err.set("code", json::Value::string("refusal"));
+        err.set("message", json::Value::string(""));
+        resp.set("error", std::move(err));
+        event.set("type", json::Value::string("response.failed"));
+        event.set("response", std::move(resp));
+    } else if (delta.stop_reason == ir::STOP_STOP_SEQUENCE) {
+        resp.set("status", json::Value::string("completed"));
+        event.set("type", json::Value::string("response.completed"));
+        event.set("response", std::move(resp));
+        losses.push_back(make_resp_loss(
+            "status", "stop_sequence", ir::LOSS_UNMAPPED_VALUE,
+            "Responses status carries no stop-sequence identity; the matched IR stop sequence is lost"));
+    } else {
+        return invalid_argument("responses: stop reason \"" + std::string(delta.stop_reason) + "\" has no Responses equivalent");
+    }
+
+    return std::make_pair(std::move(event), std::move(losses));
+}
+
+StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Event& event) {
+    if (done_ || (delta_ && !std::holds_alternative<ir::MessageDone>(event))) {
+        return invalid_argument("responses: event applied after stream termination");
+    }
 
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
+        if (started_) return invalid_argument("responses: duplicate MessageStart");
+        started_ = true;
         id_ = ms->id;
         model_ = opts_.model_map.map(ms->model);
-        started_ = true;
 
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("response.created"));
         json::Value resp = json::Value::object();
         resp.set("id", json::Value::string(id_));
-        resp.set("model", json::Value::string(model_));
+        resp.set("object", json::Value::string("response"));
         resp.set("status", json::Value::string("in_progress"));
-        chunk.set("response", std::move(resp));
-        chunks.push_back(std::move(chunk));
-    } else if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
-        json::Value chunk = json::Value::object();
-        chunk.set("type", json::Value::string("response.output_item.added"));
-        json::Value item = json::Value::object();
-        if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
-            item.set("type", json::Value::string("function_call"));
-            item.set("call_id", json::Value::string(tu->id));
-            item.set("name", json::Value::string(tu->name));
-            item.set("arguments", json::Value::string(""));
-        } else {
-            item.set("type", json::Value::string("message"));
-            item.set("role", json::Value::string("assistant"));
-        }
-        chunk.set("item", std::move(item));
-        chunks.push_back(std::move(chunk));
-    } else if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
-        if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
-            json::Value chunk = json::Value::object();
-            chunk.set("type", json::Value::string("response.output_text.delta"));
-            chunk.set("delta", json::Value::string(td->text));
-            chunks.push_back(std::move(chunk));
-        } else if (const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta)) {
-            json::Value chunk = json::Value::object();
-            chunk.set("type", json::Value::string("response.function_call_arguments.delta"));
-            chunk.set("delta", json::Value::string(ij->partial_json));
-            chunks.push_back(std::move(chunk));
-        }
-    } else if (std::holds_alternative<ir::ContentBlockStop>(event)) {
-        json::Value chunk = json::Value::object();
-        chunk.set("type", json::Value::string("response.output_item.done"));
-        chunks.push_back(std::move(chunk));
-    } else if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
-        json::Value chunk = json::Value::object();
-        chunk.set("type", json::Value::string("response.completed"));
-        json::Value resp = json::Value::object();
-        resp.set("id", json::Value::string(id_));
         resp.set("model", json::Value::string(model_));
-        if (md->stop_reason == ir::STOP_END_TURN || md->stop_reason == ir::STOP_TOOL_USE) {
-            resp.set("status", json::Value::string("completed"));
-        } else if (md->stop_reason == ir::STOP_MAX_TOKENS) {
-            resp.set("status", json::Value::string("incomplete"));
-        } else {
-            resp.set("status", json::Value::string("completed"));
-        }
-        json::Value usage = json::Value::object();
-        usage.set("input_tokens", json::Value::integer(md->usage.input_tokens));
-        usage.set("output_tokens", json::Value::integer(md->usage.output_tokens));
-        usage.set("total_tokens", json::Value::integer(md->usage.input_tokens + md->usage.output_tokens));
-        resp.set("usage", std::move(usage));
+        resp.set("output", json::Value::array());
         chunk.set("response", std::move(resp));
-        chunks.push_back(std::move(chunk));
+        return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
     }
 
-    return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+    if (const auto* cbs = std::get_if<ir::ContentBlockStart>(&event)) {
+        if (!started_ || active_block_.has_value() || delta_) {
+            return invalid_argument("responses: ContentBlockStart out of grammar order");
+        }
+        if (cbs->index != next_block_index_) {
+            return invalid_argument("responses: ContentBlockStart index " + std::to_string(cbs->index) +
+                                    ", want " + std::to_string(next_block_index_));
+        }
+        next_block_index_++;
+        if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_function_call_block(cbs->index, *tu));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        return invalid_argument("responses: ContentBlockStart carries unsupported block");
+    }
+
+    if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
+        if (!active_block_.has_value() || cbd->index != active_block_->index) {
+            return invalid_argument("responses: ContentBlockDelta out of grammar order");
+        }
+        if (active_block_->kind == OutputItemKind::Message) {
+            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
+            if (!td) return invalid_argument("responses: TextBlock received non-text delta");
+            active_block_->text += td->text;
+
+            json::Value chunk = json::Value::object();
+            chunk.set("type", json::Value::string("response.output_text.delta"));
+            chunk.set("item_id", json::Value::string(active_item_->id));
+            chunk.set("output_index", json::Value::integer(active_item_->output_index));
+            chunk.set("content_index", json::Value::integer(active_block_->content_index));
+            chunk.set("delta", json::Value::string(td->text));
+            return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+        }
+        if (active_block_->kind == OutputItemKind::FunctionCall) {
+            const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
+            if (!ij) return invalid_argument("responses: ToolUseBlock received non-input-json delta");
+            active_block_->fragments.push_back(ij->partial_json);
+
+            json::Value chunk = json::Value::object();
+            chunk.set("type", json::Value::string("response.function_call_arguments.delta"));
+            chunk.set("item_id", json::Value::string(active_item_->id));
+            chunk.set("output_index", json::Value::integer(active_item_->output_index));
+            chunk.set("delta", json::Value::string(ij->partial_json));
+            return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+        }
+        return invalid_argument("responses: unknown active block kind");
+    }
+
+    if (const auto* cbs = std::get_if<ir::ContentBlockStop>(&event)) {
+        if (!active_block_.has_value() || cbs->index != active_block_->index) {
+            return invalid_argument("responses: ContentBlockStop out of grammar order");
+        }
+        if (active_block_->kind == OutputItemKind::Message) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_text_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        OXA_ASSIGN_OR_RETURN(auto res, stop_function_call_block());
+        return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+    }
+
+    if (const auto* md = std::get_if<ir::MessageDelta>(&event)) {
+        if (!started_ || active_block_.has_value() || delta_) {
+            return invalid_argument("responses: MessageDelta out of grammar order");
+        }
+        std::vector<json::Value> out;
+        if (active_item_.has_value()) {
+            if (active_item_->kind != OutputItemKind::Message) {
+                return invalid_argument("responses: MessageDelta with an uncompleted function_call item");
+            }
+            out.push_back(close_message_item());
+        }
+        OXA_ASSIGN_OR_RETURN(auto res, terminal(*md));
+        delta_ = true;
+        out.push_back(std::move(res.first));
+        return Conversion<std::vector<json::Value>>{std::move(out), std::move(res.second)};
+    }
+
+    if (std::holds_alternative<ir::MessageDone>(event)) {
+        if (!delta_) return invalid_argument("responses: MessageDone out of grammar order");
+        done_ = true;
+        return Conversion<std::vector<json::Value>>{{}, {}};
+    }
+
+    return invalid_argument("responses: unknown event type");
 }
 
 }  // namespace oxa::openai::responses

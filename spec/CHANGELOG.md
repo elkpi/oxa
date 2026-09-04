@@ -5,6 +5,18 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 1.0.0 - 2026-09-04
+
+All four supported languages — Go, Rust, Python, and C++ — implement the
+specification against the identical 125 golden vectors. The specification reaches
+1.0.0 stability.
+
+### Changed
+
+- Specification promoted to 1.0.0 following the multi-language implementation
+  milestones (0.0.x Go, 0.1.0 Rust, 0.2.0 Python, 0.3.0 C++, 1.0.0 all languages).
+- Future additions to sealed unions or enums will constitute major version bumps.
+
 ## 0.0.2 - 2026-09-02
 
 The 0.0 series is **frozen** as the specification baseline for the Rust

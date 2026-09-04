@@ -8,9 +8,9 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **0.0.2** — the 0.0 series is **frozen** as the
-baseline for the Rust implementation. See
-[CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Current spec version: **1.0.0** — all four supported languages (Go, Rust,
+Python, and C++) implement the specification against the identical 125 golden
+vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 

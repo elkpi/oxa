@@ -7,7 +7,7 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: multi-language complete, v1 ready.** The specification, golden vectors,
+**Status: v1.0.0 released.** The specification, golden vectors,
 and all four reference implementations (Go, Rust, Python, and C++) pass the
 identical 125 golden vectors across nonstream, cross-protocol, and stream suites.
 
@@ -56,21 +56,21 @@ without a corresponding vector update.
 
 | Language | Directory | State |
 |----------|-----------|-------|
-| Go | `go/` | Reference implementation — usable (`v0.0.1`, v1 ready) |
-| Rust | `rust/` | Usable (`v0.1.0`) |
-| Python | `python/` | Usable (`v0.2.0`) |
-| C++ | `cpp/` | Usable (`v0.3.0`) |
+| Go | `go/` | Usable (`v1.0.0`) |
+| Rust | `rust/` | Usable (`v1.0.0`) |
+| Python | `python/` | Usable (`v1.0.0`) |
+| C++ | `cpp/` | Usable (`v1.0.0`) |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v1 ready)
+go/        Go reference implementation (v1.0.0)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v0.1.0)
-python/    Python implementation (v0.2.0)
-cpp/       C++ implementation (v0.3.0)
+rust/      Rust implementation (v1.0.0)
+python/    Python implementation (v1.0.0)
+cpp/       C++ implementation (v1.0.0)
 ```
 
 ## Current capabilities

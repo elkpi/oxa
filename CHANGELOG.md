@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.0] - 2026-09-04
+
+### Added
+
+- **oxa 1.0.0 Milestone Release**: All four reference implementations (Go, Rust, Python, C++)
+  implement the complete pure in-process protocol-conversion specification across OpenAI Chat
+  Completions, OpenAI Responses, and Anthropic Messages, verified against the identical 125 golden vectors.
+  - Zero third-party runtime dependencies across all four language implementations.
+  - Hub-and-spoke intermediate representation (IR) with pure face ↔ IR converters.
+  - Full non-streaming, streaming (M7 tool-argument aggregation), and cross-protocol conversion support.
+  - Opaque tool input handling preserving byte-for-byte fidelity (INV-1).
+  - Explicit loss tracking for unmapped fields and semantics (spec/02).
+  - Multi-OS continuous integration across Linux (Ubuntu default and `-fno-exceptions`), macOS, and Windows.
+  - Downstream packaging support: CMake `install()` and `find_package(oxa CONFIG REQUIRED)` exports for C++,
+    workspace package versioning for Rust crates, and PEP 621 package metadata for Python.
+
 ## [v0.3.0] - 2026-09-04
 
 ### Added

@@ -1,5 +1,7 @@
 #include "oxa/openai/responses.hpp"
 
+#include <cstdio>
+
 namespace oxa::openai::responses {
 namespace {
 

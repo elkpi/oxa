@@ -133,10 +133,24 @@ A complete, compile-verified version of this example lives at
 - [docs/release-checklist.md](docs/release-checklist.md) — release
   preconditions
 
+## Downstream verification
+
+The repository keeps executable clean-consumer fixtures under
+[`ci/consumers/`](ci/consumers/). They build and install the four language
+artifacts outside the source tree, then run a minimal conversion and streaming
+consumer. The bounded cross-language stream replay is under
+[`ci/reliability/`](ci/reliability/), using the shared corpus in
+[`testdata/stream-fragment-corpus.json`](testdata/stream-fragment-corpus.json).
+
+These checks validate packaging and compatibility but do not publish to a
+registry. Rust production crates use `serde` and `serde_json`; see
+[`rust/README.md`](rust/README.md) for the dependency boundary.
+
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). Note that we do not accept
-new-language skeleton PRs before the v1 spec freeze.
+See [CONTRIBUTING.md](CONTRIBUTING.md). With v1 frozen, behavior changes still
+require the `spec → vectors → implementation` order and an explicit
+compatibility review.
 
 ## License
 

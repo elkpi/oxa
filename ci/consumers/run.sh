@@ -66,13 +66,17 @@ run_python_consumer() {
     command -v "$python" >/dev/null
     local build_env="$TMP/python-build-env"
     local dist="$TMP/python-dist"
-    "$python" -m venv "$build_env"
-    "$build_env/bin/python" -m pip install --disable-pip-version-check --quiet build
     mkdir -p "$dist"
-    (
-        cd "$ROOT/python"
-        "$build_env/bin/python" -m build --wheel --sdist --outdir "$dist"
-    )
+    if command -v uv >/dev/null; then
+        uv build --wheel --sdist --out-dir "$dist" "$ROOT/python"
+    else
+        "$python" -m venv "$build_env"
+        "$build_env/bin/python" -m pip install --disable-pip-version-check --quiet build
+        (
+            cd "$ROOT/python"
+            "$build_env/bin/python" -m build --wheel --sdist --outdir "$dist"
+        )
+    fi
     local wheel
     local sdist
     wheel=$(find "$dist" -maxdepth 1 -type f -name '*.whl' -print -quit)
@@ -138,7 +142,7 @@ run_cpp_consumer() {
     cmake -S "$ROOT/cpp" -B "$build" -DCMAKE_BUILD_TYPE=Debug
     cmake --build "$build" --parallel
     cmake --install "$build" --prefix "$prefix"
-    cmake -S "$ROOT/ci/consumers/cpp" -B "$consumer_build" \
+    env -u OXA_ROOT cmake -S "$ROOT/ci/consumers/cpp" -B "$consumer_build" \
         -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix"
     cmake --build "$consumer_build" --parallel
     env -u OXA_ROOT "$consumer_build/oxa_consumer"

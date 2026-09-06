@@ -151,11 +151,11 @@ Add a temporary test that runs `ci/consumers/run.sh` with an empty artifact dire
 
 - [ ] **Step 3: Implement Python wheel/sdist fixture**
 
-`smoke.py` must run outside the repository, import `oxa`, assert `oxa.__version__ == "1.0.0"`, construct `oxa.openai.chatcompletions` input using its documented `decode_request` function, and run a `StreamDecoder` with a valid text stream. The runner must build both `--wheel` and `--sdist`, create separate virtual environments, install each artifact with `--no-deps`, and invoke the script without `PYTHONPATH`.
+`smoke.py` must run outside the repository, import `oxa`, assert `oxa.__version__ == "1.0.0"`, construct `oxa.openai.chatcompletions` input using its documented `decode_request` function, and run a `StreamDecoder` with a valid tool stream. The runner must build both `--wheel` and `--sdist` (using `uv build` when available and an isolated `python -m build` environment otherwise), create separate virtual environments, install each artifact with `--no-deps`, and invoke the script without `PYTHONPATH`.
 
 - [ ] **Step 4: Implement Rust packaged consumer fixture**
 
-The fixture's `Cargo.toml` must depend only on the public `oxa-chatcompletions` and `oxa-ir` crates at `1.0.0`; `src/main.rs` must construct the exported `oxa_chatcompletions::types::Request`, call `decode_request` with `Config::default()`, assert the IR has one message, and print a success marker. `run.sh` must package each public crate, extract the selected crate archive outside the workspace, and build the consumer against extracted package directories; it must not add `oxa-vectest` as a dependency.
+The fixture's `Cargo.toml` must depend only on the public `oxa-chatcompletions` and `oxa-ir` crates at `1.0.0`; `src/main.rs` must construct the exported `oxa_chatcompletions::types::Request`, call `decode_request` with `Config::default()`, assert the IR has one message, and print a success marker. `run.sh` must run `cargo package --list --no-verify` for each public crate, copy only package-listed source into isolated package-shaped directories with expanded manifests, and build the consumer against those directories; it must not add `oxa-vectest` as a dependency. Full registry verification remains a separate step once dependent crates exist in the target registry.
 
 - [ ] **Step 5: Implement C++ installed consumer fixture**
 

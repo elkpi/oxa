@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "cases": [
+    {
+      "id": "chatcompletions-empty-middle",
+      "protocol": "chatcompletions",
+      "argument": "{\"city\":\"P\\u0041ris\",\"days\":1e+01}",
+      "fragments": [
+        "{\"city\":\"P\\u0041ris\",",
+        "",
+        "\"days\":1e+01}"
+      ]
+    },
+    {
+      "id": "responses-unicode-escaped",
+      "protocol": "responses",
+      "argument": "{\"label\":\"东京\",\"value\":1e+01}",
+      "fragments": [
+        "{\"label\":\"",
+        "东京",
+        "\",\"value\":1e+01}"
+      ]
+    },
+    {
+      "id": "anthropic-empty-middle",
+      "protocol": "anthropic",
+      "argument": "{\"city\": \"P\\u0041ris\", \"days\": 1e+01}",
+      "fragments": [
+        "{\"city\": ",
+        "\"P\\u0041ris\", ",
+        "",
+        "\"days\": 1e+01}"
+      ]
+    },
+    {
+      "id": "chatcompletions-nested-escaped",
+      "protocol": "chatcompletions",
+      "argument": "{\"outer\":{\"quote\":\"\\\\\\\"ok\\\\\\\"\"}}",
+      "fragments": [
+        "{\"outer\":",
+        "{\"quote\":\"\\\\\\\"",
+        "ok\\\\\\\"\"}}"
+      ]
+    }
+  ]
+}

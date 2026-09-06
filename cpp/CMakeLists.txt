@@ -73,7 +73,7 @@ install(FILES
 
 enable_testing()
 
-foreach(t test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream)
+foreach(t test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE oxa oxa_vectest)
   add_test(NAME ${t} COMMAND ${t})

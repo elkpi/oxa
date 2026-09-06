@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **oxa 1.0.0 Milestone Release**: All four reference implementations (Go, Rust, Python, C++)
   implement the complete pure in-process protocol-conversion specification across OpenAI Chat
   Completions, OpenAI Responses, and Anthropic Messages, verified against the identical 125 golden vectors.
-  - Zero third-party runtime dependencies across all four language implementations.
+  - Go, Python, and C++ have no third-party runtime dependencies; Rust production crates use `serde` and `serde_json`.
   - Hub-and-spoke intermediate representation (IR) with pure face ↔ IR converters.
   - Full non-streaming, streaming (M7 tool-argument aggregation), and cross-protocol conversion support.
   - Opaque tool input handling preserving byte-for-byte fidelity (INV-1).

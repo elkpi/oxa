@@ -24,6 +24,7 @@ add_library(oxa
   src/openai/responses.cpp
   src/anthropic/messages.cpp
 )
+target_compile_features(oxa PUBLIC cxx_std_20)
 target_include_directories(oxa PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>

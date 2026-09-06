@@ -1,0 +1,8 @@
+[package]
+name = "oxa-consumer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+oxa-chatcompletions = { path = "../oxa-chatcompletions" }
+oxa-ir = { path = "../oxa-ir" }

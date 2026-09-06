@@ -141,7 +141,7 @@ run_cpp_consumer() {
     cmake -S "$ROOT/ci/consumers/cpp" -B "$consumer_build" \
         -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix"
     cmake --build "$consumer_build" --parallel
-    "$consumer_build/oxa_consumer"
+    env -u OXA_ROOT "$consumer_build/oxa_consumer"
 }
 
 if should_run go; then

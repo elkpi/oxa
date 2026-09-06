@@ -1,8 +1,8 @@
 # oxa Rust implementation
 
-The Rust implementation targets the frozen spec baseline and version **1.0.0**
-(following the project's versioning cadence: 0.0.x Go, 0.1.0 Rust, 0.2.0 Python, 0.3.0 C++,
-and 1.0.0 for all supported languages).
+The Rust library version is **1.0.0** (the shared project release version).
+Its IR contract remains `specVersion: 0.1.0`; the implementation version and the
+IR contract version are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
 oxa implementation — Rust gets no vector set of its own, and CI runs the
@@ -28,10 +28,10 @@ rust/crates/oxa-sse/             the byte-level SSE frame adapter
                                  (spec/20 §6); implemented
 ```
 
-Production crates depend on `serde` and `serde_json` only. Test-only code
-may add dev-dependencies; the hub-and-spoke dependency rule from spec/00 §4
-applies unchanged: face crates must not import each other, only `oxa-ir`
-and `oxa-modelmap`.
+Production crates use the runtime dependencies `serde` and `serde_json`.
+Test-only code may add dev-dependencies; the hub-and-spoke dependency rule from
+spec/00 §4 applies unchanged: face crates must not import each other, only
+`oxa-ir` and `oxa-modelmap`.
 
 ## Vectors location convention
 

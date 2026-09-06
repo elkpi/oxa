@@ -32,12 +32,14 @@ Every behavior change follows this order, no exceptions:
 A PR that changes behavior without a spec update and rationale will be
 returned to you.
 
-## No new-language skeletons before v1 freeze
+## Contributions after v1 is frozen
 
-We do **not** accept PRs adding new-language skeletons (Rust, Python, C++, or
-anything else) before the v1 spec freeze. Adding a language before the spec
-stabilizes multiplies rework across every behavior change. Once v1 is frozen,
-per-language directories will be opened with a tracked issue each.
+With v1 frozen, behavior changes still require the `spec → vectors →
+implementation` order and an explicit compatibility review. A new language or
+public package must include a tracked consumer smoke test, the documented
+runtime dependencies, and a plan for the shared vector suite. New protocol
+semantics must first be proposed against the versioning rules in `spec/README.md`;
+contributors must not silently extend a sealed IR union or enum.
 
 ## Reporting bugs
 

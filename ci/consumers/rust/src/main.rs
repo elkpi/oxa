@@ -1,6 +1,6 @@
-use oxa_chatcompletions::{
-    decode_request, ChoiceDelta, Chunk, Config, ContentValue, DeltaPayload, FunctionDelta,
-    Message, Request, StreamDecoder, ToolCallDelta, ROLE_USER, TOOL_TYPE_FUNCTION,
+use oxa::chatcompletions::{
+    decode_request, ChoiceDelta, Chunk, Config, ContentValue, DeltaPayload, FunctionDelta, Message,
+    Request, StreamDecoder, ToolCallDelta, ROLE_USER, TOOL_TYPE_FUNCTION,
 };
 
 fn chunk(delta: DeltaPayload, finish_reason: Option<&str>) -> Chunk {

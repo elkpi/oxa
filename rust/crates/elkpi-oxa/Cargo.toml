@@ -1,0 +1,19 @@
+[package]
+name = "elkpi-oxa"
+description = "Pure, in-process protocol-conversion library for OpenAI and Anthropic"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[lib]
+name = "oxa"
+path = "src/lib.rs"
+
+[dependencies]
+oxa-ir = { workspace = true }
+oxa-modelmap = { workspace = true }
+oxa-chatcompletions = { workspace = true }
+oxa-anthropic = { workspace = true }
+oxa-responses = { workspace = true }
+oxa-sse = { workspace = true }

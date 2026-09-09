@@ -25,6 +25,11 @@ coverage.html
 # veccheck binary (built locally, never committed)
 go/veccheck
 
+# TypeScript artifacts (per-language, under ts/)
+ts/node_modules/
+ts/dist/
+ts/dist-test/
+
 # Rust artifacts (per-language, under rust/)
 /rust/target/
 rust/**/*.rs.bk

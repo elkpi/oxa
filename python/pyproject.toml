@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "oxa"
+name = "elkpi-oxa"
 version = "1.0.0"
 description = "Pure, in-process protocol-conversion library for OpenAI and Anthropic"
 readme = "README.md"

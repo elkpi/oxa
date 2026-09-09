@@ -119,8 +119,8 @@ A complete, compile-verified version of this example lives at
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), library version `1.0.0`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
-- **Python**: PEP 621 package in [`python/`](python/README.md), pure Python standard library with zero runtime dependencies.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `1.0.0`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
+- **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 
 ## Documentation

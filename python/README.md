@@ -20,6 +20,19 @@ structures and oxa's shared Intermediate Representation (IR).
 - **Shared Golden Vectors**: Conforms to the exact same shared `vectors/` golden
   suite as Go and Rust.
 
+## Installation
+
+```bash
+pip install elkpi-oxa
+```
+
+Import in Python:
+
+```python
+import oxa
+from oxa.openai.chatcompletions import decode_request
+```
+
 ## Development
 
 The project uses [`uv`](https://docs.astral.sh/uv/) for development and

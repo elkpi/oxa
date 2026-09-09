@@ -16,6 +16,7 @@ coverage.html
 # Editors and OS
 .idea/
 .vscode/
+.worktrees/
 .DS_Store
 *.swp
 *.swo

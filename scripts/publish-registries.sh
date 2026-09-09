@@ -26,25 +26,37 @@ PYPI_TOKEN=$(cat "$PYPI_TOKEN_FILE" | tr -d '\r\n')
 CRATES_TOKEN=$(cat "$CRATES_TOKEN_FILE" | tr -d '\r\n')
 
 # 2. Publish Python package (elkpi-oxa) to PyPI
-echo "--> [1/3] Building Python distribution (elkpi-oxa)..."
-DIST_DIR=$(mktemp -d /tmp/oxa-pypi-dist.XXXXXX)
-trap 'rm -rf "$DIST_DIR"' EXIT
-
-uv build --wheel --sdist --out-dir "$DIST_DIR" "$ROOT/python"
-
-if [[ "$DRY_RUN" == "true" ]]; then
-    echo "--> [Dry-run] Checking PyPI upload for elkpi-oxa..."
-    uv publish --dry-run "$DIST_DIR"/*
+echo "--> [1/3] Checking Python distribution (elkpi-oxa)..."
+PYPI_STATUS=$(curl -s -o /dev/null -w "%{http_code}" https://pypi.org/pypi/elkpi-oxa/1.0.0/json || true)
+if [[ "$PYPI_STATUS" == "200" ]]; then
+    echo "    elkpi-oxa v1.0.0 is already live on PyPI, skipping upload."
 else
-    echo "--> Publishing elkpi-oxa to PyPI..."
-    UV_PUBLISH_TOKEN="$PYPI_TOKEN" uv publish "$DIST_DIR"/*
-    echo "    Published elkpi-oxa to PyPI successfully!"
+    DIST_DIR=$(mktemp -d /tmp/oxa-pypi-dist.XXXXXX)
+    trap 'rm -rf "$DIST_DIR"' EXIT
+
+    uv build --wheel --sdist --out-dir "$DIST_DIR" "$ROOT/python"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+        echo "--> [Dry-run] Checking PyPI upload for elkpi-oxa..."
+        uv publish --dry-run "$DIST_DIR"/*
+    else
+        echo "--> Publishing elkpi-oxa to PyPI..."
+        UV_PUBLISH_TOKEN="$PYPI_TOKEN" uv publish "$DIST_DIR"/*
+        echo "    Published elkpi-oxa to PyPI successfully!"
+    fi
 fi
 
 # 3. Publish Rust crates to crates.io in dependency waves
 publish_crate() {
     local crate_name="$1"
+    local version="1.0.0"
     local manifest_path="$ROOT/rust/crates/$crate_name/Cargo.toml"
+    local code
+    code=$(curl -s -o /dev/null -w "%{http_code}" -A "oxa-publish (github.com/elkpi/oxa)" "https://crates.io/api/v1/crates/$crate_name/$version" || true)
+    if [[ "$code" == "200" ]]; then
+        echo "    $crate_name v$version is already live on crates.io, skipping."
+        return 0
+    fi
     echo "    Publishing $crate_name..."
     if [[ "$DRY_RUN" == "true" ]]; then
         cargo publish --dry-run --allow-dirty --manifest-path "$manifest_path"

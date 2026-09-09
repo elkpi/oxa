@@ -38,9 +38,11 @@ Each face imports only the standard TypeScript platform, `ir`, and `modelmap`.
 An architecture test enforces that no face imports another face. `sse` imports
 neither protocol faces nor IR.
 
-Wire types are generated from `spec/schema/` where schemas define their
-structure; the generated files are committed and regenerated in CI. Semantic
-IR and conversion types remain hand-written.
+The repository schemas generate and CI-check IR, loss, and vector-fixture
+types. The provider wire shapes have no JSON Schemas, so their types are
+hand-written from `spec/10` through `spec/12` and their behavior is locked by
+the shared vectors. Generated files are committed. Semantic conversion types
+remain hand-written.
 
 ## Public API
 

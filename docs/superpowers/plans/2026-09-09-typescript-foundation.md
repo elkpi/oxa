@@ -6,7 +6,7 @@
 
 **Architecture:** `ts/` is one ESM npm package compiled by `tsc`. The foundation is deliberately face-neutral: only later spokes may depend on `ir` and `modelmap`; `sse` stays independent. JSON is parsed into a lossless AST so comparisons and opaque JSON fields never depend on JavaScript `number` or native JSON serialization.
 
-**Tech Stack:** Node.js 20+, TypeScript 5.x compiler, Node built-in `node:test` and `node:assert/strict`, npm.
+**Tech Stack:** Node.js 20+, TypeScript 5.9.3, Prettier 3.8.3, Node built-in `node:test` and `node:assert/strict`, npm.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-typescript-support-design.md`
 
@@ -59,9 +59,10 @@ Create an ESM `package.json` with `name: "@elkpi/oxa"`, `version: "0.1.0"`, `typ
   "build:test": "tsc -p tsconfig.test.json",
   "test": "npm run build:test && node --test dist-test/test",
   "check": "tsc --noEmit -p tsconfig.json",
-  "fmt": "npx prettier --check ."
+  "fmt": "prettier . --check"
 }
 ```
+Install exact dev dependencies before testing: `npm install --save-dev --save-exact typescript@5.9.3 prettier@3.8.3`.
 
 Set both TypeScript configs to `strict: true`, `module` and `moduleResolution` `NodeNext`, `target: ES2022`, `declaration: true`, `sourceMap: true`, `noUncheckedIndexedAccess: true`, and `exactOptionalPropertyTypes: true`. The test config emits `src/` and `test/` to `dist-test/` and sets `declaration: false`.
 

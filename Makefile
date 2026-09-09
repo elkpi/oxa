@@ -14,7 +14,7 @@ define go_target
 	fi
 endef
 
-.PHONY: test vectors lint fmt check-modulepath test-python
+.PHONY: test vectors lint fmt check-modulepath test-python test-ts lint-ts fmt-ts
 
 test:
 	$(call go_target,go test ./...,$@,M3)
@@ -49,3 +49,13 @@ check-modulepath:
 	else \
 		echo "check-modulepath: none found (no Go module files yet, or clean)."; \
 	fi
+
+
+test-ts:
+	@if [ -f ts/package.json ]; then cd ts && npm test; else echo "test-ts: ts/package.json not found."; exit 1; fi
+
+lint-ts:
+	@if [ -f ts/package.json ]; then cd ts && npm run lint; else echo "lint-ts: ts/package.json not found."; exit 1; fi
+
+fmt-ts:
+	@if [ -f ts/package.json ]; then cd ts && npm run fmt; else echo "fmt-ts: ts/package.json not found."; exit 1; fi

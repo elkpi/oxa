@@ -100,7 +100,7 @@ run_rust_consumer() {
     local target="$TMP/cargo-target"
     local crates="$TMP/rust-crates"
     mkdir -p "$crates"
-    for crate in oxa-ir oxa-modelmap oxa-chatcompletions oxa-anthropic oxa-responses oxa-sse; do
+    for crate in oxa-ir oxa-modelmap oxa-chatcompletions oxa-anthropic oxa-responses oxa-sse elkpi-oxa; do
         local manifest="$ROOT/rust/crates/$crate/Cargo.toml"
         local package_list="$TMP/$crate.package-list"
         (
@@ -119,6 +119,10 @@ run_rust_consumer() {
             -e 's/repository.workspace = true/repository = "https:\/\/github.com\/elkpi\/oxa"/' \
             -e 's/oxa-ir = { workspace = true }/oxa-ir = { version = "1.0.0", path = "..\/oxa-ir" }/' \
             -e 's/oxa-modelmap = { workspace = true }/oxa-modelmap = { version = "1.0.0", path = "..\/oxa-modelmap" }/' \
+            -e 's/oxa-chatcompletions = { workspace = true }/oxa-chatcompletions = { version = "1.0.0", path = "..\/oxa-chatcompletions" }/' \
+            -e 's/oxa-anthropic = { workspace = true }/oxa-anthropic = { version = "1.0.0", path = "..\/oxa-anthropic" }/' \
+            -e 's/oxa-responses = { workspace = true }/oxa-responses = { version = "1.0.0", path = "..\/oxa-responses" }/' \
+            -e 's/oxa-sse = { workspace = true }/oxa-sse = { version = "1.0.0", path = "..\/oxa-sse" }/' \
             -e 's/serde = { workspace = true }/serde = { version = "1", features = ["derive"] }/' \
             -e 's/serde_json = { workspace = true }/serde_json = { version = "1", features = ["raw_value"] }/' \
             -e '/^\[dev-dependencies\]/,$d' \
@@ -126,7 +130,7 @@ run_rust_consumer() {
     done
     mkdir -p "$TMP/rust-consumer/src"
     cp "$ROOT/ci/consumers/rust/src/main.rs" "$TMP/rust-consumer/src/main.rs"
-    sed "s#path = \"../oxa-chatcompletions\"#path = \"../rust-crates/oxa-chatcompletions\"#; s#path = \"../oxa-ir\"#path = \"../rust-crates/oxa-ir\"#" \
+    sed "s#path = \"../elkpi-oxa\"#path = \"../rust-crates/elkpi-oxa\"#" \
         "$ROOT/ci/consumers/rust/Cargo.toml" > "$TMP/rust-consumer/Cargo.toml"
     (
         cd "$TMP/rust-consumer"

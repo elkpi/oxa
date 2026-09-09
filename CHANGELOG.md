@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Rust: `elkpi-oxa` umbrella crate with `[lib] name = "oxa"` re-exporting all protocol faces and IR under `use oxa::...`.
+
+### Changed
+
+- Python: distribution package renamed to `elkpi-oxa` on PyPI (`pip install elkpi-oxa`); in-code imports remain `import oxa`.
+- Downstream packaging: verified clean consumers for `elkpi-oxa` on both Python (wheel & sdist) and Rust.
+
 ## [v1.0.0] - 2026-09-04
 
 ### Added

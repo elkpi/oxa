@@ -15,6 +15,7 @@ independent Go module):
 
 ```
 rust/Cargo.toml          workspace root
+rust/crates/elkpi-oxa/   umbrella crate (`use oxa::...`) re-exporting all faces
 rust/crates/oxa-ir/      the IR types, document codec, and invariant checker
                          (spec/01); implemented
 rust/crates/oxa-vectest/         the dev-only vector harness (dev-dependency

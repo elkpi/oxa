@@ -49,7 +49,7 @@ publish_crate() {
     if [[ "$DRY_RUN" == "true" ]]; then
         cargo publish --dry-run --allow-dirty --manifest-path "$manifest_path"
     else
-        cargo publish --token "$CRATES_TOKEN" --allow-dirty --manifest-path "$manifest_path"
+        CARGO_REGISTRY_TOKEN="$CRATES_TOKEN" cargo publish --allow-dirty --manifest-path "$manifest_path"
     fi
 }
 

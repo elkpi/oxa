@@ -8,3 +8,4 @@ export { mapModel, type ModelMapper } from "./modelmap.js";
 export * as json from "./json/index.js";
 
 export * as ir from "./ir/index.js";
+export * as sse from "./sse/index.js";

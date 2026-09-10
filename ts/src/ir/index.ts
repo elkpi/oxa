@@ -1,4 +1,5 @@
 export { assertEventSequence } from "./checker.js";
+export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   specVersion,
   type Block,

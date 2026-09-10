@@ -6,7 +6,9 @@ export function assertEventSequence(events: readonly Event[]): void {
   if (events.length < 3 || events[0]?.type !== "message_start")
     fail("stream must start with message_start");
   let expectedIndex = 0;
-  let open: { readonly index: number; readonly block: Block } | undefined;
+  let open:
+    | { readonly index: number; readonly block: Block; partialJson: string }
+    | undefined;
   let sawTerminal = false;
 
   for (let position = 1; position < events.length; position += 1) {
@@ -20,9 +22,21 @@ export function assertEventSequence(events: readonly Event[]): void {
       if (event.type === "content_block_delta") {
         if (event.index !== open.index || !matches(open.block, event.delta))
           fail("delta does not match open block");
+        if (event.delta.type === "input_json_delta")
+          open = {
+            ...open,
+            partialJson: open.partialJson + event.delta.partial_json,
+          };
         continue;
       }
       if (event.type === "content_block_stop" && event.index === open.index) {
+        if (
+          open.block.type === "tool_use" &&
+          open.partialJson !== open.block.input
+        )
+          fail(
+            "tool input does not equal concatenated input_json_delta fragments",
+          );
         open = undefined;
         expectedIndex += 1;
         continue;
@@ -32,7 +46,7 @@ export function assertEventSequence(events: readonly Event[]): void {
     if (event.type === "content_block_start") {
       if (!Number.isInteger(event.index) || event.index !== expectedIndex)
         fail("block indexes must be contiguous");
-      open = { index: event.index, block: event.block };
+      open = { index: event.index, block: event.block, partialJson: "" };
       continue;
     }
     if (event.type === "message_delta") {

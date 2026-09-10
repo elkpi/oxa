@@ -46,6 +46,6 @@ export function isJsonNumber(value: unknown): value is JsonNumber {
   );
 }
 
-export function isJsonArray(value: JsonValue): value is JsonArray {
+export function isJsonArray(value: unknown): value is JsonArray {
   return Array.isArray(value);
 }

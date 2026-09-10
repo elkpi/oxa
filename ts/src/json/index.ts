@@ -2,6 +2,7 @@ export { parseJson } from "./parse.js";
 export { stringifyJson } from "./stringify.js";
 export { fromValue, integer, jsonText } from "./value.js";
 export {
+  isJsonArray,
   isJsonNumber,
   type JsonArray,
   type JsonInput,

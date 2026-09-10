@@ -1,0 +1,56 @@
+import { OxaError } from "../error.js";
+import type { Block, Delta, Event } from "./types.js";
+
+/** Enforces the IR event grammar and contiguous block-index invariant. */
+export function assertEventSequence(events: readonly Event[]): void {
+  if (events.length < 3 || events[0]?.type !== "message_start")
+    fail("stream must start with message_start");
+  let expectedIndex = 0;
+  let open: { readonly index: number; readonly block: Block } | undefined;
+  let sawTerminal = false;
+
+  for (let position = 1; position < events.length; position += 1) {
+    const event = events[position]!;
+    if (sawTerminal) {
+      if (event.type !== "message_done" || position !== events.length - 1)
+        fail("message_done must terminate stream");
+      return;
+    }
+    if (open !== undefined) {
+      if (event.type === "content_block_delta") {
+        if (event.index !== open.index || !matches(open.block, event.delta))
+          fail("delta does not match open block");
+        continue;
+      }
+      if (event.type === "content_block_stop" && event.index === open.index) {
+        open = undefined;
+        expectedIndex += 1;
+        continue;
+      }
+      fail("only matching delta or stop is allowed while a block is open");
+    }
+    if (event.type === "content_block_start") {
+      if (!Number.isInteger(event.index) || event.index !== expectedIndex)
+        fail("block indexes must be contiguous");
+      open = { index: event.index, block: event.block };
+      continue;
+    }
+    if (event.type === "message_delta") {
+      sawTerminal = true;
+      continue;
+    }
+    fail("expected a content block start or message_delta");
+  }
+  fail("stream must end with message_delta and message_done");
+}
+
+function matches(block: Block, delta: Delta): boolean {
+  return (
+    (block.type === "text" && delta.type === "text_delta") ||
+    (block.type === "tool_use" && delta.type === "input_json_delta")
+  );
+}
+
+function fail(message: string): never {
+  throw new OxaError("ir-invariant", message);
+}

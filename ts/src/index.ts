@@ -4,3 +4,5 @@ export const packageName = "@elkpi/oxa";
 export { OxaError, type OxaErrorCode } from "./error.js";
 export { type ConversionResult, type Loss, type LossReason } from "./loss.js";
 export { mapModel, type ModelMapper } from "./modelmap.js";
+
+export * as json from "./json/index.js";

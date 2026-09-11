@@ -49,6 +49,9 @@ export class ChatCompletionsStreamDecoder {
   #started = false;
   #flushed = false;
   #finishSeen = false;
+  #textOpen = false;
+  #textIndex = 0;
+  #nextIrIndex = 0;
   #stopReason: StopReason = "other";
   #usage: Usage = { input_tokens: 0n, output_tokens: 0n };
 
@@ -81,8 +84,23 @@ export class ChatCompletionsStreamDecoder {
       });
     }
     this.#recordToolCalls(choice.delta.tool_calls ?? []);
-    if (choice.delta.content !== undefined)
-      this.#lifecycle("text deltas are outside the M7 tool-call decoder scope");
+    if (choice.delta.content !== undefined) {
+      if (!this.#textOpen) {
+        this.#textOpen = true;
+        this.#textIndex = this.#nextIrIndex;
+        this.#nextIrIndex += 1;
+        events.push({
+          type: "content_block_start",
+          index: this.#textIndex,
+          block: { type: "text", text: "" },
+        });
+      }
+      events.push({
+        type: "content_block_delta",
+        index: this.#textIndex,
+        delta: { type: "text_delta", text: choice.delta.content },
+      });
+    }
     if (choice.finish_reason !== null) {
       if (this.#finishSeen) this.#lifecycle("duplicate finish_reason");
       this.#stopReason = this.#finish(choice.finish_reason);
@@ -97,7 +115,11 @@ export class ChatCompletionsStreamDecoder {
       this.#lifecycle("stream ended without finish_reason");
     this.#flushed = true;
     const events: Event[] = [];
-    let index = 0;
+    if (this.#textOpen) {
+      events.push({ type: "content_block_stop", index: this.#textIndex });
+      this.#textOpen = false;
+    }
+    let index = this.#nextIrIndex;
     for (const call of this.#toolCalls) {
       if (call.skipped) continue;
       if (call.id === undefined)
@@ -124,6 +146,7 @@ export class ChatCompletionsStreamDecoder {
         });
       events.push({ type: "content_block_stop", index });
       index += 1;
+      this.#nextIrIndex = index;
     }
     events.push(
       {

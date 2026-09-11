@@ -198,3 +198,77 @@ test("replays interleaved M7 tool calls in index order with exact raw fragments"
   ]);
   assert.deepEqual(decoder.Losses(), []);
 });
+
+test("emits text live before replaying M7 tool calls at flush", () => {
+  const decoder = new ChatCompletionsStreamDecoder();
+  assert.deepEqual(
+    decoder.Feed({
+      id: "chatcmpl-text",
+      model: "gpt-4o-mini",
+      choices: [
+        {
+          delta: { role: "assistant", content: "Checking." },
+          finish_reason: null,
+        },
+      ],
+    }),
+    [
+      { type: "message_start", id: "chatcmpl-text", model: "gpt-4o-mini" },
+      {
+        type: "content_block_start",
+        index: 0,
+        block: { type: "text", text: "" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "text_delta", text: "Checking." },
+      },
+    ],
+  );
+  decoder.Feed({
+    id: "chatcmpl-text",
+    model: "gpt-4o-mini",
+    choices: [
+      {
+        delta: {
+          tool_calls: [
+            {
+              index: 0,
+              id: "call_1",
+              type: "function",
+              function: { name: "weather", arguments: "{}" },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+  });
+
+  assert.deepEqual(decoder.Flush(), [
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "content_block_start",
+      index: 1,
+      block: {
+        type: "tool_use",
+        id: "call_1",
+        name: "weather",
+        input: jsonText("{}"),
+      },
+    },
+    {
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "input_json_delta", partial_json: jsonText("{}") },
+    },
+    { type: "content_block_stop", index: 1 },
+    {
+      type: "message_delta",
+      stop_reason: "tool_use",
+      usage: { input_tokens: 0n, output_tokens: 0n },
+    },
+    { type: "message_done" },
+  ]);
+});

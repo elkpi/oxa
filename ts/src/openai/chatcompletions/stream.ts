@@ -1,16 +1,19 @@
 import { OxaError } from "../../error.js";
 import type { Event, StopReason, Usage } from "../../ir/index.js";
 import { jsonText } from "../../json/index.js";
-import type { Loss } from "../../loss.js";
+import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
 
 export interface ChatCompletionsChunk {
+  readonly object?: "chat.completion.chunk";
+  readonly created?: number;
   readonly id: string;
   readonly model: string;
   readonly choices: readonly ChatCompletionsChoice[];
   readonly usage?: ChatCompletionsUsage;
 }
 export interface ChatCompletionsChoice {
+  readonly index?: number;
   readonly delta: ChatCompletionsDelta;
   readonly finish_reason: string | null;
 }
@@ -229,6 +232,231 @@ export class ChatCompletionsStreamDecoder {
         return "other";
     }
   }
+  #lifecycle(message: string): never {
+    throw new OxaError("stream-lifecycle", `chatcompletions: ${message}`);
+  }
+}
+
+export interface ChatCompletionsStreamEncoderOptions {
+  readonly modelMapper?: ModelMapper;
+}
+
+type EncoderBlock =
+  | { readonly kind: "text"; readonly index: number }
+  | {
+      readonly kind: "tool";
+      readonly index: number;
+      readonly id: string;
+      readonly name: string;
+      readonly input: string;
+      readonly nativeIndex: number;
+      readonly fragments: string[];
+      started: boolean;
+    };
+
+/** Incrementally converts IR stream events to Chat Completions chunks. */
+export class ChatCompletionsStreamEncoder {
+  readonly #modelMapper: ModelMapper | undefined;
+  #id = "";
+  #model = "";
+  #started = false;
+  #finished = false;
+  #done = false;
+  #active: EncoderBlock | undefined;
+  #nextIrIndex = 0;
+  #nextNativeTool = 0;
+  #toolSeen = false;
+  #orderingDegrade = false;
+  #pendingTools: ChatCompletionsChunk[] = [];
+
+  constructor(options: ChatCompletionsStreamEncoderOptions = {}) {
+    this.#modelMapper = options.modelMapper;
+  }
+
+  Apply(event: Event): ConversionResult<readonly ChatCompletionsChunk[]> {
+    if (this.#done || (this.#finished && event.type !== "message_done"))
+      this.#lifecycle("event applied after stream termination");
+    switch (event.type) {
+      case "message_start":
+        if (this.#started) this.#lifecycle("duplicate message_start");
+        this.#started = true;
+        this.#id = event.id;
+        this.#model = mapModel(this.#modelMapper, event.model);
+        return this.#result([this.#chunk({ role: "assistant" })]);
+      case "content_block_start":
+        this.#startBlock(event);
+        return this.#result([]);
+      case "content_block_delta":
+        return this.#delta(event);
+      case "content_block_stop":
+        this.#stopBlock(event.index);
+        return this.#result([]);
+      case "message_delta":
+        return this.#terminal(event.stop_reason, event.usage);
+      case "message_done":
+        if (!this.#finished)
+          this.#lifecycle("message_done out of grammar order");
+        this.#done = true;
+        return this.#result([]);
+    }
+  }
+
+  #startBlock(event: Extract<Event, { type: "content_block_start" }>): void {
+    if (!this.#started || this.#active !== undefined)
+      this.#lifecycle("content_block_start out of grammar order");
+    if (event.index !== this.#nextIrIndex)
+      this.#lifecycle(
+        `content_block_start index ${event.index}, want ${this.#nextIrIndex}`,
+      );
+    this.#nextIrIndex += 1;
+    if (event.block.type === "text") {
+      if (this.#toolSeen) this.#orderingDegrade = true;
+      this.#active = { kind: "text", index: event.index };
+      return;
+    }
+    if (event.block.type !== "tool_use")
+      this.#lifecycle(`unsupported content block ${event.block.type}`);
+    if (event.block.id === "" || event.block.name === "")
+      this.#lifecycle("tool_use requires nonempty id and name");
+    this.#active = {
+      kind: "tool",
+      index: event.index,
+      id: event.block.id,
+      name: event.block.name,
+      input: event.block.input,
+      nativeIndex: this.#nextNativeTool++,
+      fragments: [],
+      started: false,
+    };
+    this.#toolSeen = true;
+  }
+
+  #delta(
+    event: Extract<Event, { type: "content_block_delta" }>,
+  ): ConversionResult<readonly ChatCompletionsChunk[]> {
+    if (this.#active === undefined || event.index !== this.#active.index)
+      this.#lifecycle("content_block_delta out of grammar order");
+    if (this.#active.kind === "text") {
+      if (event.delta.type !== "text_delta")
+        this.#lifecycle("text block received non-text delta");
+      return this.#result([this.#chunk({ content: event.delta.text })]);
+    }
+    if (event.delta.type !== "input_json_delta")
+      this.#lifecycle("tool block received non-input-json delta");
+    const fragment = event.delta.partial_json as string;
+    this.#active.fragments.push(fragment);
+    this.#queueToolArguments(this.#active, fragment);
+    return this.#result([]);
+  }
+
+  #stopBlock(index: number): void {
+    if (this.#active === undefined || index !== this.#active.index)
+      this.#lifecycle("content_block_stop out of grammar order");
+    if (this.#active.kind === "tool") {
+      if (this.#active.fragments.length === 0) {
+        this.#active.fragments.push(this.#active.input);
+        this.#queueToolArguments(this.#active, this.#active.input);
+      }
+      if (this.#active.fragments.join("") !== this.#active.input)
+        this.#lifecycle(
+          "tool_use input does not equal concatenated input_json_delta fragments",
+        );
+    }
+    this.#active = undefined;
+  }
+
+  #terminal(
+    stopReason: StopReason,
+    usage: Usage,
+  ): ConversionResult<readonly ChatCompletionsChunk[]> {
+    if (!this.#started || this.#active !== undefined)
+      this.#lifecycle("message_delta out of grammar order");
+    this.#finished = true;
+    const losses: Loss[] = [];
+    const finishReason = this.#finishReason(stopReason, losses);
+    if (this.#orderingDegrade)
+      losses.push({
+        path: "events",
+        field: "ordering",
+        reason: "degraded",
+        detail:
+          "N-S-10: the text block after a tool block is normalized ahead of the tool calls; IR source order is not preserved",
+      });
+    const chunks = this.#pendingTools;
+    this.#pendingTools = [];
+    chunks.push({
+      id: this.#id,
+      object: "chat.completion.chunk",
+      created: 0,
+      model: this.#model,
+      choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
+      usage: {
+        prompt_tokens: Number(usage.input_tokens),
+        completion_tokens: Number(usage.output_tokens),
+        total_tokens: Number(usage.input_tokens + usage.output_tokens),
+      },
+    });
+    return { value: chunks, losses };
+  }
+
+  #queueToolArguments(
+    block: Extract<EncoderBlock, { kind: "tool" }>,
+    arguments_: string,
+  ): void {
+    const toolCall: ChatCompletionsToolCallDelta = !block.started
+      ? {
+          index: block.nativeIndex,
+          id: block.id,
+          type: "function",
+          function: { name: block.name, arguments: arguments_ },
+        }
+      : { index: block.nativeIndex, function: { arguments: arguments_ } };
+    block.started = true;
+    this.#pendingTools.push(this.#chunk({ tool_calls: [toolCall] }));
+  }
+
+  #chunk(delta: ChatCompletionsDelta): ChatCompletionsChunk {
+    return {
+      id: this.#id,
+      object: "chat.completion.chunk",
+      created: 0,
+      model: this.#model,
+      choices: [{ index: 0, delta, finish_reason: null }],
+    };
+  }
+
+  #result(
+    value: readonly ChatCompletionsChunk[],
+  ): ConversionResult<readonly ChatCompletionsChunk[]> {
+    return { value, losses: [] };
+  }
+
+  #finishReason(stopReason: StopReason, losses: Loss[]): string {
+    switch (stopReason) {
+      case "end_turn":
+        return "stop";
+      case "max_tokens":
+        return "length";
+      case "refusal":
+        return "content_filter";
+      case "tool_use":
+        return "tool_calls";
+      case "stop_sequence":
+        losses.push({
+          path: "",
+          field: "stop_sequence",
+          reason: "unmapped-value",
+          detail:
+            'Chat Completions finish_reason "stop" does not identify the matched stop sequence',
+        });
+        return "stop";
+      default:
+        this.#lifecycle(
+          `stop reason ${JSON.stringify(stopReason)} has no Chat Completions equivalent`,
+        );
+    }
+  }
+
   #lifecycle(message: string): never {
     throw new OxaError("stream-lifecycle", `chatcompletions: ${message}`);
   }

@@ -50,6 +50,8 @@ export class ChatCompletionsStreamDecoder {
   readonly #losses: Loss[] = [];
   readonly #toolCalls: ToolCall[] = [];
   #started = false;
+  #id = "";
+  #nativeModel = "";
   #flushed = false;
   #finishSeen = false;
   #textOpen = false;
@@ -64,6 +66,11 @@ export class ChatCompletionsStreamDecoder {
 
   Feed(chunk: ChatCompletionsChunk): readonly Event[] {
     if (this.#flushed) this.#lifecycle("chunk fed after stream flush");
+    if (
+      this.#started &&
+      (chunk.id !== this.#id || chunk.model !== this.#nativeModel)
+    )
+      this.#lifecycle("chunk has a conflicting stream identity");
     if (chunk.usage !== undefined)
       this.#usage = {
         input_tokens: BigInt(chunk.usage.prompt_tokens),
@@ -80,6 +87,8 @@ export class ChatCompletionsStreamDecoder {
     const events: Event[] = [];
     if (!this.#started) {
       this.#started = true;
+      this.#id = chunk.id;
+      this.#nativeModel = chunk.model;
       events.push({
         type: "message_start",
         id: chunk.id,

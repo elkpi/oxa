@@ -13,6 +13,25 @@ test("exports Chat Completions stream converters from the package root", () => {
   assert.equal(typeof chatcompletions.ChatCompletionsStreamEncoder, "function");
 });
 
+test("rejects a changed native stream identity", () => {
+  const decoder = new ChatCompletionsStreamDecoder();
+  decoder.Feed({
+    id: "chatcmpl-identity-a",
+    model: "gpt-4o-mini",
+    choices: [{ delta: { role: "assistant" }, finish_reason: null }],
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        id: "chatcmpl-identity-b",
+        model: "gpt-4o-mini",
+        choices: [{ delta: { content: "ignored" }, finish_reason: null }],
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("replays interleaved M7 tool calls in index order with exact raw fragments", () => {
   const decoder = new ChatCompletionsStreamDecoder();
 

@@ -1,11 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { chatcompletions } from "../src/index.js";
 import {
   ChatCompletionsStreamDecoder,
   ChatCompletionsStreamEncoder,
 } from "../src/openai/chatcompletions/index.js";
 import { jsonText } from "../src/json/index.js";
+
+test("exports Chat Completions stream converters from the package root", () => {
+  assert.equal(typeof chatcompletions.ChatCompletionsStreamDecoder, "function");
+  assert.equal(typeof chatcompletions.ChatCompletionsStreamEncoder, "function");
+});
 
 test("replays interleaved M7 tool calls in index order with exact raw fragments", () => {
   const decoder = new ChatCompletionsStreamDecoder();

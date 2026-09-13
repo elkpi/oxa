@@ -156,9 +156,7 @@ export function decodeRequest(
     ...(wire.temperature === undefined
       ? {}
       : { temperature: number(wire.temperature, "temperature") }),
-    ...(wire.top_p === undefined
-      ? {}
-      : { top_p: number(wire.top_p, "top_p") }),
+    ...(wire.top_p === undefined ? {} : { top_p: number(wire.top_p, "top_p") }),
     ...(wire.max_tokens === undefined
       ? {}
       : { max_tokens: whole(wire.max_tokens, "max_tokens") }),
@@ -226,11 +224,7 @@ export function decodeResponse(
     default:
       stopReason = "other";
       losses.push(
-        loss(
-          "choices[0].finish_reason",
-          "finish_reason",
-          "unmapped-value",
-        ),
+        loss("choices[0].finish_reason", "finish_reason", "unmapped-value"),
       );
   }
   const usage =
@@ -263,7 +257,10 @@ export function encodeRequest(
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
   const losses: Loss[] = [];
-  if (request.metadata !== undefined && Object.keys(request.metadata).length > 0)
+  if (
+    request.metadata !== undefined &&
+    Object.keys(request.metadata).length > 0
+  )
     losses.push(loss("metadata", "metadata", "unmapped-field"));
   const messages: JsonValue[] = [];
   if (request.system !== undefined && request.system.length > 0)
@@ -275,20 +272,22 @@ export function encodeRequest(
     const message = request.messages[index]!;
     if (message.role === "assistant") {
       messages.push(
-        encodeAssistant(
-          message.content,
-          `messages[${index}].content`,
-          losses,
-        ),
+        encodeAssistant(message.content, `messages[${index}].content`, losses),
       );
       continue;
     }
     const normal: Block[] = [];
-    const results: { readonly block: ToolResultBlock; readonly index: number }[] =
-      [];
+    const results: {
+      readonly block: ToolResultBlock;
+      readonly index: number;
+    }[] = [];
     let firstNormal = -1;
     let lastResult = -1;
-    for (let blockIndex = 0; blockIndex < message.content.length; blockIndex += 1) {
+    for (
+      let blockIndex = 0;
+      blockIndex < message.content.length;
+      blockIndex += 1
+    ) {
       const block = message.content[blockIndex]!;
       if (block.type === "tool_result") {
         results.push({ block, index: blockIndex });
@@ -299,9 +298,7 @@ export function encodeRequest(
       }
     }
     if (firstNormal >= 0 && firstNormal < lastResult)
-      losses.push(
-        loss(`messages[${index}]`, "ordering", "degraded"),
-      );
+      losses.push(loss(`messages[${index}]`, "ordering", "degraded"));
     for (const result of results)
       messages.push(
         encodeToolResult(
@@ -431,10 +428,7 @@ function decodeContent(
             : string(part.text, `${path}[${index}].text`),
       });
     } else if (type === "image_url") {
-      const image = object(
-        part.image_url,
-        `${path}[${index}].image_url`,
-      );
+      const image = object(part.image_url, `${path}[${index}].image_url`);
       const decoded = decodeImage(
         string(image.url, `${path}[${index}].image_url.url`),
       );
@@ -448,9 +442,7 @@ function decodeContent(
         );
       else blocks.push(decoded);
     } else {
-      losses.push(
-        loss(`${path}[${index}]`, "type", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     }
   }
   return blocks;
@@ -488,9 +480,7 @@ function decodeToolCalls(
   return optionalArray(value, path).flatMap((entry, index) => {
     const call = object(entry, `${path}[${index}]`);
     if (call.type !== "function") {
-      losses.push(
-        loss(`${path}[${index}]`, "type", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
       return [];
     }
     const fn = object(call.function, `${path}[${index}].function`);
@@ -500,10 +490,7 @@ function decodeToolCalls(
         id: string(call.id, `${path}[${index}].id`),
         name: string(fn.name, `${path}[${index}].function.name`),
         input: jsonText(
-          string(
-            fn.arguments,
-            `${path}[${index}].function.arguments`,
-          ),
+          string(fn.arguments, `${path}[${index}].function.arguments`),
         ),
       },
     ];
@@ -518,12 +505,21 @@ function decodeToolChoice(
   if (typeof value === "string") {
     if (value === "auto" || value === "none") return { mode: value };
     if (value === "required") return { mode: "any" };
-  } else if (typeof value === "object" && value !== null && !isJsonArray(value) && !isJsonNumber(value)) {
+  } else if (
+    typeof value === "object" &&
+    value !== null &&
+    !isJsonArray(value) &&
+    !isJsonNumber(value)
+  ) {
     const fn =
       value.function === undefined
         ? undefined
         : object(value.function, "tool_choice.function");
-    if (value.type === "function" && fn !== undefined && typeof fn.name === "string")
+    if (
+      value.type === "function" &&
+      fn !== undefined &&
+      typeof fn.name === "string"
+    )
       return { mode: "tool", name: fn.name };
   }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
@@ -563,9 +559,7 @@ function encodeAssistant(
         },
       });
     else
-      losses.push(
-        loss(`${path}[${index}]`, "content", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
   }
   return {
     role: "assistant",
@@ -585,11 +579,7 @@ function encodeToolResult(
     if (block.type === "text") content += block.text;
     else
       losses.push(
-        loss(
-          `${path}.content[${index}]`,
-          "content",
-          "unsupported-semantic",
-        ),
+        loss(`${path}.content[${index}]`, "content", "unsupported-semantic"),
       );
   }
   if (result.is_error === true)
@@ -617,17 +607,13 @@ function encodeUserContent(
     } else if (block.type === "image") {
       const image = encodeImage(block);
       if (image === undefined)
-        losses.push(
-          loss(`${path}[${index}]`, "image", "unsupported-semantic"),
-        );
+        losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
       else {
         hasImage = true;
         parts.push({ type: "image_url", image_url: { url: image } });
       }
     } else
-      losses.push(
-        loss(`${path}[${index}]`, "content", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
   }
   return hasImage ? parts : text;
 }
@@ -663,7 +649,10 @@ function optionalArray(
   return value === undefined || value === null ? [] : array(value, name);
 }
 
-function strings(value: JsonValue | undefined, name: string): readonly string[] {
+function strings(
+  value: JsonValue | undefined,
+  name: string,
+): readonly string[] {
   return array(value, name).map((entry) => string(entry, name));
 }
 

@@ -1,5 +1,10 @@
 export { assertEventSequence } from "./checker.js";
-export { decodeRequest, decodeResponse, encodeRequest, encodeResponse } from "./nonstream.js";
+export {
+  decodeRequest,
+  decodeResponse,
+  encodeRequest,
+  encodeResponse,
+} from "./nonstream.js";
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   specVersion,

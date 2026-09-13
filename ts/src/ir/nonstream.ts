@@ -75,10 +75,9 @@ export function decodeRequest(document: JsonValue): Request {
         fail("request.message.role is unsupported");
       return {
         role,
-        content: array(
-          message.content,
-          "request.message.content",
-        ).map(decodeBlock),
+        content: array(message.content, "request.message.content").map(
+          decodeBlock,
+        ),
       };
     }),
     ...(root.tools === undefined
@@ -106,9 +105,7 @@ export function decodeRequest(document: JsonValue): Request {
     ...(root.tool_choice === undefined
       ? {}
       : { tool_choice: decodeToolChoice(root.tool_choice) }),
-    ...(root.params === undefined
-      ? {}
-      : { params: decodeParams(root.params) }),
+    ...(root.params === undefined ? {} : { params: decodeParams(root.params) }),
     ...(root.metadata === undefined
       ? {}
       : { metadata: stringRecord(root.metadata, "request.metadata") }),
@@ -142,10 +139,7 @@ export function decodeResponse(document: JsonValue): Response {
     ...(root.stop_sequence === undefined
       ? {}
       : {
-          stop_sequence: string(
-            root.stop_sequence,
-            "response.stop_sequence",
-          ),
+          stop_sequence: string(root.stop_sequence, "response.stop_sequence"),
         }),
     usage: decodeUsage(root.usage),
   };
@@ -176,9 +170,7 @@ function encodeBlock(block: Block): JsonObject {
         type: "tool_result",
         tool_use_id: block.tool_use_id,
         content: block.content.map(encodeBlock),
-        ...(block.is_error === undefined
-          ? {}
-          : { is_error: block.is_error }),
+        ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       };
   }
 }
@@ -229,9 +221,7 @@ function encodeParams(params: Params): JsonObject {
     ...(params.temperature === undefined
       ? {}
       : { temperature: fromValue(params.temperature) }),
-    ...(params.top_p === undefined
-      ? {}
-      : { top_p: fromValue(params.top_p) }),
+    ...(params.top_p === undefined ? {} : { top_p: fromValue(params.top_p) }),
     ...(params.max_tokens === undefined
       ? {}
       : { max_tokens: integer(params.max_tokens) }),
@@ -248,10 +238,7 @@ function decodeParams(value: JsonValue): Params {
     ...(params.temperature === undefined
       ? {}
       : {
-          temperature: finiteNumber(
-            params.temperature,
-            "params.temperature",
-          ),
+          temperature: finiteNumber(params.temperature, "params.temperature"),
         }),
     ...(params.top_p === undefined
       ? {}
@@ -277,8 +264,7 @@ function paramsSet(params: Params): boolean {
     params.temperature !== undefined ||
     params.top_p !== undefined ||
     params.max_tokens !== undefined ||
-    (params.stop_sequences !== undefined &&
-      params.stop_sequences.length > 0)
+    (params.stop_sequences !== undefined && params.stop_sequences.length > 0)
   );
 }
 
@@ -347,10 +333,7 @@ function array(
   return value;
 }
 
-function object(
-  value: JsonValue | undefined,
-  name: string,
-): JsonObject {
+function object(value: JsonValue | undefined, name: string): JsonObject {
   if (
     value === undefined ||
     value === null ||

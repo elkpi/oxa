@@ -44,10 +44,7 @@ export function runNonstreamVectors(
 
   for (const vector of vectors) {
     const input = object(vector.document.input, `${vector.name}.input`);
-    const expectedLosses = losses(
-      vector.document.expected_losses,
-      vector.name,
-    );
+    const expectedLosses = losses(vector.document.expected_losses, vector.name);
     const isRequest = !strings(
       vector.document.tags,
       `${vector.name}.tags`,
@@ -104,7 +101,10 @@ function losses(value: JsonValue | undefined, name: string): readonly Loss[] {
   });
 }
 
-function strings(value: JsonValue | undefined, name: string): readonly string[] {
+function strings(
+  value: JsonValue | undefined,
+  name: string,
+): readonly string[] {
   return array(value, name).map((entry) => string(entry, name));
 }
 

@@ -58,9 +58,7 @@ export function decodeRequest(
       return [];
     }
     if (tool.strict !== undefined)
-      losses.push(
-        loss(`tools[${index}].strict`, "strict", "unmapped-field"),
-      );
+      losses.push(loss(`tools[${index}].strict`, "strict", "unmapped-field"));
     return [
       {
         name: string(tool.name, `tools[${index}].name`),
@@ -72,10 +70,7 @@ export function decodeRequest(
                 `tools[${index}].description`,
               ),
             }),
-        input_schema: object(
-          tool.parameters,
-          `tools[${index}].parameters`,
-        ),
+        input_schema: object(tool.parameters, `tools[${index}].parameters`),
       },
     ];
   });
@@ -90,8 +85,14 @@ export function decodeRequest(
     const items = array(wire.input, "input");
     for (let index = 0; index < items.length; ) {
       const item = object(items[index], `input[${index}]`);
-      const type = item.type === undefined ? "message" : string(item.type, `input[${index}].type`);
-      if (type === "function_call" || (type === "message" && item.role === "assistant")) {
+      const type =
+        item.type === undefined
+          ? "message"
+          : string(item.type, `input[${index}].type`);
+      if (
+        type === "function_call" ||
+        (type === "message" && item.role === "assistant")
+      ) {
         const texts: Block[] = [];
         const calls: Block[] = [];
         while (index < items.length) {
@@ -133,10 +134,7 @@ export function decodeRequest(
           if (current.type !== "function_call_output") break;
           content.push({
             type: "tool_result",
-            tool_use_id: string(
-              current.call_id,
-              `input[${index}].call_id`,
-            ),
+            tool_use_id: string(current.call_id, `input[${index}].call_id`),
             content: [
               {
                 type: "text",
@@ -174,9 +172,7 @@ export function decodeRequest(
         index += 1;
         continue;
       }
-      losses.push(
-        loss(`input[${index}]`, "type", "unsupported-semantic"),
-      );
+      losses.push(loss(`input[${index}]`, "type", "unsupported-semantic"));
       index += 1;
     }
   }
@@ -185,16 +181,11 @@ export function decodeRequest(
     ...(wire.temperature === undefined
       ? {}
       : { temperature: number(wire.temperature, "temperature") }),
-    ...(wire.top_p === undefined
-      ? {}
-      : { top_p: number(wire.top_p, "top_p") }),
+    ...(wire.top_p === undefined ? {} : { top_p: number(wire.top_p, "top_p") }),
     ...(wire.max_output_tokens === undefined
       ? {}
       : {
-          max_tokens: whole(
-            wire.max_output_tokens,
-            "max_output_tokens",
-          ),
+          max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
   };
   return {
@@ -218,7 +209,10 @@ export function decodeResponse(
   const texts: Block[] = [];
   const calls: Block[] = [];
   for (let index = 0; index < array(wire.output, "output").length; index += 1) {
-    const item = object(array(wire.output, "output")[index], `output[${index}]`);
+    const item = object(
+      array(wire.output, "output")[index],
+      `output[${index}]`,
+    );
     if (item.type === "message") {
       const content = array(item.content, `output[${index}].content`);
       for (let child = 0; child < content.length; child += 1) {
@@ -252,10 +246,7 @@ export function decodeResponse(
           );
         texts.push({
           type: "text",
-          text: string(
-            part.text,
-            `output[${index}].content[${child}].text`,
-          ),
+          text: string(part.text, `output[${index}].content[${child}].text`),
         });
       }
     } else if (item.type === "function_call") {
@@ -263,14 +254,10 @@ export function decodeResponse(
         type: "tool_use",
         id: string(item.call_id, `output[${index}].call_id`),
         name: string(item.name, `output[${index}].name`),
-        input: jsonText(
-          string(item.arguments, `output[${index}].arguments`),
-        ),
+        input: jsonText(string(item.arguments, `output[${index}].arguments`)),
       });
     } else {
-      losses.push(
-        loss(`output[${index}]`, "type", "unsupported-semantic"),
-      );
+      losses.push(loss(`output[${index}]`, "type", "unsupported-semantic"));
     }
   }
   const status = string(wire.status, "status");
@@ -282,19 +269,14 @@ export function decodeResponse(
     stopReason = calls.length > 0 ? "tool_use" : "end_turn";
   } else if (status === "incomplete") {
     const details =
-      wire.incomplete_details === undefined ||
-      wire.incomplete_details === null
+      wire.incomplete_details === undefined || wire.incomplete_details === null
         ? undefined
         : object(wire.incomplete_details, "incomplete_details");
     if (details?.reason === "max_output_tokens") stopReason = "max_tokens";
     else {
       stopReason = "other";
       losses.push(
-        loss(
-          "incomplete_details.reason",
-          "reason",
-          "unmapped-value",
-        ),
+        loss("incomplete_details.reason", "reason", "unmapped-value"),
       );
     }
   } else if (status === "failed") {
@@ -328,7 +310,10 @@ export function encodeRequest(
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
   const losses: Loss[] = [];
-  if (request.metadata !== undefined && Object.keys(request.metadata).length > 0)
+  if (
+    request.metadata !== undefined &&
+    Object.keys(request.metadata).length > 0
+  )
     losses.push(loss("metadata", "metadata", "unmapped-field"));
   const items: JsonValue[] = [];
   for (let index = 0; index < request.messages.length; index += 1) {
@@ -382,10 +367,7 @@ export function encodeRequest(
     })) ?? [];
   const toolChoice = encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
-  if (
-    params?.stop_sequences !== undefined &&
-    params.stop_sequences.length > 0
-  )
+  if (params?.stop_sequences !== undefined && params.stop_sequences.length > 0)
     losses.push(
       loss("params.stop_sequences", "stop_sequences", "unmapped-field"),
     );
@@ -396,9 +378,7 @@ export function encodeRequest(
       ...(request.system === undefined || request.system.length === 0
         ? {}
         : {
-            instructions: request.system
-              .map((block) => block.text)
-              .join(""),
+            instructions: request.system.map((block) => block.text).join(""),
           }),
       ...(params?.temperature === undefined
         ? {}
@@ -439,9 +419,7 @@ export function encodeResponse(
         arguments: block.input,
       });
     } else
-      losses.push(
-        loss(`content[${index}]`, "content", "unsupported-semantic"),
-      );
+      losses.push(loss(`content[${index}]`, "content", "unsupported-semantic"));
   }
   const output: JsonValue[] = [];
   if (hasText || response.content.length === 0)
@@ -519,9 +497,7 @@ function encodeUserMessage(
     }
   }
   if (firstNormal >= 0 && firstNormal < lastResult)
-    losses.push(
-      loss(`messages[${messageIndex}]`, "ordering", "degraded"),
-    );
+    losses.push(loss(`messages[${messageIndex}]`, "ordering", "degraded"));
   for (const result of results) {
     let output = "";
     for (let index = 0; index < result.block.content.length; index += 1) {
@@ -595,9 +571,7 @@ function decodeContent(
         );
       else blocks.push(image);
     } else
-      losses.push(
-        loss(`${path}[${index}]`, "type", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
   }
   return blocks;
 }
@@ -620,18 +594,14 @@ function encodeUserContent(
     } else if (block.type === "image") {
       const image = encodeImage(block);
       if (image === undefined)
-        losses.push(
-          loss(`${path}[${index}]`, "image", "unsupported-semantic"),
-        );
+        losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
       else {
         otherBlocks += 1;
         parts.push({ type: "input_image", image_url: image });
       }
     } else {
       otherBlocks += 1;
-      losses.push(
-        loss(`${path}[${index}]`, "content", "unsupported-semantic"),
-      );
+      losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
     }
   }
   return textBlocks <= 1 && otherBlocks === 0 ? text : parts;
@@ -718,10 +688,16 @@ function encodeToolChoice(
 function loss(path: string, field: string, reason: LossReason): Loss {
   return { path, field, reason };
 }
-function optionalArray(value: JsonValue | undefined, name: string): readonly JsonValue[] {
+function optionalArray(
+  value: JsonValue | undefined,
+  name: string,
+): readonly JsonValue[] {
   return value === undefined || value === null ? [] : array(value, name);
 }
-function array(value: JsonValue | undefined, name: string): readonly JsonValue[] {
+function array(
+  value: JsonValue | undefined,
+  name: string,
+): readonly JsonValue[] {
   if (!isJsonArray(value)) fail(`${name} must be an array`);
   return value;
 }

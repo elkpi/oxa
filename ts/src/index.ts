@@ -10,3 +10,4 @@ export * as json from "./json/index.js";
 export * as ir from "./ir/index.js";
 export * as sse from "./sse/index.js";
 export * as chatcompletions from "./openai/chatcompletions/index.js";
+export * as responses from "./openai/responses/index.js";

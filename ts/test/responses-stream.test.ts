@@ -6,6 +6,7 @@ import {
   ResponsesStreamEncoder,
   type ResponsesStreamEvent,
 } from "../src/openai/responses/index.js";
+import { responses } from "../src/index.js";
 import { jsonText } from "../src/json/index.js";
 import type { Event } from "../src/ir/index.js";
 
@@ -452,4 +453,111 @@ test("encodes the M7 Responses function call vector with synthesized envelopes",
       },
     },
   ]);
+});
+
+test("exports Responses stream converters from the package root", () => {
+  assert.equal(typeof responses.ResponsesStreamDecoder, "function");
+  assert.equal(typeof responses.ResponsesStreamEncoder, "function");
+});
+
+test("accepts a function call whose optional arguments.done event is omitted", () => {
+  const decoder = new ResponsesStreamDecoder();
+  assert.deepEqual(decoder.Feed(created("resp_optional_done", "gpt-4o-mini")), [
+    { type: "message_start", id: "resp_optional_done", model: "gpt-4o-mini" },
+  ]);
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "function_call",
+        id: "fc_optional",
+        call_id: "call_optional",
+        name: "weather",
+        status: "in_progress",
+        arguments: '{"city":',
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.function_call_arguments.delta",
+      item_id: "fc_optional",
+      output_index: 0,
+      delta: ' "Paris"}',
+    }),
+    [],
+  );
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        type: "function_call",
+        id: "fc_optional",
+        call_id: "call_optional",
+        name: "weather",
+        status: "completed",
+        arguments: '{"city": "Paris"}',
+      },
+    }),
+    [
+      {
+        type: "content_block_start",
+        index: 0,
+        block: {
+          type: "tool_use",
+          id: "call_optional",
+          name: "weather",
+          input: jsonText('{"city": "Paris"}'),
+        },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "input_json_delta", partial_json: jsonText('{"city":') },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: {
+          type: "input_json_delta",
+          partial_json: jsonText(' "Paris"}'),
+        },
+      },
+      { type: "content_block_stop", index: 0 },
+    ],
+  );
+  assert.deepEqual(decoder.Losses(), []);
+});
+
+test("rejects a supplied arguments.done value that differs from raw fragments", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_bad_done", "gpt-4o-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "function_call",
+      id: "fc_bad",
+      call_id: "call_bad",
+      name: "weather",
+      status: "in_progress",
+      arguments: '{"city": "Paris"}',
+    },
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "response.function_call_arguments.done",
+        item_id: "fc_bad",
+        output_index: 0,
+        call_id: "call_bad",
+        name: "weather",
+        arguments: '{"city": "Lyon"}',
+      }),
+    { code: "stream-lifecycle" },
+  );
 });

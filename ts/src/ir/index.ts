@@ -1,8 +1,10 @@
 export { assertEventSequence } from "./checker.js";
+export { decodeRequest, decodeResponse, encodeRequest, encodeResponse } from "./nonstream.js";
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   specVersion,
   type Block,
+  type ImageBlock,
   type ContentBlockDelta,
   type ContentBlockStart,
   type ContentBlockStop,
@@ -19,6 +21,7 @@ export {
   type Response,
   type StopReason,
   type Tool,
+  type ToolResultBlock,
   type ToolChoice,
   type Usage,
 } from "./types.js";

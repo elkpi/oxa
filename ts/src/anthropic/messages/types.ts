@@ -1,0 +1,44 @@
+import type { JsonObject, JsonText } from "../../json/index.js";
+
+export interface AnthropicUsage {
+  readonly input_tokens: number;
+  readonly output_tokens: number;
+}
+
+/** A native block; opaque text retains tool input source bytes when known. */
+export interface AnthropicContentBlock {
+  readonly type: string;
+  readonly text?: string;
+  readonly id?: string;
+  readonly name?: string;
+  readonly input?: JsonText | JsonObject;
+}
+
+export interface AnthropicMessageEnvelope {
+  readonly id: string;
+  readonly type: "message";
+  readonly role: "assistant";
+  readonly model: string;
+  readonly content: readonly AnthropicContentBlock[];
+  readonly stop_reason: string | null;
+  readonly stop_sequence?: string | null;
+  readonly usage: AnthropicUsage;
+}
+
+export interface AnthropicStreamDelta {
+  readonly type?: string;
+  readonly text?: string;
+  readonly partial_json?: string;
+  readonly stop_reason?: string;
+  readonly stop_sequence?: string | null;
+}
+
+/** A typed Anthropic Messages streaming event envelope. */
+export interface AnthropicStreamEvent {
+  readonly type: string;
+  readonly message?: AnthropicMessageEnvelope;
+  readonly index?: number;
+  readonly content_block?: AnthropicContentBlock;
+  readonly delta?: AnthropicStreamDelta;
+  readonly usage?: AnthropicUsage;
+}

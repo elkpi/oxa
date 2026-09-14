@@ -95,6 +95,10 @@ export class AnthropicStreamDecoder {
 
   #blockStart(event: AnthropicStreamEvent): readonly Event[] {
     this.#requireStarted(event.type);
+    if (this.#messageDeltaSeen)
+      this.#lifecycle("content_block_start after message_delta");
+    if (event.content_block === undefined)
+      this.#lifecycle("content_block_start without content_block");
     if (this.#openKind !== undefined)
       this.#lifecycle("content_block_start with a block still open");
     const nativeIndex = this.#index(event);
@@ -105,17 +109,6 @@ export class AnthropicStreamDecoder {
     this.#nextNativeIndex += 1;
     this.#openNativeIndex = nativeIndex;
     const block = event.content_block;
-    if (block === undefined) {
-      this.#openKind = "skipped";
-      this.#losses.push({
-        path: `content_block_start[${nativeIndex}].content_block.type`,
-        field: "content_block.type",
-        reason: "unsupported-semantic",
-        detail:
-          "Anthropic streaming block has no content_block payload; the index is skipped",
-      });
-      return [];
-    }
     if (block.type === "tool_use") {
       if (block.id === undefined || block.id === "")
         this.#lifecycle(

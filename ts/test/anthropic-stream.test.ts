@@ -429,6 +429,34 @@ test("rejects malformed native and IR lifecycles", () => {
   );
 });
 
+test("rejects block starts after the terminal message delta", () => {
+  const decoder = new AnthropicStreamDecoder();
+  decoder.Feed(messageStart("msg_terminal", "claude"));
+  decoder.Feed({
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: { input_tokens: 0, output_tokens: 0 },
+  });
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text", text: "late" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects a block start without its required content block payload", () => {
+  const decoder = new AnthropicStreamDecoder();
+  decoder.Feed(messageStart("msg_missing_block", "claude"));
+  assert.throws(() => decoder.Feed({ type: "content_block_start", index: 0 }), {
+    code: "stream-lifecycle",
+  });
+  assert.deepEqual(decoder.Losses(), []);
+});
+
 test("exports Anthropic stream converters from the package root", () => {
   assert.equal(typeof anthropic.AnthropicStreamDecoder, "function");
   assert.equal(typeof anthropic.AnthropicStreamEncoder, "function");

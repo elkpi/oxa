@@ -64,3 +64,29 @@ both Ubuntu and Windows and runs the new package and consumer gates.
 
 No specification, vector, converter, IR, or stream behavior changed. No npm
 publish command was run.
+
+## Review follow-up
+
+Implemented the required packaging review fixes in commit `e7cd231`
+(`fix(ts): harden package release gates`).
+
+- Both package test scripts now execute the active npm CLI with
+  `process.execPath` and `process.env.npm_execpath`. They no longer execute
+  `npm.cmd` directly, and the existing Ubuntu/Windows CI jobs exercise this
+  path.
+- Added a recursive `dist` clean before every production build. The package
+  regression now plants `dist/stale-package-artifact.js` before
+  `npm pack --dry-run`; before the fix it failed with
+  `unexpected packed file: dist/stale-package-artifact.js`, and after the fix
+  it passes because prepack rebuilds from an empty output directory.
+- Updated `docs/release-checklist.md` with TypeScript as the fifth v1
+  implementation and npm coordinate, while explicitly scoping the existing
+  shell consumer/reliability jobs to their four actual languages.
+- Updated `CHANGELOG.md` with the `@elkpi/oxa` v1 package and gates under
+  Unreleased, and labeled the dated 2026-09-04 four-language milestone as
+  historical.
+
+Fresh `npm run test:package` and `npm run test:consumer` runs passed. The
+complete `npm run release:check` then exited zero with 125 vectors/126 checks,
+64 Node tests, Web Runtime, package/consumer, and all Go gates passing. Its
+final marker confirmed that no package was published.

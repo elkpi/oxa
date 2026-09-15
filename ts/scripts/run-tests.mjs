@@ -1,5 +1,6 @@
 import { readdir } from "node:fs/promises";
 import { spawn } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const files = (await readdir(new URL("../dist-test/test/", import.meta.url)))
   .filter((file) => file.endsWith(".test.js"))

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
@@ -8,14 +8,30 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const npmCli = process.env.npm_execpath;
 
-const packResult = JSON.parse(
-  execFileSync(npm, ["pack", "--json", "--dry-run", "--silent"], {
-    cwd: packageRoot,
-    encoding: "utf8",
-  }),
-);
+if (npmCli === undefined) {
+  throw new Error("test:package must be invoked through npm");
+}
+
+function runNpm(args, options) {
+  return execFileSync(process.execPath, [npmCli, ...args], options);
+}
+
+const staleOutput = path.join(packageRoot, "dist", "stale-package-artifact.js");
+mkdirSync(path.dirname(staleOutput), { recursive: true });
+writeFileSync(staleOutput, "export const stale = true;\n");
+let packResult;
+try {
+  packResult = JSON.parse(
+    runNpm(["pack", "--json", "--dry-run", "--silent"], {
+      cwd: packageRoot,
+      encoding: "utf8",
+    }),
+  );
+} finally {
+  rmSync(staleOutput, { force: true });
+}
 const packed = Array.isArray(packResult)
   ? packResult
   : Object.values(packResult);

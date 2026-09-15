@@ -73,7 +73,8 @@
     "NOTICE"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "clean": "node scripts/clean-dist.mjs",
+    "build": "npm run clean && tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "generate": "node scripts/generate-schema-types.mjs",
     "generate:check": "node scripts/generate-schema-types.mjs --check",

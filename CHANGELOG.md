@@ -9,18 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- TypeScript: ESM-only `@elkpi/oxa` package at version `1.0.0`, with typed root and focused subpath exports for the IR, JSON, SSE, stream adapters, and all three protocol faces. It has no runtime dependencies and supports Node.js 20+ and Web runtimes.
+- TypeScript packaging gates: exact npm tarball-content validation plus a clean installed consumer that type-checks and imports every public ESM entry point.
 - Rust: `elkpi-oxa` umbrella crate with `[lib] name = "oxa"` re-exporting all protocol faces and IR under `use oxa::...`.
 
 ### Changed
 
 - Python: distribution package renamed to `elkpi-oxa` on PyPI (`pip install elkpi-oxa`); in-code imports remain `import oxa`.
-- Downstream packaging: verified clean consumers for `elkpi-oxa` on both Python (wheel & sdist) and Rust.
+- Downstream packaging: verified a clean consumer for the `@elkpi/oxa` npm tarball, and `elkpi-oxa` on both Python (wheel & sdist) and Rust.
 
 ## [v1.0.0] - 2026-09-04
 
 ### Added
 
-- **oxa 1.0.0 Milestone Release**: All four reference implementations (Go, Rust, Python, C++)
+- **oxa 1.0.0 Milestone Release**: At the original 2026-09-04 milestone, all four
+  then-shipped reference implementations (Go, Rust, Python, C++)
   implement the complete pure in-process protocol-conversion specification across OpenAI Chat
   Completions, OpenAI Responses, and Anthropic Messages, verified against the identical 125 golden vectors.
   - Go, Python, and C++ have no third-party runtime dependencies; Rust production crates use `serde` and `serde_json`.

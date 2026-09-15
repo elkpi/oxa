@@ -8,7 +8,6 @@ const packageRoot = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
 );
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const node = process.execPath;
 const temporaryRoot = mkdtempSync(
   path.join(tmpdir(), "oxa-typescript-consumer-"),
@@ -19,14 +18,22 @@ const npmEnvironment = { ...process.env, NPM_CONFIG_USERCONFIG: npmConfig };
 delete npmEnvironment.npm_config_allow_scripts;
 delete npmEnvironment.NPM_CONFIG_ALLOW_SCRIPTS;
 
+const npmCli = process.env.npm_execpath;
+if (npmCli === undefined) {
+  throw new Error("test:consumer must be invoked through npm");
+}
+
+function runNpm(args, options) {
+  return execFileSync(process.execPath, [npmCli, ...args], options);
+}
+
 try {
   const packDirectory = path.join(temporaryRoot, "package");
   const consumerDirectory = path.join(temporaryRoot, "consumer");
   mkdirSync(packDirectory);
   mkdirSync(consumerDirectory);
   const packResult = JSON.parse(
-    execFileSync(
-      npm,
+    runNpm(
       ["pack", "--json", "--silent", "--pack-destination", packDirectory],
       {
         cwd: packageRoot,
@@ -44,8 +51,7 @@ try {
     path.join(consumerDirectory, "package.json"),
     JSON.stringify({ private: true, type: "module" }),
   );
-  execFileSync(
-    npm,
+  runNpm(
     ["install", "--no-audit", "--no-fund", "--package-lock=false", tarball],
     { cwd: consumerDirectory, env: npmEnvironment, stdio: "inherit" },
   );

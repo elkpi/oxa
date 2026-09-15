@@ -37,3 +37,25 @@ test("rejects SSE imports of IR or protocol faces", () => {
 test("the TypeScript source tree obeys spoke and SSE boundaries", async () => {
   assert.deepEqual(await findArchitectureViolations(), []);
 });
+
+test("rejects package self-reference imports between faces", () => {
+  assert.deepEqual(
+    forbiddenImports(
+      "src/openai/chatcompletions/bad.ts",
+      'import { decodeRequest } from "@elkpi/oxa/anthropic/messages";',
+    ),
+    [
+      "src/openai/chatcompletions/bad.ts imports anthropic/messages from another protocol face",
+    ],
+  );
+});
+
+test("ignores import-looking comments and string literals", () => {
+  assert.deepEqual(
+    forbiddenImports(
+      "src/openai/chatcompletions/good.ts",
+      '// import "@elkpi/oxa/anthropic/messages";\nconst note = "import ../../anthropic/messages/index.js";',
+    ),
+    [],
+  );
+});

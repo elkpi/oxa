@@ -1,5 +1,4 @@
-oxa
-===
+# oxa
 
 Protocol conversion between the OpenAI and Anthropic APIs, as pure
 in-process libraries.
@@ -8,7 +7,7 @@ in-process libraries.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Status: v1.0.0 released.** The specification, golden vectors,
-and all four reference implementations (Go, Rust, Python, and C++) pass the
+and all five reference implementations (Go, TypeScript, Rust, Python, and C++) pass the
 identical 125 golden vectors across nonstream, cross-protocol, and stream suites.
 
 ## What is oxa?
@@ -54,12 +53,13 @@ without a corresponding vector update.
 
 ## Language matrix
 
-| Language | Directory | State |
-|----------|-----------|-------|
-| Go | `go/` | Usable (`v1.0.0`) |
-| Rust | `rust/` | Usable (`v1.0.0`) |
-| Python | `python/` | Usable (`v1.0.0`) |
-| C++ | `cpp/` | Usable (`v1.0.0`) |
+| Language   | Directory | State             |
+| ---------- | --------- | ----------------- |
+| Go         | `go/`     | Usable (`v1.0.0`) |
+| TypeScript | `ts/`     | Usable (`v1.0.0`) |
+| Rust       | `rust/`   | Usable (`v1.0.0`) |
+| Python     | `python/` | Usable (`v1.0.0`) |
+| C++        | `cpp/`    | Usable (`v1.0.0`) |
 
 ## Directory overview
 
@@ -67,6 +67,7 @@ without a corresponding vector update.
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
 go/        Go reference implementation (v1.0.0)
+ts/        TypeScript implementation (v1.0.0)
 docs/      Design docs and the release checklist
 rust/      Rust implementation (v1.0.0)
 python/    Python implementation (v1.0.0)
@@ -78,12 +79,12 @@ cpp/       C++ implementation (v1.0.0)
 The multi-language implementations convert between each protocol face and a
 shared intermediate representation (IR):
 
-| Conversion | Nonstream | Streaming |
-|------------|-----------|-----------|
-| Chat Completions ↔ IR | requests and responses | text events + `tool_calls` argument aggregation |
-| Responses ↔ IR | requests and responses | text events + function-call argument aggregation |
-| Anthropic Messages ↔ IR | requests and responses | text events + `input_json_delta` aggregation |
-| Any face → any face | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`) |
+| Conversion              | Nonstream                                             | Streaming                                        |
+| ----------------------- | ----------------------------------------------------- | ------------------------------------------------ |
+| Chat Completions ↔ IR   | requests and responses                                | text events + `tool_calls` argument aggregation  |
+| Responses ↔ IR          | requests and responses                                | text events + function-call argument aggregation |
+| Anthropic Messages ↔ IR | requests and responses                                | text events + `input_json_delta` aggregation     |
+| Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`) |
 
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried
@@ -117,6 +118,15 @@ A complete, compile-verified version of this example lives at
 [`go/openai/chatcompletions/example_test.go`](go/openai/chatcompletions/example_test.go)
 (it is also visible in the godoc of that package).
 
+### TypeScript
+
+Requires Node.js 20 or later. The ESM-only package has no runtime dependencies.
+See [`ts/README.md`](ts/README.md) for complete entry points and streaming usage.
+
+```bash
+npm install @elkpi/oxa
+```
+
 ### Other languages
 
 - **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `1.0.0`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
@@ -136,9 +146,10 @@ A complete, compile-verified version of this example lives at
 ## Downstream verification
 
 The repository keeps executable clean-consumer fixtures under
-[`ci/consumers/`](ci/consumers/). They build and install the four language
-artifacts outside the source tree, then run a minimal conversion and streaming
-consumer. The bounded cross-language stream replay is under
+[`ci/consumers/`](ci/consumers/). They build and install the four non-TypeScript language artifacts outside the
+source tree, then run a minimal conversion and streaming consumer. TypeScript
+tarball contents and a clean ESM/type-checking consumer are validated by
+`npm run test:package` and `npm run test:consumer` in `ts/`. The bounded cross-language stream replay is under
 [`ci/reliability/`](ci/reliability/), using the shared corpus in
 [`testdata/stream-fragment-corpus.json`](testdata/stream-fragment-corpus.json).
 

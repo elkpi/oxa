@@ -103,6 +103,12 @@ jobs:
       - name: Test Web Runtime
         working-directory: ts/
         run: npm run test:web
+      - name: Check npm package contents
+        working-directory: ts/
+        run: npm run test:package
+      - name: Test clean npm consumer
+        working-directory: ts/
+        run: npm run test:consumer
 
   typescript-windows:
     runs-on: windows-latest
@@ -128,6 +134,12 @@ jobs:
       - name: Test Web Runtime
         working-directory: ts/
         run: npm run test:web
+      - name: Check npm package contents
+        working-directory: ts/
+        run: npm run test:package
+      - name: Test clean npm consumer
+        working-directory: ts/
+        run: npm run test:consumer
 
   vectors:
     runs-on: ubuntu-latest

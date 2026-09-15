@@ -1,14 +1,73 @@
 {
   "name": "@elkpi/oxa",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "description": "Pure in-process protocol conversion for OpenAI and Anthropic APIs.",
   "license": "Apache-2.0",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./error": {
+      "types": "./dist/error.d.ts",
+      "import": "./dist/error.js"
+    },
+    "./loss": {
+      "types": "./dist/loss.d.ts",
+      "import": "./dist/loss.js"
+    },
+    "./modelmap": {
+      "types": "./dist/modelmap.d.ts",
+      "import": "./dist/modelmap.js"
+    },
+    "./json": {
+      "types": "./dist/json/index.d.ts",
+      "import": "./dist/json/index.js"
+    },
+    "./ir": {
+      "types": "./dist/ir/index.d.ts",
+      "import": "./dist/ir/index.js"
+    },
+    "./sse": {
+      "types": "./dist/sse/index.d.ts",
+      "import": "./dist/sse/index.js"
+    },
+    "./stream": {
+      "types": "./dist/stream/index.d.ts",
+      "import": "./dist/stream/index.js"
+    },
+    "./openai/chatcompletions": {
+      "types": "./dist/openai/chatcompletions/index.d.ts",
+      "import": "./dist/openai/chatcompletions/index.js"
+    },
+    "./openai/responses": {
+      "types": "./dist/openai/responses/index.d.ts",
+      "import": "./dist/openai/responses/index.js"
+    },
+    "./anthropic/messages": {
+      "types": "./dist/anthropic/messages/index.d.ts",
+      "import": "./dist/anthropic/messages/index.js"
+    }
+  },
   "engines": {
     "node": ">=20"
   },
+  "sideEffects": false,
   "files": [
-    "dist",
+    "dist/*.js",
+    "dist/*.js.map",
+    "dist/*.d.ts",
+    "dist/*.d.ts.map",
+    "dist/anthropic/messages",
+    "dist/ir",
+    "dist/json",
+    "dist/openai/chatcompletions",
+    "dist/openai/responses",
+    "dist/sse",
+    "dist/stream",
     "README.md",
     "LICENSE",
     "NOTICE"
@@ -18,10 +77,14 @@
     "build:test": "tsc -p tsconfig.test.json",
     "generate": "node scripts/generate-schema-types.mjs",
     "generate:check": "node scripts/generate-schema-types.mjs --check",
+    "prepack": "npm run generate:check && npm run build",
     "test": "npm run build:test && node scripts/run-tests.mjs",
     "test:architecture": "npm run build:test && node --test dist-test/test/architecture.test.js",
     "test:node": "npm test",
     "test:web": "tsc -p tsconfig.web.json && node scripts/test-web-runtime.mjs",
+    "test:package": "node scripts/test-package.mjs",
+    "test:consumer": "node scripts/test-consumer.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "check": "tsc --noEmit -p tsconfig.json",
     "lint": "npm run check",
     "fmt": "prettier . --check"

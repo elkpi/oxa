@@ -29,6 +29,7 @@ go/veccheck
 ts/node_modules/
 ts/dist/
 ts/dist-test/
+ts/dist-web/
 
 # Rust artifacts (per-language, under rust/)
 /rust/target/

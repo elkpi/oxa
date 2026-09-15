@@ -14,7 +14,7 @@ define go_target
 	fi
 endef
 
-.PHONY: test vectors lint fmt check-modulepath test-python test-ts lint-ts fmt-ts
+.PHONY: test vectors lint fmt check-modulepath test-python test-ts test-ts-architecture test-ts-node test-ts-web lint-ts fmt-ts
 
 test:
 	$(call go_target,go test ./...,$@,M3)
@@ -52,7 +52,16 @@ check-modulepath:
 
 
 test-ts:
-	@if [ -f ts/package.json ]; then cd ts && npm test; else echo "test-ts: ts/package.json not found."; exit 1; fi
+	@if [ -f ts/package.json ]; then cd ts && npm run test:node; else echo "test-ts: ts/package.json not found."; exit 1; fi
+
+test-ts-architecture:
+	@if [ -f ts/package.json ]; then cd ts && npm run test:architecture; else echo "test-ts-architecture: ts/package.json not found."; exit 1; fi
+
+test-ts-node:
+	@if [ -f ts/package.json ]; then cd ts && npm run test:node; else echo "test-ts-node: ts/package.json not found."; exit 1; fi
+
+test-ts-web:
+	@if [ -f ts/package.json ]; then cd ts && npm run test:web; else echo "test-ts-web: ts/package.json not found."; exit 1; fi
 
 lint-ts:
 	@if [ -f ts/package.json ]; then cd ts && npm run lint; else echo "lint-ts: ts/package.json not found."; exit 1; fi

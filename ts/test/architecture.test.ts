@@ -59,3 +59,56 @@ test("ignores import-looking comments and string literals", () => {
     [],
   );
 });
+
+test("rejects dynamic imports across architecture boundaries", () => {
+  assert.deepEqual(
+    forbiddenImports(
+      "src/openai/chatcompletions/bad.ts",
+      'const messages = import("@elkpi/oxa/anthropic/messages");',
+    ),
+    [
+      "src/openai/chatcompletions/bad.ts imports anthropic/messages from another protocol face",
+    ],
+  );
+  assert.deepEqual(
+    forbiddenImports("src/sse/bad.ts", 'const ir = import("../ir/index.js");'),
+    ["src/sse/bad.ts imports ir from the opaque SSE adapter"],
+  );
+});
+
+test("rejects package self-references in import types", () => {
+  assert.deepEqual(
+    forbiddenImports(
+      "src/openai/responses/bad.ts",
+      'type MessagesRequest = import("@elkpi/oxa/anthropic/messages").Request;',
+    ),
+    [
+      "src/openai/responses/bad.ts imports anthropic/messages from another protocol face",
+    ],
+  );
+  assert.deepEqual(
+    forbiddenImports(
+      "src\\sse\\bad.ts",
+      'type ChatEvent = import("@elkpi/oxa/openai/chatcompletions").Event;',
+    ),
+    [
+      "src\\sse\\bad.ts imports openai/chatcompletions from the opaque SSE adapter",
+    ],
+  );
+});
+
+test("classifies simulated Windows source paths", () => {
+  assert.deepEqual(
+    forbiddenImports(
+      "src\\openai\\chatcompletions\\bad.ts",
+      'import "../../anthropic/messages/index.js";',
+    ),
+    [
+      "src\\openai\\chatcompletions\\bad.ts imports anthropic/messages from another protocol face",
+    ],
+  );
+  assert.deepEqual(
+    forbiddenImports("src\\sse\\bad.ts", 'import "../ir/index.js";'),
+    ["src\\sse\\bad.ts imports ir from the opaque SSE adapter"],
+  );
+});

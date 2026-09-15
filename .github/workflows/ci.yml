@@ -103,6 +103,31 @@ jobs:
         working-directory: ts/
         run: npm run test:web
 
+  typescript-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20.x"
+          cache: npm
+          cache-dependency-path: ts/package-lock.json
+      - name: Install TypeScript tooling
+        working-directory: ts/
+        run: npm ci
+      - name: Type check
+        working-directory: ts/
+        run: npm run check
+      - name: Check architecture
+        working-directory: ts/
+        run: npm run test:architecture
+      - name: Test Node 20
+        working-directory: ts/
+        run: npm run test:node
+      - name: Test Web Runtime
+        working-directory: ts/
+        run: npm run test:web
+
   vectors:
     runs-on: ubuntu-latest
     steps:

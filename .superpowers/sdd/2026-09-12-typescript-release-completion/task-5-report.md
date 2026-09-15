@@ -16,11 +16,13 @@ Implemented Task 5 in commit `b8aee3e` (`feat(ts): add async stream consumers an
   events remain observable and decoder `Flush` is not called after a source
   error, so it cannot replace the source error with a lifecycle error.
 - Exported the helpers through the package-root `stream` namespace.
-- Added architecture enforcement for direct imports between protocol faces and
-  imports from the opaque SSE adapter into IR or a protocol face. The checker
-  has controlled rejection cases and scans the real TypeScript source tree.
+- Added AST-based architecture enforcement for static imports/exports, dynamic
+  imports, and import types across protocol faces and from the opaque SSE
+  adapter into IR or a protocol face. Comments and string literals are ignored,
+  source paths are normalized across platforms, and the checker scans the real
+  TypeScript source tree.
 - Added runnable `test:architecture`, `test:node`, and `test:web` npm commands,
-  matching Make targets, and a Node 20 CI job.
+  matching Make targets, plus Node 20 CI jobs on Ubuntu and Windows.
 - The Web Runtime gate compiles production sources without Node types (excluding
   the Node-only vector harness), then exercises SSE Web primitives and async
   stream conversion against the emitted ESM build.
@@ -42,6 +44,10 @@ publishing, vectors, or specifications were added or changed.
 - Architecture RED: `npm run build:test` failed with TS2307 for the missing
   architecture checker. The green run passed controlled face-to-face and
   SSE-to-IR rejection cases plus the real-source scan.
+
+- Review-closure RED: the focused architecture run reported three failures for
+  dynamic imports, import types, and simulated Windows source paths. The minimal
+  AST/path fix made all eight architecture tests pass.
 
 ## Verification
 
@@ -68,8 +74,23 @@ npm run test:web
 ```
 
 Local TypeScript verification used the available Node 24.18.0 toolchain. CI is
-explicitly pinned to Node 20.x and runs the same Node and Web commands after
-`npm ci`.
+explicitly pinned to Node 20.x. The Ubuntu and Windows jobs both run the type,
+architecture, Node, and Web gates after `npm ci`.
+
+Fresh review-closure verification exited zero:
+
+```text
+npm run generate:check
+npm run fmt
+npm run check
+npm run build
+npm run test:architecture
+  -> 8 passed, 0 failed
+npm run test:node
+  -> 64 passed, 0 failed
+npm run test:web
+  -> Web Runtime smoke passed
+```
 
 ## Files and scope
 

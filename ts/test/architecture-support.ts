@@ -1,5 +1,5 @@
 import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { join, posix, relative, resolve } from "node:path";
 import ts from "typescript";
 
 const faceRoots = [
@@ -8,8 +8,21 @@ const faceRoots = [
   "anthropic/messages",
 ] as const;
 
+function normalizeModulePath(path: string): string {
+  return path.replace(/\\/g, "/");
+}
+
+function sourceRelative(path: string): string {
+  const normalized = normalizeModulePath(path);
+  const marker = "/src/";
+  const src = normalized.lastIndexOf(marker);
+  return src === -1
+    ? normalized.replace(/^src\//, "")
+    : normalized.slice(src + marker.length);
+}
+
 function moduleArea(file: string): string | undefined {
-  const relativeFile = file.replace(/^src\//, "");
+  const relativeFile = sourceRelative(file);
   return faceRoots.find(
     (root) => relativeFile === root || relativeFile.startsWith(`${root}/`),
   );
@@ -19,10 +32,16 @@ function importedArea(file: string, specifier: string): string | undefined {
   const src = specifier.startsWith("@elkpi/oxa/")
     ? specifier.slice("@elkpi/oxa/".length).replace(/\/index$/, "")
     : specifier.startsWith(".")
-      ? resolve(dirname(file), specifier)
+      ? posix
+          .normalize(
+            posix.join(
+              posix.dirname(normalizeModulePath(file)),
+              normalizeModulePath(specifier),
+            ),
+          )
           .replace(/\.(?:js|ts)$/, "")
           .replace(/\/index$/, "")
-          .replace(/^.*\/src\//, "")
+          .replace(/^src\//, "")
       : undefined;
   if (src === undefined) return undefined;
   if (src === "ir" || src.startsWith("ir/")) return "ir";
@@ -44,6 +63,20 @@ function moduleSpecifiers(source: string): readonly string[] {
       ts.isStringLiteralLike(node.moduleSpecifier)
     )
       specifiers.push(node.moduleSpecifier.text);
+    else if (
+      ts.isCallExpression(node) &&
+      node.expression.kind === ts.SyntaxKind.ImportKeyword
+    ) {
+      const [argument] = node.arguments;
+      if (argument !== undefined && ts.isStringLiteralLike(argument))
+        specifiers.push(argument.text);
+    } else if (
+      ts.isImportTypeNode(node) &&
+      ts.isLiteralTypeNode(node.argument) &&
+      ts.isStringLiteralLike(node.argument.literal)
+    ) {
+      specifiers.push(node.argument.literal.text);
+    }
     ts.forEachChild(node, visit);
   };
   visit(parsed);
@@ -52,7 +85,7 @@ function moduleSpecifiers(source: string): readonly string[] {
 
 export function forbiddenImports(file: string, source: string): string[] {
   const sourceArea = moduleArea(file);
-  const inSse = file.replace(/^src\//, "").startsWith("sse/");
+  const inSse = sourceRelative(file).startsWith("sse/");
   const violations: string[] = [];
   for (const specifier of moduleSpecifiers(source)) {
     const targetArea = importedArea(file, specifier);
@@ -88,7 +121,7 @@ export async function findArchitectureViolations(
 ): Promise<string[]> {
   const violations: string[] = [];
   for (const file of await sourceFiles(root)) {
-    const name = `src/${relative(root, file)}`;
+    const name = normalizeModulePath(`src/${relative(root, file)}`);
     violations.push(...forbiddenImports(name, await readFile(file, "utf8")));
   }
   return violations;

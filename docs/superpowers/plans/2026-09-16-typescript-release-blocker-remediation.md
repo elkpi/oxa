@@ -188,7 +188,7 @@
   }
   ```
 
-  `validateToolTurn` collects every assistant `tool_use`; it requires the next message to be user, compares its `tool_result` IDs in encounter order to the calls, and rejects any result in a message not immediately following the owning assistant turn. Call it after IR `decodeRequest`, immediately before IR `encodeRequest`, immediately before every face `encodeRequest`, and immediately before every face decoder returns a `Request`. In Responses `decodeRequest`, synthesize the empty assistant text block before the validator runs; do not synthesize empty user content.
+  `validateToolTurn` collects every assistant `tool_use`; it requires the next message to be user, compares its `tool_result` IDs in encounter order to the calls, and rejects any result in a message not immediately following the owning assistant turn. Call it after IR `decodeRequest`, immediately before IR `encodeRequest`, immediately before every face `encodeRequest`, and immediately before every face decoder returns a `Request`. In Responses `decodeRequest`, synthesize one empty TextBlock for every empty non-system message before the validator runs, as required by N-R-2; raw IR and other face requests with empty content remain structural errors.
 
 - [ ] **Step 4: Run invariant, nonstream, architecture, and vector gates**
 

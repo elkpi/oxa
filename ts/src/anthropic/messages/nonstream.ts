@@ -15,6 +15,7 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import { validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
@@ -72,7 +73,6 @@ export function decodeRequest(
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
   });
-  if (messages.length === 0) fail("request carries no messages");
   const tools = optionalArray(wire.tools, "tools").map((entry, index) => {
     const tool = object(entry, `tools[${index}]`);
     return {
@@ -101,17 +101,16 @@ export function decodeRequest(
           stop_sequences: strings(wire.stop_sequences, "stop_sequences"),
         }),
   };
-  return {
-    value: {
-      model: mapModel(options.modelMapper, string(wire.model, "model")),
-      ...(system.length === 0 ? {} : { system }),
-      messages,
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-      params,
-    },
-    losses,
+  const request: Request = {
+    model: mapModel(options.modelMapper, string(wire.model, "model")),
+    ...(system.length === 0 ? {} : { system }),
+    messages,
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    params,
   };
+  validateRequest(request);
+  return { value: request, losses };
 }
 
 export function decodeResponse(
@@ -159,6 +158,7 @@ export function encodeRequest(
   request: Request,
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
+  validateRequest(request);
   const losses: Loss[] = [];
   if (
     request.metadata !== undefined &&

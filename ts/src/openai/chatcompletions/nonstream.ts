@@ -10,6 +10,7 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import { validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
@@ -150,8 +151,6 @@ export function decodeRequest(
         ),
       );
   }
-  if (messages.length === 0) fail("request carries no conversation messages");
-
   const params = {
     ...(wire.temperature === undefined
       ? {}
@@ -164,17 +163,16 @@ export function decodeRequest(
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
   };
-  return {
-    value: {
-      model: mapModel(options.modelMapper, string(wire.model, "model")),
-      ...(system.length === 0 ? {} : { system }),
-      messages,
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-      ...(Object.keys(params).length === 0 ? {} : { params }),
-    },
-    losses,
+  const request: Request = {
+    model: mapModel(options.modelMapper, string(wire.model, "model")),
+    ...(system.length === 0 ? {} : { system }),
+    messages,
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    ...(Object.keys(params).length === 0 ? {} : { params }),
   };
+  validateRequest(request);
+  return { value: request, losses };
 }
 
 export function decodeResponse(
@@ -256,6 +254,7 @@ export function encodeRequest(
   request: Request,
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
+  validateRequest(request);
   const losses: Loss[] = [];
   if (
     request.metadata !== undefined &&

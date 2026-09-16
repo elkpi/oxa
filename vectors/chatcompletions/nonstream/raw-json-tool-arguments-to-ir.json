@@ -8,6 +8,7 @@
   "input": {
     "model": "gpt-4o-mini",
     "messages": [
+      { "role": "user", "content": "Search" },
       {
         "role": "assistant",
         "content": null,
@@ -21,13 +22,15 @@
             }
           }
         ]
-      }
+      },
+      { "role": "tool", "tool_call_id": "call_raw_1", "content": "ok" }
     ]
   },
   "expected_ir": {
     "specVersion": "0.1.0",
     "model": "gpt-4o-mini",
     "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Search" }] },
       {
         "role": "assistant",
         "content": [
@@ -38,6 +41,10 @@
             "input": "{\"query\": \"Ren\\u00e9e\", \"opts\": {\"deep\": [1, 2]}, \"limit\": 10, \"note\": \"P\\u0041TH\"}"
           }
         ]
+      },
+      {
+        "role": "user",
+        "content": [{ "type": "tool_result", "tool_use_id": "call_raw_1", "content": [{ "type": "text", "text": "ok" }] }]
       }
     ]
   },

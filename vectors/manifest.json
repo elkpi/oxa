@@ -79,7 +79,7 @@
         "request",
         "n-an-5"
       ],
-      "sha256": "72a3f22a929cf1d6402f3e4d6f68d41b2d5a3230175f7a4ccf1f0235edd4f5f5"
+      "sha256": "5af77a3ac244d5eaf4de74589aaeecdd5102612ae035cface5944b1626d0e081"
     },
     {
       "name": "anthropic.nonstream.mixed-content-to-ir",
@@ -89,7 +89,7 @@
         "request",
         "n-an-5"
       ],
-      "sha256": "481e1e793cfcff83fc0a9468931ea394b3836919797db76f5306fdd87a609c04"
+      "sha256": "e7034804e4f42cbabd720d8f79ca46f52cdc72900cc6e2d3e8bacdbff187503f"
     },
     {
       "name": "anthropic.nonstream.multiturn-request-from-ir",
@@ -137,7 +137,7 @@
         "n-an-4",
         "inv-1"
       ],
-      "sha256": "c55e8f1668555ff5a27eef303dec240ea1e966b56d142f7648ca79fcdbdb7771"
+      "sha256": "022397e0cb7fdae0395ea1e4aeae88b905a8d9dbd70ad229f06e96841d590a1e"
     },
     {
       "name": "anthropic.nonstream.raw-json-tool-input-to-ir",
@@ -431,7 +431,7 @@
         "tools",
         "n-cc-6"
       ],
-      "sha256": "3e68b9b4886a5d37df3955c9c31095bfe49b20999195ee7eb15c5e877e8693af"
+      "sha256": "3ecdb19853a3e2e7f4dd7f749c8128a1992230336b3ca39aab5070702004e0eb"
     },
     {
       "name": "chatcompletions.nonstream.minimal-text-request-from-ir",
@@ -525,7 +525,7 @@
         "n-cc-8",
         "inv-1"
       ],
-      "sha256": "3f6fc81b78476dd3f8c7d237cb4d4e846f62d7a7dd0bb2c118e47e33fb580da9"
+      "sha256": "91a5ec21e0b3304cecdcda0d73ab1904fad7569a2ba2ebfb0afed03740049759"
     },
     {
       "name": "chatcompletions.nonstream.raw-json-tool-arguments-to-ir",
@@ -537,7 +537,7 @@
         "n-cc-4",
         "inv-1"
       ],
-      "sha256": "5c854067e2b15dc27d870020a794f4de4dc2bd0c52662a3e7e28a9c63d926346"
+      "sha256": "3843010a858383ac6cf80709d1897b02943907d88ea7c0f2cffe1ea218fa3cd3"
     },
     {
       "name": "chatcompletions.nonstream.system-prompt-request-from-ir",
@@ -699,7 +699,7 @@
         "loss",
         "n-cc-9"
       ],
-      "sha256": "7ec0f75398629dc0dee77528368847bb3c7f9872d5e9c64ce3462f63047e121d"
+      "sha256": "2eae3133586de3840aaa1907ad240b2e5200fddbf81261ed28d731dc61a079ba"
     },
     {
       "name": "chatcompletions.nonstream.tool-ordering-preserved-from-ir",
@@ -710,7 +710,7 @@
         "ordering",
         "n-cc-9"
       ],
-      "sha256": "ac2ada40824513d3bcf689919151f2e629ff5ac6edd1bd4c62be520c31f037a7"
+      "sha256": "04933974f3db4b974e4fe8304482e0708f5fed9429ceb5aa05851a72702576f0"
     },
     {
       "name": "chatcompletions.nonstream.tools-definition-from-ir",
@@ -1086,7 +1086,7 @@
         "fidelity",
         "N-R-5"
       ],
-      "sha256": "eb59c4d8a13d78788b599468bd9faaca28a2e57d550e584c2610f8108627c663"
+      "sha256": "b11633f13cb9c37631a2e14b6d54672292c2b38cd14e5a527c9f4d96c56dde91"
     },
     {
       "name": "responses.nonstream.raw-json-tool-input-to-ir",
@@ -1096,7 +1096,7 @@
         "fidelity",
         "N-R-5"
       ],
-      "sha256": "eaf8e600f8c317435d2000e0ef66b34951994662d72f2d1833f7aba43dd9772c"
+      "sha256": "16f8a83a6238f436818c18f97d9b375379806433af5f9bd5d57d516e1ea72476"
     },
     {
       "name": "responses.nonstream.reasoning-item-loss-response-to-ir",

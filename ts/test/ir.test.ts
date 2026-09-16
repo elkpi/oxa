@@ -2,7 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { OxaError } from "../src/error.js";
-import { assertEventSequence, type Event } from "../src/ir/index.js";
+import {
+  assertEventSequence,
+  decodeRequest,
+  type Event,
+} from "../src/ir/index.js";
+
+test("IR request decoding rejects empty message content", () => {
+  assert.throws(
+    () =>
+      decodeRequest({
+        specVersion: "0.1.0",
+        model: "model",
+        messages: [{ role: "user", content: [] }],
+      }),
+    (error: unknown) =>
+      error instanceof OxaError && error.code === "invalid-input",
+  );
+});
 
 test("rejects a delta before its block start", () => {
   const events: readonly Event[] = [

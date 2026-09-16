@@ -10,6 +10,7 @@
     "specVersion": "0.1.0",
     "model": "claude-sonnet-4-5",
     "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] },
       {
         "role": "assistant",
         "content": [
@@ -20,7 +21,8 @@
             "input": "{\"city\": \"P\\u0041ris\", \"days\": [1, 2], \"weight\": 1.0}"
           }
         ]
-      }
+      },
+      { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "toolu_raw_1", "content": [{ "type": "text", "text": "ok" }] }] }
     ],
     "params": { "max_tokens": 1024 }
   },
@@ -28,6 +30,7 @@
     "model": "claude-sonnet-4-5",
     "max_tokens": 1024,
     "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] },
       {
         "role": "assistant",
         "content": [
@@ -38,7 +41,8 @@
             "input": { "city": "PAris", "days": [1, 2], "weight": 1.0 }
           }
         ]
-      }
+      },
+      { "role": "user", "content": [{ "type": "tool_result", "tool_use_id": "toolu_raw_1", "content": [{ "type": "text", "text": "ok" }] }] }
     ]
   },
   "expected_losses": [],

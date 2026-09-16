@@ -10,6 +10,8 @@
     "specVersion": "0.1.0",
     "model": "claude-sonnet-4-5",
     "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Run tool" }] },
+      { "role": "assistant", "content": [{ "type": "tool_use", "id": "toolu_1", "name": "lookup", "input": "{}" }] },
       {
         "role": "user",
         "content": [
@@ -25,6 +27,8 @@
     "model": "claude-sonnet-4-5",
     "max_tokens": 1024,
     "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Run tool" }] },
+      { "role": "assistant", "content": [{ "type": "tool_use", "id": "toolu_1", "name": "lookup", "input": {} }] },
       {
         "role": "user",
         "content": [

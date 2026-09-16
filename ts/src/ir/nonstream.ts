@@ -19,6 +19,7 @@ import {
 } from "./types.js";
 
 export function encodeRequest(request: Request): JsonObject {
+  validateRequest(request);
   const params = request.params;
   return {
     specVersion,
@@ -56,7 +57,7 @@ export function encodeRequest(request: Request): JsonObject {
 
 export function decodeRequest(document: JsonValue): Request {
   const root = documentRoot(document);
-  return {
+  const request: Request = {
     model: string(root.model, "request.model"),
     ...(root.system === undefined
       ? {}
@@ -110,6 +111,65 @@ export function decodeRequest(document: JsonValue): Request {
       ? {}
       : { metadata: stringRecord(root.metadata, "request.metadata") }),
   };
+  validateRequest(request);
+  return request;
+}
+
+/** Enforces request conversation invariants INV-2 through INV-4. */
+export function validateRequest(request: Request): void {
+  if (request.messages.length === 0)
+    invalid("request.messages must not be empty");
+  if (request.messages[0]!.role !== "user")
+    invalid("INV-2: first message must be user");
+  for (let index = 0; index < request.messages.length; index += 1) {
+    const message = request.messages[index]!;
+    if (message.content.length === 0)
+      invalid("messages[" + index + "].content must not be empty");
+    validateToolTurn(request.messages, index);
+  }
+}
+
+function validateToolTurn(messages: Request["messages"], index: number): void {
+  const message = messages[index]!;
+  const toolUses =
+    message.role === "assistant"
+      ? message.content.filter((block) => block.type === "tool_use")
+      : [];
+  const toolResults = message.content.filter(
+    (block) => block.type === "tool_result",
+  );
+
+  if (message.role !== "user" && toolResults.length > 0)
+    invalid("INV-3: tool results must appear in a user message");
+
+  if (toolUses.length > 0) {
+    const following = messages[index + 1];
+    if (following === undefined || following.role !== "user")
+      invalid("INV-3: tool uses require one following user message");
+    const followingResults = following.content.filter(
+      (block) => block.type === "tool_result",
+    );
+    if (
+      followingResults.length !== toolUses.length ||
+      toolUses.some(
+        (toolUse, toolIndex) =>
+          followingResults[toolIndex]?.tool_use_id !== toolUse.id,
+      )
+    )
+      invalid(
+        "INV-3/INV-4: tool results must match preceding tool uses in order",
+      );
+  }
+
+  if (toolResults.length > 0) {
+    const preceding = messages[index - 1];
+    if (
+      preceding === undefined ||
+      preceding.role !== "assistant" ||
+      !preceding.content.some((block) => block.type === "tool_use")
+    )
+      invalid("INV-3: orphan or split tool results");
+  }
 }
 
 export function encodeResponse(response: Response): JsonObject {
@@ -357,4 +417,8 @@ function boolean(value: JsonValue | undefined, name: string): boolean {
 
 function fail(message: string): never {
   throw new OxaError("type-violation", message);
+}
+
+function invalid(message: string): never {
+  throw new OxaError("invalid-input", message);
 }

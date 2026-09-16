@@ -4,6 +4,7 @@ export {
   decodeResponse,
   encodeRequest,
   encodeResponse,
+  validateRequest,
 } from "./nonstream.js";
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {

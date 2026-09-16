@@ -10,6 +10,7 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import { validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
@@ -114,17 +115,20 @@ export function decodeRequest(
             continue;
           }
           if (currentType !== "message" || current.role !== "assistant") break;
+          const decoded = decodeContent(
+            current.content,
+            `input[${index}].content`,
+            losses,
+          );
           texts.push(
-            ...decodeContent(
-              current.content,
-              `input[${index}].content`,
-              losses,
-            ),
+            ...(decoded.length === 0
+              ? [{ type: "text" as const, text: "" }]
+              : decoded),
           );
           index += 1;
         }
         const content = [...texts, ...calls];
-        if (content.length > 0) messages.push({ role: "assistant", content });
+        messages.push({ role: "assistant", content });
         continue;
       }
       if (type === "function_call_output") {
@@ -176,7 +180,6 @@ export function decodeRequest(
       index += 1;
     }
   }
-  if (messages.length === 0) fail("request carries no conversation input");
   const params = {
     ...(wire.temperature === undefined
       ? {}
@@ -188,17 +191,16 @@ export function decodeRequest(
           max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
   };
-  return {
-    value: {
-      model: mapModel(options.modelMapper, string(wire.model, "model")),
-      ...(system.length === 0 ? {} : { system }),
-      messages,
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-      ...(Object.keys(params).length === 0 ? {} : { params }),
-    },
-    losses,
+  const request: Request = {
+    model: mapModel(options.modelMapper, string(wire.model, "model")),
+    ...(system.length === 0 ? {} : { system }),
+    messages,
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    ...(Object.keys(params).length === 0 ? {} : { params }),
   };
+  validateRequest(request);
+  return { value: request, losses };
 }
 
 export function decodeResponse(
@@ -309,6 +311,7 @@ export function encodeRequest(
   request: Request,
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
+  validateRequest(request);
   const losses: Loss[] = [];
   if (
     request.metadata !== undefined &&

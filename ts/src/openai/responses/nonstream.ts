@@ -171,7 +171,12 @@ export function decodeRequest(
                 ),
               );
           }
-        } else if (role === "user") messages.push({ role, content });
+        } else if (role === "user")
+          messages.push({
+            role,
+            content:
+              content.length === 0 ? [{ type: "text", text: "" }] : content,
+          });
         else fail(`input[${index}]: unknown role ${role}`);
         index += 1;
         continue;

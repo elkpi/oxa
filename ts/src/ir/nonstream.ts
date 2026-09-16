@@ -135,9 +135,7 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
     message.role === "assistant"
       ? message.content.filter((block) => block.type === "tool_use")
       : [];
-  const toolResults = message.content.filter(
-    (block) => block.type === "tool_result",
-  );
+  const toolResults = topLevelToolResults(message.content);
 
   if (message.role !== "user" && toolResults.length > 0)
     invalid("INV-3: tool results must appear in a user message");
@@ -146,9 +144,7 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
     const following = messages[index + 1];
     if (following === undefined || following.role !== "user")
       invalid("INV-3: tool uses require one following user message");
-    const followingResults = following.content.filter(
-      (block) => block.type === "tool_result",
-    );
+    const followingResults = topLevelToolResults(following.content);
     if (
       followingResults.length !== toolUses.length ||
       toolUses.some(
@@ -169,6 +165,28 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
       !preceding.content.some((block) => block.type === "tool_use")
     )
       invalid("INV-3: orphan or split tool results");
+  }
+}
+
+function topLevelToolResults(
+  content: readonly Block[],
+): readonly Extract<Block, { readonly type: "tool_result" }>[] {
+  const results: Extract<Block, { readonly type: "tool_result" }>[] = [];
+  collectToolResults(content, 0, results);
+  return results;
+}
+
+function collectToolResults(
+  content: readonly Block[],
+  depth: number,
+  results: Extract<Block, { readonly type: "tool_result" }>[],
+): void {
+  for (const block of content) {
+    if (block.type !== "tool_result") continue;
+    if (depth > 0)
+      invalid("INV-3: nested tool results cannot answer a tool use");
+    results.push(block);
+    collectToolResults(block.content, depth + 1, results);
   }
 }
 

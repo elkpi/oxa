@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { encodeRequest as encodeAnthropicRequest } from "../src/anthropic/messages/index.js";
+import {
+  decodeRequest as decodeAnthropicRequest,
+  encodeRequest as encodeAnthropicRequest,
+} from "../src/anthropic/messages/index.js";
 import { OxaError } from "../src/error.js";
 import {
   decodeRequest as decodeIrRequest,
@@ -9,9 +12,15 @@ import {
   type Block,
   type Request,
 } from "../src/ir/index.js";
-import { jsonText, type JsonObject } from "../src/json/index.js";
-import { encodeRequest as encodeChatRequest } from "../src/openai/chatcompletions/index.js";
-import { encodeRequest as encodeResponsesRequest } from "../src/openai/responses/index.js";
+import { integer, jsonText, type JsonObject } from "../src/json/index.js";
+import {
+  decodeRequest as decodeChatRequest,
+  encodeRequest as encodeChatRequest,
+} from "../src/openai/chatcompletions/index.js";
+import {
+  decodeRequest as decodeResponsesRequest,
+  encodeRequest as encodeResponsesRequest,
+} from "../src/openai/responses/index.js";
 
 const text = { type: "text", text: "hello" } as const;
 const callA = {
@@ -105,6 +114,26 @@ const invalidRequests: readonly {
       ],
     },
   },
+  {
+    name: "a nested orphan tool result",
+    request: {
+      model: "model",
+      messages: [
+        { role: "user", content: [text] },
+        { role: "assistant", content: [callA] },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool_result",
+              tool_use_id: "call_a",
+              content: [result("nested_call")],
+            },
+          ],
+        },
+      ],
+    },
+  },
 ];
 
 const faceEncoders: readonly {
@@ -131,6 +160,34 @@ for (const { name, request } of invalidRequests) {
     });
   }
 }
+
+test("face decoders reject invalid source request conversations", () => {
+  assertInvalidRequest(
+    () =>
+      decodeChatRequest({
+        model: "model",
+        messages: [{ role: "assistant", content: "hello" }],
+      }),
+    "Chat Completions decode",
+  );
+  assertInvalidRequest(
+    () =>
+      decodeResponsesRequest({
+        model: "model",
+        input: [{ role: "assistant", content: "hello" }],
+      }),
+    "Responses decode",
+  );
+  assertInvalidRequest(
+    () =>
+      decodeAnthropicRequest({
+        model: "model",
+        max_tokens: integer(1n),
+        messages: [{ role: "assistant", content: "hello" }],
+      }),
+    "Anthropic decode",
+  );
+});
 
 function assertInvalidRequest(run: () => unknown, context: string): void {
   assert.throws(run, (error: unknown) => {

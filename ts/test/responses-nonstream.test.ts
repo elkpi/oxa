@@ -7,7 +7,6 @@ import {
   encodeRequest,
   encodeResponse,
 } from "../src/openai/responses/index.js";
-import { OxaError } from "../src/error.js";
 import { runNonstreamVectors } from "./nonstream-vector-runner.js";
 
 test("runs every Responses non-stream vector", () => {
@@ -37,14 +36,14 @@ test("decodes empty assistant content as one empty text block", () => {
   assert.deepEqual(decoded.losses, []);
 });
 
-test("rejects empty user content instead of synthesizing text", () => {
-  assert.throws(
-    () =>
-      decodeRequest({
-        model: "gpt-5",
-        input: [{ type: "message", role: "user", content: [] }],
-      }),
-    (error: unknown) =>
-      error instanceof OxaError && error.code === "invalid-input",
-  );
+test("decodes empty user content as one empty text block", () => {
+  const decoded = decodeRequest({
+    model: "gpt-5",
+    input: [{ type: "message", role: "user", content: [] }],
+  });
+
+  assert.deepEqual(decoded.value.messages, [
+    { role: "user", content: [{ type: "text", text: "" }] },
+  ]);
+  assert.deepEqual(decoded.losses, []);
 });

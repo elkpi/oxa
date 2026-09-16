@@ -12,8 +12,10 @@ export {
   type ResponsesStreamEncoderOptions,
 } from "./stream.js";
 export type {
+  ResponsesOutputContentPart,
   ResponsesOutputItem,
   ResponsesOutputTextPart,
+  ResponsesUnknownContentPart,
   ResponsesResponse,
   ResponsesStreamEvent,
   ResponsesUsage,

@@ -7,17 +7,27 @@ export interface ResponsesUsage {
 }
 
 export interface ResponsesOutputTextPart {
-  readonly type: string;
-  readonly text?: string;
-  readonly annotations?: readonly unknown[];
+  readonly type: "output_text";
+  readonly text: string;
+  readonly annotations: readonly unknown[];
 }
+
+/** An opaque content part unsupported by the current Responses profile. */
+export interface ResponsesUnknownContentPart {
+  readonly type: "output_image";
+  readonly [field: string]: unknown;
+}
+
+export type ResponsesOutputContentPart =
+  | ResponsesOutputTextPart
+  | ResponsesUnknownContentPart;
 
 export interface ResponsesOutputItem {
   readonly type: string;
   readonly id?: string;
   readonly status?: string;
   readonly role?: string;
-  readonly content?: readonly ResponsesOutputTextPart[];
+  readonly content?: readonly ResponsesOutputContentPart[];
   readonly call_id?: string;
   readonly name?: string;
   /** Opaque JSON text for function_call items. */
@@ -44,7 +54,7 @@ export interface ResponsesStreamEvent {
   readonly output_index?: number;
   readonly content_index?: number;
   readonly item?: ResponsesOutputItem;
-  readonly part?: ResponsesOutputTextPart;
+  readonly part?: ResponsesOutputContentPart;
   readonly delta?: string;
   readonly text?: string;
   readonly call_id?: string;

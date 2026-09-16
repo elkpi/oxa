@@ -110,6 +110,7 @@ export class ResponsesStreamDecoder {
           this.#requireSkippedDescendant(event, this.#skipped);
           return [];
         }
+        this.#requireUnknownEventIdentity(event);
         this.#losses.push({
           path: "type",
           field: "type",
@@ -498,6 +499,18 @@ export class ResponsesStreamDecoder {
     )
       this.#lifecycle(`${event.type} without a content_index`);
     return event.content_index;
+  }
+
+  #requireUnknownEventIdentity(event: ResponsesStreamEvent): void {
+    if (!this.#itemOpen) return;
+    this.#requireActiveItem(event);
+    if (this.#blockOpen) {
+      if (this.#contentIndexOf(event) !== this.#contentIndex)
+        this.#lifecycle(event.type + " does not match the open content part");
+      return;
+    }
+    if (event.content_index !== undefined)
+      this.#lifecycle(event.type + " has no open content part");
   }
 
   #requireSkippedDescendant(

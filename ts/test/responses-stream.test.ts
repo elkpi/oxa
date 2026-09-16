@@ -184,9 +184,27 @@ test("absorbs an M7 function_call_output item with exactly one vector loss", () 
   ]);
 });
 
+test("keeps output_text strict while accepting unknown content parts", () => {
+  type OutputPart = NonNullable<ResponsesStreamEvent["part"]>;
+  const textPart: OutputPart = {
+    type: "output_text",
+    text: "hello",
+    annotations: [],
+  };
+  const imagePart: OutputPart = { type: "output_image" };
+  const partValue = (part: OutputPart): string =>
+    part.type === "output_text" ? part.text : part.type;
+  // @ts-expect-error output_text requires both text and annotations.
+  const incompleteText: OutputPart = { type: "output_text" };
+
+  assert.equal(partValue(textPart), "hello");
+  assert.equal(partValue(imagePart), "output_image");
+  void incompleteText;
+});
+
 test("contains a skipped output_image part and its unknown descendant in one loss", () => {
   const decoder = new ResponsesStreamDecoder();
-  const imagePart = { type: "output_image" };
+  const imagePart = { type: "output_image" } as const;
   const actual = [
     created("resp_image", "gpt-4o-mini"),
     {
@@ -309,6 +327,129 @@ test("rejects an unknown descendant with mismatched skipped part identity", () =
     );
     assert.equal(decoder.Losses().length, 1);
   }
+});
+
+test("rejects unknown events with mismatched supported item identity", () => {
+  const mismatches: readonly Partial<ResponsesStreamEvent>[] = [
+    { item_id: "msg_other" },
+    { output_index: 1 },
+  ];
+
+  for (const mismatch of mismatches) {
+    const decoder = new ResponsesStreamDecoder();
+    decoder.Feed(created("resp_item_mismatch", "gpt-4o-mini"));
+    decoder.Feed({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_supported",
+        role: "assistant",
+        status: "in_progress",
+        content: [],
+      },
+    });
+
+    assert.throws(
+      () =>
+        decoder.Feed({
+          type: "response.unknown_item_child",
+          item_id: "msg_supported",
+          output_index: 0,
+          ...mismatch,
+        }),
+      { code: "stream-lifecycle" },
+    );
+    assert.deepEqual(decoder.Losses(), []);
+  }
+});
+
+test("rejects unknown events with mismatched supported part identity", () => {
+  const mismatches: readonly Partial<ResponsesStreamEvent>[] = [
+    { item_id: "msg_other" },
+    { output_index: 1 },
+    { content_index: 1 },
+  ];
+
+  for (const mismatch of mismatches) {
+    const decoder = new ResponsesStreamDecoder();
+    decoder.Feed(created("resp_part_mismatch", "gpt-4o-mini"));
+    decoder.Feed({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_supported",
+        role: "assistant",
+        status: "in_progress",
+        content: [],
+      },
+    });
+    decoder.Feed({
+      type: "response.content_part.added",
+      item_id: "msg_supported",
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_text", text: "", annotations: [] },
+    });
+
+    assert.throws(
+      () =>
+        decoder.Feed({
+          type: "response.unknown_part_child",
+          item_id: "msg_supported",
+          output_index: 0,
+          content_index: 0,
+          ...mismatch,
+        }),
+      { code: "stream-lifecycle" },
+    );
+    assert.deepEqual(decoder.Losses(), []);
+  }
+});
+
+test("rejects a late unknown descendant after a skipped part closes", () => {
+  const decoder = new ResponsesStreamDecoder();
+  const imagePart = { type: "output_image" } as const;
+  decoder.Feed(created("resp_late_image", "gpt-4o-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_image",
+      role: "assistant",
+      status: "in_progress",
+      content: [],
+    },
+  });
+  decoder.Feed({
+    type: "response.content_part.added",
+    item_id: "msg_image",
+    output_index: 0,
+    content_index: 0,
+    part: imagePart,
+  });
+  decoder.Feed({
+    type: "response.content_part.done",
+    item_id: "msg_image",
+    output_index: 0,
+    content_index: 0,
+    part: imagePart,
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "response.output_image.delta",
+        item_id: "msg_image",
+        output_index: 0,
+        content_index: 0,
+        delta: "late-fragment",
+      }),
+    { code: "stream-lifecycle" },
+  );
+  assert.equal(decoder.Losses().length, 1);
 });
 
 test("contains unknown descendants of a skipped item in one item loss", () => {

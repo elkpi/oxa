@@ -452,6 +452,106 @@ test("rejects a late unknown descendant after a skipped part closes", () => {
   assert.equal(decoder.Losses().length, 1);
 });
 
+test("rejects an identity-bearing unknown event after the output item closes", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_late_item", "gpt-4o-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_closed",
+      role: "assistant",
+      status: "in_progress",
+      content: [],
+    },
+  });
+  decoder.Feed({
+    type: "response.output_item.done",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_closed",
+      role: "assistant",
+      status: "completed",
+      content: [],
+    },
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "response.unknown_item_child",
+        item_id: "msg_closed",
+        output_index: 0,
+      }),
+    { code: "stream-lifecycle" },
+  );
+  assert.deepEqual(decoder.Losses(), []);
+});
+
+test("records an identity-less standalone unknown event with an item open", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_standalone", "gpt-4o-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: {
+      type: "message",
+      id: "msg_open",
+      role: "assistant",
+      status: "in_progress",
+      content: [],
+    },
+  });
+
+  assert.deepEqual(decoder.Feed({ type: "response.heartbeat" }), []);
+  assert.deepEqual(decoder.Losses(), [
+    {
+      path: "type",
+      field: "type",
+      reason: "unsupported-semantic",
+      detail:
+        'Responses stream event type "response.heartbeat" is not decoded in the Responses stream profile',
+    },
+  ]);
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_open",
+        role: "assistant",
+        status: "completed",
+        content: [],
+      },
+    }),
+    [],
+  );
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.completed",
+      response: {
+        id: "resp_standalone",
+        object: "response",
+        status: "completed",
+        model: "gpt-4o-mini",
+        output: [],
+      },
+    }),
+    [
+      {
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0n, output_tokens: 0n },
+      },
+      { type: "message_done" },
+    ],
+  );
+  assert.deepEqual(decoder.Flush(), []);
+});
+
 test("contains unknown descendants of a skipped item in one item loss", () => {
   const decoder = new ResponsesStreamDecoder();
   const actual = [

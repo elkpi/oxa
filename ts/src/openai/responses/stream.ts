@@ -106,7 +106,7 @@ export class ResponsesStreamDecoder {
       case "response.failed":
         return this.#terminal(event);
       default:
-        if (this.#skipped !== undefined) {
+        if (this.#skipped !== undefined && this.#hasNativeUnitIdentity(event)) {
           this.#requireSkippedDescendant(event, this.#skipped);
           return [];
         }
@@ -501,8 +501,18 @@ export class ResponsesStreamDecoder {
     return event.content_index;
   }
 
+  #hasNativeUnitIdentity(event: ResponsesStreamEvent): boolean {
+    return (
+      event.output_index !== undefined ||
+      event.item_id !== undefined ||
+      event.content_index !== undefined
+    );
+  }
+
   #requireUnknownEventIdentity(event: ResponsesStreamEvent): void {
-    if (!this.#itemOpen) return;
+    if (!this.#hasNativeUnitIdentity(event)) return;
+    if (!this.#itemOpen)
+      this.#lifecycle(event.type + " has no open output item");
     this.#requireActiveItem(event);
     if (this.#blockOpen) {
       if (this.#contentIndexOf(event) !== this.#contentIndex)

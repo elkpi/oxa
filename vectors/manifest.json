@@ -1361,6 +1361,17 @@
       "sha256": "99b8a43a19cdd9320c7470342c3b2de6b558b4f25ae3bab0b7185fd742591e9e"
     },
     {
+      "name": "responses.stream.skipped-part-loss",
+      "file": "responses/stream/skipped-part-loss.json",
+      "tags": [
+        "stream",
+        "loss",
+        "n-s-3",
+        "n-s-6"
+      ],
+      "sha256": "7c5673095bdce96e62d11f69cf06dc2ea2ebba5fc25b3e99571fd2cc98b10f13"
+    },
+    {
       "name": "responses.stream.usage-int64-to-ir",
       "file": "responses/stream/usage-int64-to-ir.json",
       "tags": [

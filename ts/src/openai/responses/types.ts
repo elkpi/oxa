@@ -7,9 +7,9 @@ export interface ResponsesUsage {
 }
 
 export interface ResponsesOutputTextPart {
-  readonly type: "output_text";
-  readonly text: string;
-  readonly annotations: readonly unknown[];
+  readonly type: string;
+  readonly text?: string;
+  readonly annotations?: readonly unknown[];
 }
 
 export interface ResponsesOutputItem {

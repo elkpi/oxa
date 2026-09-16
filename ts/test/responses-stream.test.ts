@@ -184,6 +184,205 @@ test("absorbs an M7 function_call_output item with exactly one vector loss", () 
   ]);
 });
 
+test("contains a skipped output_image part and its unknown descendant in one loss", () => {
+  const decoder = new ResponsesStreamDecoder();
+  const imagePart = { type: "output_image" };
+  const actual = [
+    created("resp_image", "gpt-4o-mini"),
+    {
+      type: "response.output_item.added" as const,
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_image",
+        role: "assistant",
+        status: "in_progress",
+        content: [],
+      },
+    },
+    {
+      type: "response.content_part.added" as const,
+      item_id: "msg_image",
+      output_index: 0,
+      content_index: 0,
+      part: imagePart,
+    },
+    {
+      type: "response.output_image.delta" as const,
+      item_id: "msg_image",
+      output_index: 0,
+      content_index: 0,
+      delta: "opaque-image-fragment",
+    },
+    {
+      type: "response.content_part.done" as const,
+      item_id: "msg_image",
+      output_index: 0,
+      content_index: 0,
+      part: imagePart,
+    },
+    {
+      type: "response.output_item.done" as const,
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_image",
+        role: "assistant",
+        status: "completed",
+        content: [],
+      },
+    },
+    {
+      type: "response.completed" as const,
+      response: {
+        id: "resp_image",
+        object: "response",
+        status: "completed",
+        model: "gpt-4o-mini",
+        output: [],
+        usage: { input_tokens: 3n, output_tokens: 1n, total_tokens: 4n },
+      },
+    },
+  ].flatMap((event) => decoder.Feed(event));
+
+  assert.deepEqual(actual, [
+    { type: "message_start", id: "resp_image", model: "gpt-4o-mini" },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: 3n, output_tokens: 1n },
+    },
+    { type: "message_done" },
+  ]);
+  assert.deepEqual(decoder.Flush(), []);
+  assert.deepEqual(decoder.Losses(), [
+    {
+      path: "output[0].content[0]",
+      field: "type",
+      reason: "unsupported-semantic",
+      detail:
+        'Responses streaming content type "output_image" is not decoded in the Responses stream profile',
+    },
+  ]);
+});
+
+test("rejects an unknown descendant with mismatched skipped part identity", () => {
+  const mismatches: readonly Partial<ResponsesStreamEvent>[] = [
+    { item_id: "msg_other" },
+    { output_index: 1 },
+    { content_index: 1 },
+  ];
+
+  for (const mismatch of mismatches) {
+    const decoder = new ResponsesStreamDecoder();
+    decoder.Feed(created("resp_image_mismatch", "gpt-4o-mini"));
+    decoder.Feed({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        type: "message",
+        id: "msg_image",
+        role: "assistant",
+        status: "in_progress",
+        content: [],
+      },
+    });
+    decoder.Feed({
+      type: "response.content_part.added",
+      item_id: "msg_image",
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_image" },
+    });
+
+    assert.throws(
+      () =>
+        decoder.Feed({
+          type: "response.output_image.delta",
+          item_id: "msg_image",
+          output_index: 0,
+          content_index: 0,
+          delta: "opaque-image-fragment",
+          ...mismatch,
+        }),
+      { code: "stream-lifecycle" },
+    );
+    assert.equal(decoder.Losses().length, 1);
+  }
+});
+
+test("contains unknown descendants of a skipped item in one item loss", () => {
+  const decoder = new ResponsesStreamDecoder();
+  const actual = [
+    created("resp_reasoning", "gpt-4o-mini"),
+    {
+      type: "response.output_item.added" as const,
+      output_index: 0,
+      item: {
+        type: "reasoning",
+        id: "reasoning_1",
+        status: "in_progress",
+      },
+    },
+    {
+      type: "response.reasoning_summary_part.added" as const,
+      item_id: "reasoning_1",
+      output_index: 0,
+      content_index: 0,
+    },
+    {
+      type: "response.reasoning_summary_text.delta" as const,
+      item_id: "reasoning_1",
+      output_index: 0,
+      content_index: 0,
+      delta: "opaque-reasoning-fragment",
+    },
+    {
+      type: "response.reasoning_summary_part.done" as const,
+      item_id: "reasoning_1",
+      output_index: 0,
+      content_index: 0,
+    },
+    {
+      type: "response.output_item.done" as const,
+      output_index: 0,
+      item: {
+        type: "reasoning",
+        id: "reasoning_1",
+        status: "completed",
+      },
+    },
+    {
+      type: "response.completed" as const,
+      response: {
+        id: "resp_reasoning",
+        object: "response",
+        status: "completed",
+        model: "gpt-4o-mini",
+        output: [],
+      },
+    },
+  ].flatMap((event) => decoder.Feed(event));
+
+  assert.deepEqual(actual, [
+    { type: "message_start", id: "resp_reasoning", model: "gpt-4o-mini" },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0n, output_tokens: 0n },
+    },
+    { type: "message_done" },
+  ]);
+  assert.deepEqual(decoder.Losses(), [
+    {
+      path: "output[0]",
+      field: "type",
+      reason: "unsupported-semantic",
+      detail: 'Responses streaming output item type "reasoning" is not decoded',
+    },
+  ]);
+});
+
 test("encodes the M7 Responses function call vector with synthesized envelopes", () => {
   const encoder = new ResponsesStreamEncoder();
   const input: Event[] = [

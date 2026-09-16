@@ -1,0 +1,36 @@
+{
+  "name": "responses.stream.skipped-part-loss",
+  "description": "An unsupported Responses output_image content part records exactly one unsupported-semantic loss; its matching unknown descendant and content-part completion are absorbed without IR content events, while the surrounding item and response lifecycle remains valid (N-S-3, N-S-6).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_image", "object": "response", "status": "in_progress", "model": "gpt-4o-mini", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "message", "id": "msg_image", "role": "assistant", "status": "in_progress", "content": [] } },
+      { "type": "response.content_part.added", "item_id": "msg_image", "output_index": 0, "content_index": 0, "part": { "type": "output_image" } },
+      { "type": "response.output_image.delta", "item_id": "msg_image", "output_index": 0, "content_index": 0, "delta": "opaque-image-fragment" },
+      { "type": "response.content_part.done", "item_id": "msg_image", "output_index": 0, "content_index": 0, "part": { "type": "output_image" } },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "message", "id": "msg_image", "role": "assistant", "status": "completed", "content": [ { "type": "output_image" } ] } },
+      { "type": "response.completed", "response": { "id": "resp_image", "object": "response", "status": "completed", "model": "gpt-4o-mini", "output": [ { "type": "message", "id": "msg_image", "role": "assistant", "status": "completed", "content": [ { "type": "output_image" } ] } ], "usage": { "input_tokens": 3, "output_tokens": 1, "total_tokens": 4 } } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "resp_image", "model": "gpt-4o-mini" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 3, "output_tokens": 1 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].content[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "Responses streaming content type \"output_image\" is not decoded in the Responses stream profile"
+    }
+  ],
+  "tags": ["stream", "loss", "n-s-3", "n-s-6"]
+}

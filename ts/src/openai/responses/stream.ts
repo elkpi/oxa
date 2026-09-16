@@ -29,6 +29,19 @@ interface FunctionCallState {
   argumentsDone: boolean;
 }
 
+type SkippedUnit =
+  | {
+      readonly kind: "item";
+      readonly outputIndex: number;
+      readonly itemId: string;
+    }
+  | {
+      readonly kind: "part";
+      readonly outputIndex: number;
+      readonly itemId: string;
+      readonly contentIndex: number;
+    };
+
 /** Incrementally converts Responses event objects to IR stream events. */
 export class ResponsesStreamDecoder {
   readonly #modelMapper: ModelMapper | undefined;
@@ -39,7 +52,7 @@ export class ResponsesStreamDecoder {
   #nextOutputIndex = 0;
   #nextBlockIndex = 0;
   #itemOpen = false;
-  #skippedItem = false;
+  #skipped: SkippedUnit | undefined;
   #itemType = "";
   #itemId = "";
   #skippedCallId = "";
@@ -48,7 +61,6 @@ export class ResponsesStreamDecoder {
   #functionCall: FunctionCallState | undefined;
   #toolUseSeen = false;
   #blockOpen = false;
-  #skippedPart = false;
   #blockIndex = 0;
   #contentIndex = 0;
   #textDone = false;
@@ -94,7 +106,10 @@ export class ResponsesStreamDecoder {
       case "response.failed":
         return this.#terminal(event);
       default:
-        if (this.#isSkippedDescendant(event)) return [];
+        if (this.#skipped !== undefined) {
+          this.#requireSkippedDescendant(event, this.#skipped);
+          return [];
+        }
         this.#losses.push({
           path: "type",
           field: "type",
@@ -133,7 +148,7 @@ export class ResponsesStreamDecoder {
     this.#itemType = event.item.type;
     this.#itemId = event.item.id ?? "";
     this.#outputIndex = index;
-    this.#skippedItem = false;
+    this.#skipped = undefined;
     this.#skippedCallId = "";
     this.#nextContentIndex = 0;
     this.#functionCall = undefined;
@@ -154,7 +169,11 @@ export class ResponsesStreamDecoder {
       };
       return [];
     }
-    this.#skippedItem = true;
+    this.#skipped = {
+      kind: "item",
+      outputIndex: index,
+      itemId: this.#itemId,
+    };
     if (event.item.type === "function_call_output")
       this.#skippedCallId = event.item.call_id ?? "";
     this.#losses.push(this.#unsupportedItemLoss(index, event.item.type));
@@ -162,8 +181,8 @@ export class ResponsesStreamDecoder {
   }
 
   #argumentDelta(event: ResponsesStreamEvent): readonly Event[] {
-    if (this.#skippedItem) {
-      this.#requireActiveItem(event);
+    if (this.#skipped !== undefined) {
+      this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
     const call = this.#requireFunctionCall(event);
@@ -178,8 +197,8 @@ export class ResponsesStreamDecoder {
   }
 
   #argumentDone(event: ResponsesStreamEvent): readonly Event[] {
-    if (this.#skippedItem) {
-      this.#requireActiveItem(event);
+    if (this.#skipped !== undefined) {
+      this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
     const call = this.#requireFunctionCall(event);
@@ -201,7 +220,7 @@ export class ResponsesStreamDecoder {
     this.#requireActiveItem(event);
     if (this.#functionCall !== undefined)
       this.#lifecycle("response.content_part.added on function_call item");
-    if (this.#blockOpen || this.#skippedPart)
+    if (this.#blockOpen || this.#skipped?.kind === "part")
       this.#lifecycle("response.content_part.added with a part still open");
     const contentIndex = this.#contentIndexOf(event);
     if (contentIndex !== this.#nextContentIndex)
@@ -212,12 +231,17 @@ export class ResponsesStreamDecoder {
       this.#lifecycle("response.content_part.added without part");
     this.#nextContentIndex += 1;
     this.#contentIndex = contentIndex;
-    if (this.#skippedItem) {
-      this.#skippedPart = true;
+    if (this.#skipped?.kind === "item") {
+      this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
     if (event.part.type !== "output_text") {
-      this.#skippedPart = true;
+      this.#skipped = {
+        kind: "part",
+        outputIndex: this.#outputIndex,
+        itemId: this.#itemId,
+        contentIndex,
+      };
       this.#losses.push({
         path: `output[${this.#outputIndex}].content[${contentIndex}]`,
         field: "type",
@@ -234,7 +258,7 @@ export class ResponsesStreamDecoder {
       {
         type: "content_block_start",
         index: this.#blockIndex,
-        block: { type: "text", text: event.part.text },
+        block: { type: "text", text: event.part.text ?? "" },
       },
     ];
   }
@@ -244,9 +268,8 @@ export class ResponsesStreamDecoder {
     if (this.#functionCall !== undefined)
       this.#lifecycle("response.output_text.delta on function_call item");
     const contentIndex = this.#contentIndexOf(event);
-    if (this.#skippedItem || this.#skippedPart) {
-      if (contentIndex !== this.#contentIndex)
-        this.#lifecycle("output_text.delta does not match the skipped part");
+    if (this.#skipped !== undefined) {
+      this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
@@ -269,9 +292,8 @@ export class ResponsesStreamDecoder {
     if (this.#functionCall !== undefined)
       this.#lifecycle("response.output_text.done on function_call item");
     const contentIndex = this.#contentIndexOf(event);
-    if (this.#skippedItem || this.#skippedPart) {
-      if (contentIndex !== this.#contentIndex)
-        this.#lifecycle("output_text.done does not match the skipped part");
+    if (this.#skipped !== undefined) {
+      this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
@@ -288,10 +310,10 @@ export class ResponsesStreamDecoder {
     if (event.part === undefined)
       this.#lifecycle("response.content_part.done without part");
     const contentIndex = this.#contentIndexOf(event);
-    if (this.#skippedItem || this.#skippedPart) {
-      if (contentIndex !== this.#contentIndex)
-        this.#lifecycle("content_part.done does not match the skipped part");
-      this.#skippedPart = false;
+    if (this.#skipped !== undefined) {
+      const skipped = this.#skipped;
+      this.#requireSkippedDescendant(event, skipped);
+      if (skipped.kind === "part") this.#skipped = undefined;
       return [];
     }
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
@@ -314,14 +336,16 @@ export class ResponsesStreamDecoder {
     )
       this.#lifecycle("response.output_item.done does not match the open item");
     if (
-      this.#skippedItem &&
+      this.#skipped?.kind === "item" &&
       this.#itemType === "function_call_output" &&
       event.item.call_id !== this.#skippedCallId
     )
       this.#lifecycle(
         "response.output_item.done does not match the active function_call_output",
       );
-    if (this.#blockOpen || this.#skippedPart)
+    if (this.#skipped?.kind === "item")
+      this.#requireSkippedDescendant(event, this.#skipped);
+    if (this.#blockOpen || this.#skipped?.kind === "part")
       this.#lifecycle(
         "response.output_item.done with a content part still open",
       );
@@ -363,7 +387,7 @@ export class ResponsesStreamDecoder {
       this.#toolUseSeen = true;
     }
     this.#itemOpen = false;
-    this.#skippedItem = false;
+    this.#skipped = undefined;
     this.#itemType = "";
     this.#itemId = "";
     this.#skippedCallId = "";
@@ -373,7 +397,7 @@ export class ResponsesStreamDecoder {
 
   #terminal(event: ResponsesStreamEvent): readonly Event[] {
     this.#requireStarted(event.type);
-    if (this.#itemOpen || this.#blockOpen || this.#skippedPart)
+    if (this.#itemOpen || this.#blockOpen || this.#skipped !== undefined)
       this.#lifecycle(`${event.type} before output lifecycle completed`);
     if (event.response === undefined)
       this.#lifecycle(`${event.type} without response`);
@@ -476,13 +500,24 @@ export class ResponsesStreamDecoder {
     return event.content_index;
   }
 
-  #isSkippedDescendant(event: ResponsesStreamEvent): boolean {
-    return (
-      this.#itemOpen &&
-      this.#skippedItem &&
-      event.output_index === this.#outputIndex &&
-      event.item_id === this.#itemId
-    );
+  #requireSkippedDescendant(
+    event: ResponsesStreamEvent,
+    unit: SkippedUnit,
+  ): true {
+    this.#requireStarted(event.type);
+    const itemId = event.item_id ?? event.item?.id;
+    if (
+      !this.#itemOpen ||
+      this.#outputIndexOf(event) !== unit.outputIndex ||
+      itemId !== unit.itemId
+    )
+      this.#lifecycle(`${event.type} does not match the skipped output item`);
+    if (
+      unit.kind === "part" &&
+      this.#contentIndexOf(event) !== unit.contentIndex
+    )
+      this.#lifecycle(`${event.type} does not match the skipped content part`);
+    return true;
   }
 
   #unsupportedItemLoss(outputIndex: number, itemType: string): Loss {

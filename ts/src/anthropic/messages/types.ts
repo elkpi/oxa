@@ -12,6 +12,7 @@ export interface AnthropicContentBlock {
   readonly id?: string;
   readonly name?: string;
   readonly input?: JsonText | JsonObject;
+  readonly inputText?: JsonText;
 }
 
 export interface AnthropicMessageEnvelope {

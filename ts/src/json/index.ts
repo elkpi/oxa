@@ -1,6 +1,12 @@
 export { parseJson } from "./parse.js";
 export { stringifyJson } from "./stringify.js";
-export { fromValue, integer, jsonText } from "./value.js";
+export {
+  fromValue,
+  integer,
+  jsonText,
+  sourceTextOf,
+  withSourceText,
+} from "./value.js";
 export {
   isJsonArray,
   isJsonNumber,

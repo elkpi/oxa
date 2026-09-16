@@ -140,6 +140,18 @@
       "sha256": "c55e8f1668555ff5a27eef303dec240ea1e966b56d142f7648ca79fcdbdb7771"
     },
     {
+      "name": "anthropic.nonstream.raw-json-tool-input-to-ir",
+      "file": "anthropic/nonstream/raw-json-tool-input-to-ir.json",
+      "tags": [
+        "response",
+        "tools",
+        "raw-json",
+        "n-an-4",
+        "inv-1"
+      ],
+      "sha256": "ef4b93c085f2b0ba49373844d2c9191c2a7958b008b932e0cae3d0be8ee86154"
+    },
+    {
       "name": "anthropic.nonstream.system-prompt-request-from-ir",
       "file": "anthropic/nonstream/system-prompt-request-from-ir.json",
       "tags": [

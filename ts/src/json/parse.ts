@@ -1,5 +1,6 @@
 import { OxaError } from "../error.js";
 import type { JsonNumber, JsonObject, JsonValue } from "./types.js";
+import { jsonText, withSourceText } from "./value.js";
 
 const numberPattern = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 
@@ -26,7 +27,14 @@ class Parser {
   private parseValue(): JsonValue {
     const next = this.peek();
     if (next === '"') return this.parseString();
-    if (next === "{") return this.parseObject();
+    if (next === "{") {
+      const start = this.#position;
+      const value = this.parseObject();
+      return withSourceText(
+        value,
+        jsonText(this.source.slice(start, this.#position)),
+      );
+    }
     if (next === "[") return this.parseArray();
     if (next === "t") return this.parseKeyword("true", true);
     if (next === "f") return this.parseKeyword("false", false);

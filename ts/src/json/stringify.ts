@@ -5,6 +5,7 @@ import {
   type JsonNumber,
   type JsonValue,
 } from "./types.js";
+import { sourceTextOf } from "./value.js";
 
 const numberToken = new RegExp(
   "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$",
@@ -17,6 +18,8 @@ export function stringifyJson(value: JsonValue): string {
   if (typeof value === "string") return quoteString(value);
   if (isJsonNumber(value)) return stringifyNumber(value);
   if (isJsonArray(value)) return `[${value.map(stringifyJson).join(",")}]`;
+  const source = sourceTextOf(value);
+  if (source !== undefined) return source;
   return `{${Object.keys(value)
     .map((key) => `${quoteString(key)}:${stringifyJson(value[key]!)}`)
     .join(",")}}`;

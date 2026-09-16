@@ -3,9 +3,28 @@ import {
   isJsonNumber,
   type JsonInput,
   type JsonNumber,
+  type JsonObject,
   type JsonText,
   type JsonValue,
 } from "./types.js";
+
+const sourceTexts = new WeakMap<object, JsonText>();
+
+/** Returns the exact source token registered for a lossless JSON object. */
+export function sourceTextOf(value: JsonValue): JsonText | undefined {
+  return typeof value === "object" && value !== null
+    ? sourceTexts.get(value)
+    : undefined;
+}
+
+/** Registers exact source text for an object without changing its identity. */
+export function withSourceText(
+  value: JsonObject,
+  source: JsonText,
+): JsonObject {
+  sourceTexts.set(value, source);
+  return value;
+}
 
 /** Constructs an integer JSON token without number precision loss. */
 export function integer(value: bigint): JsonNumber {

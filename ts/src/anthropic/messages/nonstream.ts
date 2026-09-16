@@ -6,8 +6,11 @@ import {
   isJsonNumber,
   jsonText,
   parseJson,
+  sourceTextOf,
   stringifyJson,
+  withSourceText,
   type JsonObject,
+  type JsonText,
   type JsonValue,
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
@@ -286,12 +289,17 @@ function decodeContent(
         continue;
       }
     } else if (type === "tool_use") {
-      const input = object(block.input, `${path}[${index}].input`);
+      const inputPath = `${path}[${index}].input`;
+      const input = object(block.input, inputPath);
+      const inputText =
+        block.inputText === undefined
+          ? (sourceTextOf(input) ?? jsonText(stringifyJson(input)))
+          : toolInputText(block.inputText, `${path}[${index}].inputText`);
       blocks.push({
         type: "tool_use",
         id: string(block.id, `${path}[${index}].id`),
         name: string(block.name, `${path}[${index}].name`),
-        input: jsonText(stringifyJson(input)),
+        input: inputText,
       });
     } else if (type === "tool_result") {
       blocks.push({
@@ -340,11 +348,12 @@ function encodeContent(
       else output.push(image);
     } else if (block.type === "tool_use") {
       const value = parseJson(block.input);
+      const inputPath = `${path}[${index}].input`;
       output.push({
         type: "tool_use",
         id: block.id,
         name: block.name,
-        input: object(value, `${path}[${index}].input`),
+        input: withSourceText(object(value, inputPath), block.input),
       });
     } else {
       const content: JsonValue[] = [];
@@ -453,6 +462,15 @@ function strings(
   name: string,
 ): readonly string[] {
   return array(value, name).map((entry) => string(entry, name));
+}
+function toolInputText(value: JsonValue, name: string): JsonText {
+  const source = string(value, name);
+  try {
+    object(parseJson(source), name);
+  } catch {
+    fail(`${name} must encode an object`);
+  }
+  return jsonText(source);
 }
 function array(
   value: JsonValue | undefined,

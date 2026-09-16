@@ -1,0 +1,25 @@
+{
+  "name": "chatcompletions.stream.usage-int64-to-ir",
+  "description": "A Chat Completions usage-only terminal chunk preserves signed int64 maximum token counts exactly in final IR usage (N-S-1).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "events": [
+      { "id": "chatcmpl-usage", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": { "role": "assistant" }, "finish_reason": null }] },
+      { "id": "chatcmpl-usage", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }] },
+      { "id": "chatcmpl-usage", "object": "chat.completion.chunk", "created": 0, "model": "gpt-4o-mini", "choices": [], "usage": { "prompt_tokens": 9223372036854775807, "completion_tokens": 0, "total_tokens": 9223372036854775807 } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "chatcmpl-usage", "model": "gpt-4o-mini" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 9223372036854775807, "output_tokens": 0 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "usage", "int64", "n-s-1"]
+}

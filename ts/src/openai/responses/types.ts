@@ -1,7 +1,9 @@
+import type { JsonNumber } from "../../json/index.js";
+
 export interface ResponsesUsage {
-  readonly input_tokens: number;
-  readonly output_tokens: number;
-  readonly total_tokens: number;
+  readonly input_tokens: bigint | JsonNumber;
+  readonly output_tokens: bigint | JsonNumber;
+  readonly total_tokens: bigint | JsonNumber;
 }
 
 export interface ResponsesOutputTextPart {

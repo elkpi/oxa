@@ -1,6 +1,12 @@
 import { OxaError } from "../../error.js";
-import type { Event, StopReason, Usage } from "../../ir/index.js";
-import { jsonText } from "../../json/index.js";
+import {
+  encodeUsageInteger,
+  parseUsageInteger,
+  type Event,
+  type StopReason,
+  type Usage,
+} from "../../ir/index.js";
+import { jsonText, type JsonNumber } from "../../json/index.js";
 import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
 
@@ -29,9 +35,9 @@ export interface ChatCompletionsToolCallDelta {
   readonly function?: { readonly name?: string; readonly arguments?: string };
 }
 export interface ChatCompletionsUsage {
-  readonly prompt_tokens: number;
-  readonly completion_tokens: number;
-  readonly total_tokens: number;
+  readonly prompt_tokens: bigint | JsonNumber;
+  readonly completion_tokens: bigint | JsonNumber;
+  readonly total_tokens: bigint | JsonNumber;
 }
 export interface ChatCompletionsStreamDecoderOptions {
   readonly modelMapper?: ModelMapper;
@@ -73,8 +79,14 @@ export class ChatCompletionsStreamDecoder {
       this.#lifecycle("chunk has a conflicting stream identity");
     if (chunk.usage !== undefined)
       this.#usage = {
-        input_tokens: BigInt(chunk.usage.prompt_tokens),
-        output_tokens: BigInt(chunk.usage.completion_tokens),
+        input_tokens: parseUsageInteger(
+          chunk.usage.prompt_tokens,
+          "usage.prompt_tokens",
+        ),
+        output_tokens: parseUsageInteger(
+          chunk.usage.completion_tokens,
+          "usage.completion_tokens",
+        ),
       };
     const choice = chunk.choices[0];
     if (choice === undefined) return [];
@@ -380,6 +392,14 @@ export class ChatCompletionsStreamEncoder {
   ): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (!this.#started || this.#active !== undefined)
       this.#lifecycle("message_delta out of grammar order");
+    const inputTokens = encodeUsageInteger(
+      usage.input_tokens,
+      "usage.input_tokens",
+    );
+    const outputTokens = encodeUsageInteger(
+      usage.output_tokens,
+      "usage.output_tokens",
+    );
     this.#finished = true;
     const losses: Loss[] = [];
     const finishReason = this.#finishReason(stopReason, losses);
@@ -400,9 +420,9 @@ export class ChatCompletionsStreamEncoder {
       model: this.#model,
       choices: [{ index: 0, delta: {}, finish_reason: finishReason }],
       usage: {
-        prompt_tokens: Number(usage.input_tokens),
-        completion_tokens: Number(usage.output_tokens),
-        total_tokens: Number(usage.input_tokens + usage.output_tokens),
+        prompt_tokens: inputTokens,
+        completion_tokens: outputTokens,
+        total_tokens: inputTokens + outputTokens,
       },
     });
     return { value: chunks, losses };

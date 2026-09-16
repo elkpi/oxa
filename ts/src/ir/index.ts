@@ -7,6 +7,11 @@ export {
 } from "./nonstream.js";
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
+  encodeUsageInteger,
+  maxUsageTokens,
+  parseUsageInteger,
+} from "./usage.js";
+export {
   specVersion,
   type Block,
   type ImageBlock,

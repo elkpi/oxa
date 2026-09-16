@@ -85,7 +85,7 @@ test("decodes the M7 Responses function call vector with exact opaque fragments"
         status: "completed",
         model: "gpt-4o-mini",
         output: [],
-        usage: { input_tokens: 9, output_tokens: 4, total_tokens: 13 },
+        usage: { input_tokens: 9n, output_tokens: 4n, total_tokens: 13n },
       },
     },
   ];
@@ -159,7 +159,7 @@ test("absorbs an M7 function_call_output item with exactly one vector loss", () 
         status: "completed",
         model: "gpt-4o-mini",
         output: [],
-        usage: { input_tokens: 4, output_tokens: 2, total_tokens: 6 },
+        usage: { input_tokens: 4n, output_tokens: 2n, total_tokens: 6n },
       },
     },
   ].flatMap((event) => decoder.Feed(event));
@@ -449,7 +449,7 @@ test("encodes the M7 Responses function call vector with synthesized envelopes",
             content: [{ type: "output_text", text: "Done.", annotations: [] }],
           },
         ],
-        usage: { input_tokens: 6, output_tokens: 8, total_tokens: 14 },
+        usage: { input_tokens: 6n, output_tokens: 8n, total_tokens: 14n },
       },
     },
   ]);
@@ -559,5 +559,102 @@ test("rejects a supplied arguments.done value that differs from raw fragments", 
         arguments: '{"city": "Lyon"}',
       }),
     { code: "stream-lifecycle" },
+  );
+});
+
+test("Responses stream usage preserves lossless int64 values", () => {
+  for (const value of [9_007_199_254_740_993n, 9_223_372_036_854_775_807n]) {
+    const decoder = new ResponsesStreamDecoder();
+    decoder.Feed(created("resp_usage", "gpt-4o-mini"));
+    const events = decoder.Feed({
+      type: "response.completed",
+      response: {
+        id: "resp_usage",
+        object: "response",
+        status: "completed",
+        model: "gpt-4o-mini",
+        output: [],
+        usage: {
+          input_tokens: value,
+          output_tokens: 0n,
+          total_tokens: value,
+        },
+      },
+    });
+    assert.deepEqual(events[0], {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: value, output_tokens: 0n },
+    });
+  }
+
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "resp_usage",
+    model: "gpt-4o-mini",
+  });
+  const encoded = encoder.Apply({
+    type: "message_delta",
+    stop_reason: "end_turn",
+    usage: {
+      input_tokens: 9_223_372_036_854_775_807n,
+      output_tokens: 0n,
+    },
+  }).value;
+  assert.deepEqual(encoded.at(-1)?.response?.usage, {
+    input_tokens: 9_223_372_036_854_775_807n,
+    output_tokens: 0n,
+    total_tokens: 9_223_372_036_854_775_807n,
+  });
+});
+
+test("Responses stream usage rejects invalid values", () => {
+  const invalid = [
+    9_223_372_036_854_775_808n,
+    -1n,
+    { kind: "number", token: "1.5", isInteger: false },
+  ] as const;
+  for (const value of invalid) {
+    const decoder = new ResponsesStreamDecoder();
+    decoder.Feed(created("resp_invalid_usage", "gpt-4o-mini"));
+    assert.throws(
+      () =>
+        decoder.Feed({
+          type: "response.completed",
+          response: {
+            id: "resp_invalid_usage",
+            object: "response",
+            status: "completed",
+            model: "gpt-4o-mini",
+            output: [],
+            usage: {
+              input_tokens: value,
+              output_tokens: 0n,
+              total_tokens: 0n,
+            },
+          },
+        }),
+      { code: "invalid-input" },
+    );
+  }
+
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "resp_invalid_usage",
+    model: "gpt-4o-mini",
+  });
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 9_223_372_036_854_775_808n,
+          output_tokens: 0n,
+        },
+      }),
+    { code: "invalid-input" },
   );
 });

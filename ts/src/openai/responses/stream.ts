@@ -1,5 +1,11 @@
 import { OxaError } from "../../error.js";
-import type { Event, StopReason, Usage } from "../../ir/index.js";
+import {
+  encodeUsageInteger,
+  parseUsageInteger,
+  type Event,
+  type StopReason,
+  type Usage,
+} from "../../ir/index.js";
 import { jsonText } from "../../json/index.js";
 import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
@@ -378,8 +384,14 @@ export class ResponsesStreamDecoder {
       event.response.usage === undefined
         ? { input_tokens: 0n, output_tokens: 0n }
         : {
-            input_tokens: BigInt(event.response.usage.input_tokens),
-            output_tokens: BigInt(event.response.usage.output_tokens),
+            input_tokens: parseUsageInteger(
+              event.response.usage.input_tokens,
+              "response.usage.input_tokens",
+            ),
+            output_tokens: parseUsageInteger(
+              event.response.usage.output_tokens,
+              "response.usage.output_tokens",
+            ),
           };
     return [
       { type: "message_delta", stop_reason: stopReason, usage },
@@ -921,19 +933,33 @@ export class ResponsesStreamEncoder {
     usage?: Usage,
     output: readonly ResponsesOutputItem[] = [],
   ): ResponsesResponse {
+    const encodedUsage =
+      usage === undefined
+        ? undefined
+        : {
+            input_tokens: encodeUsageInteger(
+              usage.input_tokens,
+              "usage.input_tokens",
+            ),
+            output_tokens: encodeUsageInteger(
+              usage.output_tokens,
+              "usage.output_tokens",
+            ),
+          };
     return {
       id: this.#id,
       object: "response",
       status,
       model: this.#model,
       output,
-      ...(usage === undefined
+      ...(encodedUsage === undefined
         ? {}
         : {
             usage: {
-              input_tokens: Number(usage.input_tokens),
-              output_tokens: Number(usage.output_tokens),
-              total_tokens: Number(usage.input_tokens + usage.output_tokens),
+              input_tokens: encodedUsage.input_tokens,
+              output_tokens: encodedUsage.output_tokens,
+              total_tokens:
+                encodedUsage.input_tokens + encodedUsage.output_tokens,
             },
           }),
     };

@@ -1,0 +1,25 @@
+{
+  "name": "anthropic.stream.usage-int64-to-ir",
+  "description": "An Anthropic message_delta preserves signed int64 maximum token counts exactly in final IR usage (N-S-1).",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "events": [
+      { "type": "message_start", "message": { "id": "msg_usage", "type": "message", "role": "assistant", "model": "claude-sonnet-4-5", "content": [], "stop_reason": null, "usage": { "input_tokens": 0, "output_tokens": 0 } } },
+      { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "input_tokens": 9223372036854775807, "output_tokens": 0 } },
+      { "type": "message_stop" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "msg_usage", "model": "claude-sonnet-4-5" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 9223372036854775807, "output_tokens": 0 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "usage", "int64", "n-s-1"]
+}

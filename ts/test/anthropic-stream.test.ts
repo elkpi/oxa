@@ -20,15 +20,15 @@ function messageStart(id: string, model: string): AnthropicStreamEvent {
       model,
       content: [],
       stop_reason: null,
-      usage: { input_tokens: 0, output_tokens: 0 },
+      usage: { input_tokens: 0n, output_tokens: 0n },
     },
   };
 }
 
 function terminal(
   stop_reason: string,
-  input_tokens: number,
-  output_tokens: number,
+  input_tokens: bigint,
+  output_tokens: bigint,
 ): readonly AnthropicStreamEvent[] {
   return [
     {
@@ -100,7 +100,7 @@ test("decodes anthropic.stream.m7-tool-use-to-ir with exact opaque fragments", (
     ),
     { type: "content_block_stop", index: 0 },
   ]);
-  const endings = terminal("tool_use", 12, 7).flatMap((event) =>
+  const endings = terminal("tool_use", 12n, 7n).flatMap((event) =>
     decoder.Feed(event),
   );
   assert.deepEqual(endings, [
@@ -221,7 +221,7 @@ test("encodes anthropic.stream.m7-tool-use-from-ir with canonical start input", 
       delta: { type: "input_json_delta", partial_json: ' "weight": 1.0}' },
     },
     { type: "content_block_stop", index: 0 },
-    ...terminal("tool_use", 3, 5),
+    ...terminal("tool_use", 3n, 5n),
   ]);
 });
 
@@ -271,7 +271,7 @@ test("streams Anthropic text blocks and maps models and stop sequences", () => {
     {
       type: "message_delta",
       delta: { stop_reason: "stop_sequence", stop_sequence: "END" },
-      usage: { input_tokens: 2, output_tokens: 1 },
+      usage: { input_tokens: 2n, output_tokens: 1n },
     },
     { type: "message_stop" },
   ];
@@ -327,7 +327,7 @@ test("absorbs an unsupported native block once and compacts retained indexes", (
       delta: { type: "text_delta", text: "kept" },
     },
     { type: "content_block_stop" as const, index: 1 },
-    ...terminal("end_turn", 1, 1),
+    ...terminal("end_turn", 1n, 1n),
   ].flatMap((event) => decoder.Feed(event));
 
   assert.deepEqual(actual.slice(1, 4), [
@@ -375,7 +375,7 @@ test("records unknown event, delta, and stop values as ordered losses", () => {
   decoder.Feed({
     type: "message_delta",
     delta: { stop_reason: "pause_turn" },
-    usage: { input_tokens: 0, output_tokens: 0 },
+    usage: { input_tokens: 0n, output_tokens: 0n },
   });
   decoder.Feed({ type: "message_stop" });
   assert.deepEqual(
@@ -435,7 +435,7 @@ test("rejects block starts after the terminal message delta", () => {
   decoder.Feed({
     type: "message_delta",
     delta: { stop_reason: "end_turn" },
-    usage: { input_tokens: 0, output_tokens: 0 },
+    usage: { input_tokens: 0n, output_tokens: 0n },
   });
   assert.throws(
     () =>
@@ -468,7 +468,7 @@ test("does not emit an empty native stop sequence into IR", () => {
   decoder.Feed({
     type: "message_delta",
     delta: { stop_reason: "stop_sequence", stop_sequence: "" },
-    usage: { input_tokens: 0, output_tokens: 0 },
+    usage: { input_tokens: 0n, output_tokens: 0n },
   });
   assert.deepEqual(decoder.Feed({ type: "message_stop" }), [
     {
@@ -478,4 +478,110 @@ test("does not emit an empty native stop sequence into IR", () => {
     },
     { type: "message_done" },
   ]);
+});
+
+test("Anthropic stream usage preserves lossless int64 values", () => {
+  for (const value of [9_007_199_254_740_993n, 9_223_372_036_854_775_807n]) {
+    const decoder = new AnthropicStreamDecoder();
+    decoder.Feed({
+      type: "message_start",
+      message: {
+        id: "msg_usage",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 0n, output_tokens: 0n },
+      },
+    });
+    decoder.Feed({
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: {
+        input_tokens: value,
+        output_tokens: 0n,
+      },
+    });
+    assert.deepEqual(decoder.Feed({ type: "message_stop" })[0], {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: value, output_tokens: 0n },
+    });
+  }
+
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "msg_usage",
+    model: "claude-sonnet-4-5",
+  });
+  assert.deepEqual(
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 9_223_372_036_854_775_807n,
+        output_tokens: 0n,
+      },
+    }).value[0]?.usage,
+    {
+      input_tokens: 9_223_372_036_854_775_807n,
+      output_tokens: 0n,
+    },
+  );
+});
+
+test("Anthropic stream usage rejects invalid values", () => {
+  const invalid = [
+    9_223_372_036_854_775_808n,
+    -1n,
+    { kind: "number", token: "1.5", isInteger: false },
+  ] as const;
+  for (const value of invalid) {
+    const decoder = new AnthropicStreamDecoder();
+    decoder.Feed({
+      type: "message_start",
+      message: {
+        id: "msg_invalid_usage",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-5",
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 0n, output_tokens: 0n },
+      },
+    });
+    assert.throws(
+      () =>
+        decoder.Feed({
+          type: "message_delta",
+          delta: { stop_reason: "end_turn" },
+          usage: {
+            input_tokens: value,
+            output_tokens: 0n,
+          },
+        }),
+      { code: "invalid-input" },
+    );
+  }
+
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "msg_invalid_usage",
+    model: "claude-sonnet-4-5",
+  });
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 9_223_372_036_854_775_808n,
+          output_tokens: 0n,
+        },
+      }),
+    { code: "invalid-input" },
+  );
 });

@@ -1,5 +1,6 @@
 /** Stable structural and lifecycle failure categories. */
 export type OxaErrorCode =
+  | "invalid-input"
   | "invalid-json"
   | "type-violation"
   | "stream-grammar"

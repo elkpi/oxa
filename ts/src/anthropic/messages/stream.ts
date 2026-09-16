@@ -1,5 +1,11 @@
 import { OxaError } from "../../error.js";
-import type { Event, StopReason, Usage } from "../../ir/index.js";
+import {
+  encodeUsageInteger,
+  parseUsageInteger,
+  type Event,
+  type StopReason,
+  type Usage,
+} from "../../ir/index.js";
 import {
   isJsonArray,
   isJsonNumber,
@@ -293,16 +299,15 @@ export class AnthropicStreamDecoder {
   #decodeUsage(event: AnthropicStreamEvent): Usage {
     if (event.usage === undefined)
       return { input_tokens: 0n, output_tokens: 0n };
-    if (
-      !Number.isInteger(event.usage.input_tokens) ||
-      !Number.isInteger(event.usage.output_tokens) ||
-      event.usage.input_tokens < 0 ||
-      event.usage.output_tokens < 0
-    )
-      this.#lifecycle("message_delta carries invalid usage");
     return {
-      input_tokens: BigInt(event.usage.input_tokens),
-      output_tokens: BigInt(event.usage.output_tokens),
+      input_tokens: parseUsageInteger(
+        event.usage.input_tokens,
+        "usage.input_tokens",
+      ),
+      output_tokens: parseUsageInteger(
+        event.usage.output_tokens,
+        "usage.output_tokens",
+      ),
     };
   }
 
@@ -398,7 +403,7 @@ export class AnthropicStreamEncoder {
               model: mapModel(this.#modelMapper, event.model),
               content: [],
               stop_reason: null,
-              usage: { input_tokens: 0, output_tokens: 0 },
+              usage: { input_tokens: 0n, output_tokens: 0n },
             },
           },
         ]);
@@ -541,6 +546,14 @@ export class AnthropicStreamEncoder {
       event.stop_sequence === ""
     )
       this.#lifecycle("stop_sequence must be nonempty when present");
+    const inputTokens = encodeUsageInteger(
+      event.usage.input_tokens,
+      "usage.input_tokens",
+    );
+    const outputTokens = encodeUsageInteger(
+      event.usage.output_tokens,
+      "usage.output_tokens",
+    );
     this.#messageDeltaSeen = true;
     return this.#result([
       {
@@ -553,8 +566,8 @@ export class AnthropicStreamEncoder {
             : {}),
         },
         usage: {
-          input_tokens: Number(event.usage.input_tokens),
-          output_tokens: Number(event.usage.output_tokens),
+          input_tokens: inputTokens,
+          output_tokens: outputTokens,
         },
       },
     ]);

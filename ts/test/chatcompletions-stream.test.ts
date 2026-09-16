@@ -183,7 +183,7 @@ test("replays interleaved M7 tool calls in index order with exact raw fragments"
       id: "chatcmpl-1",
       model: "gpt-4o-mini",
       choices: [],
-      usage: { prompt_tokens: 21, completion_tokens: 13, total_tokens: 34 },
+      usage: { prompt_tokens: 21n, completion_tokens: 13n, total_tokens: 34n },
     }),
     [],
   );
@@ -461,7 +461,7 @@ test("encodes M7 tool calls with raw fragments and normalizes later text", () =>
           created: 0,
           model: "gpt-4o-mini",
           choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-          usage: { prompt_tokens: 5, completion_tokens: 7, total_tokens: 12 },
+          usage: { prompt_tokens: 5n, completion_tokens: 7n, total_tokens: 12n },
         },
       ],
       losses: [
@@ -476,4 +476,101 @@ test("encodes M7 tool calls with raw fragments and normalizes later text", () =>
     },
   );
   assert.deepEqual(apply({ type: "message_done" }), { value: [], losses: [] });
+});
+
+test("Chat Completions stream usage preserves lossless int64 values", () => {
+  for (const value of [9_007_199_254_740_993n, 9_223_372_036_854_775_807n]) {
+    const decoder = new ChatCompletionsStreamDecoder();
+    decoder.Feed({
+      id: "chatcmpl-usage",
+      model: "gpt-4o-mini",
+      choices: [{ delta: { role: "assistant" }, finish_reason: null }],
+    });
+    decoder.Feed({
+      id: "chatcmpl-usage",
+      model: "gpt-4o-mini",
+      choices: [{ delta: {}, finish_reason: "stop" }],
+      usage: {
+        prompt_tokens: value,
+        completion_tokens: 0n,
+        total_tokens: value,
+      },
+    });
+    assert.deepEqual(decoder.Flush().at(-2), {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: value, output_tokens: 0n },
+    });
+  }
+
+  const encoder = new ChatCompletionsStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "chatcmpl-usage",
+    model: "gpt-4o-mini",
+  });
+  assert.deepEqual(
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 9_223_372_036_854_775_807n,
+        output_tokens: 0n,
+      },
+    }).value[0]?.usage,
+    {
+      prompt_tokens: 9_223_372_036_854_775_807n,
+      completion_tokens: 0n,
+      total_tokens: 9_223_372_036_854_775_807n,
+    },
+  );
+});
+
+test("Chat Completions stream usage rejects invalid values", () => {
+  const invalid = [
+    9_223_372_036_854_775_808n,
+    -1n,
+    { kind: "number", token: "1.5", isInteger: false },
+  ] as const;
+  for (const value of invalid) {
+    const decoder = new ChatCompletionsStreamDecoder();
+    decoder.Feed({
+      id: "chatcmpl-invalid-usage",
+      model: "gpt-4o-mini",
+      choices: [{ delta: { role: "assistant" }, finish_reason: null }],
+    });
+    assert.throws(
+      () =>
+        decoder.Feed({
+          id: "chatcmpl-invalid-usage",
+          model: "gpt-4o-mini",
+          choices: [{ delta: {}, finish_reason: "stop" }],
+          usage: {
+            prompt_tokens: value,
+            completion_tokens: 0n,
+            total_tokens: 0n,
+          },
+        }),
+      { code: "invalid-input" },
+    );
+  }
+
+  const encoder = new ChatCompletionsStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "chatcmpl-invalid-usage",
+    model: "gpt-4o-mini",
+  });
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 9_223_372_036_854_775_808n,
+          output_tokens: 0n,
+        },
+      }),
+    { code: "invalid-input" },
+  );
 });

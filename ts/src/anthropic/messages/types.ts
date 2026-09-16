@@ -1,8 +1,8 @@
-import type { JsonObject, JsonText } from "../../json/index.js";
+import type { JsonNumber, JsonObject, JsonText } from "../../json/index.js";
 
 export interface AnthropicUsage {
-  readonly input_tokens: number;
-  readonly output_tokens: number;
+  readonly input_tokens: bigint | JsonNumber;
+  readonly output_tokens: bigint | JsonNumber;
 }
 
 /** A native block; opaque text retains tool input source bytes when known. */

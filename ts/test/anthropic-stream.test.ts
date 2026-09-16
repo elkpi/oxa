@@ -532,6 +532,20 @@ test("Anthropic stream usage preserves lossless int64 values", () => {
   );
 });
 
+test("Anthropic message_delta rejects missing required usage", () => {
+  const decoder = new AnthropicStreamDecoder();
+  decoder.Feed(messageStart("msg_missing_usage", "claude-sonnet-4-5"));
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "message_delta",
+        delta: { stop_reason: "end_turn" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("Anthropic stream usage rejects invalid values", () => {
   const invalid = [
     9_223_372_036_854_775_808n,

@@ -298,7 +298,7 @@ export class AnthropicStreamDecoder {
 
   #decodeUsage(event: AnthropicStreamEvent): Usage {
     if (event.usage === undefined)
-      return { input_tokens: 0n, output_tokens: 0n };
+      this.#lifecycle("message_delta without usage");
     return {
       input_tokens: parseUsageInteger(
         event.usage.input_tokens,

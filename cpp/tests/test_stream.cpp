@@ -91,7 +91,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 2);
+        CHECK(r->executed == 3);
         std::printf("test_stream (chatcompletions): all %zu vectors passed\n", r->executed);
     }
 
@@ -106,7 +106,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 3);
+        CHECK(r->executed == 4);
         std::printf("test_stream (anthropic): all %zu vectors passed\n", r->executed);
     }
 
@@ -121,7 +121,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 3);
+        CHECK(r->executed == 5);
         std::printf("test_stream (responses): all %zu vectors passed\n", r->executed);
     }
 

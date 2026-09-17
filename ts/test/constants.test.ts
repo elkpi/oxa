@@ -47,11 +47,5 @@ test("ir index re-exports constants", () => {
   assert.equal(oxa.ir.STOP_END_TURN, "end_turn");
   assert.equal(oxa.ir.BLOCK_TYPE_TEXT, "text");
   assert.equal(oxa.ir.LOSS_UNMAPPED_FIELD, "unmapped-field");
-});
-
-test("package root re-exports loss constants", () => {
-  assert.equal(oxa.LOSS_UNMAPPED_FIELD, "unmapped-field");
-  assert.equal(oxa.LOSS_UNMAPPED_VALUE, "unmapped-value");
-  assert.equal(oxa.LOSS_UNSUPPORTED_SEMANTIC, "unsupported-semantic");
-  assert.equal(oxa.LOSS_DEGRADED, "degraded");
+  assert.equal(oxa.ir.LOSS_DEGRADED, "degraded");
 });

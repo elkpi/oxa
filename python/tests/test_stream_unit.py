@@ -58,6 +58,94 @@ class StreamUnitTests(unittest.TestCase):
             dec.feed({"type": "message_stop"})
         self.assertIn("after message_stop", str(cm.exception))
 
+    def _responses_skipped_part_open(self) -> ResponsesStreamDecoder:
+        dec = ResponsesStreamDecoder()
+        dec.feed(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "r1",
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": "m",
+                    "output": [],
+                },
+            }
+        )
+        dec.feed(
+            {
+                "type": "response.output_item.added",
+                "output_index": 0,
+                "item": {
+                    "type": "message",
+                    "id": "i1",
+                    "role": "assistant",
+                    "status": "in_progress",
+                    "content": [],
+                },
+            }
+        )
+        dec.feed(
+            {
+                "type": "response.content_part.added",
+                "item_id": "i1",
+                "output_index": 0,
+                "content_index": 0,
+                "part": {"type": "output_image"},
+            }
+        )
+        return dec
+
+    def test_responses_unknown_descendant_of_skipped_part_is_absorbed(self) -> None:
+        dec = self._responses_skipped_part_open()
+        events = dec.feed(
+            {
+                "type": "response.output_image.delta",
+                "item_id": "i1",
+                "output_index": 0,
+                "content_index": 0,
+                "delta": "x",
+            }
+        )
+        self.assertEqual(events, [])
+        self.assertEqual(len(dec.losses()), 1)
+        self.assertEqual(dec.losses()[0].path, "output[0].content[0]")
+        self.assertEqual(dec.losses()[0].reason, "unsupported-semantic")
+
+    def test_responses_unknown_descendant_with_wrong_item_is_error(self) -> None:
+        dec = self._responses_skipped_part_open()
+        with self.assertRaises(ValueError) as cm:
+            dec.feed(
+                {
+                    "type": "response.output_image.delta",
+                    "item_id": "other",
+                    "output_index": 0,
+                    "content_index": 0,
+                    "delta": "x",
+                }
+            )
+        self.assertIn("does not match", str(cm.exception))
+        self.assertEqual(len(dec.losses()), 1)
+
+    def test_responses_identity_less_unknown_event_records_one_loss(self) -> None:
+        dec = ResponsesStreamDecoder()
+        dec.feed(
+            {
+                "type": "response.created",
+                "response": {
+                    "id": "r1",
+                    "object": "response",
+                    "status": "in_progress",
+                    "model": "m",
+                    "output": [],
+                },
+            }
+        )
+        events = dec.feed({"type": "response.weird_event"})
+        self.assertEqual(events, [])
+        self.assertEqual(len(dec.losses()), 1)
+        self.assertEqual(dec.losses()[0].path, "type")
+
     def test_responses_decoder_unstarted_event_is_error(self) -> None:
         dec = ResponsesStreamDecoder()
         with self.assertRaises(ValueError) as cm:

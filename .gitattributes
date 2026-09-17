@@ -1,0 +1,4 @@
+# Normalize all text files to LF on checkout everywhere (including Windows
+# CI runners, where core.autocrlf=true would otherwise rewrite sources and
+# break byte-exact generated-file checks).
+* text=auto eol=lf

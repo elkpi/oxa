@@ -2,8 +2,10 @@
 
 ## Status
 
-Proposed. This design resolves release-blocking findings against the normative
-sources: vectors, schemas, then specifications.
+Approved and implemented. This design resolves release-blocking findings
+against the normative sources: vectors, schemas, then specifications. The
+fixed-point review and gate evidence are recorded in
+`docs/superpowers/sdd/2026-09-16-typescript-release-blocker-remediation/review-report.md`.
 
 ## Goal
 

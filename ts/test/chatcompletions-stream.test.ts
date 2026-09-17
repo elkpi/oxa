@@ -461,7 +461,11 @@ test("encodes M7 tool calls with raw fragments and normalizes later text", () =>
           created: 0,
           model: "gpt-4o-mini",
           choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
-          usage: { prompt_tokens: 5n, completion_tokens: 7n, total_tokens: 12n },
+          usage: {
+            prompt_tokens: 5n,
+            completion_tokens: 7n,
+            total_tokens: 12n,
+          },
         },
       ],
       losses: [

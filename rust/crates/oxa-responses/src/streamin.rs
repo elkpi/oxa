@@ -459,6 +459,43 @@ impl StreamDecoder {
                 ])
             }
             _ => {
+                // Unknown event types: absorb identity-matching descendants of
+                // an active skipped unit (N-S-3); validate identity against the
+                // open supported unit otherwise; keep at most one loss.
+                let has_identity = ev.output_index.is_some()
+                    || ev.item_id.is_some()
+                    || ev.content_index.is_some();
+                if self.skipped_item || self.skipped_part {
+                    if has_identity {
+                        self.require_active_item(ev, &ev.kind)?;
+                        if self.skipped_part && !self.skipped_item {
+                            let content_index = ev.content_index.unwrap_or(-1);
+                            if content_index != self.content_index {
+                                return Err(Error::new(format!(
+                                    "responses: {} content_index {} does not match the skipped part",
+                                    ev.kind, content_index
+                                )));
+                            }
+                        }
+                        return Ok(Vec::new());
+                    }
+                } else if has_identity {
+                    self.require_active_item(ev, &ev.kind)?;
+                    if self.block_open {
+                        let content_index = ev.content_index.unwrap_or(-1);
+                        if content_index != self.content_index {
+                            return Err(Error::new(format!(
+                                "responses: {} content_index {} does not match the open content part",
+                                ev.kind, content_index
+                            )));
+                        }
+                    } else if ev.content_index.is_some() {
+                        return Err(Error::new(format!(
+                            "responses: {} has no open content part",
+                            ev.kind
+                        )));
+                    }
+                }
                 self.losses.push(loss(
                     "type",
                     "type",

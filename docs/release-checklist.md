@@ -49,7 +49,17 @@ Go, Rust, Python, and C++ with a bounded runtime. TypeScript runs all 125 shared
 golden vectors in its Node test gate; it is not currently part of that bounded
 four-language corpus replay.
 
-None of these jobs uploads to npm, PyPI, crates.io, Conan, vcpkg, or another
-registry. Registry publication requires a separate manually authorized
-workflow after package names, credentials, and release ownership have been
-confirmed.
+None of these CI verification jobs uploads to npm, PyPI, crates.io, Conan, vcpkg, or another
+registry.
+
+## Automated Registry Releases
+
+Registry releases are automated via tag-triggered GitHub Actions workflows. Pushing a version tag on `main` initiates pre-publish validation gates and publishing:
+
+| Registry | Target Package | Trigger Tag | Workflow | Pre-Publish Gate | Credentials |
+|---|---|---|---|---|---|
+| **npm** | `@elkpi/oxa` | `ts/vX.Y.Z` | `.github/workflows/release-npm.yml` | `npm run release:check` (13 gates) | `NPM_TOKEN` (Granular Token) |
+| **PyPI** | `elkpi-oxa` | `py/vX.Y.Z` | `.github/workflows/release-pypi.yml` | `python -m unittest discover` | PyPI Trusted Publishing (OIDC) or `PYPI_API_TOKEN` / `PYPI_TOKEN` |
+| **crates.io** | 7 crates (`oxa-*` + `elkpi-oxa`) | `rust/vX.Y.Z` | `.github/workflows/release-crates.yml` | `cargo clippy` + `cargo test` | `CARGO_REGISTRY_TOKEN` |
+
+Each workflow validates that the tag matches the package version declared in source (`ts/package.json`, `python/pyproject.toml`, or `rust/Cargo.toml`) before proceeding. Workflows can also be triggered manually via `workflow_dispatch`. Local/manual publishing can be performed idempotently via `scripts/publish-registries.sh`.

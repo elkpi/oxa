@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v1.0.1] - 2026-09-17
+
 ### Added
 
-- TypeScript: ESM-only `@elkpi/oxa` package at version `1.0.0`, with typed root and focused subpath exports for the IR, JSON, SSE, stream adapters, and all three protocol faces. It has no runtime dependencies and supports Node.js 20+ and Web runtimes.
+- Multi-language constant convergence: synchronized and type-safe IR and spoke protocol constants across Python (`oxa.ir.constants`), TypeScript (`@elkpi/oxa/ir`), C++ (`oxa::*`), Go (`ir.*`), and Rust (`oxa_ir::*`).
+- Automated CI constant-drift verification (`scripts/check-constants.py`) ensuring 100% coverage of closed schema enums against `spec/schema/*.json`.
+- TypeScript: ESM-only `@elkpi/oxa` package at version `1.0.1`, with typed root and focused subpath exports for the IR, JSON, SSE, stream adapters, and all three protocol faces. It has no runtime dependencies and supports Node.js 20+ and Web runtimes.
 - TypeScript packaging gates: exact npm tarball-content validation plus a clean installed consumer that type-checks and imports every public ESM entry point.
 - Rust: `elkpi-oxa` umbrella crate with `[lib] name = "oxa"` re-exporting all protocol faces and IR under `use oxa::...`.
 
@@ -17,6 +21,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Python: distribution package renamed to `elkpi-oxa` on PyPI (`pip install elkpi-oxa`); in-code imports remain `import oxa`.
 - Downstream packaging: verified a clean consumer for the `@elkpi/oxa` npm tarball, and `elkpi-oxa` on both Python (wheel & sdist) and Rust.
+- Release version 1.0.1 synchronized across Python, TypeScript, Rust, C++, and Go module tags.
 
 ## [v1.0.0] - 2026-09-04
 

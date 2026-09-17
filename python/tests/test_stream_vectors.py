@@ -57,7 +57,7 @@ class StreamVectorsTest(unittest.TestCase):
                         encoder_factory=enc_factory,
                     )
 
-        self.assertEqual(total_vectors, 8, "expected 8 total stream vectors across all faces")
+        self.assertEqual(total_vectors, 12, "expected 12 total stream vectors across all faces")
 
 
 if __name__ == "__main__":

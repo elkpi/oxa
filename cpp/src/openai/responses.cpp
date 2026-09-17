@@ -1138,6 +1138,38 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         return events;
     }
 
+    // Unknown event types: absorb identity-matching descendants of an active
+    // skipped unit (N-S-3); validate identity against the open supported unit
+    // otherwise; keep at most one loss per event.
+    const bool has_identity = chunk.find("output_index") != nullptr ||
+                              chunk.find("item_id") != nullptr ||
+                              chunk.find("content_index") != nullptr;
+    auto content_index_of = [&chunk]() -> std::int64_t {
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) return ci->as_int();
+        return -1;
+    };
+    if (skipped_item_ || skipped_part_) {
+        if (has_identity) {
+            if (auto st = require_active_item(chunk, type); !st.ok()) return st;
+            if (skipped_part_ && !skipped_item_) {
+                const std::int64_t content_index = content_index_of();
+                if (content_index != content_index_)
+                    return invalid_argument("responses: " + type +
+                                            " does not match the skipped content part");
+            }
+            return events;  // absorbed
+        }
+    } else if (has_identity) {
+        if (auto st = require_active_item(chunk, type); !st.ok()) return st;
+        if (block_open_) {
+            if (content_index_of() != content_index_)
+                return invalid_argument("responses: " + type +
+                                        " does not match the open content part");
+        } else if (chunk.find("content_index") != nullptr) {
+            return invalid_argument("responses: " + type + " has no open content part");
+        }
+    }
+
     losses_.push_back(make_resp_loss(
         "type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
         "Responses stream event type \"" + type + "\" is not decoded in the Responses stream profile"));

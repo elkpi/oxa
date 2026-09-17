@@ -89,3 +89,32 @@ No P0 or P1 findings.
 Windows evidence, then npm publication via the tag-triggered release
 workflow). Publication remains conditional on clean CI and a clean
 `release:check` re-run against the pushed commit.
+
+## Release evidence (Task 6)
+
+- Branch `typescript-support` pushed through `4421901`; `main`
+  fast-forwarded to the same commit.
+- Windows CI defect fixed en route: generated-file header path separators
+  normalized (`24e5287`) and LF checkout enforced via `.gitattributes`
+  (`e442000`); `typescript` and `typescript-windows` jobs green
+  (run `35170033484`).
+- Tag `ts/v1.0.0` pushed at `4421901`; `release-npm` run `35172533308`
+  succeeded after two publish-side corrections:
+  `npm publish --access public` first hit `EOTP` (classic Publish token under
+  2FA; replaced with a Granular Access Token in the `NPM_TOKEN` secret) and
+  then `E422` provenance verification (missing `repository.url`, fixed in
+  `4421901`).
+- Verified: `npm view @elkpi/oxa version --registry https://registry.npmjs.org`
+  → `1.0.0`, tarball
+  `https://registry.npmjs.org/@elkpi/oxa/-/oxa-1.0.0.tgz` (66.2 kB, 144 files,
+  provenance attested).
+
+## Follow-up (out of scope, tracked)
+
+The remediation vectors (three `usage-int64`, `skipped-part-loss`,
+`raw-json-tool-input`, plus Task 3 vector corrections) currently fail the
+rust, python, and cpp CI jobs: python/cpp tests hardcode vector totals
+(30→31 nonstream anthropic, 8→12 stream), and rust/python disagree with the
+vector's expected skipped-part loss path (`output[i].content[j]` vs `type`).
+These implementations predate the tightened vectors and need a separate
+cross-language alignment plan.

@@ -1,27 +1,25 @@
-package chatcompletions_test
+package responses_test
 
 import (
 	"encoding/json"
 	"fmt"
 
 	"github.com/elkpi/oxa/go/ir"
-	"github.com/elkpi/oxa/go/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/openai/responses"
 )
 
 func ExampleDecodeRequest() {
 	wireJSON := []byte(`{
 		"model": "gpt-4o",
-		"messages": [
-			{"role": "user", "content": "Hello world"}
-		]
+		"input": "Hello world"
 	}`)
 
-	var wire chatcompletions.Request
+	var wire responses.Request
 	if err := json.Unmarshal(wireJSON, &wire); err != nil {
 		panic(err)
 	}
 
-	req, losses, err := chatcompletions.DecodeRequest(&wire)
+	req, losses, err := responses.DecodeRequest(&wire)
 	if err != nil {
 		panic(err)
 	}
@@ -46,7 +44,7 @@ func ExampleEncodeRequest() {
 		},
 	}
 
-	wire, losses, err := chatcompletions.EncodeRequest(req)
+	wire, losses, err := responses.EncodeRequest(req)
 	if err != nil {
 		panic(err)
 	}

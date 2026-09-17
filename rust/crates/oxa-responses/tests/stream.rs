@@ -148,11 +148,16 @@ fn unknown_descendant_of_skipped_part_is_absorbed() {
     let mut d = StreamDecoder::new(&config);
     d.feed(&stream_created("resp_img", "gpt-4o-mini")).unwrap();
     d.feed(&stream_item_added(0, "msg_img")).unwrap();
-    assert!(d
-        .feed(&stream_image_part_added(0, 0, "msg_img"))
-        .unwrap()
-        .is_empty());
-    assert!(d.feed(&unknown_descendant(0, 0, "msg_img")).unwrap().is_empty());
+    assert!(
+        d.feed(&stream_image_part_added(0, 0, "msg_img"))
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        d.feed(&unknown_descendant(0, 0, "msg_img"))
+            .unwrap()
+            .is_empty()
+    );
     assert_eq!(d.losses().len(), 1);
     assert_eq!(d.losses()[0].path, "output[0].content[0]");
 }

@@ -462,9 +462,8 @@ impl StreamDecoder {
                 // Unknown event types: absorb identity-matching descendants of
                 // an active skipped unit (N-S-3); validate identity against the
                 // open supported unit otherwise; keep at most one loss.
-                let has_identity = ev.output_index.is_some()
-                    || ev.item_id.is_some()
-                    || ev.content_index.is_some();
+                let has_identity =
+                    ev.output_index.is_some() || ev.item_id.is_some() || ev.content_index.is_some();
                 if self.skipped_item || self.skipped_part {
                     if has_identity {
                         self.require_active_item(ev, &ev.kind)?;

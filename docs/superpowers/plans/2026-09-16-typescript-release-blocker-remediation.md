@@ -316,7 +316,14 @@
 
 - [ ] **Step 4: Publish only after all evidence is clean**
 
-  Run: `npm publish --access public`
+  After the branch is fast-forward merged to `main`, tag the merged commit
+  `ts/v1.0.0` (matching the `ts/package.json` version, following the
+  `go/v1.0.0` tag precedent) and push the tag. The `release-npm` workflow
+  then re-runs the full `release:check` gate and publishes `@elkpi/oxa` with
+  the `NPM_TOKEN` secret against `registry.npmjs.org`.
 
-  Expected: npm returns the published package name/version. Immediately verify with `npm view @elkpi/oxa version` (use the package name from `ts/package.json`), then record the command output and release version in the review report with a final documentation commit.
+  Expected: the `release-npm` workflow succeeds. Immediately verify with
+  `npm view @elkpi/oxa version --registry https://registry.npmjs.org`, then
+  record the command output and release version in the review report with a
+  final documentation commit.
 

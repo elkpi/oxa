@@ -35,6 +35,10 @@
       "types": "./dist/ir/index.d.ts",
       "import": "./dist/ir/index.js"
     },
+    "./ir/constants": {
+      "types": "./dist/ir/constants.d.ts",
+      "import": "./dist/ir/constants.js"
+    },
     "./sse": {
       "types": "./dist/sse/index.d.ts",
       "import": "./dist/sse/index.js"

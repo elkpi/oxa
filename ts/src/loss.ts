@@ -1,3 +1,10 @@
+export {
+  LOSS_DEGRADED,
+  LOSS_UNMAPPED_FIELD,
+  LOSS_UNMAPPED_VALUE,
+  LOSS_UNSUPPORTED_SEMANTIC,
+} from "./ir/constants.js";
+
 /** Why a valid source value could not be represented exactly. */
 export type LossReason =
   | "unmapped-field"

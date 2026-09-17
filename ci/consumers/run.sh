@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=${OXA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 ROOT=$(cd "$ROOT" && pwd)
-VERSION=${OXA_VERSION:-1.0.0}
+VERSION=${OXA_VERSION:-1.0.1}
 CONSUMER_ONLY=${CONSUMER_ONLY:-all}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/oxa-consumers.XXXXXX")
 trap 'rm -rf "$TMP"' EXIT
@@ -114,15 +114,15 @@ run_rust_consumer() {
         cp -R "$ROOT/rust/crates/$crate/src/." "$crates/$crate/src/"
         sed \
             -e 's/edition.workspace = true/edition = "2024"/' \
-            -e 's/version.workspace = true/version = "1.0.0"/' \
+            -e "s/version.workspace = true/version = \"$VERSION\"/" \
             -e 's/license.workspace = true/license = "Apache-2.0"/' \
             -e 's/repository.workspace = true/repository = "https:\/\/github.com\/elkpi\/oxa"/' \
-            -e 's/oxa-ir = { workspace = true }/oxa-ir = { version = "1.0.0", path = "..\/oxa-ir" }/' \
-            -e 's/oxa-modelmap = { workspace = true }/oxa-modelmap = { version = "1.0.0", path = "..\/oxa-modelmap" }/' \
-            -e 's/oxa-chatcompletions = { workspace = true }/oxa-chatcompletions = { version = "1.0.0", path = "..\/oxa-chatcompletions" }/' \
-            -e 's/oxa-anthropic = { workspace = true }/oxa-anthropic = { version = "1.0.0", path = "..\/oxa-anthropic" }/' \
-            -e 's/oxa-responses = { workspace = true }/oxa-responses = { version = "1.0.0", path = "..\/oxa-responses" }/' \
-            -e 's/oxa-sse = { workspace = true }/oxa-sse = { version = "1.0.0", path = "..\/oxa-sse" }/' \
+            -e "s/oxa-ir = { workspace = true }/oxa-ir = { version = \"$VERSION\", path = \"..\/oxa-ir\" }/" \
+            -e "s/oxa-modelmap = { workspace = true }/oxa-modelmap = { version = \"$VERSION\", path = \"..\/oxa-modelmap\" }/" \
+            -e "s/oxa-chatcompletions = { workspace = true }/oxa-chatcompletions = { version = \"$VERSION\", path = \"..\/oxa-chatcompletions\" }/" \
+            -e "s/oxa-anthropic = { workspace = true }/oxa-anthropic = { version = \"$VERSION\", path = \"..\/oxa-anthropic\" }/" \
+            -e "s/oxa-responses = { workspace = true }/oxa-responses = { version = \"$VERSION\", path = \"..\/oxa-responses\" }/" \
+            -e "s/oxa-sse = { workspace = true }/oxa-sse = { version = \"$VERSION\", path = \"..\/oxa-sse\" }/" \
             -e 's/serde = { workspace = true }/serde = { version = "1", features = ["derive"] }/' \
             -e 's/serde_json = { workspace = true }/serde_json = { version = "1", features = ["raw_value"] }/' \
             -e '/^\[dev-dependencies\]/,$d' \

@@ -12,6 +12,29 @@
 
 namespace oxa::openai::chatcompletions {
 
+// Wire constants (spec/10).
+inline constexpr std::string_view ROLE_SYSTEM = "system";
+inline constexpr std::string_view ROLE_USER = "user";
+inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
+inline constexpr std::string_view ROLE_TOOL = "tool";
+
+inline constexpr std::string_view TOOL_TYPE_FUNCTION = "function";
+
+inline constexpr std::string_view CONTENT_PART_TYPE_TEXT = "text";
+inline constexpr std::string_view CONTENT_PART_TYPE_IMAGE_URL = "image_url";
+
+inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
+inline constexpr std::string_view TOOL_CHOICE_NONE = "none";
+inline constexpr std::string_view TOOL_CHOICE_REQUIRED = "required";
+
+inline constexpr std::string_view FINISH_REASON_STOP = "stop";
+inline constexpr std::string_view FINISH_REASON_LENGTH = "length";
+inline constexpr std::string_view FINISH_REASON_CONTENT_FILTER = "content_filter";
+inline constexpr std::string_view FINISH_REASON_TOOL_CALLS = "tool_calls";
+
+inline constexpr std::string_view OBJECT_CHAT_COMPLETION = "chat.completion";
+inline constexpr std::string_view OBJECT_CHAT_COMPLETION_CHUNK = "chat.completion.chunk";
+
 struct Options {
     modelmap::Table model_map;
 };

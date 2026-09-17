@@ -13,6 +13,41 @@
 
 namespace oxa::anthropic::messages {
 
+// Wire constants (spec/12).
+inline constexpr std::string_view ROLE_USER = "user";
+inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
+
+inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
+inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
+inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
+inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
+
+inline constexpr std::string_view SOURCE_TYPE_BASE64 = "base64";
+inline constexpr std::string_view SOURCE_TYPE_URL = "url";
+
+inline constexpr std::string_view TOOL_CHOICE_TYPE_AUTO = "auto";
+inline constexpr std::string_view TOOL_CHOICE_TYPE_ANY = "any";
+inline constexpr std::string_view TOOL_CHOICE_TYPE_NONE = "none";
+inline constexpr std::string_view TOOL_CHOICE_TYPE_TOOL = "tool";
+
+inline constexpr std::string_view STOP_REASON_END_TURN = "end_turn";
+inline constexpr std::string_view STOP_REASON_MAX_TOKENS = "max_tokens";
+inline constexpr std::string_view STOP_REASON_STOP_SEQUENCE = "stop_sequence";
+inline constexpr std::string_view STOP_REASON_TOOL_USE = "tool_use";
+inline constexpr std::string_view STOP_REASON_REFUSAL = "refusal";
+
+inline constexpr std::string_view EVENT_TYPE_MESSAGE_START = "message_start";
+inline constexpr std::string_view EVENT_TYPE_CONTENT_BLOCK_START = "content_block_start";
+inline constexpr std::string_view EVENT_TYPE_CONTENT_BLOCK_DELTA = "content_block_delta";
+inline constexpr std::string_view EVENT_TYPE_CONTENT_BLOCK_STOP = "content_block_stop";
+inline constexpr std::string_view EVENT_TYPE_MESSAGE_DELTA = "message_delta";
+inline constexpr std::string_view EVENT_TYPE_MESSAGE_STOP = "message_stop";
+
+inline constexpr std::string_view DELTA_TYPE_TEXT_DELTA = "text_delta";
+inline constexpr std::string_view DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta";
+
+inline constexpr std::string_view TYPE_MESSAGE = "message";
+
 struct Options {
     modelmap::Table model_map;
 };

@@ -16,7 +16,8 @@ for (const [name, prefix] of schemas) {
   const source = resolve(repoRoot, "spec/schema", `${name}.schema.json`);
   const output = resolve(tsRoot, "src/generated", `${name}-schema.ts`);
   const document = JSON.parse(readFileSync(source, "utf8"));
-  const generated = render(document, prefix, relative(repoRoot, source));
+  const sourcePath = relative(repoRoot, source).replaceAll("\\", "/");
+  const generated = render(document, prefix, sourcePath);
   if (check) {
     let actual;
     try {

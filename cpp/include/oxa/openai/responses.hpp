@@ -12,6 +12,52 @@
 
 namespace oxa::openai::responses {
 
+// Wire constants (spec/11).
+inline constexpr std::string_view ROLE_SYSTEM = "system";
+inline constexpr std::string_view ROLE_USER = "user";
+inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
+inline constexpr std::string_view ROLE_DEVELOPER = "developer";
+
+inline constexpr std::string_view TOOL_TYPE_FUNCTION = "function";
+
+inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
+inline constexpr std::string_view TOOL_CHOICE_NONE = "none";
+inline constexpr std::string_view TOOL_CHOICE_REQUIRED = "required";
+
+inline constexpr std::string_view ITEM_TYPE_MESSAGE = "message";
+inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL = "function_call";
+inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL_OUTPUT = "function_call_output";
+
+inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
+inline constexpr std::string_view PART_TYPE_OUTPUT_TEXT = "output_text";
+inline constexpr std::string_view PART_TYPE_INPUT_IMAGE = "input_image";
+
+inline constexpr std::string_view STATUS_IN_PROGRESS = "in_progress";
+inline constexpr std::string_view STATUS_COMPLETED = "completed";
+inline constexpr std::string_view STATUS_INCOMPLETE = "incomplete";
+inline constexpr std::string_view STATUS_FAILED = "failed";
+
+inline constexpr std::string_view INCOMPLETE_REASON_MAX_OUTPUT_TOKENS = "max_output_tokens";
+
+inline constexpr std::string_view ERROR_CODE_REFUSAL = "refusal";
+
+inline constexpr std::string_view OBJECT_RESPONSE = "response";
+
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_CREATED = "response.created";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED = "response.output_item.added";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE = "response.output_item.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED = "response.content_part.added";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_CONTENT_PART_DONE = "response.content_part.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA = "response.output_text.delta";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE = "response.output_text.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA =
+    "response.function_call_arguments.delta";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE =
+    "response.function_call_arguments.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_COMPLETED = "response.completed";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_INCOMPLETE = "response.incomplete";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_FAILED = "response.failed";
+
 struct Options {
     modelmap::Table model_map;
 };

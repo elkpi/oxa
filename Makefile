@@ -14,7 +14,7 @@ define go_target
 	fi
 endef
 
-.PHONY: test vectors lint fmt check-modulepath test-python test-ts test-ts-architecture test-ts-node test-ts-web test-ts-package test-ts-consumer release-ts lint-ts fmt-ts
+.PHONY: test vectors lint fmt check-modulepath check-constants test-python test-ts test-ts-architecture test-ts-node test-ts-web test-ts-package test-ts-consumer release-ts lint-ts fmt-ts
 
 test:
 	$(call go_target,go test ./...,$@,M3)
@@ -30,7 +30,10 @@ test-python:
 vectors:
 	$(call go_target,go run ./cmd/veccheck -root ..,$@,M2)
 
-lint:
+check-constants:
+	python3 scripts/check-constants.py
+
+lint: check-constants
 	$(call go_target,go vet ./...,$@,M3)
 
 fmt:

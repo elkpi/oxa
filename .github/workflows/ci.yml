@@ -50,6 +50,12 @@ jobs:
             echo "Found GH_USER placeholder: replace the placeholder module path before merging."
             exit 1
           fi
+      - name: Set up Python for constants check
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Check constants convergence
+        run: python3 scripts/check-constants.py
 
   test:
     runs-on: ubuntu-latest

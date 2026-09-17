@@ -402,6 +402,32 @@ class StreamDecoder:
                 MessageDone(),
             ]
 
+        # Unknown event types: absorb identity-matching descendants of an
+        # active skipped unit (N-S-3); validate identity against the open
+        # supported unit otherwise; always keep at most one loss per event.
+        has_identity = (
+            "output_index" in ev or "item_id" in ev or "content_index" in ev
+        )
+        if self._skipped_item or self._skipped_part:
+            if has_identity:
+                self._require_active_item(ev, kind)
+                if self._skipped_part and not self._skipped_item:
+                    content_index = int(ev.get("content_index", -1))
+                    if content_index != self._content_index:
+                        raise ValueError(
+                            f"responses: {kind} content_index {content_index} does not match the skipped part"
+                        )
+                return []
+        elif has_identity:
+            self._require_active_item(ev, kind)
+            if self._block_open:
+                content_index = int(ev.get("content_index", -1))
+                if content_index != self._content_index:
+                    raise ValueError(
+                        f"responses: {kind} content_index {content_index} does not match the open content part"
+                    )
+            elif "content_index" in ev:
+                raise ValueError(f"responses: {kind} has no open content part")
         self._losses.append(
             loss(
                 "type",

@@ -117,6 +117,72 @@ fn stream_item_done(output_index: i64, item_id: &str) -> StreamEvent {
     }
 }
 
+fn stream_image_part_added(output_index: i64, content_index: i64, item_id: &str) -> StreamEvent {
+    StreamEvent {
+        kind: "response.content_part.added".to_string(),
+        item_id: Some(item_id.to_string()),
+        output_index: Some(output_index),
+        content_index: Some(content_index),
+        part: Some(OutputPart {
+            kind: "output_image".to_string(),
+            text: String::new(),
+            annotations: Vec::new(),
+        }),
+        ..Default::default()
+    }
+}
+
+fn unknown_descendant(output_index: i64, content_index: i64, item_id: &str) -> StreamEvent {
+    StreamEvent {
+        kind: "response.output_image.delta".to_string(),
+        item_id: Some(item_id.to_string()),
+        output_index: Some(output_index),
+        content_index: Some(content_index),
+        ..Default::default()
+    }
+}
+
+#[test]
+fn unknown_descendant_of_skipped_part_is_absorbed() {
+    let config = Config::default();
+    let mut d = StreamDecoder::new(&config);
+    d.feed(&stream_created("resp_img", "gpt-4o-mini")).unwrap();
+    d.feed(&stream_item_added(0, "msg_img")).unwrap();
+    assert!(d
+        .feed(&stream_image_part_added(0, 0, "msg_img"))
+        .unwrap()
+        .is_empty());
+    assert!(d.feed(&unknown_descendant(0, 0, "msg_img")).unwrap().is_empty());
+    assert_eq!(d.losses().len(), 1);
+    assert_eq!(d.losses()[0].path, "output[0].content[0]");
+}
+
+#[test]
+fn unknown_descendant_with_wrong_item_is_error() {
+    let config = Config::default();
+    let mut d = StreamDecoder::new(&config);
+    d.feed(&stream_created("resp_img", "gpt-4o-mini")).unwrap();
+    d.feed(&stream_item_added(0, "msg_img")).unwrap();
+    d.feed(&stream_image_part_added(0, 0, "msg_img")).unwrap();
+    let err = d.feed(&unknown_descendant(0, 0, "other")).unwrap_err();
+    assert!(err.to_string().contains("does not match"));
+    assert_eq!(d.losses().len(), 1);
+}
+
+#[test]
+fn identity_less_unknown_event_records_one_loss() {
+    let config = Config::default();
+    let mut d = StreamDecoder::new(&config);
+    d.feed(&stream_created("resp_w", "gpt-4o-mini")).unwrap();
+    let weird = StreamEvent {
+        kind: "response.weird_event".to_string(),
+        ..Default::default()
+    };
+    assert!(d.feed(&weird).unwrap().is_empty());
+    assert_eq!(d.losses().len(), 1);
+    assert_eq!(d.losses()[0].path, "type");
+}
+
 fn stream_completed(id: &str, model: &str, in_tokens: i64, out_tokens: i64) -> StreamEvent {
     StreamEvent {
         kind: "response.completed".to_string(),

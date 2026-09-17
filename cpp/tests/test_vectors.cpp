@@ -73,7 +73,7 @@ int main() {
         auto r = oxa::vectest::run_nonstream(ant);
         CHECK_MSG(r.ok(), r.status().to_string());
         CHECK(r->failures.empty());
-        CHECK(r->executed == 30);
+        CHECK(r->executed == 31);
     }
 
     // 3. Responses nonstream

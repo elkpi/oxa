@@ -1,0 +1,56 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-thinking-response",
+  "description": "Cross-protocol: Responses reasoning item converts to Anthropic thinking, dropping encrypted_content and recording degraded unsigned signature on encode.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "id": "resp_think_cross",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_c1",
+        "summary": [{ "type": "output_text", "text": "Step-by-step logic.", "annotations": [] }],
+        "encrypted_content": "enc_payload"
+      },
+      {
+        "type": "message",
+        "id": "msg_c1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Result 42.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 8, "output_tokens": 16, "total_tokens": 24 }
+  },
+  "expected_output": {
+    "id": "resp_think_cross",
+    "type": "message",
+    "role": "assistant",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "Step-by-step logic." },
+      { "type": "text", "text": "Result 42." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 8, "output_tokens": 16 }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].encrypted_content",
+      "field": "encrypted_content",
+      "reason": "unmapped-field"
+    },
+    {
+      "path": "content[0]",
+      "field": "signature",
+      "reason": "degraded"
+    }
+  ],
+  "tags": ["cross", "thinking", "response", "loss", "n-r-13", "n-an-11"]
+}

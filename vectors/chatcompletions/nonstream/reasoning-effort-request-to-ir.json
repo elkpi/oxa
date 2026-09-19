@@ -1,0 +1,25 @@
+{
+  "name": "chatcompletions.nonstream.reasoning-effort-request-to-ir",
+  "description": "Chat Completions reasoning_effort parameter maps 1:1 to IR params.reasoning_effort (N-CC-12).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "o3-mini",
+    "messages": [{ "role": "user", "content": "Solve this riddle." }],
+    "reasoning_effort": "high"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "o3-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Solve this riddle." }] }
+    ],
+    "params": {
+      "reasoning_effort": "high"
+    }
+  },
+  "expected_losses": [],
+  "tags": ["params", "request", "reasoning", "n-cc-12"]
+}

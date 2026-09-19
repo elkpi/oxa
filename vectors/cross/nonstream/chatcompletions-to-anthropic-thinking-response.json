@@ -1,0 +1,47 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-anthropic-thinking-response",
+  "description": "Cross-protocol: Chat Completions reasoning_content converts to Anthropic thinking without signature, reporting a degraded replay loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "id": "chatcmpl-think-cross",
+    "object": "chat.completion",
+    "created": 1720000000,
+    "model": "o3-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "42 is the answer.",
+          "reasoning_content": "Calculating deeply..."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 12, "completion_tokens": 18, "total_tokens": 30 }
+  },
+  "expected_output": {
+    "id": "chatcmpl-think-cross",
+    "type": "message",
+    "role": "assistant",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "Calculating deeply..." },
+      { "type": "text", "text": "42 is the answer." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 12, "output_tokens": 18 }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0]",
+      "field": "signature",
+      "reason": "degraded"
+    }
+  ],
+  "tags": ["cross", "thinking", "response", "n-an-11"]
+}

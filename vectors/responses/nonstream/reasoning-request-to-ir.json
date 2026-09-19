@@ -1,0 +1,34 @@
+{
+  "name": "responses.nonstream.reasoning-request-to-ir",
+  "description": "Responses reasoning.effort maps to IR params.reasoning_effort, dropping summary preference with unmapped-field loss (N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "o3-mini",
+    "input": "Solve this riddle.",
+    "reasoning": {
+      "effort": "high",
+      "summary": "auto"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "o3-mini",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Solve this riddle." }] }
+    ],
+    "params": {
+      "reasoning_effort": "high"
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "reasoning.summary",
+      "field": "summary",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": ["params", "request", "reasoning", "loss", "n-r-13"]
+}

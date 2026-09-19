@@ -1,0 +1,37 @@
+{
+  "name": "anthropic.nonstream.thinking-budget-request-from-ir",
+  "description": "IR params.reasoning_effort renders as Anthropic thinking with approximated budget_tokens and a degraded loss (N-AN-11).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-3-7-sonnet-20250219",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Solve this puzzle." }] }
+    ],
+    "params": {
+      "max_tokens": 4096,
+      "reasoning_effort": "low"
+    }
+  },
+  "expected_output": {
+    "model": "claude-3-7-sonnet-20250219",
+    "max_tokens": 4096,
+    "messages": [{ "role": "user", "content": "Solve this puzzle." }],
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 2048
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "params.reasoning_effort",
+      "field": "reasoning_effort",
+      "reason": "degraded"
+    }
+  ],
+  "tags": ["params", "request", "thinking", "loss", "n-an-11"]
+}

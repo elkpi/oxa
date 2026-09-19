@@ -1,0 +1,41 @@
+{
+  "name": "anthropic.stream.m9-thinking-to-ir",
+  "description": "An Anthropic stream with a thinking block emitting thinking_delta and signature_delta fragments maps to a ThinkingBlock in IR (N-S-11).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "events": [
+      { "type": "message_start", "message": { "id": "msg_think_stream", "type": "message", "role": "assistant", "model": "claude-3-7-sonnet-20250219", "content": [], "stop_reason": null, "usage": { "input_tokens": 0, "output_tokens": 0 } } },
+      { "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "Let me " } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "thinking": "think." } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "signature_delta", "signature": "sig_opaque_token" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "content_block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "Result." } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "delta": { "stop_reason": "end_turn" }, "usage": { "input_tokens": 10, "output_tokens": 15 } },
+      { "type": "message_stop" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "msg_think_stream", "model": "claude-3-7-sonnet-20250219" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "thinking", "thinking": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "Let me " } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "think." } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "signature_delta", "signature": "sig_opaque_token" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "Result." } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 10, "output_tokens": 15 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "thinking", "m9", "n-s-11"]
+}

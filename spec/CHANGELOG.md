@@ -14,6 +14,12 @@ precedence between spec, vectors, and schemas is defined in
   Documentation only: no rule, schema, or vector change; the IR contract
   `specVersion` remains `0.1.0`.
 
+### Changed
+
+- Loss conventions: normative bucket taxonomy (derived, envelope, unmapped)
+  migrated into `spec/02-loss-policy.md` §9; per-face mapping documents (10–12)
+  and `vectors/README.md` cross-referenced accordingly with no behavioral change.
+
 ## 1.0.0 - 2026-09-04
 
 All four supported languages — Go, Rust, Python, and C++ — implement the

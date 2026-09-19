@@ -192,7 +192,7 @@ Each rule has a stable ID usable as a vector tag.
 
 ## 8. Loss Catalog
 
-Buckets follow [vectors/README.md](../vectors/README.md): DERIVED and
+Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
 ENVELOPE fields are exempt; everything else MUST record a loss.
 
 | Field (path context) | Bucket / reason | Direction | Detail |

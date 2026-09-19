@@ -636,3 +636,82 @@ func TestWithModelMap(t *testing.T) {
 		t.Fatalf("decode response model not mapped: %q", respIn.Model)
 	}
 }
+
+func TestDecodeRequestPreservesAssistantReasoningContent(t *testing.T) {
+	wire := &Request{
+		Model: "o3-mini",
+		Messages: []Message{
+			{Role: RoleUser, Content: "Solve this."},
+			{
+				Role:             RoleAssistant,
+				Content:          "The answer is 42.",
+				ReasoningContent: "I evaluated the constraints.",
+			},
+		},
+	}
+
+	req, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	content := req.Messages[1].Content
+	if len(content) != 2 {
+		t.Fatalf("assistant blocks = %#v, want thinking then text", content)
+	}
+	thinking, ok := content[0].(ir.ThinkingBlock)
+	if !ok || thinking.Thinking != "I evaluated the constraints." {
+		t.Fatalf("first assistant block = %#v, want ThinkingBlock", content[0])
+	}
+}
+
+func TestDecodeResponseCopiesUsageDetails(t *testing.T) {
+	wire := &Response{
+		ID: "chatcmpl_usage", Model: "o3-mini",
+		Choices: []Choice{{
+			Message:      Message{Role: RoleAssistant, Content: "done"},
+			FinishReason: FinishReasonStop,
+		}},
+		Usage: &UsageWire{
+			PromptTokens: 1, CompletionTokens: 1,
+			PromptTokensDetails: &PromptTokensDetailsWire{CachedTokens: 7},
+		},
+	}
+
+	resp, _, err := DecodeResponse(wire)
+	if err != nil {
+		t.Fatalf("DecodeResponse: %v", err)
+	}
+	wire.Usage.PromptTokensDetails.CachedTokens = 99
+	if got := *resp.Usage.InputTokensDetails.CachedTokens; got != 7 {
+		t.Fatalf("cached token count aliases wire input: got %d, want 7", got)
+	}
+}
+
+func TestEncodeResponsePreservesExplicitZeroUsageDetail(t *testing.T) {
+	zero := int64(0)
+	out, _, err := EncodeResponse(&ir.Response{
+		ID: "chatcmpl_zero", Model: "o3-mini", StopReason: ir.StopEndTurn,
+		Usage: ir.Usage{
+			InputTokensDetails: &ir.InputTokensDetails{CachedTokens: &zero},
+		},
+	})
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	usage := doc["usage"].(map[string]any)
+	details := usage["prompt_tokens_details"].(map[string]any)
+	if got, ok := details["cached_tokens"].(float64); !ok || got != 0 {
+		t.Fatalf("cached_tokens = %#v, want explicit 0", details["cached_tokens"])
+	}
+}

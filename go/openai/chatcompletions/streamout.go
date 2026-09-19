@@ -208,11 +208,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 			Created: 0,
 			Model:   e.model,
 			Choices: []ChoiceDelta{{Index: 0, Delta: DeltaPayload{}, FinishReason: &finish}},
-			Usage: &UsageWire{
-				PromptTokens:     event.Usage.InputTokens,
-				CompletionTokens: event.Usage.OutputTokens,
-				TotalTokens:      event.Usage.InputTokens + event.Usage.OutputTokens,
-			},
+			Usage:   streamUsage(event.Usage),
 		})
 		return chunks, losses, nil
 
@@ -267,6 +263,25 @@ func unwrapIRString(raw json.RawMessage) (string, error) {
 		return "", err
 	}
 	return value, nil
+}
+
+func streamUsage(usage ir.Usage) *UsageWire {
+	out := &UsageWire{
+		PromptTokens:     usage.InputTokens,
+		CompletionTokens: usage.OutputTokens,
+		TotalTokens:      usage.InputTokens + usage.OutputTokens,
+	}
+	if usage.InputTokensDetails != nil && usage.InputTokensDetails.CachedTokens != nil {
+		out.PromptTokensDetails = &PromptTokensDetailsWire{
+			CachedTokens: *usage.InputTokensDetails.CachedTokens,
+		}
+	}
+	if usage.OutputTokensDetails != nil && usage.OutputTokensDetails.ReasoningTokens != nil {
+		out.CompletionTokensDetails = &CompletionTokensDetailsWire{
+			ReasoningTokens: *usage.OutputTokensDetails.ReasoningTokens,
+		}
+	}
+	return out
 }
 
 func isMessageDone(ev ir.Event) bool {

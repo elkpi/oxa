@@ -87,6 +87,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				// A tool-only assistant message has no normal content to prepend.
 				content = nil
 			}
+			if message.ReasoningContent != "" {
+				content = append([]ir.Block{ir.ThinkingBlock{Thinking: message.ReasoningContent}}, content...)
+			}
 			content = append(content, toolCalls...)
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleAssistant, Content: content})
 			losses = append(losses, toolLosses...)
@@ -177,13 +180,15 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			OutputTokens: wire.Usage.CompletionTokens,
 		}
 		if wire.Usage.PromptTokensDetails != nil {
+			cachedTokens := wire.Usage.PromptTokensDetails.CachedTokens
 			resp.Usage.InputTokensDetails = &ir.InputTokensDetails{
-				CachedTokens: &wire.Usage.PromptTokensDetails.CachedTokens,
+				CachedTokens: &cachedTokens,
 			}
 		}
 		if wire.Usage.CompletionTokensDetails != nil {
+			reasoningTokens := wire.Usage.CompletionTokensDetails.ReasoningTokens
 			resp.Usage.OutputTokensDetails = &ir.OutputTokensDetails{
-				ReasoningTokens: &wire.Usage.CompletionTokensDetails.ReasoningTokens,
+				ReasoningTokens: &reasoningTokens,
 			}
 		}
 	}

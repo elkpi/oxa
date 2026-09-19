@@ -936,3 +936,33 @@ func runeBoundaries(value string) []int {
 func stringPointer(value string) *string {
 	return &value
 }
+
+func TestStreamEncoderPreservesUsageDetails(t *testing.T) {
+	cached := int64(9)
+	e := NewStreamEncoder()
+	if _, _, err := e.Apply(ir.MessageStart{ID: "chatcmpl_usage", Model: "o3-mini"}); err != nil {
+		t.Fatalf("MessageStart: %v", err)
+	}
+	chunks, losses, err := e.Apply(ir.MessageDelta{
+		StopReason: ir.StopEndTurn,
+		Usage: ir.Usage{
+			InputTokens:  10,
+			OutputTokens: 5,
+			InputTokensDetails: &ir.InputTokensDetails{
+				CachedTokens: &cached,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("MessageDelta: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	if len(chunks) != 1 || chunks[0].Usage == nil || chunks[0].Usage.PromptTokensDetails == nil {
+		t.Fatalf("terminal chunks = %#v, want usage details", chunks)
+	}
+	if got := chunks[0].Usage.PromptTokensDetails.CachedTokens; got != 9 {
+		t.Fatalf("cached_tokens = %d, want 9", got)
+	}
+}

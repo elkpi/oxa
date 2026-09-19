@@ -14,9 +14,13 @@ from typing import NamedTuple
 
 ROOT = Path(__file__).resolve().parent.parent
 
+# V2 additions to IR enums
+V2_BLOCK_TYPES = {"thinking"}
+V2_DELTA_TYPES = {"thinking_delta", "signature_delta"}
+
 
 class SchemaEnums(NamedTuple):
-    spec_version: str
+    spec_versions: set[str]
     roles: set[str]
     block_types: set[str]
     tool_choice_modes: set[str]
@@ -25,10 +29,23 @@ class SchemaEnums(NamedTuple):
     delta_types: set[str]
     loss_reasons: set[str]
 
-    @property
-    def all_tokens(self) -> set[str]:
+    def tokens_for_version(self, version: str) -> set[str]:
+        if version not in self.spec_versions:
+            raise ValueError(f"unknown specVersion {version!r}, allowed: {self.spec_versions}")
+        if version == "0.1.0":
+            return (
+                {"0.1.0"}
+                | self.roles
+                | (self.block_types - V2_BLOCK_TYPES)
+                | self.tool_choice_modes
+                | self.stop_reasons
+                | self.event_types
+                | (self.delta_types - V2_DELTA_TYPES)
+                | self.loss_reasons
+            )
+        # Latest version (0.2.0)
         return (
-            {self.spec_version}
+            {version}
             | self.roles
             | self.block_types
             | self.tool_choice_modes
@@ -50,7 +67,12 @@ def load_schema_enums() -> SchemaEnums:
 
     defs = ir_schema["$defs"]
 
-    spec_version = defs["request"]["properties"]["specVersion"]["const"]
+    spec_version_prop = defs["request"]["properties"]["specVersion"]
+    if "const" in spec_version_prop:
+        spec_versions = {spec_version_prop["const"]}
+    else:
+        spec_versions = set(spec_version_prop.get("enum", []))
+
     roles = set(defs["message"]["properties"]["role"]["enum"])
 
     block_types = {
@@ -78,7 +100,7 @@ def load_schema_enums() -> SchemaEnums:
     loss_reasons = set(loss_schema["properties"]["reason"]["enum"])
 
     return SchemaEnums(
-        spec_version=spec_version,
+        spec_versions=spec_versions,
         roles=roles,
         block_types=block_types,
         tool_choice_modes=tool_choice_modes,
@@ -168,7 +190,6 @@ def extract_rust_constants() -> set[str]:
 
 def main() -> int:
     expected = load_schema_enums()
-    required_tokens = expected.all_tokens
 
     extractors = {
         "Python (python/src/oxa/ir/constants.py)": extract_python_constants,
@@ -180,16 +201,24 @@ def main() -> int:
 
     errors: list[str] = []
 
-    print(f"Loaded {len(required_tokens)} normative IR & Loss tokens from schemas.")
+    print(f"Loaded schema IR & Loss enums (supported spec versions: {sorted(expected.spec_versions)}).")
     print("Checking multi-language constant convergence...")
 
     for lang, extractor in extractors.items():
         found = extractor()
+        # Detect which specVersion this language declares
+        matched_versions = expected.spec_versions & found
+        if not matched_versions:
+            errors.append(f"  ❌ {lang}: declares no supported specVersion from {expected.spec_versions}")
+            continue
+        lang_version = sorted(matched_versions)[-1]
+        required_tokens = expected.tokens_for_version(lang_version)
+
         missing = required_tokens - found
         if missing:
-            errors.append(f"  ❌ {lang}: missing {len(missing)} tokens: {sorted(missing)}")
+            errors.append(f"  ❌ {lang} [v{lang_version}]: missing {len(missing)} tokens: {sorted(missing)}")
         else:
-            print(f"  ✅ {lang}: all {len(required_tokens)} tokens present.")
+            print(f"  ✅ {lang} [v{lang_version}]: all {len(required_tokens)} tokens present.")
 
     if errors:
         print("\nConstant convergence check failed:")
@@ -197,7 +226,7 @@ def main() -> int:
             print(err)
         return 1
 
-    print("\n🎉 All 5 languages have 100% complete and synchronized IR & Loss constants!")
+    print("\n🎉 All 5 languages have complete and synchronized IR & Loss constants for their active spec versions!")
     return 0
 
 

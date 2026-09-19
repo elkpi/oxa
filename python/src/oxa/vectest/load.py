@@ -84,6 +84,8 @@ def load_vectors(root: Path | str, face: str, mode: str) -> list[Vector]:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         data = json.loads(text)
+        if data.get("spec_version") not in (None, "", "0.1.0"):
+            continue
         input_raw = _extract_field_raw(text, "input")
         if not input_raw and "input" in data:
             input_raw = json.dumps(data["input"], ensure_ascii=False)

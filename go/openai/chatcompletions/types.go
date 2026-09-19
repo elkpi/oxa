@@ -199,10 +199,10 @@ type UsageWire struct {
 
 // PromptTokensDetailsWire carries fine-grained prompt token counts.
 type PromptTokensDetailsWire struct {
-	CachedTokens int64 `json:"cached_tokens,omitempty"`
+	CachedTokens int64 `json:"cached_tokens"`
 }
 
 // CompletionTokensDetailsWire carries fine-grained completion token counts.
 type CompletionTokensDetailsWire struct {
-	ReasoningTokens int64 `json:"reasoning_tokens,omitempty"`
+	ReasoningTokens int64 `json:"reasoning_tokens"`
 }

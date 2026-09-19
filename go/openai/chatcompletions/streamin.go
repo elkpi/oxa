@@ -71,13 +71,15 @@ func (d *StreamDecoder) Feed(chunk *Chunk) ([]ir.Event, error) {
 			OutputTokens: chunk.Usage.CompletionTokens,
 		}
 		if chunk.Usage.PromptTokensDetails != nil {
+			cachedTokens := chunk.Usage.PromptTokensDetails.CachedTokens
 			d.usage.InputTokensDetails = &ir.InputTokensDetails{
-				CachedTokens: &chunk.Usage.PromptTokensDetails.CachedTokens,
+				CachedTokens: &cachedTokens,
 			}
 		}
 		if chunk.Usage.CompletionTokensDetails != nil {
+			reasoningTokens := chunk.Usage.CompletionTokensDetails.ReasoningTokens
 			d.usage.OutputTokensDetails = &ir.OutputTokensDetails{
-				ReasoningTokens: &chunk.Usage.CompletionTokensDetails.ReasoningTokens,
+				ReasoningTokens: &reasoningTokens,
 			}
 		}
 	}

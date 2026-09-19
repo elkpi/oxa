@@ -101,7 +101,7 @@ A content block. Sealed; discriminated on the JSON `type` property:
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| `Thinking` | `thinking` | string | yes, non-empty | the model's reasoning text |
+| `Thinking` | `thinking` | string | yes | the model's reasoning text; non-empty in nonstream responses, empty in streaming block start |
 | `Signature` | `signature` | string | no, non-empty | optional opaque provider signature; carried verbatim (INV-1) |
 
 #### ImageBlock

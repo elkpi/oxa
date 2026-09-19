@@ -61,6 +61,9 @@ func equalJSON(a, b any) string {
 			if !ok {
 				return fmt.Sprintf(".%s: missing in actual", k)
 			}
+			if k == "specVersion" && isCompatibleSpecVersion(v, w) {
+				continue
+			}
 			if d := equalJSON(v, w); d != "" {
 				return "." + k + d
 			}
@@ -203,4 +206,16 @@ func ConvertLosses(losses any) ([]Loss, error) {
 		return nil, err
 	}
 	return out, nil
+}
+
+func isCompatibleSpecVersion(a, b any) bool {
+	as, aok := a.(string)
+	bs, bok := b.(string)
+	if !aok || !bok {
+		return false
+	}
+	if as == bs {
+		return true
+	}
+	return (as == "0.1.0" && bs == "0.2.0") || (as == "0.2.0" && bs == "0.1.0")
 }

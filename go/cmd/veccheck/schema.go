@@ -9,17 +9,27 @@ import (
 	"github.com/santhosh-tekuri/jsonschema/v6"
 )
 
-// schemas holds the compiled vector and IR schemas plus the spec version
-// pinned by the IR schema's specVersion const.
+// schemas holds the compiled vector and IR schemas plus the allowed spec versions
+// declared by the IR schema's specVersion const or enum.
 type schemas struct {
-	vector      *jsonschema.Schema
-	ir          *jsonschema.Schema
-	specVersion string
+	vector       *jsonschema.Schema
+	ir           *jsonschema.Schema
+	specVersions []string
+	specVersion  string // latest declared spec version
+}
+
+func (s *schemas) isValidSpecVersion(v string) bool {
+	for _, sv := range s.specVersions {
+		if sv == v {
+			return true
+		}
+	}
+	return false
 }
 
 // loadSchemas compiles vector.schema.json, ir.schema.json, and loss.schema.json
-// against the 2020-12 meta-schema and reads the specVersion const from the IR
-// schema's request document definition. The version is read, never hardcoded.
+// against the 2020-12 meta-schema and reads the specVersion const or enum from
+// the IR schema's document definitions. The version is read, never hardcoded.
 func loadSchemas(root string) (*schemas, error) {
 	dir := filepath.Join(root, schemaRelPath)
 	compiler := jsonschema.NewCompiler()
@@ -61,53 +71,71 @@ func loadSchemas(root string) (*schemas, error) {
 	if _, err := compiler.Compile("loss.schema.json"); err != nil {
 		return nil, fmt.Errorf("loss.schema.json does not compile: %w", err)
 	}
-	version, err := readSpecVersion(filepath.Join(dir, "ir.schema.json"))
+	versions, err := readSpecVersions(filepath.Join(dir, "ir.schema.json"))
 	if err != nil {
 		return nil, err
 	}
-	return &schemas{vector: vectorSchema, ir: irSchema, specVersion: version}, nil
+	latest := versions[len(versions)-1]
+	return &schemas{vector: vectorSchema, ir: irSchema, specVersions: versions, specVersion: latest}, nil
 }
 
-// readSpecVersion extracts the specVersion const from the IR schema. It reads
-// $defs.request.properties.specVersion.const; the response and eventStream
-// consts must agree (they are cross-checked below).
-func readSpecVersion(path string) (string, error) {
+// readSpecVersions extracts the allowed specVersion values from the IR schema.
+// It accepts either a const string or an enum array of strings. All three
+// document definitions (request, response, eventStream) must agree.
+func readSpecVersions(path string) ([]string, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	var doc struct {
 		Defs map[string]struct {
 			Properties map[string]struct {
-				Const any `json:"const"`
+				Const any   `json:"const"`
+				Enum  []any `json:"enum"`
 			} `json:"properties"`
 		} `json:"$defs"`
 	}
 	if err := json.Unmarshal(raw, &doc); err != nil {
-		return "", fmt.Errorf("ir.schema.json is not valid JSON: %w", err)
+		return nil, fmt.Errorf("ir.schema.json is not valid JSON: %w", err)
 	}
-	var version string
+	var versions []string
 	for _, defName := range []string{"request", "response", "eventStream"} {
 		def, ok := doc.Defs[defName]
 		if !ok {
-			return "", fmt.Errorf("ir.schema.json: missing $defs.%s", defName)
+			return nil, fmt.Errorf("ir.schema.json: missing $defs.%s", defName)
 		}
 		prop, ok := def.Properties["specVersion"]
 		if !ok {
-			return "", fmt.Errorf("ir.schema.json: $defs.%s has no specVersion property", defName)
+			return nil, fmt.Errorf("ir.schema.json: $defs.%s has no specVersion property", defName)
 		}
-		s, ok := prop.Const.(string)
-		if !ok || s == "" {
-			return "", fmt.Errorf("ir.schema.json: $defs.%s.properties.specVersion.const is not a non-empty string", defName)
+		var cur []string
+		if s, ok := prop.Const.(string); ok && s != "" {
+			cur = []string{s}
+		} else if len(prop.Enum) > 0 {
+			for _, item := range prop.Enum {
+				if str, ok := item.(string); ok && str != "" {
+					cur = append(cur, str)
+				}
+			}
 		}
-		if version == "" {
-			version = s
-		} else if version != s {
-			return "", fmt.Errorf("ir.schema.json: specVersion consts disagree: %q vs %q", version, s)
+		if len(cur) == 0 {
+			return nil, fmt.Errorf("ir.schema.json: $defs.%s.properties.specVersion has neither const nor non-empty enum", defName)
+		}
+		if len(versions) == 0 {
+			versions = cur
+		} else {
+			if len(versions) != len(cur) {
+				return nil, fmt.Errorf("ir.schema.json: specVersion declarations disagree between defs")
+			}
+			for i := range versions {
+				if versions[i] != cur[i] {
+					return nil, fmt.Errorf("ir.schema.json: specVersion declarations disagree between defs")
+				}
+			}
 		}
 	}
-	if version == "" {
-		return "", fmt.Errorf("ir.schema.json: no specVersion const found")
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("ir.schema.json: no specVersion declarations found")
 	}
-	return version, nil
+	return versions, nil
 }

@@ -9,7 +9,7 @@ MUST satisfy.
 
 The specification versions itself independently of the implementations.
 Current spec version: **1.0.0** — all four supported languages (Go, Rust,
-Python, and C++) implement the specification against the identical 125 golden
+Python, and C++) implement the specification against the identical 130 golden
 vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy

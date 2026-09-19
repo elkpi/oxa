@@ -6,9 +6,9 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: v1.0.0 released.** The specification, golden vectors,
+**Status: v1.0.1 released.** The specification, golden vectors,
 and all five reference implementations (Go, TypeScript, Rust, Python, and C++) pass the
-identical 125 golden vectors across nonstream, cross-protocol, and stream suites.
+identical 130 golden vectors across nonstream, cross-protocol, and stream suites.
 
 ## What is oxa?
 
@@ -55,23 +55,23 @@ without a corresponding vector update.
 
 | Language   | Directory | State             |
 | ---------- | --------- | ----------------- |
-| Go         | `go/`     | Usable (`v1.0.0`) |
-| TypeScript | `ts/`     | Usable (`v1.0.0`) |
-| Rust       | `rust/`   | Usable (`v1.0.0`) |
-| Python     | `python/` | Usable (`v1.0.0`) |
-| C++        | `cpp/`    | Usable (`v1.0.0`) |
+| Go         | `go/`     | Usable (`v1.0.1`) |
+| TypeScript | `ts/`     | Usable (`v1.0.1`) |
+| Rust       | `rust/`   | Usable (`v1.0.1`) |
+| Python     | `python/` | Usable (`v1.0.1`) |
+| C++        | `cpp/`    | Usable (`v1.0.1`) |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v1.0.0)
-ts/        TypeScript implementation (v1.0.0)
+go/        Go reference implementation (v1.0.1)
+ts/        TypeScript implementation (v1.0.1)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v1.0.0)
-python/    Python implementation (v1.0.0)
-cpp/       C++ implementation (v1.0.0)
+rust/      Rust implementation (v1.0.1)
+python/    Python implementation (v1.0.1)
+cpp/       C++ implementation (v1.0.1)
 ```
 
 ## Current capabilities
@@ -129,7 +129,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `1.0.0`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `1.0.1`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

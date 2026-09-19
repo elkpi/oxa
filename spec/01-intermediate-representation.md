@@ -39,11 +39,13 @@ schema MUST agree (INV-9).
   for stop reasons is `other` plus a loss (see [02](02-loss-policy.md)).
 - **Raw JSON as string.** Two fields carry JSON *text* rather than JSON
   values: `tool_use.input` and `input_json_delta.partial_json`. They are
-  opaque strings (INV-1). By contrast, `tool.input_schema` is carried as a
-  JSON object, verbatim; implementations MUST NOT analyze or rewrite it.
+  opaque strings (INV-1). A `ThinkingBlock`'s `signature` is carried
+  verbatim with the same discipline: never validated or rewritten. By contrast,
+  `tool.input_schema` is carried as a JSON object, verbatim; implementations
+  MUST NOT analyze or rewrite it.
   (Rationale: tool arguments arrive from all three faces as text fragments
-  or strings and must concatenate without parsing; tool schemas arrive from
-  all three faces as objects.)
+  or strings and must concatenate without parsing; signatures are provider-specific
+  opaque tokens; tool schemas arrive from all three faces as objects.)
 
 ## 3. Request-side types
 
@@ -79,8 +81,7 @@ System prompt content. Sealed; exactly one variant in v1:
 
 ### 3.4 Block
 
-A content block. Sealed; exactly four variants in v1, discriminated on the
-JSON `type` property:
+A content block. Sealed; discriminated on the JSON `type` property:
 
 | Variant | JSON `type` | Purpose |
 |---------|-------------|---------|
@@ -88,12 +89,20 @@ JSON `type` property:
 | `ImageBlock` | `image` | an image input |
 | `ToolUseBlock` | `tool_use` | a tool invocation produced by the model |
 | `ToolResultBlock` | `tool_result` | the outcome of a tool invocation, supplied by the caller |
+| `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
 
 #### TextBlock
 
 | Go field | JSON property | Type | Required |
 |----------|---------------|------|----------|
 | `Text` | `text` | string | yes |
+
+#### ThinkingBlock
+
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `Thinking` | `thinking` | string | yes | the model's reasoning text; non-empty in nonstream responses, empty in streaming block start |
+| `Signature` | `signature` | string | no, non-empty | optional opaque provider signature; carried verbatim (INV-1) |
 
 #### ImageBlock
 
@@ -149,6 +158,7 @@ responsibility; consumers treat `data` as an opaque string.
 | `TopP` | `top_p` | `*float64` / number | no | |
 | `MaxTokens` | `max_tokens` | `*int64` / integer ≥ 1 | no | |
 | `StopSequences` | `stop_sequences` | `[]string` | no | |
+| `ReasoningEffort` | `reasoning_effort` | enum `minimal` \| `low` \| `medium` \| `high` | no | absent means unset; unknown inbound values are dropped with unmapped-value (since 2.0) |
 
 ## 4. Response-side types
 
@@ -176,16 +186,21 @@ without identifying which stop sequence matched, so a face → IR converter
 can know the stop reason without being able to name the sequence. The
 same conditional rule applies to `MessageDelta` (§5.1).
 
-In v1, responses contain `TextBlock` and `ToolUseBlock` content; the type
-system permits all four block variants, and unused combinations are
-harmless.
+In v1, responses contain `TextBlock` and `ToolUseBlock` content; since
+2.0, responses may also contain `ThinkingBlock` content, and request
+assistant messages MAY carry `ThinkingBlock`s for replay. The type
+system permits all block variants, and unused combinations are harmless.
 
 ### 4.2 Usage
 
-| Go field | JSON property | Type | Required |
-|----------|---------------|------|----------|
-| `InputTokens` | `input_tokens` | int64 / integer ≥ 0 | yes |
-| `OutputTokens` | `output_tokens` | int64 / integer ≥ 0 | yes |
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `InputTokens` | `input_tokens` | int64 / integer ≥ 0 | yes | |
+| `OutputTokens` | `output_tokens` | int64 / integer ≥ 0 | yes | |
+| `CacheReadInputTokens` | `cache_read_input_tokens` | `*int64` / integer ≥ 0 | no | absent ≠ 0 (since 2.0) |
+| `CacheCreationInputTokens` | `cache_creation_input_tokens` | `*int64` / integer ≥ 0 | no | absent ≠ 0 (since 2.0) |
+| `InputTokensDetails` | `input_tokens_details` | `*InputTokensDetails` | no | `{cached_tokens: int64 ≥ 0}`; absent ≠ 0 (since 2.0) |
+| `OutputTokensDetails` | `output_tokens_details` | `*OutputTokensDetails` | no | `{reasoning_tokens: int64 ≥ 0}`; absent ≠ 0 (since 2.0) |
 
 ## 5. Event types
 
@@ -219,22 +234,25 @@ JSON `type` property:
 
 ### 5.2 Delta
 
-The delta payload of `ContentBlockDelta`. Sealed; exactly two variants in
-v1, discriminated on the JSON `type` property:
+The delta payload of `ContentBlockDelta`. Sealed; discriminated on the JSON `type` property:
 
 | Variant | JSON `type` | Fields |
 |---------|-------------|--------|
 | `TextDelta` | `text_delta` | `Text` |
 | `InputJSONDelta` | `input_json_delta` | `PartialJSON` |
+| `ThinkingDelta` | `thinking_delta` | `Text` |
+| `SignatureDelta` | `signature_delta` | `Signature` |
 
 | Go field | JSON property | Type | Notes |
 |----------|---------------|------|-------|
-| `Text` | `text` | string | a text fragment |
+| `Text` | `text` | string | a text fragment (for `TextDelta` and `ThinkingDelta`) |
 | `PartialJSON` | `partial_json` | string — raw JSON text | a fragment of the tool-argument string; MAY be empty; concatenation of all fragments of a block is the block's `input` |
+| `Signature` | `signature` | string | provider signature token; at most one per block (for `SignatureDelta`) |
 
 Delta/block correspondence is fixed: a `TextBlock` admits only
-`TextDelta`; a `ToolUseBlock` admits only `InputJSONDelta`; an `ImageBlock`
-admits no deltas (INV-5).
+`TextDelta`; a `ToolUseBlock` admits only `InputJSONDelta`; a `ThinkingBlock`
+admits `thinking_delta*` followed by at most one `signature_delta`; an
+`ImageBlock` admits no deltas (INV-5).
 
 ### 5.3 EventStream
 
@@ -273,7 +291,8 @@ JSON text. Implementations MUST NOT parse and re-serialize it on any
 conversion path; it is copied as an opaque string. Comparison of
 `tool_use.input` is by exact string equality; the JSON inside it is never
 structurally compared (INV-7 applies to the IR tree, and `input` is a
-string leaf). The same rule applies to `input_json_delta.partial_json`.
+string leaf). The same rule applies to `input_json_delta.partial_json` and
+to `thinking.signature` / `signature_delta.signature`.
 
 **INV-2 — First message is user.** In a `Request`, `messages[0].role` MUST
 be `user`.

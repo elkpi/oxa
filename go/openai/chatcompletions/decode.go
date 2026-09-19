@@ -87,6 +87,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				// A tool-only assistant message has no normal content to prepend.
 				content = nil
 			}
+			if message.ReasoningContent != "" {
+				content = append([]ir.Block{ir.ThinkingBlock{Thinking: message.ReasoningContent}}, content...)
+			}
 			content = append(content, toolCalls...)
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleAssistant, Content: content})
 			losses = append(losses, toolLosses...)
@@ -109,6 +112,15 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		TopP:          wire.TopP,
 		MaxTokens:     wire.MaxTokens,
 		StopSequences: wire.Stop,
+	}
+	switch wire.ReasoningEffort {
+	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+		req.Params.ReasoningEffort = wire.ReasoningEffort
+	default:
+		losses = append(losses, loss(
+			"reasoning_effort", "reasoning_effort", ir.LossUnmappedValue,
+			fmt.Sprintf("unknown reasoning_effort value %q", wire.ReasoningEffort),
+		))
 	}
 	return req, losses, nil
 }
@@ -138,6 +150,9 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		blocks = nil
 	}
 	blocks = append(blocks, toolCalls...)
+	if choice.Message.ReasoningContent != "" {
+		blocks = append([]ir.Block{ir.ThinkingBlock{Thinking: choice.Message.ReasoningContent}}, blocks...)
+	}
 	losses = append(losses, toolLosses...)
 	if choice.Message.FunctionCall != nil {
 		losses = append(losses, loss(
@@ -163,6 +178,18 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		resp.Usage = ir.Usage{
 			InputTokens:  wire.Usage.PromptTokens,
 			OutputTokens: wire.Usage.CompletionTokens,
+		}
+		if wire.Usage.PromptTokensDetails != nil {
+			cachedTokens := wire.Usage.PromptTokensDetails.CachedTokens
+			resp.Usage.InputTokensDetails = &ir.InputTokensDetails{
+				CachedTokens: &cachedTokens,
+			}
+		}
+		if wire.Usage.CompletionTokensDetails != nil {
+			reasoningTokens := wire.Usage.CompletionTokensDetails.ReasoningTokens
+			resp.Usage.OutputTokensDetails = &ir.OutputTokensDetails{
+				ReasoningTokens: &reasoningTokens,
+			}
 		}
 	}
 	return resp, losses, nil

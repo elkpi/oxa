@@ -1,0 +1,55 @@
+{
+  "name": "responses.nonstream.thinking-item-to-ir",
+  "description": "A Responses reasoning output item with summary parts maps to ThinkingBlocks, dropping encrypted_content with an unmapped-field loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_reasoning1",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_01",
+        "summary": [
+          { "type": "output_text", "text": "Step 1: analyze.", "annotations": [] },
+          { "type": "output_text", "text": "Step 2: conclude.", "annotations": [] }
+        ],
+        "encrypted_content": "gAAAAABnz..."
+      },
+      {
+        "type": "message",
+        "id": "msg_01",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          { "type": "output_text", "text": "Final answer is 42.", "annotations": [] }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 12, "output_tokens": 18, "total_tokens": 30 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_reasoning1",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "Step 1: analyze." },
+      { "type": "thinking", "thinking": "Step 2: conclude." },
+      { "type": "text", "text": "Final answer is 42." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 12, "output_tokens": 18 }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].encrypted_content",
+      "field": "encrypted_content",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": ["response", "thinking", "loss", "n-r-13"]
+}

@@ -1,0 +1,45 @@
+{
+  "name": "responses.nonstream.usage-details-to-ir",
+  "description": "Responses input_token_details and output_token_details map to IR usage details (spec/01 s4.2).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_details",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_d1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Detailed response.", "annotations": [] }]
+      }
+    ],
+    "usage": {
+      "input_tokens": 60,
+      "output_tokens": 30,
+      "total_tokens": 90,
+      "input_token_details": { "cached_tokens": 50 },
+      "output_token_details": { "reasoning_tokens": 20 }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_details",
+    "model": "o3-mini",
+    "content": [{ "type": "text", "text": "Detailed response." }],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 60,
+      "output_tokens": 30,
+      "input_tokens_details": { "cached_tokens": 50 },
+      "output_tokens_details": { "reasoning_tokens": 20 }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["response", "usage", "details"]
+}

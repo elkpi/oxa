@@ -985,3 +985,33 @@ func TestStreamingRoundTrip(t *testing.T) {
 		t.Fatalf("losses = %#v", ls)
 	}
 }
+
+func TestStreamEncoderPreservesCacheUsage(t *testing.T) {
+	cacheRead := int64(80)
+	cacheCreated := int64(20)
+	e := NewStreamEncoder()
+	if _, _, err := e.Apply(ir.MessageStart{ID: "msg_usage", Model: "claude-3-7-sonnet"}); err != nil {
+		t.Fatalf("MessageStart: %v", err)
+	}
+	out, losses, err := e.Apply(ir.MessageDelta{
+		StopReason: ir.StopEndTurn,
+		Usage: ir.Usage{
+			InputTokens:              100,
+			OutputTokens:             50,
+			CacheReadInputTokens:     &cacheRead,
+			CacheCreationInputTokens: &cacheCreated,
+		},
+	})
+	if err != nil {
+		t.Fatalf("MessageDelta: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	if len(out) != 1 || out[0].Usage == nil || out[0].Usage.CacheReadInputTokens == nil || out[0].Usage.CacheCreationInputTokens == nil {
+		t.Fatalf("message delta output = %#v, want cache usage", out)
+	}
+	if *out[0].Usage.CacheReadInputTokens != 80 || *out[0].Usage.CacheCreationInputTokens != 20 {
+		t.Fatalf("cache usage = %#v", out[0].Usage)
+	}
+}

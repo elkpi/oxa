@@ -14,6 +14,7 @@ type streamOutputItemKind uint8
 const (
 	streamMessageOutputItem streamOutputItemKind = iota
 	streamFunctionCallOutputItem
+	streamReasoningOutputItem
 )
 
 // streamOutputItem retains one native Responses output-item lifecycle. A message
@@ -30,12 +31,14 @@ type streamOutputItem struct {
 }
 
 type streamEncodeBlock struct {
-	index        int
-	kind         streamOutputItemKind
-	contentIndex int
-	text         string
-	toolInput    string
-	fragments    []string
+	index         int
+	kind          streamOutputItemKind
+	contentIndex  int
+	text          string
+	toolInput     string
+	fragments     []string
+	signature     string
+	signatureSeen bool
 }
 
 // StreamEncoder incrementally converts an IR event stream into OpenAI
@@ -51,13 +54,14 @@ type StreamEncoder struct {
 	delta   bool
 	done    bool
 
-	nextBlockIndex   int
-	nextOutputIndex  int
-	nextMessageItem  int
-	nextFunctionItem int
-	activeItem       *streamOutputItem
-	activeBlock      *streamEncodeBlock
-	completed        []OutputItem
+	nextBlockIndex    int
+	nextOutputIndex   int
+	nextMessageItem   int
+	nextFunctionItem  int
+	nextReasoningItem int
+	activeItem        *streamOutputItem
+	activeBlock       *streamEncodeBlock
+	completed         []OutputItem
 }
 
 // NewStreamEncoder returns a Responses event-stream encoder. The variadic
@@ -106,6 +110,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		switch block := event.Block.(type) {
 		case ir.TextBlock:
 			out, losses, err = e.startTextBlock(event.Index, block)
+		case ir.ThinkingBlock:
+			out, losses, err = e.startThinkingBlock(event.Index, block)
 		case ir.ToolUseBlock:
 			out, losses, err = e.startFunctionCallBlock(event.Index, block)
 		default:
@@ -135,6 +141,28 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				ContentIndex: e.activeBlock.contentIndex,
 				Delta:        delta.Text,
 			}}, nil, nil
+		case streamReasoningOutputItem:
+			switch delta := event.Delta.(type) {
+			case ir.ThinkingDelta:
+				e.activeBlock.text += delta.Text
+				return []*StreamEvent{{
+					Type:         EventTypeResponseReasoningSummaryTextDelta,
+					ItemID:       e.activeItem.id,
+					OutputIndex:  e.activeItem.outputIndex,
+					ContentIndex: e.activeBlock.contentIndex,
+					Delta:        delta.Text,
+				}}, nil, nil
+			case ir.SignatureDelta:
+				e.activeBlock.signatureSeen = true
+				return nil, []ir.Loss{{
+					Path:   fmt.Sprintf("events[%d].delta.signature", event.Index),
+					Field:  "signature",
+					Reason: ir.LossUnmappedField,
+					Detail: "Responses carries no signature delta in streaming reasoning",
+				}}, nil
+			default:
+				return nil, nil, fmt.Errorf("responses: ThinkingBlock received non-thinking delta %T", event.Delta)
+			}
 		case streamFunctionCallOutputItem:
 			delta, ok := event.Delta.(ir.InputJSONDelta)
 			if !ok {
@@ -162,6 +190,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		switch e.activeBlock.kind {
 		case streamMessageOutputItem:
 			return e.stopTextBlock()
+		case streamReasoningOutputItem:
+			return e.stopThinkingBlock()
 		case streamFunctionCallOutputItem:
 			return e.stopFunctionCallBlock()
 		default:
@@ -174,10 +204,14 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		}
 		var out []*StreamEvent
 		if e.activeItem != nil {
-			if e.activeItem.kind != streamMessageOutputItem {
+			switch e.activeItem.kind {
+			case streamMessageOutputItem:
+				out = append(out, e.closeMessageItem())
+			case streamReasoningOutputItem:
+				out = append(out, e.closeReasoningItem())
+			default:
 				return nil, nil, fmt.Errorf("responses: MessageDelta with an uncompleted function_call item")
 			}
-			out = append(out, e.closeMessageItem())
 		}
 		terminal, losses, err := e.terminal(event)
 		if err != nil {
@@ -202,13 +236,20 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 
 func (e *StreamEncoder) startTextBlock(index int, block ir.TextBlock) ([]*StreamEvent, []ir.Loss, error) {
 	var out []*StreamEvent
+	if e.activeItem != nil {
+		switch e.activeItem.kind {
+		case streamReasoningOutputItem:
+			out = append(out, e.closeReasoningItem())
+		case streamMessageOutputItem:
+			// message item remains active
+		default:
+			return nil, nil, fmt.Errorf("responses: TextBlock cannot open before the active function_call item completes")
+		}
+	}
 	if e.activeItem == nil {
 		item, added := e.openMessageItem()
 		e.activeItem = item
 		out = append(out, added)
-	}
-	if e.activeItem.kind != streamMessageOutputItem {
-		return nil, nil, fmt.Errorf("responses: TextBlock cannot open before the active function_call item completes")
 	}
 	contentIndex := e.activeItem.nextContentIndex
 	e.activeItem.nextContentIndex++
@@ -227,6 +268,44 @@ func (e *StreamEncoder) startTextBlock(index int, block ir.TextBlock) ([]*Stream
 	return out, nil, nil
 }
 
+func (e *StreamEncoder) startThinkingBlock(index int, block ir.ThinkingBlock) ([]*StreamEvent, []ir.Loss, error) {
+	var out []*StreamEvent
+	if e.activeItem != nil {
+		switch e.activeItem.kind {
+		case streamMessageOutputItem:
+			out = append(out, e.closeMessageItem())
+		case streamReasoningOutputItem:
+			// reasoning item remains active
+		default:
+			return nil, nil, fmt.Errorf("responses: ThinkingBlock cannot open before the active function_call item completes")
+		}
+	}
+	if e.activeItem == nil {
+		item, added := e.openReasoningItem()
+		e.activeItem = item
+		out = append(out, added)
+	}
+	contentIndex := e.activeItem.nextContentIndex
+	e.activeItem.nextContentIndex++
+	part := OutputContent{Type: PartTypeOutputText, Text: block.Thinking, Annotations: []json.RawMessage{}}
+	e.activeItem.content = append(e.activeItem.content, part)
+	e.activeBlock = &streamEncodeBlock{
+		index:        index,
+		kind:         streamReasoningOutputItem,
+		contentIndex: contentIndex,
+		text:         block.Thinking,
+		signature:    block.Signature,
+	}
+	out = append(out, &StreamEvent{
+		Type:         EventTypeResponseReasoningSummaryPartAdded,
+		ItemID:       e.activeItem.id,
+		OutputIndex:  e.activeItem.outputIndex,
+		ContentIndex: contentIndex,
+		Part:         &part,
+	})
+	return out, nil, nil
+}
+
 func (e *StreamEncoder) startFunctionCallBlock(index int, block ir.ToolUseBlock) ([]*StreamEvent, []ir.Loss, error) {
 	if block.ID == "" || block.Name == "" {
 		return nil, nil, fmt.Errorf("responses: ToolUseBlock requires nonempty ID and name")
@@ -237,10 +316,14 @@ func (e *StreamEncoder) startFunctionCallBlock(index int, block ir.ToolUseBlock)
 	}
 	var out []*StreamEvent
 	if e.activeItem != nil {
-		if e.activeItem.kind != streamMessageOutputItem {
+		switch e.activeItem.kind {
+		case streamMessageOutputItem:
+			out = append(out, e.closeMessageItem())
+		case streamReasoningOutputItem:
+			out = append(out, e.closeReasoningItem())
+		default:
 			return nil, nil, fmt.Errorf("responses: ToolUseBlock cannot open before the active function_call item completes")
 		}
-		out = append(out, e.closeMessageItem())
 	}
 	item, added := e.openFunctionCallItem(block.ID, block.Name)
 	e.activeItem = item
@@ -274,6 +357,34 @@ func (e *StreamEncoder) stopTextBlock() ([]*StreamEvent, []ir.Loss, error) {
 			Part:         &part,
 		},
 	}, nil, nil
+}
+
+func (e *StreamEncoder) stopThinkingBlock() ([]*StreamEvent, []ir.Loss, error) {
+	if e.activeItem == nil || e.activeItem.kind != streamReasoningOutputItem {
+		return nil, nil, fmt.Errorf("responses: thinking block without an active reasoning item")
+	}
+	block := e.activeBlock
+	e.activeItem.content[block.contentIndex].Text = block.text
+	part := e.activeItem.content[block.contentIndex]
+	var losses []ir.Loss
+	if block.signature != "" && !block.signatureSeen {
+		losses = append(losses, ir.Loss{
+			Path:   fmt.Sprintf("events[%d].block.signature", block.index),
+			Field:  "signature",
+			Reason: ir.LossUnmappedField,
+			Detail: "Responses carries no signature in reasoning summary",
+		})
+	}
+	e.activeBlock = nil
+	return []*StreamEvent{
+		{
+			Type:         EventTypeResponseReasoningSummaryPartDone,
+			ItemID:       e.activeItem.id,
+			OutputIndex:  e.activeItem.outputIndex,
+			ContentIndex: block.contentIndex,
+			Part:         &part,
+		},
+	}, losses, nil
 }
 
 func (e *StreamEncoder) stopFunctionCallBlock() ([]*StreamEvent, []ir.Loss, error) {
@@ -351,6 +462,29 @@ func (e *StreamEncoder) closeMessageItem() *StreamEvent {
 	return &StreamEvent{Type: EventTypeResponseOutputItemDone, OutputIndex: outputIndex, Item: &completed}
 }
 
+func (e *StreamEncoder) openReasoningItem() (*streamOutputItem, *StreamEvent) {
+	id := streamGeneratedItemID("rs", e.nextReasoningItem)
+	e.nextReasoningItem++
+	item := &streamOutputItem{
+		kind: streamReasoningOutputItem, id: id, outputIndex: e.nextOutputIndex,
+	}
+	e.nextOutputIndex++
+	return item, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{
+		ID: item.id, Type: ItemTypeReasoning, Status: StatusInProgress, Summary: []OutputContent{},
+	}}
+}
+
+func (e *StreamEncoder) closeReasoningItem() *StreamEvent {
+	outputIndex := e.activeItem.outputIndex
+	completed := OutputItem{
+		ID: e.activeItem.id, Type: ItemTypeReasoning, Status: StatusCompleted,
+		Summary: append([]OutputContent(nil), e.activeItem.content...),
+	}
+	e.completed = append(e.completed, completed)
+	e.activeItem = nil
+	return &StreamEvent{Type: EventTypeResponseOutputItemDone, OutputIndex: outputIndex, Item: &completed}
+}
+
 func streamGeneratedItemID(prefix string, ordinal int) string {
 	return fmt.Sprintf("%s_abc%03d", prefix, 123+333*ordinal)
 }
@@ -370,12 +504,23 @@ func unwrapStreamIRString(raw json.RawMessage) (string, error) {
 }
 
 func (e *StreamEncoder) terminal(delta ir.MessageDelta) (*StreamEvent, []ir.Loss, error) {
+	usage := &UsageWire{
+		InputTokens: delta.Usage.InputTokens, OutputTokens: delta.Usage.OutputTokens,
+		TotalTokens: delta.Usage.InputTokens + delta.Usage.OutputTokens,
+	}
+	if delta.Usage.InputTokensDetails != nil && delta.Usage.InputTokensDetails.CachedTokens != nil {
+		usage.InputTokenDetails = &InputTokenDetailsWire{
+			CachedTokens: *delta.Usage.InputTokensDetails.CachedTokens,
+		}
+	}
+	if delta.Usage.OutputTokensDetails != nil && delta.Usage.OutputTokensDetails.ReasoningTokens != nil {
+		usage.OutputTokenDetails = &OutputTokenDetailsWire{
+			ReasoningTokens: *delta.Usage.OutputTokensDetails.ReasoningTokens,
+		}
+	}
 	response := &Response{
 		ID: e.id, Object: ObjectResponse, Model: e.model, Output: []OutputItem{},
-		Usage: &UsageWire{
-			InputTokens: delta.Usage.InputTokens, OutputTokens: delta.Usage.OutputTokens,
-			TotalTokens: delta.Usage.InputTokens + delta.Usage.OutputTokens,
-		},
+		Usage: usage,
 	}
 	switch delta.StopReason {
 	case ir.StopEndTurn, ir.StopToolUse:

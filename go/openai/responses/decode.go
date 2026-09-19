@@ -6,6 +6,14 @@ import (
 	"github.com/elkpi/oxa/go/ir"
 )
 
+func isValidReasoningEffort(effort string) bool {
+	switch effort {
+	case ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+		return true
+	}
+	return false
+}
+
 // DecodeRequest converts a Responses wire request to the IR (face -> IR).
 // Semantic unmappables are losses, never errors; errors are reserved for
 // structural type violations of known fields (spec/02 s4).
@@ -26,8 +34,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			"Responses output verbosity has no IR equivalent in v1."},
 		{"text.format", "format", wire.Text != nil && wire.Text.Format != nil,
 			"Responses text output format has no IR equivalent in v1."},
-		{"reasoning", "reasoning", wire.Reasoning != nil,
-			"Responses reasoning effort configuration has no IR equivalent in v1."},
 		{"parallel_tool_calls", "parallel_tool_calls", wire.ParallelToolCalls != nil,
 			"Responses parallel tool calls have no IR equivalent in v1."},
 	} {
@@ -38,6 +44,30 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
+
+	if wire.Reasoning != nil {
+		if m, ok := wire.Reasoning.(map[string]any); ok {
+			if effort, ok := m["effort"].(string); ok {
+				if isValidReasoningEffort(effort) {
+					req.Params.ReasoningEffort = effort
+				} else {
+					losses = append(losses, loss("reasoning.effort", "effort", ir.LossUnmappedValue,
+						fmt.Sprintf("unknown reasoning effort value %q", effort)))
+				}
+			}
+			if _, ok := m["summary"]; ok {
+				losses = append(losses, loss("reasoning.summary", "summary", ir.LossUnmappedField,
+					"Responses reasoning summary configuration has no IR equivalent."))
+			}
+		} else if str, ok := wire.Reasoning.(string); ok {
+			if isValidReasoningEffort(str) {
+				req.Params.ReasoningEffort = str
+			} else {
+				losses = append(losses, loss("reasoning.effort", "effort", ir.LossUnmappedValue,
+					fmt.Sprintf("unknown reasoning effort value %q", str)))
+			}
+		}
+	}
 
 	// N-R-1: instructions render as the first system block; system items in
 	// the input array follow in document order.
@@ -121,7 +151,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case ItemTypeFunctionCall:
+		case ItemTypeFunctionCall, ItemTypeReasoning:
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -150,11 +180,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	if len(req.Messages) == 0 {
 		return nil, nil, fmt.Errorf("responses: request carries no conversation input")
 	}
-	req.Params = ir.Params{
-		Temperature: wire.Temperature,
-		TopP:        wire.TopP,
-		MaxTokens:   wire.MaxOutputTokens,
-	}
+	req.Params.Temperature = wire.Temperature
+	req.Params.TopP = wire.TopP
+	req.Params.MaxTokens = wire.MaxOutputTokens
 	return req, losses, nil
 }
 
@@ -163,6 +191,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 // first (in document order), then the ToolUseBlocks, regardless of how the
 // wire interleaved message items and function_call items.
 func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Loss, error) {
+	var thinkings []ir.Block
 	var texts []ir.Block
 	var calls []ir.Block
 	var losses []ir.Loss
@@ -175,6 +204,12 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 				return nil, 0, nil, fmt.Errorf("responses: input[%d].arguments: %w", i, err)
 			}
 			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			continue
+		}
+		if item.Type == ItemTypeReasoning {
+			for _, part := range item.Summary {
+				thinkings = append(thinkings, ir.ThinkingBlock{Thinking: part.Text})
+			}
 			continue
 		}
 		if item.Type != "" && item.Type != ItemTypeMessage {
@@ -190,7 +225,8 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 		losses = append(losses, contentLosses...)
 		texts = append(texts, content...)
 	}
-	blocks := make([]ir.Block, 0, len(texts)+len(calls))
+	blocks := make([]ir.Block, 0, len(thinkings)+len(texts)+len(calls))
+	blocks = append(blocks, thinkings...)
 	blocks = append(blocks, texts...)
 	blocks = append(blocks, calls...)
 	if len(blocks) == 0 {
@@ -284,11 +320,29 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		return nil, nil, fmt.Errorf("responses: nil response")
 	}
 	var losses []ir.Loss
+	var thinkings []ir.Block
 	var texts []ir.Block
 	var calls []ir.Block
 	hasToolUse := false
 	for i, item := range wire.Output {
 		switch item.Type {
+		case ItemTypeReasoning:
+			if len(item.Summary) == 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("output[%d]", i), "type", ir.LossUnsupportedSemantic,
+					"Responses reasoning output item with empty summary carries no convertible content",
+				))
+			} else {
+				for _, part := range item.Summary {
+					thinkings = append(thinkings, ir.ThinkingBlock{Thinking: part.Text})
+				}
+			}
+			if item.EncryptedContent != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("output[%d].encrypted_content", i), "encrypted_content", ir.LossUnmappedField,
+					"Responses reasoning encrypted_content has no IR equivalent in v2.",
+				))
+			}
 		case ItemTypeMessage:
 			for j, part := range item.Content {
 				if part.Type != PartTypeOutputText {
@@ -326,9 +380,10 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	losses = append(losses, stopLosses...)
 	o := newOptions(opts...)
-	// N-R-5: the IR content is ordered text blocks first, then tool uses,
-	// regardless of how the wire interleaved the output items.
-	content := make([]ir.Block, 0, len(texts)+len(calls))
+	// N-R-5: the IR content is ordered thinking blocks first, then text blocks,
+	// then tool uses, regardless of how the wire interleaved the output items.
+	content := make([]ir.Block, 0, len(thinkings)+len(texts)+len(calls))
+	content = append(content, thinkings...)
 	content = append(content, texts...)
 	content = append(content, calls...)
 	resp := &ir.Response{
@@ -341,6 +396,18 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		resp.Usage = ir.Usage{
 			InputTokens:  wire.Usage.InputTokens,
 			OutputTokens: wire.Usage.OutputTokens,
+		}
+		if wire.Usage.InputTokenDetails != nil {
+			cachedTokens := wire.Usage.InputTokenDetails.CachedTokens
+			resp.Usage.InputTokensDetails = &ir.InputTokensDetails{
+				CachedTokens: &cachedTokens,
+			}
+		}
+		if wire.Usage.OutputTokenDetails != nil {
+			reasoningTokens := wire.Usage.OutputTokenDetails.ReasoningTokens
+			resp.Usage.OutputTokensDetails = &ir.OutputTokensDetails{
+				ReasoningTokens: &reasoningTokens,
+			}
 		}
 	}
 	return resp, losses, nil

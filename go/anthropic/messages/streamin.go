@@ -20,27 +20,28 @@ import (
 // absorbed without events or further losses, while later emitted IR blocks
 // retain contiguous indexes.
 type StreamDecoder struct {
-	models      modelmap.Table
-	losses      []ir.Loss
-	started     bool
-	nextIndex   int // expected native index of the next content_block_start
-	nextIRIndex int // index allocated to the next emitted IR content block
-	openIndex   int // native index, valid while blockOpen
-	openIRIndex int // emitted IR index, valid while blockOpen
-	blockOpen   bool
-	openTool    bool
-	toolID      string
-	toolName    string
-	toolInput   json.RawMessage
-	toolParts   []string
-	skippedOpen bool
-	skipped     map[int]bool // indexes absorbed as unknown block types
-	deltaSeen   bool
-	stop        ir.StopReason
-	stopSeq     string
-	usage       ir.Usage
-	stopped     bool // message_stop fed
-	flushed     bool
+	models       modelmap.Table
+	losses       []ir.Loss
+	started      bool
+	nextIndex    int // expected native index of the next content_block_start
+	nextIRIndex  int // index allocated to the next emitted IR content block
+	openIndex    int // native index, valid while blockOpen
+	openIRIndex  int // emitted IR index, valid while blockOpen
+	blockOpen    bool
+	openTool     bool
+	openThinking bool
+	toolID       string
+	toolName     string
+	toolInput    json.RawMessage
+	toolParts    []string
+	skippedOpen  bool
+	skipped      map[int]bool // indexes absorbed as unknown block types
+	deltaSeen    bool
+	stop         ir.StopReason
+	stopSeq      string
+	usage        ir.Usage
+	stopped      bool // message_stop fed
+	flushed      bool
 }
 
 // NewStreamDecoder returns an event-stream decoder. The variadic Options match
@@ -110,6 +111,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.nextIndex++
 			d.blockOpen = true
 			d.openTool = true
+			d.openThinking = false
 			d.openIndex = ev.Index
 			d.openIRIndex = d.nextIRIndex
 			d.nextIRIndex++
@@ -118,6 +120,16 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.toolInput = append(d.toolInput[:0], ev.ContentBlock.Input...)
 			d.toolParts = nil
 			return nil, nil
+		}
+		if ev.ContentBlock.Type == BlockTypeThinking {
+			d.nextIndex++
+			d.blockOpen = true
+			d.openTool = false
+			d.openThinking = true
+			d.openIndex = ev.Index
+			d.openIRIndex = d.nextIRIndex
+			d.nextIRIndex++
+			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ThinkingBlock{Thinking: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}}}, nil
 		}
 		if ev.ContentBlock.Type != BlockTypeText {
 			d.nextIndex++
@@ -134,6 +146,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.nextIndex++
 		d.blockOpen = true
 		d.openTool = false
+		d.openThinking = false
 		d.openIndex = ev.Index
 		d.openIRIndex = d.nextIRIndex
 		d.nextIRIndex++
@@ -160,6 +173,16 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			case DeltaTypeInputJSONDelta:
 				d.toolParts = append(d.toolParts, ev.Delta.PartialJSON)
 				return nil, nil
+			}
+		}
+		if d.openThinking {
+			switch ev.Delta.Type {
+			case DeltaTypeThinking:
+				return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.ThinkingDelta{Text: ev.Delta.Thinking}}}, nil
+			case DeltaTypeSignature:
+				return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.SignatureDelta{Signature: ev.Delta.Signature}}}, nil
+			default:
+				return nil, fmt.Errorf("anthropic: delta %s on thinking block", ev.Delta.Type)
 			}
 		}
 		switch ev.Delta.Type {
@@ -234,6 +257,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return events, nil
 		}
 		d.blockOpen = false
+		d.openThinking = false
 		return []ir.Event{ir.ContentBlockStop{Index: d.openIRIndex}}, nil
 	case EventTypeMessageDelta:
 		if !d.started {
@@ -255,7 +279,12 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.stop = stop
 		d.stopSeq = ev.Delta.StopSequence
 		if ev.Usage != nil {
-			d.usage = ir.Usage{InputTokens: ev.Usage.InputTokens, OutputTokens: ev.Usage.OutputTokens}
+			d.usage = ir.Usage{
+				InputTokens:              ev.Usage.InputTokens,
+				OutputTokens:             ev.Usage.OutputTokens,
+				CacheCreationInputTokens: ev.Usage.CacheCreationInputTokens,
+				CacheReadInputTokens:     ev.Usage.CacheReadInputTokens,
+			}
 		}
 		d.deltaSeen = true
 		return nil, nil

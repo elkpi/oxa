@@ -10,14 +10,15 @@ import "encoding/json"
 // Request is the Chat Completions wire request for the supported non-streaming
 // subset.
 type Request struct {
-	Model       string     `json:"model"`
-	Messages    []Message  `json:"messages"`
-	Temperature *float64   `json:"temperature,omitempty"`
-	TopP        *float64   `json:"top_p,omitempty"`
-	MaxTokens   *int64     `json:"max_tokens,omitempty"`
-	Stop        []string   `json:"stop,omitempty"`
-	Tools       []ToolWire `json:"tools,omitempty"`
-	ToolChoice  any        `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
+	Model           string     `json:"model"`
+	Messages        []Message  `json:"messages"`
+	Temperature     *float64   `json:"temperature,omitempty"`
+	TopP            *float64   `json:"top_p,omitempty"`
+	MaxTokens       *int64     `json:"max_tokens,omitempty"`
+	Stop            []string   `json:"stop,omitempty"`
+	ReasoningEffort string     `json:"reasoning_effort,omitempty"`
+	Tools           []ToolWire `json:"tools,omitempty"`
+	ToolChoice      any        `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-CC-9).
@@ -91,11 +92,12 @@ type ToolChoiceWire struct {
 // values. ToolCalls is populated on assistant messages; ToolCallID is
 // populated on role:"tool" result messages.
 type Message struct {
-	Role         string     `json:"role"`
-	Content      any        `json:"content,omitempty"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
-	ToolCallID   string     `json:"tool_call_id,omitempty"`
-	FunctionCall any        `json:"function_call,omitempty"`
+	Role             string     `json:"role"`
+	Content          any        `json:"content,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID       string     `json:"tool_call_id,omitempty"`
+	FunctionCall     any        `json:"function_call,omitempty"`
 }
 
 // ToolCall is an assistant function invocation. Function.Arguments is raw
@@ -161,9 +163,10 @@ type ChoiceDelta struct {
 // DeltaPayload is the incremental delta object of a chunk choice. Pointer
 // fields distinguish an absent wire field from a present empty fragment.
 type DeltaPayload struct {
-	Role      string          `json:"role,omitempty"`
-	Content   *string         `json:"content,omitempty"`
-	ToolCalls []ToolCallDelta `json:"tool_calls,omitempty"`
+	Role             string          `json:"role,omitempty"`
+	Content          *string         `json:"content,omitempty"`
+	ReasoningContent *string         `json:"reasoning_content,omitempty"`
+	ToolCalls        []ToolCallDelta `json:"tool_calls,omitempty"`
 }
 
 // ToolCallDelta is one incremental Chat Completions tool call. Index is always
@@ -187,7 +190,19 @@ type FunctionDelta struct {
 // completion) and recomputed on encode, so its absence on the IR side carries
 // no loss (vectors/README.md loss conventions, DERIVED fields).
 type UsageWire struct {
-	PromptTokens     int64 `json:"prompt_tokens"`
-	CompletionTokens int64 `json:"completion_tokens"`
-	TotalTokens      int64 `json:"total_tokens"`
+	PromptTokens            int64                        `json:"prompt_tokens"`
+	CompletionTokens        int64                        `json:"completion_tokens"`
+	TotalTokens             int64                        `json:"total_tokens"`
+	PromptTokensDetails     *PromptTokensDetailsWire     `json:"prompt_tokens_details,omitempty"`
+	CompletionTokensDetails *CompletionTokensDetailsWire `json:"completion_tokens_details,omitempty"`
+}
+
+// PromptTokensDetailsWire carries fine-grained prompt token counts.
+type PromptTokensDetailsWire struct {
+	CachedTokens int64 `json:"cached_tokens"`
+}
+
+// CompletionTokensDetailsWire carries fine-grained completion token counts.
+type CompletionTokensDetailsWire struct {
+	ReasoningTokens int64 `json:"reasoning_tokens"`
 }

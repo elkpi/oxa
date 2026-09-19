@@ -1,0 +1,39 @@
+{
+  "name": "chatcompletions.nonstream.thinking-response-to-ir",
+  "description": "A Chat Completions response with reasoning_content maps to an IR response containing a ThinkingBlock and a TextBlock.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "id": "chatcmpl-reasoning123",
+    "object": "chat.completion",
+    "created": 1720000000,
+    "model": "o3-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "42 is the answer.",
+          "reasoning_content": "Calculating the answer to life..."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 10, "completion_tokens": 20, "total_tokens": 30 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "chatcmpl-reasoning123",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "Calculating the answer to life..." },
+      { "type": "text", "text": "42 is the answer." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 10, "output_tokens": 20 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "thinking", "n-cc-12"]
+}

@@ -19,11 +19,18 @@ const (
 	BlockTypeImage      = "image"
 	BlockTypeToolUse    = "tool_use"
 	BlockTypeToolResult = "tool_result"
+	BlockTypeThinking   = "thinking"
 )
 
 // TextBlock is a run of text.
 type TextBlock struct {
 	Text string
+}
+
+// ThinkingBlock is the model's reasoning content with optional opaque provider signature (since 2.0).
+type ThinkingBlock struct {
+	Thinking  string
+	Signature string
 }
 
 // ImageBlock is an image input. Unused in this milestone (M4 wires it);
@@ -56,6 +63,7 @@ func (TextBlock) isBlock()       {}
 func (ImageBlock) isBlock()      {}
 func (ToolUseBlock) isBlock()    {}
 func (ToolResultBlock) isBlock() {}
+func (ThinkingBlock) isBlock()   {}
 
 // SystemBlock is system prompt content (spec/01 s3.2). Sealed; exactly one
 // variant (text) in v1.

@@ -1,0 +1,42 @@
+{
+  "name": "responses.stream.m9-reasoning-summary-to-ir",
+  "description": "A Responses event stream with reasoning_summary parts maps to ThinkingBlocks in IR (N-S-11, N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_think_stream", "object": "response", "status": "in_progress", "model": "o3-mini", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "reasoning", "id": "rs_1", "summary": [] } },
+      { "type": "response.reasoning_summary_part.added", "item_id": "rs_1", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "" } },
+      { "type": "response.reasoning_summary_text.delta", "item_id": "rs_1", "output_index": 0, "content_index": 0, "delta": "Analyzing..." },
+      { "type": "response.reasoning_summary_text.done", "item_id": "rs_1", "output_index": 0, "content_index": 0, "text": "Analyzing..." },
+      { "type": "response.reasoning_summary_part.done", "item_id": "rs_1", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "Analyzing..." } },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "reasoning", "id": "rs_1", "summary": [{ "type": "output_text", "text": "Analyzing..." }] } },
+      { "type": "response.output_item.added", "output_index": 1, "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] } },
+      { "type": "response.content_part.added", "item_id": "msg_1", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "item_id": "msg_1", "output_index": 1, "content_index": 0, "delta": "Done." },
+      { "type": "response.output_text.done", "item_id": "msg_1", "output_index": 1, "content_index": 0, "text": "Done." },
+      { "type": "response.content_part.done", "item_id": "msg_1", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "Done.", "annotations": [] } },
+      { "type": "response.output_item.done", "output_index": 1, "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "completed", "content": [{ "type": "output_text", "text": "Done.", "annotations": [] }] } },
+      { "type": "response.completed", "response": { "id": "resp_think_stream", "object": "response", "status": "completed", "model": "o3-mini", "output": [], "usage": { "input_tokens": 10, "output_tokens": 15, "total_tokens": 25 } } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "resp_think_stream", "model": "o3-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "thinking", "thinking": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "Analyzing..." } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "Done." } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 10, "output_tokens": 15 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "thinking", "m9", "n-s-11", "n-r-13"]
+}

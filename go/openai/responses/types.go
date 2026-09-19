@@ -25,6 +25,7 @@ const (
 	ItemTypeMessage            = "message"
 	ItemTypeFunctionCall       = "function_call"
 	ItemTypeFunctionCallOutput = "function_call_output"
+	ItemTypeReasoning          = "reasoning"
 
 	PartTypeInputText  = "input_text"
 	PartTypeOutputText = "output_text"
@@ -42,21 +43,27 @@ const (
 
 	ObjectResponse = "response"
 
-	EventTypeResponseCreated               = "response.created"
-	EventTypeResponseOutputItemAdded       = "response.output_item.added"
-	EventTypeResponseOutputItemDone        = "response.output_item.done"
-	EventTypeResponseContentPartAdded      = "response.content_part.added"
-	EventTypeResponseContentPartDone       = "response.content_part.done"
-	EventTypeResponseOutputTextDelta       = "response.output_text.delta"
-	EventTypeResponseOutputTextDone        = "response.output_text.done"
-	EventTypeResponseFunctionCallArgsDelta = "response.function_call_arguments.delta"
-	EventTypeResponseFunctionCallArgsDone  = "response.function_call_arguments.done"
-	EventTypeResponseCompleted             = "response.completed"
-	EventTypeResponseIncomplete            = "response.incomplete"
-	EventTypeResponseFailed                = "response.failed"
+	EventTypeResponseCreated                   = "response.created"
+	EventTypeResponseOutputItemAdded           = "response.output_item.added"
+	EventTypeResponseOutputItemDone            = "response.output_item.done"
+	EventTypeResponseContentPartAdded          = "response.content_part.added"
+	EventTypeResponseContentPartDone           = "response.content_part.done"
+	EventTypeResponseOutputTextDelta           = "response.output_text.delta"
+	EventTypeResponseOutputTextDone            = "response.output_text.done"
+	EventTypeResponseReasoningSummaryPartAdded = "response.reasoning_summary_part.added"
+	EventTypeResponseReasoningSummaryPartDone  = "response.reasoning_summary_part.done"
+	EventTypeResponseReasoningSummaryTextDelta = "response.reasoning_summary_text.delta"
+	EventTypeResponseReasoningSummaryTextDone  = "response.reasoning_summary_text.done"
+	EventTypeResponseFunctionCallArgsDelta     = "response.function_call_arguments.delta"
+	EventTypeResponseFunctionCallArgsDone      = "response.function_call_arguments.done"
+	EventTypeResponseCompleted                 = "response.completed"
+	EventTypeResponseIncomplete                = "response.incomplete"
+	EventTypeResponseFailed                    = "response.failed"
 
-	EventTypeResponseContentPartPrefix = "response.content_part."
-	EventTypeResponseOutputTextPrefix  = "response.output_text."
+	EventTypeResponseContentPartPrefix          = "response.content_part."
+	EventTypeResponseOutputTextPrefix           = "response.output_text."
+	EventTypeResponseReasoningSummaryPartPrefix = "response.reasoning_summary_part."
+	EventTypeResponseReasoningSummaryTextPrefix = "response.reasoning_summary_text."
 )
 
 // Request is the Responses wire request for the supported non-streaming
@@ -133,13 +140,14 @@ func (in Input) MarshalJSON() ([]byte, error) {
 // (type absent or "message", role user/assistant/system), a function_call
 // item, a function_call_output item, or an unknown type dropped with a loss.
 type InputItem struct {
-	Type      string `json:"type,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Content   any    `json:"content,omitempty"` // string or []ContentPart
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Output    string `json:"output,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   any             `json:"content,omitempty"` // string or []ContentPart
+	CallID    string          `json:"call_id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Arguments string          `json:"arguments,omitempty"`
+	Output    string          `json:"output,omitempty"`
+	Summary   []OutputContent `json:"summary,omitempty"`
 }
 
 // ContentPart is one element of a parts-array item content: input_text,
@@ -195,14 +203,16 @@ type ErrorWire struct {
 // OutputItem is one element of a wire response's output array: a message
 // item, a function_call item, or a reasoning item (dropped with a loss).
 type OutputItem struct {
-	Type      string          `json:"type"`
-	ID        string          `json:"id,omitempty"`
-	Status    string          `json:"status,omitempty"`
-	Role      string          `json:"role,omitempty"`
-	Content   []OutputContent `json:"content,omitempty"`
-	CallID    string          `json:"call_id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments string          `json:"arguments,omitempty"`
+	Type             string          `json:"type"`
+	ID               string          `json:"id,omitempty"`
+	Status           string          `json:"status,omitempty"`
+	Role             string          `json:"role,omitempty"`
+	Content          []OutputContent `json:"content,omitempty"`
+	CallID           string          `json:"call_id,omitempty"`
+	Name             string          `json:"name,omitempty"`
+	Arguments        string          `json:"arguments,omitempty"`
+	Summary          []OutputContent `json:"summary,omitempty"`
+	EncryptedContent string          `json:"encrypted_content,omitempty"`
 }
 
 // OutputContent is one element of a message output item's content array.
@@ -216,9 +226,21 @@ type OutputContent struct {
 // output) and recomputed on encode, so its absence on the IR side carries no
 // loss (vectors/README.md loss conventions, DERIVED fields).
 type UsageWire struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
-	TotalTokens  int64 `json:"total_tokens"`
+	InputTokens        int64                   `json:"input_tokens"`
+	OutputTokens       int64                   `json:"output_tokens"`
+	TotalTokens        int64                   `json:"total_tokens"`
+	InputTokenDetails  *InputTokenDetailsWire  `json:"input_token_details,omitempty"`
+	OutputTokenDetails *OutputTokenDetailsWire `json:"output_token_details,omitempty"`
+}
+
+// InputTokenDetailsWire carries fine-grained input token counts.
+type InputTokenDetailsWire struct {
+	CachedTokens int64 `json:"cached_tokens"`
+}
+
+// OutputTokenDetailsWire carries fine-grained output token counts.
+type OutputTokenDetailsWire struct {
+	ReasoningTokens int64 `json:"reasoning_tokens"`
 }
 
 // StreamEvent is one OpenAI Responses streaming SSE event. Type is the
@@ -269,7 +291,8 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Item        *OutputItem `json:"item"`
 			sequence
 		}{Type: e.Type, OutputIndex: e.OutputIndex, Item: e.Item, sequence: sequence{e.SequenceNumber}})
-	case EventTypeResponseContentPartAdded, EventTypeResponseContentPartDone:
+	case EventTypeResponseContentPartAdded, EventTypeResponseContentPartDone,
+		EventTypeResponseReasoningSummaryPartAdded, EventTypeResponseReasoningSummaryPartDone:
 		if e.Part == nil {
 			return nil, fmt.Errorf("responses: %s without part", e.Type)
 		}
@@ -309,7 +332,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			CallID: e.CallID, Name: e.Name, Arguments: e.Arguments,
 			sequence: sequence{e.SequenceNumber},
 		})
-	case EventTypeResponseOutputTextDelta:
+	case EventTypeResponseOutputTextDelta, EventTypeResponseReasoningSummaryTextDelta:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`
@@ -321,7 +344,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Delta: e.Delta, sequence: sequence{e.SequenceNumber},
 		})
-	case EventTypeResponseOutputTextDone:
+	case EventTypeResponseOutputTextDone, EventTypeResponseReasoningSummaryTextDone:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`

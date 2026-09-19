@@ -15,18 +15,23 @@ import (
 // the correspondingly named wire event. Envelope fields absent from the IR
 // render with the documented defaults and record no loss.
 type StreamEncoder struct {
-	models    modelmap.Table
-	id        string
-	model     string
-	started   bool
-	nextIndex int
-	openIndex int
-	blockOpen bool
-	openTool  bool
-	toolInput string
-	toolParts []string
-	deltaSeen bool
-	done      bool
+	models        modelmap.Table
+	id            string
+	model         string
+	started       bool
+	nextIndex     int
+	openIndex     int
+	blockOpen     bool
+	openTool      bool
+	openThinking  bool
+	toolInput     string
+	toolParts     []string
+	thinkingInput string
+	thinkingSig   string
+	thinkingParts []string
+	signatureSeen bool
+	deltaSeen     bool
+	done          bool
 }
 
 // NewStreamEncoder returns an event-stream encoder. The variadic Options match
@@ -44,12 +49,16 @@ func (d StreamDelta) MarshalJSON() ([]byte, error) {
 		Type         string  `json:"type,omitempty"`
 		Text         string  `json:"text,omitempty"`
 		PartialJSON  *string `json:"partial_json,omitempty"`
+		Thinking     string  `json:"thinking,omitempty"`
+		Signature    string  `json:"signature,omitempty"`
 		StopReason   string  `json:"stop_reason,omitempty"`
 		StopSequence string  `json:"stop_sequence,omitempty"`
 	}
 	wire := deltaWire{
 		Type:         d.Type,
 		Text:         d.Text,
+		Thinking:     d.Thinking,
+		Signature:    d.Signature,
 		StopReason:   d.StopReason,
 		StopSequence: d.StopSequence,
 	}
@@ -101,8 +110,22 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.nextIndex++
 			e.blockOpen = true
 			e.openTool = false
+			e.openThinking = false
 			e.openIndex = event.Index
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{Type: BlockTypeText, Text: block.Text}}}, nil, nil
+		case ir.ThinkingBlock:
+			e.nextIndex++
+			e.blockOpen = true
+			e.openTool = false
+			e.openThinking = true
+			e.openIndex = event.Index
+			e.thinkingInput = block.Thinking
+			e.thinkingSig = block.Signature
+			e.thinkingParts = nil
+			e.signatureSeen = false
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
+				Type: BlockTypeThinking, Thinking: "",
+			}}}, nil, nil
 		case ir.ToolUseBlock:
 			if block.ID == "" {
 				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart tool_use id is required")
@@ -117,6 +140,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.nextIndex++
 			e.blockOpen = true
 			e.openTool = true
+			e.openThinking = false
 			e.openIndex = event.Index
 			e.toolInput = string(input)
 			e.toolParts = nil
@@ -131,9 +155,21 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta out of grammar order")
 		}
 		switch delta := event.Delta.(type) {
+		case ir.ThinkingDelta:
+			if !e.openThinking {
+				return nil, nil, fmt.Errorf("anthropic: ThinkingDelta on non-thinking block")
+			}
+			e.thinkingParts = append(e.thinkingParts, delta.Text)
+			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeThinking, Thinking: delta.Text}}}, nil, nil
+		case ir.SignatureDelta:
+			if !e.openThinking {
+				return nil, nil, fmt.Errorf("anthropic: SignatureDelta on non-thinking block")
+			}
+			e.signatureSeen = true
+			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeSignature, Signature: delta.Signature}}}, nil, nil
 		case ir.TextDelta:
-			if e.openTool {
-				return nil, nil, fmt.Errorf("anthropic: TextDelta on tool_use block")
+			if e.openTool || e.openThinking {
+				return nil, nil, fmt.Errorf("anthropic: TextDelta on non-text block")
 			}
 			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeTextDelta, Text: delta.Text}}}, nil, nil
 		case ir.InputJSONDelta:
@@ -163,8 +199,33 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				return nil, nil, fmt.Errorf("anthropic: tool input fragments do not match ToolUseBlock input")
 			}
 		}
+		if e.openThinking {
+			var events []*StreamEvent
+			if len(e.thinkingParts) == 0 && e.thinkingInput != "" {
+				events = append(events, &StreamEvent{
+					Type:  EventTypeContentBlockDelta,
+					Index: event.Index,
+					Delta: &StreamDelta{Type: DeltaTypeThinking, Thinking: e.thinkingInput},
+				})
+			}
+			if !e.signatureSeen && e.thinkingSig != "" {
+				events = append(events, &StreamEvent{
+					Type:  EventTypeContentBlockDelta,
+					Index: event.Index,
+					Delta: &StreamDelta{Type: DeltaTypeSignature, Signature: e.thinkingSig},
+				})
+			}
+			events = append(events, &StreamEvent{Type: EventTypeContentBlockStop, Index: event.Index})
+			e.blockOpen = false
+			e.openThinking = false
+			e.thinkingInput = ""
+			e.thinkingSig = ""
+			e.thinkingParts = nil
+			return events, nil, nil
+		}
 		e.blockOpen = false
 		e.openTool = false
+		e.openThinking = false
 		e.toolInput = ""
 		e.toolParts = nil
 		return []*StreamEvent{{Type: EventTypeContentBlockStop, Index: event.Index}}, nil, nil
@@ -178,8 +239,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		}
 		e.deltaSeen = true
 		return []*StreamEvent{{Type: EventTypeMessageDelta, Delta: &StreamDelta{StopReason: reason, StopSequence: seq}, Usage: &UsageWire{
-			InputTokens:  event.Usage.InputTokens,
-			OutputTokens: event.Usage.OutputTokens,
+			InputTokens:              event.Usage.InputTokens,
+			OutputTokens:             event.Usage.OutputTokens,
+			CacheCreationInputTokens: event.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     event.Usage.CacheReadInputTokens,
 		}}}, nil, nil
 	case ir.MessageDone:
 		if !e.deltaSeen {
@@ -201,6 +264,7 @@ func (e *StreamEncoder) toolStopWithSynthesizedDelta(index int) []*StreamEvent {
 	}
 	e.blockOpen = false
 	e.openTool = false
+	e.openThinking = false
 	e.toolInput = ""
 	e.toolParts = nil
 	return wire

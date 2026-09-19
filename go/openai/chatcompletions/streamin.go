@@ -26,19 +26,21 @@ type streamToolCall struct {
 // a usage-only chunk after the finish_reason chunk. Function tool calls buffer
 // until Flush so their complete opaque input can be present in ToolUseBlock.
 type StreamDecoder struct {
-	models      modelmap.Table
-	losses      []ir.Loss
-	started     bool
-	textOpen    bool
-	textIndex   int
-	nextIRIndex int
-	id          string
-	model       string
-	finishSeen  bool
-	stop        ir.StopReason
-	usage       *ir.Usage
-	flushed     bool
-	toolCalls   []*streamToolCall
+	models        modelmap.Table
+	losses        []ir.Loss
+	started       bool
+	thinkingOpen  bool
+	thinkingIndex int
+	textOpen      bool
+	textIndex     int
+	nextIRIndex   int
+	id            string
+	model         string
+	finishSeen    bool
+	stop          ir.StopReason
+	usage         *ir.Usage
+	flushed       bool
+	toolCalls     []*streamToolCall
 }
 
 // NewStreamDecoder returns a chunk-stream decoder. The variadic Options match
@@ -68,6 +70,18 @@ func (d *StreamDecoder) Feed(chunk *Chunk) ([]ir.Event, error) {
 			InputTokens:  chunk.Usage.PromptTokens,
 			OutputTokens: chunk.Usage.CompletionTokens,
 		}
+		if chunk.Usage.PromptTokensDetails != nil {
+			cachedTokens := chunk.Usage.PromptTokensDetails.CachedTokens
+			d.usage.InputTokensDetails = &ir.InputTokensDetails{
+				CachedTokens: &cachedTokens,
+			}
+		}
+		if chunk.Usage.CompletionTokensDetails != nil {
+			reasoningTokens := chunk.Usage.CompletionTokensDetails.ReasoningTokens
+			d.usage.OutputTokensDetails = &ir.OutputTokensDetails{
+				ReasoningTokens: &reasoningTokens,
+			}
+		}
 	}
 	if len(chunk.Choices) == 0 {
 		return nil, nil
@@ -92,7 +106,24 @@ func (d *StreamDecoder) Feed(chunk *Chunk) ([]ir.Event, error) {
 	if err := d.recordToolCalls(choice.Delta.ToolCalls); err != nil {
 		return nil, err
 	}
+	if choice.Delta.ReasoningContent != nil {
+		if d.textOpen {
+			events = append(events, ir.ContentBlockStop{Index: d.textIndex})
+			d.textOpen = false
+		}
+		if !d.thinkingOpen {
+			d.thinkingOpen = true
+			d.thinkingIndex = d.nextIRIndex
+			d.nextIRIndex++
+			events = append(events, ir.ContentBlockStart{Index: d.thinkingIndex, Block: ir.ThinkingBlock{Thinking: ""}})
+		}
+		events = append(events, ir.ContentBlockDelta{Index: d.thinkingIndex, Delta: ir.ThinkingDelta{Text: *choice.Delta.ReasoningContent}})
+	}
 	if choice.Delta.Content != nil {
+		if d.thinkingOpen {
+			events = append(events, ir.ContentBlockStop{Index: d.thinkingIndex})
+			d.thinkingOpen = false
+		}
 		if !d.textOpen {
 			d.textOpen = true
 			d.textIndex = d.nextIRIndex
@@ -170,6 +201,10 @@ func (d *StreamDecoder) Flush() ([]ir.Event, error) {
 	}
 	d.flushed = true
 	var events []ir.Event
+	if d.thinkingOpen {
+		events = append(events, ir.ContentBlockStop{Index: d.thinkingIndex})
+		d.thinkingOpen = false
+	}
 	if d.textOpen {
 		events = append(events, ir.ContentBlockStop{Index: d.textIndex})
 		d.textOpen = false

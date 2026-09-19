@@ -321,6 +321,7 @@ Each rule has a stable ID usable as a streaming vector tag.
 | N-S-8 | SSE framing boundary |
 | N-S-9 | stream comparison and vector expectations |
 | N-S-10 | M7 streaming tool-argument aggregation |
+| N-S-11 | M9 streaming reasoning profile |
 
 ## 9. Loss catalog
 
@@ -330,7 +331,7 @@ Each rule has a stable ID usable as a streaming vector tag.
 | unsupported native block/item/part | face → IR | one `unsupported-semantic` loss per native unit; matching descendants/done events absorbed |
 | non-function tool call | CC → IR | one `unsupported-semantic` loss; descendants absorbed |
 | RE `function_call_output` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed |
-| AN `server_tool_use`, thinking, provider-hosted tool | AN → IR | one `unsupported-semantic` loss per unit; descendants absorbed |
+| AN `server_tool_use`, provider-hosted tool | AN → IR | one `unsupported-semantic` loss per unit; descendants absorbed |
 | unknown native stop value | face → IR | mapping-document `unmapped-value` loss and IR `other`, where the face status policy permits it |
 | IR `stop_sequence` for CC or RE | IR → face | native completed/stop form plus `unmapped-value` loss for matched-sequence identity |
 | malformed lifecycle or IR grammar | both | structural error, never a loss |
@@ -387,7 +388,45 @@ streams, and AN `input_json_delta` are replaced by full conversion rules.
 remain unsupported and record one `unsupported-semantic` loss per native
 unit with descendant absorption.
 
-## 11. References
+## 11. M9 reasoning profile — N-S-11
+
+The M9 profile extends the stream contract with complete support for
+streamed reasoning content across all three faces. It uses the IR types
+`ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` (spec/01).
+
+### 11.1 Shared streaming reasoning rules — N-S-11
+
+An IR event stream carrying reasoning content MUST satisfy INV-5 and the
+delta correspondence of [01, §5.2](01-intermediate-representation.md#52-delta):
+a `ThinkingBlock` admits zero or more `ThinkingDelta`s followed by at most
+one `SignatureDelta`, closed by `ContentBlockStop`.
+
+Face-specific stream behaviors:
+
+- **CC (N-CC-12)**: chunks with `delta.reasoning_content` emit `ThinkingDelta`s
+  under an open `ThinkingBlock`. When a stream transitions from reasoning to text,
+  the `ThinkingBlock` closes and the `TextBlock` opens. The encoder emits
+  `delta.reasoning_content` for `ThinkingDelta`s. Any `SignatureDelta` on encode
+  records an `unmapped-field` loss.
+- **RE (N-R-13)**: `response.reasoning_summary_part.added` emits
+  `ContentBlockStart` with `ThinkingBlock{Thinking: ""}`;
+  `response.reasoning_summary_text.delta` emits `ThinkingDelta`;
+  `response.reasoning_summary_part.done` emits `ContentBlockStop`. The inverse
+  encoder synthesizes matching reasoning item/part events. `encrypted_content`
+  events are absorbed with one `unmapped-field` loss per item.
+- **AN (N-AN-11)**: `content_block_start(type: "thinking")` emits
+  `ContentBlockStart` with `ThinkingBlock{Thinking: ""}`; `thinking_delta`
+  emits `ThinkingDelta`; `signature_delta` emits `SignatureDelta`;
+  `content_block_stop` emits `ContentBlockStop`. The inverse encoder maps 1:1.
+
+### 11.2 Loss catalog additions — N-S-11
+
+Existing losses for AN thinking blocks and RE reasoning items in streaming are
+replaced by full conversion under M9. Unsupported reasoning forms
+(`encrypted_content`, provider signatures on CC encode) record losses per
+N-CC-12, N-R-13, and N-AN-11.
+
+## 12. References
 
 - [00 — Scope and Architecture](00-scope-and-architecture.md)
 - [01 — Intermediate Representation](01-intermediate-representation.md)

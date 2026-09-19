@@ -84,6 +84,26 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		return nil, nil, fmt.Errorf("anthropic: request carries no messages")
 	}
 
+	if wire.Thinking != nil && wire.Thinking.Type == "enabled" {
+		budget := wire.Thinking.BudgetTokens
+		var effort string
+		switch {
+		case budget <= 2048:
+			effort = ir.ReasoningEffortLow
+		case budget <= 8192:
+			effort = ir.ReasoningEffortMedium
+		default:
+			effort = ir.ReasoningEffortHigh
+		}
+		req.Params.ReasoningEffort = effort
+		losses = append(losses, ir.Loss{
+			Path:   "thinking.budget_tokens",
+			Field:  "budget_tokens",
+			Reason: ir.LossDegraded,
+			Detail: "budget approximated",
+		})
+	}
+
 	if wire.Temperature != nil {
 		req.Params.Temperature = wire.Temperature
 	}
@@ -187,6 +207,8 @@ func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
 	switch w.Type {
 	case BlockTypeText:
 		block = ir.TextBlock{Text: w.Text}
+	case BlockTypeThinking:
+		block = ir.ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature}
 	case BlockTypeImage:
 		image, imageLoss, err := decodeImage(w.Source, path+".source")
 		if err != nil {
@@ -349,8 +371,10 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	resp.StopSequence = wire.StopSequence
 	if wire.Usage != nil {
 		resp.Usage = ir.Usage{
-			InputTokens:  wire.Usage.InputTokens,
-			OutputTokens: wire.Usage.OutputTokens,
+			InputTokens:              wire.Usage.InputTokens,
+			OutputTokens:             wire.Usage.OutputTokens,
+			CacheCreationInputTokens: wire.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     wire.Usage.CacheReadInputTokens,
 		}
 	}
 	return resp, losses, nil

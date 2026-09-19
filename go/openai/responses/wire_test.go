@@ -525,3 +525,99 @@ func TestDecodeAssistantRunOrdersTextBeforeToolUse(t *testing.T) {
 		t.Fatalf("tool use must come second: %+v", content)
 	}
 }
+
+func TestDecodeRequestDropsUnknownReasoningEffort(t *testing.T) {
+	wire := &Request{
+		Model:     "o3-mini",
+		Input:     Input{Text: ptr("Solve this.")},
+		Reasoning: map[string]any{"effort": "banana"},
+	}
+
+	req, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	if req.Params.ReasoningEffort != "" {
+		t.Fatalf("ReasoningEffort = %q, want empty for unknown value", req.Params.ReasoningEffort)
+	}
+	if len(losses) != 1 || losses[0].Path != "reasoning.effort" || losses[0].Field != "effort" || losses[0].Reason != ir.LossUnmappedValue {
+		t.Fatalf("losses = %#v, want unknown-effort unmapped-value loss", losses)
+	}
+}
+
+func TestDecodeRequestPreservesReasoningInputItem(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{
+		"model":"o3-mini",
+		"input":[
+			{"role":"user","content":"Solve this."},
+			{"type":"reasoning","summary":[{"type":"output_text","text":"I evaluated the constraints.","annotations":[]}]}
+		]
+	}`), &wire); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	req, losses, err := DecodeRequest(&wire)
+	if err != nil {
+		t.Fatalf("DecodeRequest: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	if len(req.Messages) != 2 {
+		t.Fatalf("messages = %#v", req.Messages)
+	}
+	thinking, ok := req.Messages[1].Content[0].(ir.ThinkingBlock)
+	if !ok || thinking.Thinking != "I evaluated the constraints." {
+		t.Fatalf("assistant reasoning = %#v, want ThinkingBlock", req.Messages[1].Content)
+	}
+}
+
+func TestEncodeRequestPreservesAssistantThinkingBlock(t *testing.T) {
+	out, losses, err := EncodeRequest(&ir.Request{
+		Model: "o3-mini",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Solve this."}}},
+			{Role: ir.RoleAssistant, Content: []ir.Block{ir.ThinkingBlock{Thinking: "I evaluated the constraints."}}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v", losses)
+	}
+	raw, err := json.Marshal(out)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	items := doc["input"].([]any)
+	reasoning := items[1].(map[string]any)
+	if reasoning["type"] != ItemTypeReasoning {
+		t.Fatalf("assistant item = %#v, want reasoning item", reasoning)
+	}
+	summary := reasoning["summary"].([]any)
+	if summary[0].(map[string]any)["text"] != "I evaluated the constraints." {
+		t.Fatalf("reasoning summary = %#v", summary)
+	}
+}
+
+func TestEncodeResponseReportsSignedThinkingLoss(t *testing.T) {
+	out, losses, err := EncodeResponse(&ir.Response{
+		ID: "resp_signed", Model: "o3-mini", StopReason: ir.StopEndTurn,
+		Content: []ir.Block{ir.ThinkingBlock{Thinking: "I evaluated the constraints.", Signature: "sig_123"}},
+	})
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if len(out.Output) != 1 || out.Output[0].Type != ItemTypeReasoning {
+		t.Fatalf("output = %#v", out.Output)
+	}
+	if len(losses) != 1 || losses[0].Path != "content[0].signature" || losses[0].Field != "signature" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want signature unmapped-field loss", losses)
+	}
+}

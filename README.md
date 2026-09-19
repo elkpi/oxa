@@ -79,12 +79,12 @@ cpp/       C++ implementation (v1.0.1)
 The multi-language implementations convert between each protocol face and a
 shared intermediate representation (IR):
 
-| Conversion              | Nonstream                                             | Streaming                                        |
-| ----------------------- | ----------------------------------------------------- | ------------------------------------------------ |
-| Chat Completions ↔ IR   | requests and responses                                | text events + `tool_calls` argument aggregation  |
-| Responses ↔ IR          | requests and responses                                | text events + function-call argument aggregation |
-| Anthropic Messages ↔ IR | requests and responses                                | text events + `input_json_delta` aggregation     |
-| Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`) |
+| Conversion              | Nonstream                                             | Streaming                                                   |
+| ----------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
+| Chat Completions ↔ IR   | requests and responses (incl. reasoning)              | text + thinking events + `tool_calls` argument aggregation |
+| Responses ↔ IR          | requests and responses (incl. reasoning)              | text + thinking events + function-call argument aggregation |
+| Anthropic Messages ↔ IR | requests and responses (incl. thinking)               | text + thinking events + `input_json_delta` aggregation    |
+| Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`)            |
 
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried

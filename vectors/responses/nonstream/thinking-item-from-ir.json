@@ -1,0 +1,47 @@
+{
+  "name": "responses.nonstream.thinking-item-from-ir",
+  "description": "An IR response with a ThinkingBlock renders as a Responses response with a reasoning output item containing a summary part.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "id": "resp_reasoning1",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "Step 1: analyze." },
+      { "type": "text", "text": "Final answer is 42." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 12, "output_tokens": 18 }
+  },
+  "expected_output": {
+    "id": "resp_reasoning1",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_abc123",
+        "summary": [
+          { "type": "output_text", "text": "Step 1: analyze.", "annotations": [] }
+        ]
+      },
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          { "type": "output_text", "text": "Final answer is 42.", "annotations": [] }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 12, "output_tokens": 18, "total_tokens": 30 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "thinking", "n-r-13"]
+}

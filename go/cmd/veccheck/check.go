@@ -68,9 +68,9 @@ func checkVectorFile(s *schemas, vectorsDir, relFile string, names map[string]bo
 		errs = append(errs, fmt.Errorf("%s: duplicate vector name %q", display, doc.Name))
 	}
 	names[doc.Name] = true
-	// spec_version matches the IR schema's specVersion const
-	if doc.SpecVersion != s.specVersion {
-		errs = append(errs, fmt.Errorf("%s: spec_version %q does not match ir.schema.json specVersion const %q", display, doc.SpecVersion, s.specVersion))
+	// spec_version matches the IR schema's allowed specVersion values
+	if !s.isValidSpecVersion(doc.SpecVersion) {
+		errs = append(errs, fmt.Errorf("%s: spec_version %q is not in ir.schema.json allowed versions %v", display, doc.SpecVersion, s.specVersions))
 	}
 
 	// IR-side validation: expected_ir for to-ir, input for from-ir
@@ -147,10 +147,11 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 	}
 
 	type openBlock struct {
-		index int
-		kind  string
-		input string
-		parts []string
+		index        int
+		kind         string
+		input        string
+		parts        []string
+		hasSignature bool
 	}
 
 	var open *openBlock
@@ -188,6 +189,8 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 			switch b := e.Block.(type) {
 			case ir.TextBlock:
 				block.kind = "text"
+			case ir.ThinkingBlock:
+				block.kind = "thinking"
 			case ir.ToolUseBlock:
 				input, err := decodeEventString(b.Input)
 				if err != nil {
@@ -214,6 +217,21 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				if open.kind != "text" {
 					return fmt.Errorf("%s.delta: text_delta requires a text block, got %s", path, open.kind)
 				}
+			case ir.ThinkingDelta:
+				if open.kind != "thinking" {
+					return fmt.Errorf("%s.delta: thinking_delta requires a thinking block, got %s", path, open.kind)
+				}
+				if open.hasSignature {
+					return fmt.Errorf("%s.delta: thinking_delta cannot follow signature_delta", path)
+				}
+			case ir.SignatureDelta:
+				if open.kind != "thinking" {
+					return fmt.Errorf("%s.delta: signature_delta requires a thinking block, got %s", path, open.kind)
+				}
+				if open.hasSignature {
+					return fmt.Errorf("%s.delta: thinking block admits at most one signature_delta", path)
+				}
+				open.hasSignature = true
 			case ir.InputJSONDelta:
 				if open.kind != "tool_use" {
 					return fmt.Errorf("%s.delta: input_json_delta requires a tool_use block, got %s", path, open.kind)

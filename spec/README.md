@@ -8,9 +8,10 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **1.0.1** — all five supported languages (Go, TypeScript,
-Rust, Python, and C++) implement the specification against the identical 130 golden
-vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Current spec version: **2.0.0** — Go implements the full 154-vector set
+including reasoning and usage; TypeScript, Rust, Python, and C++ validate against
+the 130 baseline vectors pending their Wave 2–5 updates. See [CHANGELOG.md](CHANGELOG.md)
+and the versioning policy below.
 
 ## Versioning policy
 
@@ -18,11 +19,12 @@ The specification carries two version axes:
 
 - **Spec version** — declared here and recorded in
   [CHANGELOG.md](CHANGELOG.md): the version of the written specification
-  itself. A patch release (0.0.x) clarifies wording without changing any
+  itself. A patch release (0.0.x, 1.0.x) clarifies wording without changing any
   rule; a minor release (0.x → 0.(x+1)) may add semantics under the
-  evolution rules below.
-- **IR contract version** — the `specVersion` property pinned by `const`
-  in [`spec/schema/ir.schema.json`](schema/ir.schema.json) and echoed by
+  evolution rules below; a major release (2.0.0) is required for sealed-union
+  or enum extensions.
+- **IR contract version** — the `specVersion` property declared in
+  [`spec/schema/ir.schema.json`](schema/ir.schema.json) and echoed by
   every vector's `spec_version`: the version of the IR document shapes
   themselves. It changes only when the IR contract changes and may lag
   the spec version.
@@ -37,18 +39,26 @@ The version series are tied to the implementation roadmap:
 | 0.3.0 | The C++ implementation |
 | 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
 | 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
+| 2.0.0 | Reasoning content and usage granularity across all faces (Go reference implementation in Wave 1; other languages in Waves 2–5) |
 
-The version is NOT promoted to 1.0 until every supported language
-implements the spec against the same vectors. Freeze rules for every 0.x
-series:
+Post-1.0 evolution ladder:
+
+- **Patch releases (1.0.x)** — wording clarifications, documentation, and
+  glossary additions with zero schema, rule, or behavioral change.
+- **Minor releases (1.x)** — additive optional members on non-sealed types
+  (such as additional parameters or non-breaking usage fields).
+- **Major releases (2.x)** — sealed union or enum extensions (such as new
+  `Block` or `Delta` variants, new stop reasons, or new tool choice modes).
+
+Freeze rules for every series:
 
 1. A frozen series evolves only additively. New optional semantics may
    arrive with a minor bump; within a series, existing rules, IR shapes,
    and loss semantics MUST NOT change (clarifications are patch
    releases).
 2. Extending a sealed union or an enum
-   ([01, §2](01-intermediate-representation.md)) before 1.0 is a minor
-   bump; after 1.0 it is a major bump.
+   ([01, §2](01-intermediate-representation.md)) after 1.0 is a major
+   bump.
 3. The behavioral source of truth stays `vectors/`: any spec change that
    alters observable behavior MUST land together with the vector change
    that pins it.

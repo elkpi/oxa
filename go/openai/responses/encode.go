@@ -90,6 +90,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.Temperature = req.Params.Temperature
 	out.TopP = req.Params.TopP
 	out.MaxOutputTokens = req.Params.MaxTokens
+	if req.Params.ReasoningEffort != "" {
+		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
+	}
 	return out, losses, nil
 }
 
@@ -240,6 +243,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	var losses []ir.Loss
 	var output []OutputItem
+	var thinkings []OutputContent
 	text := ""
 	hasText := false
 	for i, block := range resp.Content {
@@ -247,6 +251,10 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+		case ir.ThinkingBlock:
+			thinkings = append(thinkings, OutputContent{
+				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
+			})
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {
@@ -263,12 +271,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			))
 		}
 	}
-	if hasText || len(resp.Content) == 0 {
+	if hasText || (len(resp.Content) == 0 && len(thinkings) == 0) {
 		output = append([]OutputItem{{
 			Type: ItemTypeMessage, ID: "msg_abc123", Status: StatusCompleted, Role: RoleAssistant,
 			Content: []OutputContent{{
 				Type: PartTypeOutputText, Text: text, Annotations: []json.RawMessage{},
 			}},
+		}}, output...)
+	}
+	if len(thinkings) > 0 {
+		output = append([]OutputItem{{
+			Type: ItemTypeReasoning, ID: "rs_abc123",
+			Summary: thinkings,
 		}}, output...)
 	}
 
@@ -290,18 +304,30 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		return nil, nil, fmt.Errorf("responses: stop reason %q has no Responses equivalent", resp.StopReason)
 	}
 
+	usage := &UsageWire{
+		InputTokens:  resp.Usage.InputTokens,
+		OutputTokens: resp.Usage.OutputTokens,
+		TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
+	}
+	if resp.Usage.InputTokensDetails != nil && resp.Usage.InputTokensDetails.CachedTokens != nil {
+		usage.InputTokenDetails = &InputTokenDetailsWire{
+			CachedTokens: *resp.Usage.InputTokensDetails.CachedTokens,
+		}
+	}
+	if resp.Usage.OutputTokensDetails != nil && resp.Usage.OutputTokensDetails.ReasoningTokens != nil {
+		usage.OutputTokenDetails = &OutputTokenDetailsWire{
+			ReasoningTokens: *resp.Usage.OutputTokensDetails.ReasoningTokens,
+		}
+	}
+
 	o := newOptions(opts...)
 	out := &Response{
-		ID:     resp.ID,
-		Object: ObjectResponse,
-		Status: StatusCompleted,
-		Model:  o.models.Map(resp.Model),
-		Output: output,
-		Usage: &UsageWire{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-			TotalTokens:  resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
+		ID:                resp.ID,
+		Object:            ObjectResponse,
+		Status:            StatusCompleted,
+		Model:             o.models.Map(resp.Model),
+		Output:            output,
+		Usage:             usage,
 		IncompleteDetails: incomplete,
 	}
 	if failed != nil {

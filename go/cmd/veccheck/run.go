@@ -16,7 +16,7 @@ func run(root string, writeManifest, checkManifest, schemaOnly bool) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("schemas OK: vector, ir, loss compile against 2020-12 (spec_version const %s)\n", schemas.specVersion)
+	fmt.Printf("schemas OK: vector, ir, loss compile against 2020-12 (spec_version %v)\n", schemas.specVersions)
 
 	if schemaOnly {
 		return nil

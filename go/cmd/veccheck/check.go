@@ -147,10 +147,11 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 	}
 
 	type openBlock struct {
-		index int
-		kind  string
-		input string
-		parts []string
+		index        int
+		kind         string
+		input        string
+		parts        []string
+		hasSignature bool
 	}
 
 	var open *openBlock
@@ -220,10 +221,17 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				if open.kind != "thinking" {
 					return fmt.Errorf("%s.delta: thinking_delta requires a thinking block, got %s", path, open.kind)
 				}
+				if open.hasSignature {
+					return fmt.Errorf("%s.delta: thinking_delta cannot follow signature_delta", path)
+				}
 			case ir.SignatureDelta:
 				if open.kind != "thinking" {
 					return fmt.Errorf("%s.delta: signature_delta requires a thinking block, got %s", path, open.kind)
 				}
+				if open.hasSignature {
+					return fmt.Errorf("%s.delta: thinking block admits at most one signature_delta", path)
+				}
+				open.hasSignature = true
 			case ir.InputJSONDelta:
 				if open.kind != "tool_use" {
 					return fmt.Errorf("%s.delta: input_json_delta requires a tool_use block, got %s", path, open.kind)

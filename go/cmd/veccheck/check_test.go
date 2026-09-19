@@ -229,6 +229,33 @@ func TestValidateEventStream(t *testing.T) {
 				{"type":"message_done"}
 			]}`,
 		},
+		{
+			name: "duplicate signature delta on thinking block",
+			doc: `{"specVersion":"0.2.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"thinking","thinking":""}},
+				{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","text":"thought"}},
+				{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig1"}},
+				{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig2"}},
+				{"type":"content_block_stop","index":0},
+				{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}},
+				{"type":"message_done"}
+			]}`,
+			want: "thinking block admits at most one signature_delta",
+		},
+		{
+			name: "thinking delta after signature delta",
+			doc: `{"specVersion":"0.2.0","events":[
+				{"type":"message_start","id":"m","model":"model"},
+				{"type":"content_block_start","index":0,"block":{"type":"thinking","thinking":""}},
+				{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig1"}},
+				{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","text":"late thought"}},
+				{"type":"content_block_stop","index":0},
+				{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":0,"output_tokens":0}},
+				{"type":"message_done"}
+			]}`,
+			want: "thinking_delta cannot follow signature_delta",
+		},
 	}
 
 	for _, tt := range tests {

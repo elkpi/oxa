@@ -8,7 +8,7 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **1.0.0** — all five supported languages (Go, TypeScript,
+Current spec version: **1.0.1** — all five supported languages (Go, TypeScript,
 Rust, Python, and C++) implement the specification against the identical 130 golden
 vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
@@ -63,7 +63,7 @@ Read the documents in this order:
 4. [03 — Model Handling](03-model-handling.md)
 5. 10–12 — per-face mapping documents (one per face)
 6. [20 — streaming semantics](20-streaming-semantics.md)
-7. 90 — glossary (planned)
+7. [90 — glossary](90-glossary.md)
 
 | Document | Scope | Status |
 |----------|-------|--------|
@@ -75,12 +75,10 @@ Read the documents in this order:
 | [11](11-mapping-openai-responses.md) | Responses face mapping | ready |
 | [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
 | [20](20-streaming-semantics.md) | streaming semantics | ready |
-| 90 | glossary | planned |
+| [90](90-glossary.md) | glossary | ready |
 
 Documents marked planned are intentionally not created yet; each arrives with
-its milestone. The glossary (90) lands when the multi-language implementations
-first need shared terminology, starting with Rust. Documents marked ready are
-complete for their stated scope.
+its milestone. Documents marked ready are complete for their stated scope.
 
 ## Source-of-truth precedence
 

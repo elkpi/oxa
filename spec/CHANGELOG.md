@@ -5,6 +5,15 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 1.0.1 - 2026-09-19
+
+### Added
+
+- Glossary (`spec/90-glossary.md`): shared cross-language terminology for
+  faces, the IR, invariants, vectors, losses, and streaming profiles.
+  Documentation only: no rule, schema, or vector change; the IR contract
+  `specVersion` remains `0.1.0`.
+
 ## 1.0.0 - 2026-09-04
 
 All four supported languages — Go, Rust, Python, and C++ — implement the

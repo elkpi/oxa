@@ -129,7 +129,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.openIndex = ev.Index
 			d.openIRIndex = d.nextIRIndex
 			d.nextIRIndex++
-			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ThinkingBlock{Thinking: ev.ContentBlock.Thinking}}}, nil
+			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ThinkingBlock{Thinking: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}}}, nil
 		}
 		if ev.ContentBlock.Type != BlockTypeText {
 			d.nextIndex++

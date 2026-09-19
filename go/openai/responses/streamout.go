@@ -31,12 +31,14 @@ type streamOutputItem struct {
 }
 
 type streamEncodeBlock struct {
-	index        int
-	kind         streamOutputItemKind
-	contentIndex int
-	text         string
-	toolInput    string
-	fragments    []string
+	index         int
+	kind          streamOutputItemKind
+	contentIndex  int
+	text          string
+	toolInput     string
+	fragments     []string
+	signature     string
+	signatureSeen bool
 }
 
 // StreamEncoder incrementally converts an IR event stream into OpenAI
@@ -151,6 +153,7 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 					Delta:        delta.Text,
 				}}, nil, nil
 			case ir.SignatureDelta:
+				e.activeBlock.signatureSeen = true
 				return nil, []ir.Loss{{
 					Path:   fmt.Sprintf("events[%d].delta.signature", event.Index),
 					Field:  "signature",
@@ -267,15 +270,6 @@ func (e *StreamEncoder) startTextBlock(index int, block ir.TextBlock) ([]*Stream
 
 func (e *StreamEncoder) startThinkingBlock(index int, block ir.ThinkingBlock) ([]*StreamEvent, []ir.Loss, error) {
 	var out []*StreamEvent
-	var losses []ir.Loss
-	if block.Signature != "" {
-		losses = append(losses, ir.Loss{
-			Path:   fmt.Sprintf("events[%d].block.signature", index),
-			Field:  "signature",
-			Reason: ir.LossUnmappedField,
-			Detail: "Responses carries no signature in reasoning summary",
-		})
-	}
 	if e.activeItem != nil {
 		switch e.activeItem.kind {
 		case streamMessageOutputItem:
@@ -296,7 +290,11 @@ func (e *StreamEncoder) startThinkingBlock(index int, block ir.ThinkingBlock) ([
 	part := OutputContent{Type: PartTypeOutputText, Text: block.Thinking, Annotations: []json.RawMessage{}}
 	e.activeItem.content = append(e.activeItem.content, part)
 	e.activeBlock = &streamEncodeBlock{
-		index: index, kind: streamReasoningOutputItem, contentIndex: contentIndex, text: block.Thinking,
+		index:        index,
+		kind:         streamReasoningOutputItem,
+		contentIndex: contentIndex,
+		text:         block.Thinking,
+		signature:    block.Signature,
 	}
 	out = append(out, &StreamEvent{
 		Type:         EventTypeResponseReasoningSummaryPartAdded,
@@ -305,7 +303,7 @@ func (e *StreamEncoder) startThinkingBlock(index int, block ir.ThinkingBlock) ([
 		ContentIndex: contentIndex,
 		Part:         &part,
 	})
-	return out, losses, nil
+	return out, nil, nil
 }
 
 func (e *StreamEncoder) startFunctionCallBlock(index int, block ir.ToolUseBlock) ([]*StreamEvent, []ir.Loss, error) {
@@ -368,6 +366,15 @@ func (e *StreamEncoder) stopThinkingBlock() ([]*StreamEvent, []ir.Loss, error) {
 	block := e.activeBlock
 	e.activeItem.content[block.contentIndex].Text = block.text
 	part := e.activeItem.content[block.contentIndex]
+	var losses []ir.Loss
+	if block.signature != "" && !block.signatureSeen {
+		losses = append(losses, ir.Loss{
+			Path:   fmt.Sprintf("events[%d].block.signature", block.index),
+			Field:  "signature",
+			Reason: ir.LossUnmappedField,
+			Detail: "Responses carries no signature in reasoning summary",
+		})
+	}
 	e.activeBlock = nil
 	return []*StreamEvent{
 		{
@@ -377,7 +384,7 @@ func (e *StreamEncoder) stopThinkingBlock() ([]*StreamEvent, []ir.Loss, error) {
 			ContentIndex: block.contentIndex,
 			Part:         &part,
 		},
-	}, nil, nil
+	}, losses, nil
 }
 
 func (e *StreamEncoder) stopFunctionCallBlock() ([]*StreamEvent, []ir.Loss, error) {

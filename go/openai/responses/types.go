@@ -53,6 +53,7 @@ const (
 	EventTypeResponseReasoningSummaryPartAdded = "response.reasoning_summary_part.added"
 	EventTypeResponseReasoningSummaryPartDone  = "response.reasoning_summary_part.done"
 	EventTypeResponseReasoningSummaryTextDelta = "response.reasoning_summary_text.delta"
+	EventTypeResponseReasoningSummaryTextDone  = "response.reasoning_summary_text.done"
 	EventTypeResponseFunctionCallArgsDelta     = "response.function_call_arguments.delta"
 	EventTypeResponseFunctionCallArgsDone      = "response.function_call_arguments.done"
 	EventTypeResponseCompleted                 = "response.completed"
@@ -139,13 +140,14 @@ func (in Input) MarshalJSON() ([]byte, error) {
 // (type absent or "message", role user/assistant/system), a function_call
 // item, a function_call_output item, or an unknown type dropped with a loss.
 type InputItem struct {
-	Type      string `json:"type,omitempty"`
-	Role      string `json:"role,omitempty"`
-	Content   any    `json:"content,omitempty"` // string or []ContentPart
-	CallID    string `json:"call_id,omitempty"`
-	Name      string `json:"name,omitempty"`
-	Arguments string `json:"arguments,omitempty"`
-	Output    string `json:"output,omitempty"`
+	Type      string          `json:"type,omitempty"`
+	Role      string          `json:"role,omitempty"`
+	Content   any             `json:"content,omitempty"` // string or []ContentPart
+	CallID    string          `json:"call_id,omitempty"`
+	Name      string          `json:"name,omitempty"`
+	Arguments string          `json:"arguments,omitempty"`
+	Output    string          `json:"output,omitempty"`
+	Summary   []OutputContent `json:"summary,omitempty"`
 }
 
 // ContentPart is one element of a parts-array item content: input_text,
@@ -233,12 +235,12 @@ type UsageWire struct {
 
 // InputTokenDetailsWire carries fine-grained input token counts.
 type InputTokenDetailsWire struct {
-	CachedTokens int64 `json:"cached_tokens,omitempty"`
+	CachedTokens int64 `json:"cached_tokens"`
 }
 
 // OutputTokenDetailsWire carries fine-grained output token counts.
 type OutputTokenDetailsWire struct {
-	ReasoningTokens int64 `json:"reasoning_tokens,omitempty"`
+	ReasoningTokens int64 `json:"reasoning_tokens"`
 }
 
 // StreamEvent is one OpenAI Responses streaming SSE event. Type is the
@@ -289,7 +291,8 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Item        *OutputItem `json:"item"`
 			sequence
 		}{Type: e.Type, OutputIndex: e.OutputIndex, Item: e.Item, sequence: sequence{e.SequenceNumber}})
-	case EventTypeResponseContentPartAdded, EventTypeResponseContentPartDone:
+	case EventTypeResponseContentPartAdded, EventTypeResponseContentPartDone,
+		EventTypeResponseReasoningSummaryPartAdded, EventTypeResponseReasoningSummaryPartDone:
 		if e.Part == nil {
 			return nil, fmt.Errorf("responses: %s without part", e.Type)
 		}
@@ -329,7 +332,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			CallID: e.CallID, Name: e.Name, Arguments: e.Arguments,
 			sequence: sequence{e.SequenceNumber},
 		})
-	case EventTypeResponseOutputTextDelta:
+	case EventTypeResponseOutputTextDelta, EventTypeResponseReasoningSummaryTextDelta:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`
@@ -341,7 +344,7 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Delta: e.Delta, sequence: sequence{e.SequenceNumber},
 		})
-	case EventTypeResponseOutputTextDone:
+	case EventTypeResponseOutputTextDone, EventTypeResponseReasoningSummaryTextDone:
 		return json.Marshal(struct {
 			Type         string `json:"type"`
 			ItemID       string `json:"item_id"`

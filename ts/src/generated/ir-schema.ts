@@ -6,7 +6,7 @@ export const IrSchemaTitle = "oxa IR document" as const;
 export type IrSchemaDocument = IrSchemaRequest | IrSchemaResponse | IrSchemaEventStream;
 
 export interface IrSchemaRequest {
-  readonly specVersion: "0.1.0";
+  readonly specVersion: "0.1.0" | "0.2.0";
   readonly model: string;
   readonly system?: readonly (IrSchemaSystemBlock)[];
   readonly messages: readonly (IrSchemaMessage)[];
@@ -23,11 +23,17 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaBlock)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock;
 
 export interface IrSchemaTextBlock {
   readonly type: "text";
   readonly text: string;
+}
+
+export interface IrSchemaThinkingBlock {
+  readonly type: "thinking";
+  readonly thinking: string;
+  readonly signature?: string;
 }
 
 export interface IrSchemaImageBlock {
@@ -64,10 +70,11 @@ export interface IrSchemaParams {
   readonly top_p?: number;
   readonly max_tokens?: number;
   readonly stop_sequences?: readonly (string)[];
+  readonly reasoning_effort?: "minimal" | "low" | "medium" | "high";
 }
 
 export interface IrSchemaResponse {
-  readonly specVersion: "0.1.0";
+  readonly specVersion: "0.1.0" | "0.2.0";
   readonly id: string;
   readonly model: string;
   readonly content: readonly (IrSchemaBlock)[];
@@ -81,6 +88,18 @@ export type IrSchemaStopReason = "end_turn" | "max_tokens" | "stop_sequence" | "
 export interface IrSchemaUsage {
   readonly input_tokens: number;
   readonly output_tokens: number;
+  readonly cache_read_input_tokens?: number;
+  readonly cache_creation_input_tokens?: number;
+  readonly input_tokens_details?: IrSchemaInputTokensDetails;
+  readonly output_tokens_details?: IrSchemaOutputTokensDetails;
+}
+
+export interface IrSchemaInputTokensDetails {
+  readonly cached_tokens: number;
+}
+
+export interface IrSchemaOutputTokensDetails {
+  readonly reasoning_tokens: number;
 }
 
 export type IrSchemaEvent = IrSchemaMessageStart | IrSchemaContentBlockStart | IrSchemaContentBlockDelta | IrSchemaContentBlockStop | IrSchemaMessageDelta | IrSchemaMessageDone;
@@ -119,7 +138,7 @@ export interface IrSchemaMessageDone {
   readonly type: "message_done";
 }
 
-export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta;
+export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta | IrSchemaThinkingDelta | IrSchemaSignatureDelta;
 
 export interface IrSchemaTextDelta {
   readonly type: "text_delta";
@@ -131,8 +150,18 @@ export interface IrSchemaInputJSONDelta {
   readonly partial_json: string;
 }
 
+export interface IrSchemaThinkingDelta {
+  readonly type: "thinking_delta";
+  readonly text: string;
+}
+
+export interface IrSchemaSignatureDelta {
+  readonly type: "signature_delta";
+  readonly signature: string;
+}
+
 export interface IrSchemaEventStream {
-  readonly specVersion: "0.1.0";
+  readonly specVersion: "0.1.0" | "0.2.0";
   readonly events: readonly (IrSchemaEvent)[];
 }
 

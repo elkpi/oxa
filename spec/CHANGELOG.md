@@ -5,6 +5,34 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.0.0 - 2026-09-19
+
+Major milestone extending the protocol-conversion specification with reasoning
+content, request-side reasoning effort, and granular usage accounting.
+
+### Added
+
+- **Reasoning content**: `ThinkingBlock` with model reasoning text and optional
+  opaque provider `signature` (spec/01 §3.4); streaming `ThinkingDelta` and
+  `SignatureDelta` (spec/01 §5.2); M9 streaming reasoning profile (spec/20 §11,
+  rule N-S-11).
+- **Request reasoning effort**: `Params.ReasoningEffort` enum (`minimal`, `low`,
+  `medium`, `high`), mapped natively to/from OpenAI CC and Responses, and mapped
+  to/from Anthropic `thinking.budget_tokens` via documented approximation table.
+- **Usage granularity**: optional `cache_read_input_tokens`,
+  `cache_creation_input_tokens`, `input_tokens_details.cached_tokens`, and
+  `output_tokens_details.reasoning_tokens` (spec/01 §4.2).
+- Per-face mappings: N-CC-12 (Chat Completions `reasoning_content`), N-R-13
+  (Responses `reasoning` item and summary parts), and N-AN-11 (Anthropic
+  `thinking` blocks and budget mapping).
+
+### Changed
+
+- Specification version promoted to **2.0.0** following sealed-union extensions
+  for `Block` and `Delta`.
+- The IR contract `specVersion` supports both `"0.1.0"` and `"0.2.0"` on read;
+  converters emit `"0.2.0"`.
+
 ## 1.0.1 - 2026-09-19
 
 ### Added

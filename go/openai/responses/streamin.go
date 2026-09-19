@@ -301,6 +301,20 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return []ir.Event{ir.ContentBlockDelta{
 			Index: d.blockIndex, Delta: ir.ThinkingDelta{Text: ev.Delta},
 		}}, nil
+	case EventTypeResponseReasoningSummaryTextDone:
+		if err := d.requireActiveItem(ev, EventTypeResponseReasoningSummaryTextDone); err != nil {
+			return nil, err
+		}
+		if d.skippedItem || d.skippedPart {
+			if ev.ContentIndex != d.contentIndex {
+				return nil, fmt.Errorf("responses: reasoning_summary_text.done content_index %d does not match the skipped part", ev.ContentIndex)
+			}
+			return nil, nil
+		}
+		if !d.blockOpen || ev.ContentIndex != d.contentIndex {
+			return nil, fmt.Errorf("responses: reasoning_summary_text.done does not match the open content part")
+		}
+		return nil, nil
 	case EventTypeResponseReasoningSummaryPartDone:
 		if err := d.requireActiveItem(ev, EventTypeResponseReasoningSummaryPartDone); err != nil {
 			return nil, err
@@ -366,13 +380,15 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if ev.Response.Usage != nil {
 			usage = ir.Usage{InputTokens: ev.Response.Usage.InputTokens, OutputTokens: ev.Response.Usage.OutputTokens}
 			if ev.Response.Usage.InputTokenDetails != nil {
+				cachedTokens := ev.Response.Usage.InputTokenDetails.CachedTokens
 				usage.InputTokensDetails = &ir.InputTokensDetails{
-					CachedTokens: &ev.Response.Usage.InputTokenDetails.CachedTokens,
+					CachedTokens: &cachedTokens,
 				}
 			}
 			if ev.Response.Usage.OutputTokenDetails != nil {
+				reasoningTokens := ev.Response.Usage.OutputTokenDetails.ReasoningTokens
 				usage.OutputTokensDetails = &ir.OutputTokensDetails{
-					ReasoningTokens: &ev.Response.Usage.OutputTokenDetails.ReasoningTokens,
+					ReasoningTokens: &reasoningTokens,
 				}
 			}
 		}
@@ -486,7 +502,8 @@ func (d *StreamDecoder) validateUnknownDescendant(ev *StreamEvent) error {
 	if d.skippedPart && ev.ContentIndex != d.contentIndex {
 		return fmt.Errorf("responses: unknown event %s does not match the open content part", ev.Type)
 	}
-	if (strings.HasPrefix(ev.Type, EventTypeResponseContentPartPrefix) || strings.HasPrefix(ev.Type, EventTypeResponseOutputTextPrefix)) &&
+	if (strings.HasPrefix(ev.Type, EventTypeResponseContentPartPrefix) || strings.HasPrefix(ev.Type, EventTypeResponseOutputTextPrefix) ||
+		strings.HasPrefix(ev.Type, EventTypeResponseReasoningSummaryPartPrefix) || strings.HasPrefix(ev.Type, EventTypeResponseReasoningSummaryTextPrefix)) &&
 		(!d.blockOpen || ev.ContentIndex != d.contentIndex) {
 		return fmt.Errorf("responses: unknown event %s does not match the open content part", ev.Type)
 	}

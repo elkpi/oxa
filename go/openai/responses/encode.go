@@ -195,6 +195,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 // verbatim (N-R-5, INV-1).
 func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) ([]ir.Loss, error) {
 	var losses []ir.Loss
+	var thinkings []OutputContent
 	var calls []InputItem
 	text := ""
 	hasText := false
@@ -203,6 +204,16 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+		case ir.ThinkingBlock:
+			thinkings = append(thinkings, OutputContent{
+				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
+			})
+			if value.Signature != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].signature", path, i), "signature", ir.LossUnmappedField,
+					"Responses request reasoning items carry no provider signature",
+				))
+			}
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {
@@ -223,9 +234,11 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			))
 		}
 	}
-	// The message item precedes its function_call items, mirroring the decode
-	// order of text blocks before tool-use blocks (N-R-5).
-	if hasText || len(blocks) == 0 {
+	// Reasoning, text, and tool calls preserve the normalized IR block order.
+	if len(thinkings) > 0 {
+		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: thinkings})
+	}
+	if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)
@@ -255,6 +268,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			thinkings = append(thinkings, OutputContent{
 				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
 			})
+			if value.Signature != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("content[%d].signature", i), "signature", ir.LossUnmappedField,
+					"Responses reasoning items carry no provider signature",
+				))
+			}
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {

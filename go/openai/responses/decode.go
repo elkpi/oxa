@@ -6,6 +6,14 @@ import (
 	"github.com/elkpi/oxa/go/ir"
 )
 
+func isValidReasoningEffort(effort string) bool {
+	switch effort {
+	case ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+		return true
+	}
+	return false
+}
+
 // DecodeRequest converts a Responses wire request to the IR (face -> IR).
 // Semantic unmappables are losses, never errors; errors are reserved for
 // structural type violations of known fields (spec/02 s4).
@@ -40,14 +48,24 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	if wire.Reasoning != nil {
 		if m, ok := wire.Reasoning.(map[string]any); ok {
 			if effort, ok := m["effort"].(string); ok {
-				req.Params.ReasoningEffort = effort
+				if isValidReasoningEffort(effort) {
+					req.Params.ReasoningEffort = effort
+				} else {
+					losses = append(losses, loss("reasoning.effort", "effort", ir.LossUnmappedValue,
+						fmt.Sprintf("unknown reasoning effort value %q", effort)))
+				}
 			}
 			if _, ok := m["summary"]; ok {
 				losses = append(losses, loss("reasoning.summary", "summary", ir.LossUnmappedField,
 					"Responses reasoning summary configuration has no IR equivalent."))
 			}
 		} else if str, ok := wire.Reasoning.(string); ok {
-			req.Params.ReasoningEffort = str
+			if isValidReasoningEffort(str) {
+				req.Params.ReasoningEffort = str
+			} else {
+				losses = append(losses, loss("reasoning.effort", "effort", ir.LossUnmappedValue,
+					fmt.Sprintf("unknown reasoning effort value %q", str)))
+			}
 		}
 	}
 
@@ -133,7 +151,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case ItemTypeFunctionCall:
+		case ItemTypeFunctionCall, ItemTypeReasoning:
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -173,6 +191,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 // first (in document order), then the ToolUseBlocks, regardless of how the
 // wire interleaved message items and function_call items.
 func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Loss, error) {
+	var thinkings []ir.Block
 	var texts []ir.Block
 	var calls []ir.Block
 	var losses []ir.Loss
@@ -185,6 +204,12 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 				return nil, 0, nil, fmt.Errorf("responses: input[%d].arguments: %w", i, err)
 			}
 			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			continue
+		}
+		if item.Type == ItemTypeReasoning {
+			for _, part := range item.Summary {
+				thinkings = append(thinkings, ir.ThinkingBlock{Thinking: part.Text})
+			}
 			continue
 		}
 		if item.Type != "" && item.Type != ItemTypeMessage {
@@ -200,7 +225,8 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 		losses = append(losses, contentLosses...)
 		texts = append(texts, content...)
 	}
-	blocks := make([]ir.Block, 0, len(texts)+len(calls))
+	blocks := make([]ir.Block, 0, len(thinkings)+len(texts)+len(calls))
+	blocks = append(blocks, thinkings...)
 	blocks = append(blocks, texts...)
 	blocks = append(blocks, calls...)
 	if len(blocks) == 0 {
@@ -304,7 +330,7 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			if len(item.Summary) == 0 {
 				losses = append(losses, loss(
 					fmt.Sprintf("output[%d]", i), "type", ir.LossUnsupportedSemantic,
-					"Responses output item type \"reasoning\" has no IR equivalent",
+					"Responses reasoning output item with empty summary carries no convertible content",
 				))
 			} else {
 				for _, part := range item.Summary {
@@ -372,13 +398,15 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			OutputTokens: wire.Usage.OutputTokens,
 		}
 		if wire.Usage.InputTokenDetails != nil {
+			cachedTokens := wire.Usage.InputTokenDetails.CachedTokens
 			resp.Usage.InputTokensDetails = &ir.InputTokensDetails{
-				CachedTokens: &wire.Usage.InputTokenDetails.CachedTokens,
+				CachedTokens: &cachedTokens,
 			}
 		}
 		if wire.Usage.OutputTokenDetails != nil {
+			reasoningTokens := wire.Usage.OutputTokenDetails.ReasoningTokens
 			resp.Usage.OutputTokensDetails = &ir.OutputTokensDetails{
-				ReasoningTokens: &wire.Usage.OutputTokenDetails.ReasoningTokens,
+				ReasoningTokens: &reasoningTokens,
 			}
 		}
 	}

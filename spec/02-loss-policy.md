@@ -128,3 +128,23 @@ The JSON shape of the loss record is defined by
 [`spec/schema/loss.schema.json`](schema/loss.schema.json). This document
 and the schema MUST agree; CI checks the agreement from milestone M2
 onward.
+
+## 9. Loss conventions — derived and envelope fields
+
+Not every field absent from a conversion's output is a loss. Dropped fields
+fall into three buckets:
+
+1. **DERIVED fields — exempt.** Fields recomputable from carried data carry
+   no information loss and MUST NOT record a loss (for example
+   `usage.total_tokens`, recomputed on encode).
+2. **ENVELOPE fields — exempt.** Per-face structural or transport fields
+   with no conversational semantics carry no loss.
+3. **Everything else — MUST record a loss.** Any non-exempt input field
+   with no IR destination is dropped with an `unmapped-field` loss record.
+
+The per-face catalogs in documents 10–12 enumerate the concrete derived and
+envelope fields and the from-IR rendering defaults. From-IR rendering
+defaults: when an IR document lacks a face envelope field, the converter
+synthesizes a fixed, documented value and records NO loss — the direction
+is IR → face, and nothing is being dropped.
+

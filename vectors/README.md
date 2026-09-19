@@ -56,39 +56,13 @@ them verbatim:
 
 ## Loss conventions
 
-Not every field absent from a conversion's output is a loss. Dropped fields
-fall into three buckets (this section will later migrate into the per-face
-loss catalogs in spec/10–12):
-
-1. **DERIVED fields — exempt.** Fields recomputable from carried data carry
-   no information loss and MUST NOT record a loss. Examples: Chat
-   Completions and Responses `usage.total_tokens` (= prompt + completion /
-   input + output, recomputed on encode).
-2. **ENVELOPE fields — exempt.** Per-face structural/transport fields with
-   no conversational semantics. Examples: Chat Completions `object`,
-   `created`, `choices[].index`, `message.role`, and response `id` when
-   regenerated on encode; Responses `object`, `status`, output-item `id`
-   and `status`, and empty `annotations`; Anthropic `type` and `role`.
-3. **Everything else — MUST record a loss.** Any non-exempt input field with
-   no IR destination is dropped with an `unmapped-field` loss record
-   (path, field, reason), exactly as `loss-logprobs-request-to-ir`,
-   `loss-cache-control-request-to-ir`, and `loss-verbosity-request-to-ir`
-   demonstrate.
-
-### From-ir rendering defaults
-
-from-ir vectors show the converter's **documented envelope rendering
-defaults**, not round-trip guarantees. When an IR document lacks a face
-envelope field, the converter synthesizes a fixed value and NO loss is
-recorded (the direction is IR → face; nothing is being dropped). Examples in
-the seed set: Chat Completions `object: "chat.completion"` and `created: 0`;
-Responses `status: "completed"`, `object: "response"`, synthesized output
-item ids (`msg_abc123` for message items, `fc_abc123` for function_call
-items), output-item `status: "completed"` and `role: "assistant"`,
-`annotations: []` on every output_text part, `usage.total_tokens` recomputed
-as input + output, and the request-side input string shorthand for a
-single-text user turn (spec/11 N-R-2); Anthropic `type: "message"` and
-`role: "assistant"`.
+Normative loss buckets (derived, envelope, unmapped) are defined in
+[spec/02 §9](../spec/02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields).
+The concrete per-face derived and envelope fields and from-IR rendering
+defaults are codified in the respective mapping documents
+([spec/10](../spec/10-mapping-openai-chat-completions.md#8-loss-catalog),
+[spec/11](../spec/11-mapping-openai-responses.md#8-loss-catalog), and
+[spec/12](../spec/12-mapping-anthropic-messages.md#8-loss-catalog)).
 
 ## Stream self-consistency assertions
 

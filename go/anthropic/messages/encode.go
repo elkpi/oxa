@@ -106,6 +106,31 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Params.StopSequences) > 0 {
 		out.StopSequences = req.Params.StopSequences
 	}
+	if req.Params.ReasoningEffort != "" {
+		var budget int64
+		switch req.Params.ReasoningEffort {
+		case ir.ReasoningEffortMinimal:
+			budget = 1024
+		case ir.ReasoningEffortLow:
+			budget = 2048
+		case ir.ReasoningEffortMedium:
+			budget = 8192
+		case ir.ReasoningEffortHigh:
+			budget = 16384
+		default:
+			budget = 2048
+		}
+		out.Thinking = &ThinkingWire{
+			Type:         "enabled",
+			BudgetTokens: budget,
+		}
+		losses = append(losses, ir.Loss{
+			Path:   "params.reasoning_effort",
+			Field:  "reasoning_effort",
+			Reason: ir.LossDegraded,
+			Detail: "budget approximated",
+		})
+	}
 	return out, losses, nil
 }
 
@@ -155,6 +180,21 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 	switch b := block.(type) {
 	case ir.TextBlock:
 		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
+	case ir.ThinkingBlock:
+		var blockLosses []ir.Loss
+		if b.Signature == "" {
+			blockLosses = append(blockLosses, ir.Loss{
+				Path:   path,
+				Field:  "signature",
+				Reason: ir.LossDegraded,
+				Detail: "unsigned thinking block; Anthropic may reject on replay",
+			})
+		}
+		return BlockWire{
+			Type:      BlockTypeThinking,
+			Thinking:  b.Thinking,
+			Signature: b.Signature,
+		}, blockLosses, true, nil
 	case ir.ImageBlock:
 		return encodeImageBlock(b, path)
 	case ir.ToolUseBlock:
@@ -261,8 +301,10 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		Role:  RoleAssistant,
 		Model: o.models.Map(resp.Model),
 		Usage: &UsageWire{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
 		},
 	}
 	var losses []ir.Loss
@@ -300,6 +342,21 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 	switch b := block.(type) {
 	case ir.TextBlock:
 		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
+	case ir.ThinkingBlock:
+		var blockLosses []ir.Loss
+		if b.Signature == "" {
+			blockLosses = append(blockLosses, ir.Loss{
+				Path:   path,
+				Field:  "signature",
+				Reason: ir.LossDegraded,
+				Detail: "unsigned thinking block; Anthropic may reject on replay",
+			})
+		}
+		return BlockWire{
+			Type:      BlockTypeThinking,
+			Thinking:  b.Thinking,
+			Signature: b.Signature,
+		}, blockLosses, true, nil
 	case ir.ImageBlock:
 		return encodeImageBlock(b, path)
 	case ir.ToolUseBlock:

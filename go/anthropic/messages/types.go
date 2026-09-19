@@ -18,6 +18,7 @@ const (
 	BlockTypeImage      = "image"
 	BlockTypeToolUse    = "tool_use"
 	BlockTypeToolResult = "tool_result"
+	BlockTypeThinking   = "thinking"
 
 	SourceTypeBase64 = "base64"
 	SourceTypeURL    = "url"
@@ -42,6 +43,8 @@ const (
 
 	DeltaTypeTextDelta      = "text_delta"
 	DeltaTypeInputJSONDelta = "input_json_delta"
+	DeltaTypeThinking       = "thinking_delta"
+	DeltaTypeSignature      = "signature_delta"
 
 	TypeMessage = "message"
 )
@@ -59,6 +62,13 @@ type Request struct {
 	Metadata      any             `json:"metadata,omitempty"`
 	Tools         []ToolWire      `json:"tools,omitempty"`
 	ToolChoice    *ToolChoiceWire `json:"tool_choice,omitempty"`
+	Thinking      *ThinkingWire   `json:"thinking,omitempty"`
+}
+
+// ThinkingWire is the Anthropic request thinking configuration.
+type ThinkingWire struct {
+	Type         string `json:"type"` // enabled
+	BudgetTokens int64  `json:"budget_tokens"`
 }
 
 // ToolWire is one element of the wire tools array. input_schema is a
@@ -101,6 +111,9 @@ type BlockWire struct {
 	Type         string          `json:"type"`
 	Text         string          `json:"text,omitempty"`
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	// thinking
+	Thinking  string `json:"thinking,omitempty"`
+	Signature string `json:"signature,omitempty"`
 	// tool_use
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
@@ -137,8 +150,10 @@ type Response struct {
 // UsageWire is the wire usage object; input/output tokens map 1:1 to IR
 // usage.
 type UsageWire struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64  `json:"input_tokens"`
+	OutputTokens             int64  `json:"output_tokens"`
+	CacheCreationInputTokens *int64 `json:"cache_creation_input_tokens,omitempty"`
+	CacheReadInputTokens     *int64 `json:"cache_read_input_tokens,omitempty"`
 }
 
 // StreamEvent is one Anthropic Messages streaming SSE event (spec/01 s5).
@@ -163,9 +178,11 @@ type StreamEvent struct {
 // declared for input_json_delta detection only (streaming tool calls arrive
 // in M7); the stop_reason/stop_sequence form populates the last two fields.
 type StreamDelta struct {
-	Type         string `json:"type"` // text_delta | input_json_delta | (empty on message_delta)
+	Type         string `json:"type"` // text_delta | input_json_delta | thinking_delta | signature_delta | (empty on message_delta)
 	Text         string `json:"text,omitempty"`
 	PartialJSON  string `json:"partial_json,omitempty"`
+	Thinking     string `json:"thinking,omitempty"`
+	Signature    string `json:"signature,omitempty"`
 	StopReason   string `json:"stop_reason,omitempty"`
 	StopSequence string `json:"stop_sequence,omitempty"`
 }

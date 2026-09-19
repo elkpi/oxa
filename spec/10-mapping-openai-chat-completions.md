@@ -63,6 +63,7 @@ The wire objects in scope are:
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_tokens` | `Params.MaxTokens` | 1:1 |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
+| `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0) |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `parallel_tool_calls` | — | unmapped-field loss |
@@ -80,12 +81,15 @@ all other params render 1:1 with their omitempty semantics.
 | CC field | IR destination | Notes |
 |---|---|---|
 | `choices[0].message.content` | `Response.Content` blocks | only the first choice is converted |
+| `choices[0].message.reasoning_content` | `ThinkingBlock.Thinking` | N-CC-12 (since 2.0) |
 | `choices[0].message.tool_calls[]` | `ToolUseBlock`s appended after the text blocks | N-CC-4 |
 | `choices[0].finish_reason` | `Response.StopReason` | N-CC-11 |
 | `id` | `Response.ID` | |
 | `model` | `Response.Model` | via model map |
 | `usage.prompt_tokens` | `Usage.InputTokens` | |
 | `usage.completion_tokens` | `Usage.OutputTokens` | |
+| `usage.prompt_tokens_details.cached_tokens` | `Usage.InputTokensDetails.CachedTokens` | 1:1 (since 2.0) |
+| `usage.completion_tokens_details.reasoning_tokens` | `Usage.OutputTokensDetails.ReasoningTokens` | 1:1 (since 2.0) |
 | `usage.total_tokens` | — | DERIVED, exempt (recomputed on encode) |
 | `object`, `created`, `choices[].index`, `message.role` | — | ENVELOPE, exempt |
 | `choices[1:]` | — | not carried; a response MUST carry at least one choice (error otherwise) |
@@ -189,6 +193,15 @@ Each rule has a stable ID usable as a vector tag.
 - **N-CC-11 (envelope defaults).** As specified in §5; no losses are
   recorded for synthesized envelope fields or the derived
   `total_tokens`.
+- **N-CC-12 (reasoning content and effort).** On decode,
+  `message.reasoning_content` (nonstream) and
+  `choices[0].delta.reasoning_content` (stream) convert to
+  `ThinkingBlock.Thinking` / `thinking_delta`; Chat Completions never supplies
+  `signature`. On encode, each IR `ThinkingBlock` renders as string
+  `reasoning_content` on the message or choice delta; a present `signature`
+  records an `unmapped-field` loss. Request `reasoning_effort` maps 1:1 to
+  `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`); unknown inbound
+  values are dropped with an `unmapped-value` loss.
 
 ## 8. Loss Catalog
 
@@ -204,6 +217,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |
 | `response_format` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `content[i].signature` | unmapped-field | IR → response/request | Chat Completions carries no signature field on reasoning_content (N-CC-12) |
+| `reasoning_effort` unknown value | unmapped-value | request → IR | unknown effort values are dropped (N-CC-12) |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | content part `type` ∉ {`text`,`image_url`} | unsupported-semantic | request → IR | part has no IR equivalent |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |

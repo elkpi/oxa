@@ -63,6 +63,7 @@ The wire objects in scope are:
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `stop_sequences` | `Params.StopSequences` | 1:1 (N-AN-7) |
+| `thinking` (`type: "enabled"`, `budget_tokens`) | `Params.ReasoningEffort` | mapped via budget table with degraded loss (N-AN-11, since 2.0) |
 | `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1); MUST be a JSON object |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
@@ -81,6 +82,7 @@ render 1:1 with their omitempty semantics.
 | AN block | IR block | Notes |
 |---|---|---|
 | `{type: "text", text}` | `TextBlock` | |
+| `{type: "thinking", thinking, signature}` | `ThinkingBlock{Thinking, Signature}` | 1:1; signature carried verbatim (N-AN-11, since 2.0) |
 | `{type: "image", source: {type: "base64", media_type, data}}` | `ImageBlock{MediaType, Data}` | |
 | `{type: "image", source: {type: "url", url}}` | `ImageBlock{URL}` | |
 | `{type: "tool_use", id, name, input}` | `ToolUseBlock{ID, Name, Input}` | raw input, N-AN-4 |
@@ -121,6 +123,8 @@ inside a tool result are unsupported-semantic losses.
 | `id` | `Response.ID` | |
 | `model` | `Response.Model` | via model map |
 | `usage.input_tokens` / `usage.output_tokens` | `Usage.InputTokens` / `Usage.OutputTokens` | 1:1 |
+| `usage.cache_creation_input_tokens` | `Usage.CacheCreationInputTokens` | 1:1 (since 2.0) |
+| `usage.cache_read_input_tokens` | `Usage.CacheReadInputTokens` | 1:1 (since 2.0) |
 | `type` (`"message"`), `role` (`"assistant"`) | — | ENVELOPE, exempt; rendered as fixed defaults on encode with no loss |
 
 ## 6. Streaming Event Mapping
@@ -188,6 +192,15 @@ Each rule has a stable ID usable as a vector tag.
   envelope fields: dropped on decode and rendered as
   `type: "message"` / `role: "assistant"` on encode, with no loss
   either way.
+- **N-AN-11 (thinking blocks, signatures, and budget mapping).**
+  `thinking` content blocks map 1:1 including `signature` verbatim;
+  `thinking_delta` / `signature_delta` map directly. Request
+  `thinking.budget_tokens` ↔ `Params.ReasoningEffort` via:
+  minimal → 1024, low → 2048, medium → 8192, high → 16384 (encode),
+  and decode budget ≤ 2048 → low, ≤ 8192 → medium, else → high, each with
+  a `degraded` loss `{path:"params"/"thinking", field:"reasoning_effort"|"budget_tokens", reason:"degraded", detail:"budget approximated"}`.
+  An unsigned request ThinkingBlock encodes as a thinking block WITHOUT
+  signature plus a `degraded` loss `{path:"content[i]", field:"signature", reason:"degraded", detail:"unsigned thinking block; Anthropic may reject on replay"}`.
 
 ## 8. Loss Catalog
 
@@ -198,6 +211,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 |---|---|---|---|
 | response `type`, `role` | exempt (envelope) | both | N-AN-10 |
 | `cache_control` on a mapped block or system block | unmapped-field | request/response → IR | Anthropic prompt-caching annotations have no IR equivalent in v1 |
+| `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation (N-AN-11) |
+| `content[i].signature` (unsigned thinking block) | degraded | IR → request | unsigned thinking block replayed to Anthropic may be rejected (N-AN-11) |
 | unknown block type or unknown image source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
 | `tool_choice.disable_parallel_tool_use` | unmapped-field | request → IR | no IR equivalent in v1 |

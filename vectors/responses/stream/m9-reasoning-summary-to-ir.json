@@ -11,6 +11,7 @@
       { "type": "response.output_item.added", "output_index": 0, "item": { "type": "reasoning", "id": "rs_1", "summary": [] } },
       { "type": "response.reasoning_summary_part.added", "item_id": "rs_1", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "" } },
       { "type": "response.reasoning_summary_text.delta", "item_id": "rs_1", "output_index": 0, "content_index": 0, "delta": "Analyzing..." },
+      { "type": "response.reasoning_summary_text.done", "item_id": "rs_1", "output_index": 0, "content_index": 0, "text": "Analyzing..." },
       { "type": "response.reasoning_summary_part.done", "item_id": "rs_1", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "Analyzing..." } },
       { "type": "response.output_item.done", "output_index": 0, "item": { "type": "reasoning", "id": "rs_1", "summary": [{ "type": "output_text", "text": "Analyzing..." }] } },
       { "type": "response.output_item.added", "output_index": 1, "item": { "type": "message", "id": "msg_1", "role": "assistant", "status": "in_progress", "content": [] } },

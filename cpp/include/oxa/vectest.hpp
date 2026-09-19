@@ -21,6 +21,7 @@ std::optional<std::filesystem::path> find_repo_root(
 struct Vector {
     std::string name;
     std::string description;
+    std::string spec_version;
     std::string mode;
     std::string conversion;
     std::string source_protocol;

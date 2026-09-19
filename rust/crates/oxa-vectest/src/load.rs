@@ -62,6 +62,8 @@ pub struct Vector {
     pub name: String,
     #[serde(rename = "description", default)]
     pub description: String,
+    #[serde(rename = "spec_version", default)]
+    pub spec_version: String,
     #[serde(rename = "mode", default)]
     pub mode: String,
     #[serde(rename = "conversion", default)]
@@ -143,6 +145,9 @@ pub fn load_vectors(root: &Path, face: &str, mode: &str) -> Result<Vec<Vector>, 
             fs::read_to_string(dir.join(&name)).map_err(|err| format!("read {name}: {err}"))?;
         let mut vector: Vector =
             serde_json::from_str(&raw).map_err(|err| format!("parse {name}: {err}"))?;
+        if !vector.spec_version.is_empty() && vector.spec_version != "0.1.0" {
+            continue;
+        }
         let raw_input: RawInput =
             serde_json::from_str(&raw).map_err(|err| format!("parse {name}: {err}"))?;
         vector.input_raw = raw_input.input;

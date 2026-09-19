@@ -37,6 +37,7 @@ StatusOr<Vector> parse_vector_file(const std::filesystem::path& file_path) {
     Vector vec;
     if (const auto* n = doc.find("name"); n && n->is_string()) vec.name = n->as_string();
     if (const auto* d = doc.find("description"); d && d->is_string()) vec.description = d->as_string();
+    if (const auto* sv = doc.find("spec_version"); sv && sv->is_string()) vec.spec_version = sv->as_string();
     if (const auto* m = doc.find("mode"); m && m->is_string()) vec.mode = m->as_string();
     if (const auto* c = doc.find("conversion"); c && c->is_string()) vec.conversion = c->as_string();
 
@@ -103,7 +104,9 @@ StatusOr<std::vector<Vector>> load_vectors_from_dir(const std::filesystem::path&
     out.reserve(files.size());
     for (const auto& f : files) {
         OXA_ASSIGN_OR_RETURN(Vector vec, parse_vector_file(f));
-        out.push_back(std::move(vec));
+        if (vec.spec_version.empty() || vec.spec_version == "0.1.0") {
+            out.push_back(std::move(vec));
+        }
     }
     return out;
 }

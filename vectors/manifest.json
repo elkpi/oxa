@@ -188,6 +188,50 @@
       "sha256": "d7b3732f3305c95151dea4728e7fe3a4543545e78118eb53c78518ebb8617bbd"
     },
     {
+      "name": "anthropic.nonstream.thinking-budget-request-from-ir",
+      "file": "anthropic/nonstream/thinking-budget-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "thinking",
+        "loss",
+        "n-an-11"
+      ],
+      "sha256": "add4bf14ba0b4c73568165c6bdbd21ab7a213fc2e67622d45d1979b10d9465b8"
+    },
+    {
+      "name": "anthropic.nonstream.thinking-budget-request-to-ir",
+      "file": "anthropic/nonstream/thinking-budget-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "thinking",
+        "loss",
+        "n-an-11"
+      ],
+      "sha256": "5c26c5ec16f2665959e5d7473caa1e5f66a92fe326559a6c21da552320793708"
+    },
+    {
+      "name": "anthropic.nonstream.thinking-response-from-ir",
+      "file": "anthropic/nonstream/thinking-response-from-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "n-an-11"
+      ],
+      "sha256": "f95d2ccb0270d6fd8989265855ca682cbb8af3b6393d0251d95dcabde0da104a"
+    },
+    {
+      "name": "anthropic.nonstream.thinking-response-to-ir",
+      "file": "anthropic/nonstream/thinking-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "n-an-11"
+      ],
+      "sha256": "77f47f49e641786b1a0a5742184101d68368c1c06b391820daf66d71bc687a1a"
+    },
+    {
       "name": "anthropic.nonstream.tool-choice-any-from-ir",
       "file": "anthropic/nonstream/tool-choice-any-from-ir.json",
       "tags": [
@@ -320,6 +364,16 @@
       "sha256": "63e6c259a4395eb26a14372a28a2a9ef451a9810b7ce150164c3926b95709cab"
     },
     {
+      "name": "anthropic.nonstream.usage-cache-tokens-to-ir",
+      "file": "anthropic/nonstream/usage-cache-tokens-to-ir.json",
+      "tags": [
+        "response",
+        "usage",
+        "cache"
+      ],
+      "sha256": "8dea8ed40add19442ee85c06390c244ed712acf90c85ad824c201a72105e1c9f"
+    },
+    {
       "name": "anthropic.stream.m7-tool-use-from-ir",
       "file": "anthropic/stream/m7-tool-use-from-ir.json",
       "tags": [
@@ -357,6 +411,17 @@
         "inv-1"
       ],
       "sha256": "901102bc00d7a622a2d826b3d0fab84b2d328440bbb00fa65ae36f317a899f7e"
+    },
+    {
+      "name": "anthropic.stream.m9-thinking-to-ir",
+      "file": "anthropic/stream/m9-thinking-to-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11"
+      ],
+      "sha256": "000b1711c237dc62e71333033dbf74c82a10e7ae4c49d3df38c586a7dacca3dd"
     },
     {
       "name": "anthropic.stream.usage-int64-to-ir",
@@ -540,6 +605,38 @@
       "sha256": "3843010a858383ac6cf80709d1897b02943907d88ea7c0f2cffe1ea218fa3cd3"
     },
     {
+      "name": "chatcompletions.nonstream.reasoning-effort-request-from-ir",
+      "file": "chatcompletions/nonstream/reasoning-effort-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "reasoning",
+        "n-cc-12"
+      ],
+      "sha256": "ec53345e7fa7ce04e5a9ec15b220207fed5429a327e201572dc39343b0555b9b"
+    },
+    {
+      "name": "chatcompletions.nonstream.reasoning-effort-request-to-ir",
+      "file": "chatcompletions/nonstream/reasoning-effort-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "reasoning",
+        "n-cc-12"
+      ],
+      "sha256": "0ccd118a21d74a88ce3d15bf25aa5e89b5182fe014468a31f001ca48f17810e8"
+    },
+    {
+      "name": "chatcompletions.nonstream.specversion-010-from-ir",
+      "file": "chatcompletions/nonstream/specversion-010-from-ir.json",
+      "tags": [
+        "response",
+        "specversion",
+        "compatibility"
+      ],
+      "sha256": "5e8e1d9b7bc1f63d6f8e70e110f69e937faec9d635ebb7666baac99a0b664a8f"
+    },
+    {
       "name": "chatcompletions.nonstream.system-prompt-request-from-ir",
       "file": "chatcompletions/nonstream/system-prompt-request-from-ir.json",
       "tags": [
@@ -574,6 +671,27 @@
         "usage"
       ],
       "sha256": "5698a498581fb91bf763e0cbc641d8e8ed185d2506bc380b521510498603edaa"
+    },
+    {
+      "name": "chatcompletions.nonstream.thinking-response-from-ir",
+      "file": "chatcompletions/nonstream/thinking-response-from-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "loss",
+        "n-cc-12"
+      ],
+      "sha256": "226154bb94628bc458b1f79800ea93b0bdb3dfb18d9f5b158baa1c70d27f6f7c"
+    },
+    {
+      "name": "chatcompletions.nonstream.thinking-response-to-ir",
+      "file": "chatcompletions/nonstream/thinking-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "n-cc-12"
+      ],
+      "sha256": "04090f76c5691e1abea65c47784a6d7b335e0d9dd6a701bbc13445364511132c"
     },
     {
       "name": "chatcompletions.nonstream.tool-choice-any-from-ir",
@@ -733,6 +851,16 @@
       "sha256": "0a4c88ef6ac2fa5d11bc2568e60241b5d2c68d2ab11ab51fde3e3075a4b37fc2"
     },
     {
+      "name": "chatcompletions.nonstream.usage-details-to-ir",
+      "file": "chatcompletions/nonstream/usage-details-to-ir.json",
+      "tags": [
+        "response",
+        "usage",
+        "details"
+      ],
+      "sha256": "dfd4d723f7fed8b076b667b9da2483b119fb446152fe69a55eecf2afe2cc4496"
+    },
+    {
       "name": "chatcompletions.stream.m7-tool-calls-from-ir",
       "file": "chatcompletions/stream/m7-tool-calls-from-ir.json",
       "tags": [
@@ -759,6 +887,18 @@
         "inv-6"
       ],
       "sha256": "4635e2c4351247555a1c499f6e8721203a868751b0ce790edde7b2137836157b"
+    },
+    {
+      "name": "chatcompletions.stream.m9-reasoning-to-ir",
+      "file": "chatcompletions/stream/m9-reasoning-to-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11",
+        "n-cc-12"
+      ],
+      "sha256": "fa4888ad1886b6636f2d8b1f38d49943cb81c1a34d55fd8acf11324a8d61f78c"
     },
     {
       "name": "chatcompletions.stream.usage-int64-to-ir",
@@ -793,6 +933,17 @@
         "usage"
       ],
       "sha256": "a97b004e316b5611afc8b7403f5696d4212db8f2b62740a5058dd7814282d826"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-thinking-response",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-thinking-response.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "response",
+        "n-cc-12"
+      ],
+      "sha256": "1c078285f808f432f24662c92ce4f40acb99692fc9a883c32d6f3d8c27069da9"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-request",
@@ -841,6 +992,17 @@
       "sha256": "460af3fcff02138c9c14f745a965b32181974de208ca0c7c1751fc5ffb85300e"
     },
     {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-thinking-response",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-thinking-response.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "response",
+        "n-an-11"
+      ],
+      "sha256": "3a78060effd0a7caca1dd57ca049ac1c103900e46dd3916aabee137a871bf24b"
+    },
+    {
       "name": "cross.nonstream.chatcompletions-to-responses-request",
       "file": "cross/nonstream/chatcompletions-to-responses-request.json",
       "tags": [
@@ -885,6 +1047,19 @@
         "usage"
       ],
       "sha256": "596f932c4df1cf350b43b1aa9e62d0fd0964b1bfa6601dd9c7d1a57e3c6ebd38"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-thinking-response",
+      "file": "cross/nonstream/responses-to-anthropic-thinking-response.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "response",
+        "loss",
+        "n-r-13",
+        "n-an-11"
+      ],
+      "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-request",
@@ -1109,6 +1284,18 @@
       "sha256": "d1880a3fa2754573ac502b23fcab83c640701f6f114ebfd327f4c52e8393b0ae"
     },
     {
+      "name": "responses.nonstream.reasoning-request-to-ir",
+      "file": "responses/nonstream/reasoning-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "reasoning",
+        "loss",
+        "n-r-13"
+      ],
+      "sha256": "f01fa046f17a1180953b3668b199fa3997fe47d038996a72936b4ffc3e98dc6e"
+    },
+    {
       "name": "responses.nonstream.refusal-response-from-ir",
       "file": "responses/nonstream/refusal-response-from-ir.json",
       "tags": [
@@ -1174,6 +1361,27 @@
         "usage"
       ],
       "sha256": "2a3855edb7569c068602a47fc98c965ee0c9373ca858da6004f1f7b0a5593138"
+    },
+    {
+      "name": "responses.nonstream.thinking-item-from-ir",
+      "file": "responses/nonstream/thinking-item-from-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "n-r-13"
+      ],
+      "sha256": "ce7b79c91776de2566e2caae13a131bb5507a8c9362f61b24dbe1210705302c3"
+    },
+    {
+      "name": "responses.nonstream.thinking-item-to-ir",
+      "file": "responses/nonstream/thinking-item-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "loss",
+        "n-r-13"
+      ],
+      "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
     },
     {
       "name": "responses.nonstream.tool-choice-auto-from-ir",
@@ -1314,6 +1522,16 @@
       "sha256": "0dded2041ae11fb991c1abd31e51d41c32c75ca99dcc6daaa853844090040bd4"
     },
     {
+      "name": "responses.nonstream.usage-details-to-ir",
+      "file": "responses/nonstream/usage-details-to-ir.json",
+      "tags": [
+        "response",
+        "usage",
+        "details"
+      ],
+      "sha256": "037d1789076b339dc2a1fc38269d34be7095919459eb45ada43af0caa065b211"
+    },
+    {
       "name": "responses.nonstream.usage-missing-response-to-ir",
       "file": "responses/nonstream/usage-missing-response-to-ir.json",
       "tags": [
@@ -1359,6 +1577,18 @@
         "inv-1"
       ],
       "sha256": "99b8a43a19cdd9320c7470342c3b2de6b558b4f25ae3bab0b7185fd742591e9e"
+    },
+    {
+      "name": "responses.stream.m9-reasoning-summary-to-ir",
+      "file": "responses/stream/m9-reasoning-summary-to-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11",
+        "n-r-13"
+      ],
+      "sha256": "e8ba3f20bd239933e495c6aeeb79be93ce2593f26a0ad7fab05a9385d82714d1"
     },
     {
       "name": "responses.stream.skipped-part-loss",

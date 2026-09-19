@@ -1,0 +1,33 @@
+{
+  "name": "chatcompletions.nonstream.specversion-010-from-ir",
+  "description": "An IR document carrying specVersion 0.1.0 is accepted by from-ir converters under the 2.0 dual-read policy (Decision D).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.1.0",
+    "id": "chatcmpl-compat010",
+    "model": "gpt-4o",
+    "content": [{ "type": "text", "text": "Backward compatibility verified." }],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 5, "output_tokens": 5 }
+  },
+  "expected_output": {
+    "id": "chatcmpl-compat010",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o",
+    "choices": [
+      {
+        "index": 0,
+        "message": { "role": "assistant", "content": "Backward compatibility verified." },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 5, "completion_tokens": 5, "total_tokens": 10 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "specversion", "compatibility"]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-thinking-response",
+  "description": "Cross-protocol: Anthropic thinking response with signature converts to Chat Completions with reasoning_content, dropping signature with unmapped-field loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "id": "msg_think_cross",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-7-sonnet-20250219",
+    "content": [
+      { "type": "thinking", "thinking": "Thinking through the steps.", "signature": "sig_opaque_123" },
+      { "type": "text", "text": "The answer is 42." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 10, "output_tokens": 25 }
+  },
+  "expected_output": {
+    "id": "msg_think_cross",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "claude-3-7-sonnet-20250219",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "The answer is 42.",
+          "reasoning_content": "Thinking through the steps."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 10, "completion_tokens": 25, "total_tokens": 35 }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0].signature",
+      "field": "signature",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": ["cross", "thinking", "response", "n-cc-12"]
+}

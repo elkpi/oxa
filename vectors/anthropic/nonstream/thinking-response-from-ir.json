@@ -1,0 +1,42 @@
+{
+  "name": "anthropic.nonstream.thinking-response-from-ir",
+  "description": "An IR response containing a ThinkingBlock and TextBlock renders as an Anthropic message with thinking and text content blocks.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "id": "msg_01ThinkingResponse",
+    "model": "claude-3-7-sonnet-20250219",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "Let me reason through this carefully.",
+        "signature": "sig_abc123opaque"
+      },
+      { "type": "text", "text": "Here is the final answer." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 15, "output_tokens": 25 }
+  },
+  "expected_output": {
+    "id": "msg_01ThinkingResponse",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-7-sonnet-20250219",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "Let me reason through this carefully.",
+        "signature": "sig_abc123opaque"
+      },
+      { "type": "text", "text": "Here is the final answer." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 15, "output_tokens": 25 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "thinking", "n-an-11"]
+}

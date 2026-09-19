@@ -1,0 +1,34 @@
+{
+  "name": "chatcompletions.stream.m9-reasoning-to-ir",
+  "description": "A Chat Completions chunk stream emitting delta.reasoning_content normalizes thinking deltas before text deltas at Flush (N-S-11, N-CC-12).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "events": [
+      { "id": "chatcmpl-stream-think", "object": "chat.completion.chunk", "created": 0, "model": "o3-mini", "choices": [{ "index": 0, "delta": { "role": "assistant" }, "finish_reason": null }] },
+      { "id": "chatcmpl-stream-think", "object": "chat.completion.chunk", "created": 0, "model": "o3-mini", "choices": [{ "index": 0, "delta": { "reasoning_content": "Pondering " }, "finish_reason": null }] },
+      { "id": "chatcmpl-stream-think", "object": "chat.completion.chunk", "created": 0, "model": "o3-mini", "choices": [{ "index": 0, "delta": { "reasoning_content": "deeply..." }, "finish_reason": null }] },
+      { "id": "chatcmpl-stream-think", "object": "chat.completion.chunk", "created": 0, "model": "o3-mini", "choices": [{ "index": 0, "delta": { "content": "42." }, "finish_reason": null }] },
+      { "id": "chatcmpl-stream-think", "object": "chat.completion.chunk", "created": 0, "model": "o3-mini", "choices": [{ "index": 0, "delta": {}, "finish_reason": "stop" }], "usage": { "prompt_tokens": 8, "completion_tokens": 12, "total_tokens": 20 } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "chatcmpl-stream-think", "model": "o3-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "thinking", "thinking": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "Pondering " } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "deeply..." } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 1, "delta": { "type": "text_delta", "text": "42." } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 8, "output_tokens": 12 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "thinking", "m9", "n-s-11", "n-cc-12"]
+}

@@ -8,8 +8,8 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **1.0.0** — all four supported languages (Go, Rust,
-Python, and C++) implement the specification against the identical 130 golden
+Current spec version: **1.0.0** — all five supported languages (Go, TypeScript,
+Rust, Python, and C++) implement the specification against the identical 130 golden
 vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
@@ -36,6 +36,7 @@ The version series are tied to the implementation roadmap:
 | 0.2.0 | The Python implementation |
 | 0.3.0 | The C++ implementation |
 | 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
+| 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
 
 The version is NOT promoted to 1.0 until every supported language
 implements the spec against the same vectors. Freeze rules for every 0.x

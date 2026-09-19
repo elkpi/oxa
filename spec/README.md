@@ -8,9 +8,10 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.0.0** — all five supported languages (Go, TypeScript,
-Rust, Python, and C++) implement the specification against the identical 151 golden
-vectors. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Current spec version: **2.0.0** — Go implements the full 154-vector set
+including reasoning and usage; TypeScript, Rust, Python, and C++ validate against
+the 130 baseline vectors pending their Wave 2–5 updates. See [CHANGELOG.md](CHANGELOG.md)
+and the versioning policy below.
 
 ## Versioning policy
 
@@ -38,7 +39,7 @@ The version series are tied to the implementation roadmap:
 | 0.3.0 | The C++ implementation |
 | 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
 | 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
-| 2.0.0 | Reasoning content and usage granularity across all faces |
+| 2.0.0 | Reasoning content and usage granularity across all faces (Go reference implementation in Wave 1; other languages in Waves 2–5) |
 
 Post-1.0 evolution ladder:
 

@@ -404,9 +404,8 @@ one `SignatureDelta`, closed by `ContentBlockStop`.
 Face-specific stream behaviors:
 
 - **CC (N-CC-12)**: chunks with `delta.reasoning_content` emit `ThinkingDelta`s
-  under an open `ThinkingBlock`. When a stream carries both reasoning and text,
-  the decoder replays the `ThinkingBlock` events before the `TextBlock` events
-  at `Flush`, mirroring the nonstream normalization. The encoder emits
+  under an open `ThinkingBlock`. When a stream transitions from reasoning to text,
+  the `ThinkingBlock` closes and the `TextBlock` opens. The encoder emits
   `delta.reasoning_content` for `ThinkingDelta`s. Any `SignatureDelta` on encode
   records an `unmapped-field` loss.
 - **RE (N-R-13)**: `response.reasoning_summary_part.added` emits

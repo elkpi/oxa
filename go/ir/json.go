@@ -9,7 +9,7 @@ import (
 // const-checked on unmarshal. It mirrors the specVersion const pinned by
 // spec/schema/ir.schema.json; the schema-alignment test in json_test.go
 // verifies the agreement.
-const SpecVersion = "0.1.0"
+const SpecVersion = "0.2.0"
 
 // ---- blocks ---------------------------------------------------------------
 
@@ -39,11 +39,21 @@ type wireToolResultBlock struct {
 	IsError   bool              `json:"is_error,omitempty"`
 }
 
+type wireThinkingBlock struct {
+	Type      string `json:"type"`
+	Thinking  string `json:"thinking"`
+	Signature string `json:"signature,omitempty"`
+}
+
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
 	case TextBlock:
 		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text})
+	case ThinkingBlock:
+		return json.Marshal(wireThinkingBlock{
+			Type: BlockTypeThinking, Thinking: v.Thinking, Signature: v.Signature,
+		})
 	case ImageBlock:
 		return json.Marshal(wireImageBlock{
 			Type: BlockTypeImage, MediaType: v.MediaType, Data: v.Data, URL: v.URL,
@@ -98,6 +108,12 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return TextBlock{Text: w.Text}, nil
+	case BlockTypeThinking:
+		var w wireThinkingBlock
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature}, nil
 	case BlockTypeImage:
 		var w wireImageBlock
 		if err := json.Unmarshal(data, &w); err != nil {
@@ -176,10 +192,11 @@ type wireToolChoice struct {
 }
 
 type wireParams struct {
-	Temperature   *float64 `json:"temperature,omitempty"`
-	TopP          *float64 `json:"top_p,omitempty"`
-	MaxTokens     *int64   `json:"max_tokens,omitempty"`
-	StopSequences []string `json:"stop_sequences,omitempty"`
+	Temperature     *float64 `json:"temperature,omitempty"`
+	TopP            *float64 `json:"top_p,omitempty"`
+	MaxTokens       *int64   `json:"max_tokens,omitempty"`
+	StopSequences   []string `json:"stop_sequences,omitempty"`
+	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
 }
 
 // MarshalRequest renders a Request as a canonical IR document, stamping
@@ -211,10 +228,11 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	var params *wireParams
 	if req.Params.set() {
 		params = &wireParams{
-			Temperature:   req.Params.Temperature,
-			TopP:          req.Params.TopP,
-			MaxTokens:     req.Params.MaxTokens,
-			StopSequences: req.Params.StopSequences,
+			Temperature:     req.Params.Temperature,
+			TopP:            req.Params.TopP,
+			MaxTokens:       req.Params.MaxTokens,
+			StopSequences:   req.Params.StopSequences,
+			ReasoningEffort: req.Params.ReasoningEffort,
 		}
 	}
 	return json.Marshal(wireRequest{
@@ -258,10 +276,11 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 	}
 	if w.Params != nil {
 		req.Params = Params{
-			Temperature:   w.Params.Temperature,
-			TopP:          w.Params.TopP,
-			MaxTokens:     w.Params.MaxTokens,
-			StopSequences: w.Params.StopSequences,
+			Temperature:     w.Params.Temperature,
+			TopP:            w.Params.TopP,
+			MaxTokens:       w.Params.MaxTokens,
+			StopSequences:   w.Params.StopSequences,
+			ReasoningEffort: w.Params.ReasoningEffort,
 		}
 	}
 	return req, nil
@@ -280,8 +299,52 @@ type wireResponse struct {
 }
 
 type wireUsage struct {
-	InputTokens  int64 `json:"input_tokens"`
-	OutputTokens int64 `json:"output_tokens"`
+	InputTokens              int64                    `json:"input_tokens"`
+	OutputTokens             int64                    `json:"output_tokens"`
+	CacheReadInputTokens     *int64                   `json:"cache_read_input_tokens,omitempty"`
+	CacheCreationInputTokens *int64                   `json:"cache_creation_input_tokens,omitempty"`
+	InputTokensDetails       *wireInputTokensDetails  `json:"input_tokens_details,omitempty"`
+	OutputTokensDetails      *wireOutputTokensDetails `json:"output_tokens_details,omitempty"`
+}
+
+type wireInputTokensDetails struct {
+	CachedTokens *int64 `json:"cached_tokens,omitempty"`
+}
+
+type wireOutputTokensDetails struct {
+	ReasoningTokens *int64 `json:"reasoning_tokens,omitempty"`
+}
+
+func makeWireUsage(u Usage) wireUsage {
+	wu := wireUsage{
+		InputTokens:              u.InputTokens,
+		OutputTokens:             u.OutputTokens,
+		CacheReadInputTokens:     u.CacheReadInputTokens,
+		CacheCreationInputTokens: u.CacheCreationInputTokens,
+	}
+	if u.InputTokensDetails != nil {
+		wu.InputTokensDetails = &wireInputTokensDetails{CachedTokens: u.InputTokensDetails.CachedTokens}
+	}
+	if u.OutputTokensDetails != nil {
+		wu.OutputTokensDetails = &wireOutputTokensDetails{ReasoningTokens: u.OutputTokensDetails.ReasoningTokens}
+	}
+	return wu
+}
+
+func parseWireUsage(w wireUsage) Usage {
+	u := Usage{
+		InputTokens:              w.InputTokens,
+		OutputTokens:             w.OutputTokens,
+		CacheReadInputTokens:     w.CacheReadInputTokens,
+		CacheCreationInputTokens: w.CacheCreationInputTokens,
+	}
+	if w.InputTokensDetails != nil {
+		u.InputTokensDetails = &InputTokensDetails{CachedTokens: w.InputTokensDetails.CachedTokens}
+	}
+	if w.OutputTokensDetails != nil {
+		u.OutputTokensDetails = &OutputTokensDetails{ReasoningTokens: w.OutputTokensDetails.ReasoningTokens}
+	}
+	return u
 }
 
 // MarshalResponse renders a Response as a canonical IR document, stamping
@@ -301,10 +364,7 @@ func MarshalResponse(resp *Response) ([]byte, error) {
 		Content:      content,
 		StopReason:   resp.StopReason,
 		StopSequence: resp.StopSequence,
-		Usage: wireUsage{
-			InputTokens:  resp.Usage.InputTokens,
-			OutputTokens: resp.Usage.OutputTokens,
-		},
+		Usage:        makeWireUsage(resp.Usage),
 	})
 }
 
@@ -328,7 +388,7 @@ func UnmarshalResponse(data []byte) (*Response, error) {
 		Content:      content,
 		StopReason:   w.StopReason,
 		StopSequence: w.StopSequence,
-		Usage:        Usage{InputTokens: w.Usage.InputTokens, OutputTokens: w.Usage.OutputTokens},
+		Usage:        parseWireUsage(w.Usage),
 	}, nil
 }
 
@@ -344,6 +404,16 @@ type wireInputJSONDelta struct {
 	PartialJSON json.RawMessage `json:"partial_json"`
 }
 
+type wireThinkingDelta struct {
+	Type string `json:"type"`
+	Text string `json:"text"`
+}
+
+type wireSignatureDelta struct {
+	Type      string `json:"type"`
+	Signature string `json:"signature"`
+}
+
 // MarshalDelta renders one delta in its canonical type-discriminated form.
 func MarshalDelta(d Delta) (json.RawMessage, error) {
 	switch v := d.(type) {
@@ -353,6 +423,13 @@ func MarshalDelta(d Delta) (json.RawMessage, error) {
 		return json.Marshal(wireInputJSONDelta{
 			Type: DeltaTypeInputJSONDelta, PartialJSON: v.PartialJSON,
 		})
+	case ThinkingDelta:
+		return json.Marshal(wireThinkingDelta{Type: DeltaTypeThinking, Text: v.Text})
+	case SignatureDelta:
+		if v.Signature == "" {
+			return nil, fmt.Errorf("ir: signature is required in signature_delta")
+		}
+		return json.Marshal(wireSignatureDelta{Type: DeltaTypeSignature, Signature: v.Signature})
 	default:
 		return nil, fmt.Errorf("ir: unknown delta type %T", d)
 	}
@@ -379,6 +456,21 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 			return nil, err
 		}
 		return InputJSONDelta{PartialJSON: w.PartialJSON}, nil
+	case DeltaTypeThinking:
+		var w wireThinkingDelta
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ThinkingDelta{Text: w.Text}, nil
+	case DeltaTypeSignature:
+		var w wireSignatureDelta
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.Signature == "" {
+			return nil, fmt.Errorf("ir: signature is required in signature_delta")
+		}
+		return SignatureDelta{Signature: w.Signature}, nil
 	default:
 		return nil, fmt.Errorf("ir: unknown delta type %q", head.Type)
 	}
@@ -425,7 +517,7 @@ func MarshalEvent(e Event) (json.RawMessage, error) {
 			StopSequence string     `json:"stop_sequence,omitempty"`
 			Usage        wireUsage  `json:"usage"`
 		}{Type: EventTypeMessageDelta, StopReason: v.StopReason, StopSequence: v.StopSequence,
-			Usage: wireUsage{InputTokens: v.Usage.InputTokens, OutputTokens: v.Usage.OutputTokens}})
+			Usage: makeWireUsage(v.Usage)})
 	case MessageDone:
 		return json.Marshal(struct {
 			Type string `json:"type"`
@@ -499,7 +591,7 @@ func UnmarshalEvent(data []byte) (Event, error) {
 		return MessageDelta{
 			StopReason:   w.StopReason,
 			StopSequence: w.StopSequence,
-			Usage:        Usage{InputTokens: w.Usage.InputTokens, OutputTokens: w.Usage.OutputTokens},
+			Usage:        parseWireUsage(w.Usage),
 		}, nil
 	case EventTypeMessageDone:
 		return MessageDone{}, nil
@@ -551,8 +643,8 @@ func UnmarshalEventStream(data []byte) (*EventStream, error) {
 }
 
 func checkSpecVersion(v string) error {
-	if v != SpecVersion {
-		return fmt.Errorf("ir: unsupported specVersion %q (want %q)", v, SpecVersion)
+	if v != "0.1.0" && v != "0.2.0" {
+		return fmt.Errorf("ir: unsupported specVersion %q (want %q or %q)", v, "0.1.0", "0.2.0")
 	}
 	return nil
 }

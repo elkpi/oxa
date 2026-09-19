@@ -68,6 +68,8 @@ type Delta interface {
 const (
 	DeltaTypeTextDelta      = "text_delta"
 	DeltaTypeInputJSONDelta = "input_json_delta"
+	DeltaTypeThinking       = "thinking_delta"
+	DeltaTypeSignature      = "signature_delta"
 )
 
 // TextDelta is a text fragment.
@@ -83,8 +85,20 @@ type InputJSONDelta struct {
 	PartialJSON json.RawMessage
 }
 
+// ThinkingDelta is a reasoning text fragment (since 2.0).
+type ThinkingDelta struct {
+	Text string
+}
+
+// SignatureDelta is an opaque provider signature token (since 2.0).
+type SignatureDelta struct {
+	Signature string
+}
+
 func (TextDelta) isDelta()      {}
 func (InputJSONDelta) isDelta() {}
+func (ThinkingDelta) isDelta()  {}
+func (SignatureDelta) isDelta() {}
 
 // EventStream is the JSON document form of a streamed response (spec/01
 // s5.3): specVersion plus the totally ordered event sequence.

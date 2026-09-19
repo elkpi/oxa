@@ -56,14 +56,22 @@ const (
 // is meaningful; absent and zero are different states. Ranges are face
 // concerns.
 type Params struct {
-	Temperature   *float64
-	TopP          *float64
-	MaxTokens     *int64
-	StopSequences []string
+	Temperature     *float64
+	TopP            *float64
+	MaxTokens       *int64
+	StopSequences   []string
+	ReasoningEffort string // minimal | low | medium | high (since 2.0)
 }
+
+const (
+	ReasoningEffortMinimal = "minimal"
+	ReasoningEffortLow     = "low"
+	ReasoningEffortMedium  = "medium"
+	ReasoningEffortHigh    = "high"
+)
 
 // set reports whether any parameter carries a value; the canonical codec
 // omits the whole params object when it does not.
 func (p Params) set() bool {
-	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0
+	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != ""
 }

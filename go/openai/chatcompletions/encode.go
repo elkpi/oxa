@@ -103,6 +103,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.Temperature = req.Params.Temperature
 	out.TopP = req.Params.TopP
 	out.MaxTokens = req.Params.MaxTokens
+	out.ReasoningEffort = req.Params.ReasoningEffort
 	return out, losses, nil
 }
 
@@ -141,6 +142,22 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	default:
 		return nil, nil, fmt.Errorf("chatcompletions: stop reason %q has no Chat Completions equivalent", resp.StopReason)
 	}
+	usage := &UsageWire{
+		PromptTokens:     resp.Usage.InputTokens,
+		CompletionTokens: resp.Usage.OutputTokens,
+		TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
+	}
+	if resp.Usage.InputTokensDetails != nil && resp.Usage.InputTokensDetails.CachedTokens != nil {
+		usage.PromptTokensDetails = &PromptTokensDetailsWire{
+			CachedTokens: *resp.Usage.InputTokensDetails.CachedTokens,
+		}
+	}
+	if resp.Usage.OutputTokensDetails != nil && resp.Usage.OutputTokensDetails.ReasoningTokens != nil {
+		usage.CompletionTokensDetails = &CompletionTokensDetailsWire{
+			ReasoningTokens: *resp.Usage.OutputTokensDetails.ReasoningTokens,
+		}
+	}
+
 	o := newOptions(opts...)
 	return &Response{
 		ID:      resp.ID,
@@ -152,10 +169,6 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			Message:      message,
 			FinishReason: finish,
 		}},
-		Usage: &UsageWire{
-			PromptTokens:     resp.Usage.InputTokens,
-			CompletionTokens: resp.Usage.OutputTokens,
-			TotalTokens:      resp.Usage.InputTokens + resp.Usage.OutputTokens,
-		},
+		Usage: usage,
 	}, losses, nil
 }

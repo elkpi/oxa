@@ -110,6 +110,15 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		MaxTokens:     wire.MaxTokens,
 		StopSequences: wire.Stop,
 	}
+	switch wire.ReasoningEffort {
+	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+		req.Params.ReasoningEffort = wire.ReasoningEffort
+	default:
+		losses = append(losses, loss(
+			"reasoning_effort", "reasoning_effort", ir.LossUnmappedValue,
+			fmt.Sprintf("unknown reasoning_effort value %q", wire.ReasoningEffort),
+		))
+	}
 	return req, losses, nil
 }
 
@@ -138,6 +147,9 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		blocks = nil
 	}
 	blocks = append(blocks, toolCalls...)
+	if choice.Message.ReasoningContent != "" {
+		blocks = append([]ir.Block{ir.ThinkingBlock{Thinking: choice.Message.ReasoningContent}}, blocks...)
+	}
 	losses = append(losses, toolLosses...)
 	if choice.Message.FunctionCall != nil {
 		losses = append(losses, loss(
@@ -163,6 +175,16 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		resp.Usage = ir.Usage{
 			InputTokens:  wire.Usage.PromptTokens,
 			OutputTokens: wire.Usage.CompletionTokens,
+		}
+		if wire.Usage.PromptTokensDetails != nil {
+			resp.Usage.InputTokensDetails = &ir.InputTokensDetails{
+				CachedTokens: &wire.Usage.PromptTokensDetails.CachedTokens,
+			}
+		}
+		if wire.Usage.CompletionTokensDetails != nil {
+			resp.Usage.OutputTokensDetails = &ir.OutputTokensDetails{
+				ReasoningTokens: &wire.Usage.CompletionTokensDetails.ReasoningTokens,
+			}
 		}
 	}
 	return resp, losses, nil

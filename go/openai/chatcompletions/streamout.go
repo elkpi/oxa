@@ -14,6 +14,7 @@ type streamBlockKind uint8
 const (
 	streamTextBlock streamBlockKind = iota
 	streamToolBlock
+	streamThinkingBlock
 )
 
 // streamEncodeBlock retains the current IR block. Tool input and fragments are
@@ -94,6 +95,9 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 			}
 			e.active = &streamEncodeBlock{kind: streamTextBlock, index: event.Index}
 			return nil, nil, nil
+		case ir.ThinkingBlock:
+			e.active = &streamEncodeBlock{kind: streamThinkingBlock, index: event.Index}
+			return nil, nil, nil
 		case ir.ToolUseBlock:
 			if block.ID == "" || block.Name == "" {
 				return nil, nil, fmt.Errorf("chatcompletions: ToolUseBlock requires nonempty ID and name")
@@ -129,6 +133,20 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 			}
 			text := delta.Text
 			return []*Chunk{e.chunk(DeltaPayload{Content: &text})}, nil, nil
+		case streamThinkingBlock:
+			switch delta := event.Delta.(type) {
+			case ir.ThinkingDelta:
+				text := delta.Text
+				return []*Chunk{e.chunk(DeltaPayload{ReasoningContent: &text})}, nil, nil
+			case ir.SignatureDelta:
+				l := loss(
+					fmt.Sprintf("events[%d].delta.signature", event.Index), "signature", ir.LossUnmappedField,
+					"Chat Completions carries no signature delta",
+				)
+				return nil, []ir.Loss{l}, nil
+			default:
+				return nil, nil, fmt.Errorf("chatcompletions: ThinkingBlock received non-thinking delta %T", event.Delta)
+			}
 		case streamToolBlock:
 			delta, ok := event.Delta.(ir.InputJSONDelta)
 			if !ok {

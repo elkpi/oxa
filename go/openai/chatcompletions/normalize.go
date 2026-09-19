@@ -320,6 +320,14 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 		switch value := block.(type) {
 		case ir.TextBlock:
 			text += value.Text
+		case ir.ThinkingBlock:
+			out.ReasoningContent += value.Thinking
+			if value.Signature != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].signature", path, i), "signature", ir.LossUnmappedField,
+					"Chat Completions carries no signature field on reasoning_content",
+				))
+			}
 		case ir.ToolUseBlock:
 			var arguments string
 			if err := json.Unmarshal(value.Input, &arguments); err != nil {

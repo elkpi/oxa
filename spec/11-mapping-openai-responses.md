@@ -75,7 +75,7 @@ The wire objects in scope are:
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `text.verbosity`, `text.format` | — | unmapped-field loss |
-| `reasoning` | — | unmapped-field loss |
+| `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `tools[].strict` | — | unmapped-field loss per tool |
 | unknown `input[].type` | — | unsupported-semantic loss per item |
@@ -95,13 +95,15 @@ always renders as a string.
 | RE field | IR destination | Notes |
 |---|---|---|
 | `output[type=message].content[type=output_text].text` | `Response.Content` text blocks | N-R-3 |
+| `output[type=reasoning].summary[]` | `ThinkingBlock.Thinking` | N-R-13 (since 2.0); one block per summary text part; encrypted_content dropped with unmapped-field |
 | `output[type=function_call]` | `ToolUseBlock`s after the text blocks | N-R-5 |
-| `output[type=reasoning]` | — | unsupported-semantic loss per item |
 | `status` + `incomplete_details.reason` + `error` | `Response.StopReason` | N-R-11 |
 | `id` | `Response.ID` | |
 | `model` | `Response.Model` | via model map |
 | `usage.input_tokens` | `Usage.InputTokens` | |
 | `usage.output_tokens` | `Usage.OutputTokens` | |
+| `usage.input_token_details.cached_tokens` | `Usage.InputTokensDetails.CachedTokens` | 1:1 (since 2.0) |
+| `usage.output_token_details.reasoning_tokens` | `Usage.OutputTokensDetails.ReasoningTokens` | 1:1 (since 2.0) |
 | `usage.total_tokens` | — | DERIVED, exempt (recomputed on encode) |
 | `usage` absent | zero usage | ENVELOPE-exempt, no loss |
 | `object`, `output[].id`, `output[].status`, `output[].role` | — | ENVELOPE, exempt |
@@ -228,6 +230,14 @@ Each rule has a stable ID usable as a vector tag.
 - **N-R-12 (envelope defaults).** As specified in §5; no losses are
   recorded for synthesized envelope fields, the derived
   `total_tokens`, empty `annotations`, or absent `usage`.
+- **N-R-13 (reasoning items and effort).** On decode, `reasoning` output
+  item `summary[]` text parts convert to `ThinkingBlock`s in encounter order;
+  `encrypted_content` is dropped with an `unmapped-field` loss. On encode,
+  each IR `ThinkingBlock` renders as a `reasoning` output item with a
+  `summary` text part. Request `reasoning.effort` maps 1:1 to
+  `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`); other request
+  `reasoning` properties (such as `summary` preference) are dropped with
+  `unmapped-field` losses.
 
 ## 8. Loss Catalog
 
@@ -242,7 +252,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | empty `annotations` | exempt (envelope) | both | structural part of output_text |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | Responses metadata is string-valued with no IR equivalent; the IR metadata map has no Responses field. Dropped symmetrically as one loss per direction. |
 | `text.verbosity`, `text.format` | unmapped-field | request → IR | no IR equivalent in v1 |
-| `reasoning` | unmapped-field | request → IR | reasoning effort has no IR equivalent in v1 |
+| `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
+| `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `tools[i].strict` | unmapped-field | request → IR | strict mode has no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
@@ -251,7 +262,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |
 | `tool_choice` unsupported forms | unsupported-semantic | both | see N-R-9 |
 | `params.stop_sequences` | unmapped-field | IR → request | Responses has no stop-sequences parameter; one loss when non-empty |
-| `output[i]` `type` = `reasoning` or other | unsupported-semantic | response → IR | one loss per item |
+| `output[i]` `type` other than `message`, `function_call`, `reasoning` | unsupported-semantic | response → IR | one loss per item |
 | output content `type` ≠ `output_text` | unsupported-semantic | response → IR | part has no IR equivalent |
 | non-empty `annotations` | unmapped-field | response → IR | annotations have no IR equivalent in v1 |
 | `incomplete_details.reason` ≠ `max_output_tokens` | unmapped-value | response → IR | maps to IR `other` |

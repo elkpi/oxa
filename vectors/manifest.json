@@ -413,6 +413,17 @@
       "sha256": "901102bc00d7a622a2d826b3d0fab84b2d328440bbb00fa65ae36f317a899f7e"
     },
     {
+      "name": "anthropic.stream.m9-thinking-from-ir",
+      "file": "anthropic/stream/m9-thinking-from-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11"
+      ],
+      "sha256": "a298c2ee0621255379f839ad536ad31751933a88fd5aced1f9f908abac79c3de"
+    },
+    {
       "name": "anthropic.stream.m9-thinking-to-ir",
       "file": "anthropic/stream/m9-thinking-to-ir.json",
       "tags": [
@@ -887,6 +898,18 @@
         "inv-6"
       ],
       "sha256": "4635e2c4351247555a1c499f6e8721203a868751b0ce790edde7b2137836157b"
+    },
+    {
+      "name": "chatcompletions.stream.m9-reasoning-from-ir",
+      "file": "chatcompletions/stream/m9-reasoning-from-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11",
+        "n-cc-12"
+      ],
+      "sha256": "8585566bce5ad3c3c88b79ec341de5902502f20266c533a71b278ffc2bfc4e34"
     },
     {
       "name": "chatcompletions.stream.m9-reasoning-to-ir",
@@ -1579,6 +1602,18 @@
       "sha256": "99b8a43a19cdd9320c7470342c3b2de6b558b4f25ae3bab0b7185fd742591e9e"
     },
     {
+      "name": "responses.stream.m9-reasoning-summary-from-ir",
+      "file": "responses/stream/m9-reasoning-summary-from-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "m9",
+        "n-s-11",
+        "n-r-13"
+      ],
+      "sha256": "fc0bf06be9786919620cbdaf079fb02ed64f7e6c230d50308c38f14c38b61178"
+    },
+    {
       "name": "responses.stream.m9-reasoning-summary-to-ir",
       "file": "responses/stream/m9-reasoning-summary-to-ir.json",
       "tags": [
@@ -1588,7 +1623,7 @@
         "n-s-11",
         "n-r-13"
       ],
-      "sha256": "e8ba3f20bd239933e495c6aeeb79be93ce2593f26a0ad7fab05a9385d82714d1"
+      "sha256": "7b572642c6628147563c42712e1b9a9b53a20f0539fe3e7eaa062e7f0e5b542f"
     },
     {
       "name": "responses.stream.skipped-part-loss",

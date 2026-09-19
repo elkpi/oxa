@@ -48,10 +48,12 @@ symmetry supply both directions or no table.
 
 The three faces disagree on parameters in ways unrelated to models:
 Anthropic Messages requires `max_tokens` where Chat Completions makes it
-optional; Chat Completions has `reasoning_effort` with no Anthropic
-equivalent; and so on. These asymmetries are **per-face concerns**: the
-concrete lists and the concrete defaults are defined by the mapping
-documents 10–12. This document fixes only the principles:
+optional; Chat Completions and Responses support `reasoning_effort`
+where Anthropic uses budget tokens; and so on. These asymmetries are
+**per-face concerns**: the concrete lists and the concrete defaults are
+defined by the mapping documents 10–12 (for instance, `reasoning_effort`
+is carried in the IR `Params` and mapped to/from Anthropic budgets via
+document 12). This document fixes only the principles:
 
 1. Converters MUST succeed without model knowledge. The model identity
    never gates, short-circuits, or parameterizes a conversion.

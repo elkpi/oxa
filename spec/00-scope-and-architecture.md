@@ -29,6 +29,12 @@ Version 1 covers:
 - **Image inputs**: base64-encoded image data and image URLs.
 - **The Responses API** as a first-class face, not as an emulation of CC.
 
+Since version 2.0:
+
+- **Reasoning content**: thinking blocks with opaque signatures,
+  streaming thinking deltas, and request-side reasoning effort.
+- **Usage granularity**: cache and token detail accounting.
+
 ## 2. Non-goals
 
 oxa is none of the following, and no implementation MAY grow these features:

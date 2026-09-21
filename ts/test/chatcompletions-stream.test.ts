@@ -5,8 +5,249 @@ import { chatcompletions } from "../src/index.js";
 import {
   ChatCompletionsStreamDecoder,
   ChatCompletionsStreamEncoder,
+  decodeRequest,
+  encodeResponse,
 } from "../src/openai/chatcompletions/index.js";
 import { jsonText } from "../src/json/index.js";
+
+test("decodes assistant reasoning_content and request reasoning_effort", () => {
+  const decoded = decodeRequest({
+    model: "o3-mini",
+    messages: [
+      { role: "user", content: "question" },
+      { role: "assistant", reasoning_content: "plan", content: "answer" },
+    ],
+    reasoning_effort: "high",
+  });
+  assert.deepEqual(decoded.value.messages[1]?.content[0], {
+    type: "thinking",
+    thinking: "plan",
+  });
+  assert.equal(decoded.value.params?.reasoning_effort, "high");
+  assert.deepEqual(decoded.losses, []);
+});
+
+test("drops an unknown reasoning_effort with exactly one unmapped-value loss", () => {
+  const decoded = decodeRequest({
+    model: "o3-mini",
+    messages: [{ role: "user", content: "question" }],
+    reasoning_effort: "ultra",
+  });
+  assert.equal(decoded.value.params?.reasoning_effort, undefined);
+  assert.deepEqual(
+    decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+    [{ path: "reasoning_effort", field: "reasoning_effort", reason: "unmapped-value" }],
+  );
+});
+
+test("encodes a signed thinking block with exactly one signature loss", () => {
+  const encoded = encodeResponse({
+    id: "chatcmpl-reasoning123",
+    model: "o3-mini",
+    content: [
+      { type: "thinking", thinking: "plan", signature: "sig" },
+      { type: "text", text: "42 is the answer." },
+    ],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 10n, output_tokens: 20n },
+  });
+  const choices = encoded.value.choices as unknown as readonly {
+    message: { reasoning_content?: string; content?: string };
+  }[];
+  const message = choices[0]!.message;
+  assert.equal(message.reasoning_content, "plan");
+  assert.equal(message.content, "42 is the answer.");
+  assert.deepEqual(
+    encoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+    [{ path: "content[0].signature", field: "signature", reason: "unmapped-field" }],
+  );
+});
+
+test("streams reasoning content before text and preserves usage details", () => {
+  const decoder = new ChatCompletionsStreamDecoder();
+  const actual = [
+    decoder.Feed({
+      id: "chatcmpl-stream-think",
+      model: "o3-mini",
+      choices: [
+        { delta: { role: "assistant", reasoning_content: "Pondering " }, finish_reason: null },
+      ],
+    }),
+    decoder.Feed({
+      id: "chatcmpl-stream-think",
+      model: "o3-mini",
+      choices: [{ delta: { reasoning_content: "deeply..." }, finish_reason: null }],
+    }),
+    decoder.Feed({
+      id: "chatcmpl-stream-think",
+      model: "o3-mini",
+      choices: [{ delta: { content: "42." }, finish_reason: "stop" }],
+      usage: {
+        prompt_tokens: 8n,
+        completion_tokens: 12n,
+        total_tokens: 20n,
+        prompt_tokens_details: { cached_tokens: 0n },
+        completion_tokens_details: { reasoning_tokens: 6n },
+      },
+    }),
+    decoder.Flush(),
+  ].flat();
+  assert.deepEqual(actual, [
+    { type: "message_start", id: "chatcmpl-stream-think", model: "o3-mini" },
+    { type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "Pondering " } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "deeply..." } },
+    { type: "content_block_stop", index: 0 },
+    { type: "content_block_start", index: 1, block: { type: "text", text: "" } },
+    { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "42." } },
+    { type: "content_block_stop", index: 1 },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 8n,
+        output_tokens: 12n,
+        input_tokens_details: { cached_tokens: 0n },
+        output_tokens_details: { reasoning_tokens: 6n },
+      },
+    },
+    { type: "message_done" },
+  ]);
+  assert.deepEqual(decoder.Losses(), []);
+});
+
+test("encodes thinking deltas as reasoning_content chunks with terminal details", () => {
+  const encoder = new ChatCompletionsStreamEncoder();
+  const chunks = [
+    encoder.Apply({
+      type: "message_start",
+      id: "chatcmpl-from-think",
+      model: "o3-mini",
+    }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "Reasoning " },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "text." },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 0 }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 1,
+      block: { type: "text", text: "" },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "text_delta", text: "Answer." },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 1 }),
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 8n,
+        output_tokens: 12n,
+        input_tokens_details: { cached_tokens: 4n },
+        output_tokens_details: { reasoning_tokens: 8n },
+      },
+    }),
+    encoder.Apply({ type: "message_done" }),
+  ];
+  for (const result of chunks) assert.deepEqual(result.losses, []);
+  assert.deepEqual(
+    chunks.flatMap(({ value }) => value),
+    [
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
+      },
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [
+          { index: 0, delta: { reasoning_content: "Reasoning " }, finish_reason: null },
+        ],
+      },
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [
+          { index: 0, delta: { reasoning_content: "text." }, finish_reason: null },
+        ],
+      },
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [{ index: 0, delta: { content: "Answer." }, finish_reason: null }],
+      },
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+        usage: {
+          prompt_tokens: 8n,
+          completion_tokens: 12n,
+          total_tokens: 20n,
+          prompt_tokens_details: { cached_tokens: 4n },
+          completion_tokens_details: { reasoning_tokens: 8n },
+        },
+      },
+    ],
+  );
+});
+
+test("reports each stream signature source exactly once without native chunks", () => {
+  const encoder = new ChatCompletionsStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "chatcmpl-signature",
+    model: "o3-mini",
+  });
+  const started = encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "", signature: "start-sig" },
+  });
+  assert.deepEqual(started.value, []);
+  assert.deepEqual(
+    started.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
+  const signed = encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "delta-sig" },
+  });
+  assert.deepEqual(signed.value, []);
+  assert.deepEqual(
+    signed.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
+  const ended = encoder.Apply({ type: "content_block_stop", index: 0 });
+  assert.deepEqual(ended.value, []);
+  assert.deepEqual(ended.losses, []);
+});
 
 test("exports Chat Completions stream converters from the package root", () => {
   assert.equal(typeof chatcompletions.ChatCompletionsStreamDecoder, "function");

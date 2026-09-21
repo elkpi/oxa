@@ -15,6 +15,7 @@ import type {
   Block,
   ImageBlock,
   Message,
+  ReasoningEffort,
   Request,
   Response,
   ToolChoice,
@@ -130,6 +131,17 @@ export function decodeRequest(
       if (content.length === 0) content = [{ type: "text", text: "" }];
       messages.push({ role, content });
     } else if (role === "assistant") {
+      if (
+        message.reasoning_content !== undefined &&
+        message.reasoning_content !== null
+      ) {
+        const reasoning = string(
+          message.reasoning_content,
+          `messages[${index}].reasoning_content`,
+        );
+        if (reasoning !== "")
+          content = [{ type: "thinking", thinking: reasoning }, ...content];
+      }
       const calls = decodeToolCalls(
         message.tool_calls,
         `messages[${index}].tool_calls`,
@@ -162,6 +174,7 @@ export function decodeRequest(
     ...(wire.stop === undefined
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
+    ...decodeReasoningEffort(wire.reasoning_effort, losses),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -189,6 +202,17 @@ export function decodeResponse(
     "choices[0].message.content",
     losses,
   );
+  if (
+    message.reasoning_content !== undefined &&
+    message.reasoning_content !== null
+  ) {
+    const reasoning = string(
+      message.reasoning_content,
+      "choices[0].message.reasoning_content",
+    );
+    if (reasoning !== "")
+      content = [{ type: "thinking", thinking: reasoning }, ...content];
+  }
   const calls = decodeToolCalls(
     message.tool_calls,
     "choices[0].message.tool_calls",
@@ -236,6 +260,7 @@ export function decodeResponse(
               value.completion_tokens,
               "usage.completion_tokens",
             ),
+            ...decodeUsageDetails(value),
           };
         })();
   return {
@@ -346,6 +371,9 @@ export function encodeRequest(
       params.stop_sequences.length === 0
         ? {}
         : { stop: [...params.stop_sequences] }),
+      ...(params?.reasoning_effort === undefined
+        ? {}
+        : { reasoning_effort: params.reasoning_effort }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -399,6 +427,24 @@ export function encodeResponse(
         total_tokens: integer(
           response.usage.input_tokens + response.usage.output_tokens,
         ),
+        ...(response.usage.input_tokens_details === undefined
+          ? {}
+          : {
+              prompt_tokens_details: {
+                cached_tokens: integer(
+                  response.usage.input_tokens_details.cached_tokens,
+                ),
+              },
+            }),
+        ...(response.usage.output_tokens_details === undefined
+          ? {}
+          : {
+              completion_tokens_details: {
+                reasoning_tokens: integer(
+                  response.usage.output_tokens_details.reasoning_tokens,
+                ),
+              },
+            }),
       },
     },
     losses,
@@ -544,11 +590,18 @@ function encodeAssistant(
   losses: Loss[],
 ): JsonObject {
   let content = "";
+  let reasoning: string | undefined;
   const toolCalls: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
     if (block.type === "text") content += block.text;
-    else if (block.type === "tool_use")
+    else if (block.type === "thinking") {
+      reasoning = block.thinking;
+      if (block.signature !== undefined)
+        losses.push(
+          loss(`${path}[${index}].signature`, "signature", "unmapped-field"),
+        );
+    } else if (block.type === "tool_use")
       toolCalls.push({
         id: block.id,
         type: "function",
@@ -563,6 +616,7 @@ function encodeAssistant(
   return {
     role: "assistant",
     content,
+    ...(reasoning === undefined ? {} : { reasoning_content: reasoning }),
     ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls }),
   };
 }
@@ -639,6 +693,58 @@ function encodeImage(image: ImageBlock): string | undefined {
 
 function loss(path: string, field: string, reason: LossReason): Loss {
   return { path, field, reason };
+}
+
+function decodeReasoningEffort(
+  value: JsonValue | undefined,
+  losses: Loss[],
+): { reasoning_effort?: ReasoningEffort } {
+  if (value === undefined || value === null) return {};
+  const effort = string(value, "reasoning_effort");
+  if (
+    effort === "minimal" ||
+    effort === "low" ||
+    effort === "medium" ||
+    effort === "high"
+  )
+    return { reasoning_effort: effort };
+  losses.push(loss("reasoning_effort", "reasoning_effort", "unmapped-value"));
+  return {};
+}
+
+function decodeUsageDetails(
+  value: JsonObject,
+): Pick<
+  Response["usage"],
+  "input_tokens_details" | "output_tokens_details"
+> {
+  const promptDetails = value.prompt_tokens_details;
+  const completionDetails = value.completion_tokens_details;
+  return {
+    ...(promptDetails === undefined || promptDetails === null
+      ? {}
+      : {
+          input_tokens_details: {
+            cached_tokens: whole(
+              object(promptDetails, "usage.prompt_tokens_details").cached_tokens,
+              "usage.prompt_tokens_details.cached_tokens",
+            ),
+          },
+        }),
+    ...(completionDetails === undefined || completionDetails === null
+      ? {}
+      : {
+          output_tokens_details: {
+            reasoning_tokens: whole(
+              object(
+                completionDetails,
+                "usage.completion_tokens_details",
+              ).reasoning_tokens,
+              "usage.completion_tokens_details.reasoning_tokens",
+            ),
+          },
+        }),
+  };
 }
 
 function optionalArray(

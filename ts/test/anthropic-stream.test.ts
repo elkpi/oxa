@@ -152,6 +152,213 @@ test("decodes anthropic.stream.m7-tool-use-start-input-fallback-to-ir exactly on
   ]);
 });
 
+test("decodes anthropic.stream.m9-thinking-to-ir with thinking and signature deltas", () => {
+  const decoder = new AnthropicStreamDecoder();
+  const actual = [
+    messageStart("msg_think_stream", "claude-3-7-sonnet-20250219"),
+    {
+      type: "content_block_start" as const,
+      index: 0,
+      content_block: { type: "thinking", thinking: "" },
+    },
+    {
+      type: "content_block_delta" as const,
+      index: 0,
+      delta: { type: "thinking_delta", thinking: "Let me " },
+    },
+    {
+      type: "content_block_delta" as const,
+      index: 0,
+      delta: { type: "thinking_delta", thinking: "think." },
+    },
+    {
+      type: "content_block_delta" as const,
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_opaque_token" },
+    },
+    { type: "content_block_stop" as const, index: 0 },
+    {
+      type: "content_block_start" as const,
+      index: 1,
+      content_block: { type: "text", text: "" },
+    },
+    {
+      type: "content_block_delta" as const,
+      index: 1,
+      delta: { type: "text_delta", text: "Result." },
+    },
+    { type: "content_block_stop" as const, index: 1 },
+    ...terminal("end_turn", 10n, 15n),
+  ].flatMap((event) => decoder.Feed(event));
+
+  assert.deepEqual(actual, [
+    { type: "message_start", id: "msg_think_stream", model: "claude-3-7-sonnet-20250219" },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "Let me " },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "think." },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_opaque_token" },
+    },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "content_block_start",
+      index: 1,
+      block: { type: "text", text: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "text_delta", text: "Result." },
+    },
+    { type: "content_block_stop", index: 1 },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: 10n, output_tokens: 15n },
+    },
+    { type: "message_done" },
+  ]);
+  assert.deepEqual(decoder.Flush(), []);
+  assert.deepEqual(decoder.Losses(), []);
+});
+
+test("encodes a full thinking start as an empty placeholder plus synthesized deltas", () => {
+  const encoder = new AnthropicStreamEncoder();
+  const actual = [
+    encoder.Apply({
+      type: "message_start",
+      id: "msg_think_from",
+      model: "claude-3-7-sonnet-20250219",
+    }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "Thinking carefully.", signature: "sig_abc" },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 0 }),
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 10n,
+        output_tokens: 15n,
+        cache_creation_input_tokens: 5n,
+        cache_read_input_tokens: 20n,
+      },
+    }),
+    encoder.Apply({ type: "message_done" }),
+  ].flatMap(({ value }) => value);
+
+  assert.deepEqual(actual, [
+    {
+      type: "message_start",
+      message: {
+        id: "msg_think_from",
+        type: "message",
+        role: "assistant",
+        model: "claude-3-7-sonnet-20250219",
+        content: [],
+        stop_reason: null,
+        usage: { input_tokens: 0n, output_tokens: 0n },
+      },
+    },
+    { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", thinking: "Thinking carefully." },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_abc" },
+    },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "message_delta",
+      delta: { stop_reason: "end_turn" },
+      usage: {
+        input_tokens: 10n,
+        output_tokens: 15n,
+        cache_creation_input_tokens: 5n,
+        cache_read_input_tokens: 20n,
+      },
+    },
+    { type: "message_stop" },
+  ]);
+});
+
+test("keeps supplied thinking deltas and forwards cache usage", () => {
+  const encoder = new AnthropicStreamEncoder();
+  const actual = [
+    encoder.Apply({ type: "message_start", id: "msg_deltas", model: "claude" }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "Intro." },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: " more" },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_deltas" },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 0 }),
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 1n,
+        output_tokens: 2n,
+        cache_read_input_tokens: 9n,
+      },
+    }),
+    encoder.Apply({ type: "message_done" }),
+  ].flatMap(({ value }) => value);
+
+  assert.deepEqual(actual.slice(1, 5), [
+    { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", thinking: " more" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_deltas" },
+    },
+    { type: "content_block_stop", index: 0 },
+  ]);
+  assert.deepEqual(actual.at(-2), {
+    type: "message_delta",
+    delta: { stop_reason: "end_turn" },
+    usage: {
+      input_tokens: 1n,
+      output_tokens: 2n,
+      cache_read_input_tokens: 9n,
+    },
+  });
+});
+
 test("encodes anthropic.stream.m7-tool-use-from-ir with canonical start input", () => {
   const encoder = new AnthropicStreamEncoder();
   const input = [

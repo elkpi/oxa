@@ -19,6 +19,7 @@ import { validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
+  ReasoningEffort,
   Request,
   Response,
   ToolChoice,
@@ -73,6 +74,19 @@ export function decodeRequest(
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
   });
+  let effortValue: ReasoningEffort | undefined;
+  if (wire.thinking !== undefined && wire.thinking !== null) {
+    const thinking = object(wire.thinking, "thinking");
+    const thinkingType = string(thinking.type, "thinking.type");
+    if (thinkingType === "enabled") {
+      const budget = whole(thinking.budget_tokens, "thinking.budget_tokens");
+      effortValue =
+        budget <= 2048n ? "low" : budget <= 8192n ? "medium" : "high";
+      losses.push(
+        loss("thinking.budget_tokens", "budget_tokens", "degraded"),
+      );
+    }
+  }
   const tools = optionalArray(wire.tools, "tools").map((entry, index) => {
     const tool = object(entry, `tools[${index}]`);
     return {
@@ -100,6 +114,7 @@ export function decodeRequest(
       : {
           stop_sequences: strings(wire.stop_sequences, "stop_sequences"),
         }),
+    ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -148,6 +163,22 @@ export function decodeResponse(
       usage: {
         input_tokens: whole(usage.input_tokens, "usage.input_tokens"),
         output_tokens: whole(usage.output_tokens, "usage.output_tokens"),
+        ...(usage.cache_read_input_tokens === undefined
+          ? {}
+          : {
+              cache_read_input_tokens: whole(
+                usage.cache_read_input_tokens,
+                "usage.cache_read_input_tokens",
+              ),
+            }),
+        ...(usage.cache_creation_input_tokens === undefined
+          ? {}
+          : {
+              cache_creation_input_tokens: whole(
+                usage.cache_creation_input_tokens,
+                "usage.cache_creation_input_tokens",
+              ),
+            }),
       },
     },
     losses,
@@ -168,6 +199,24 @@ export function encodeRequest(
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
     losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
+  let thinkingWire: JsonObject | undefined;
+  if (request.params?.reasoning_effort !== undefined) {
+    const budgets = {
+      minimal: 1024n,
+      low: 2048n,
+      medium: 8192n,
+      high: 16384n,
+    } as const;
+    thinkingWire = {
+      type: "enabled",
+      budget_tokens: integer(
+        budgets[request.params.reasoning_effort as ReasoningEffort],
+      ),
+    };
+    losses.push(
+      loss("params.reasoning_effort", "reasoning_effort", "degraded"),
+    );
+  }
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     request.messages.length === 1 &&
@@ -177,7 +226,7 @@ export function encodeRequest(
     role: message.role,
     content: shorthand
       ? (message.content[0] as { readonly text: string }).text
-      : encodeContent(message.content, `messages[${index}].content`, losses),
+      : encodeContent(message.content, `messages[${index}].content`, losses, true),
   }));
   const tools =
     request.tools?.map((tool) => ({
@@ -202,6 +251,7 @@ export function encodeRequest(
             })),
           }),
       messages,
+      ...(thinkingWire === undefined ? {} : { thinking: thinkingWire }),
       ...(params?.temperature === undefined
         ? {}
         : { temperature: fromValue(params.temperature) }),
@@ -238,7 +288,7 @@ export function encodeResponse(
       type: "message",
       role: "assistant",
       model: mapModel(options.modelMapper, response.model),
-      content: encodeContent(response.content, "content", losses),
+      content: encodeContent(response.content, "content", losses, false),
       stop_reason: response.stop_reason,
       ...(response.stop_reason === "stop_sequence" &&
       response.stop_sequence !== undefined
@@ -247,6 +297,20 @@ export function encodeResponse(
       usage: {
         input_tokens: integer(response.usage.input_tokens),
         output_tokens: integer(response.usage.output_tokens),
+        ...(response.usage.cache_read_input_tokens === undefined
+          ? {}
+          : {
+              cache_read_input_tokens: integer(
+                response.usage.cache_read_input_tokens,
+              ),
+            }),
+        ...(response.usage.cache_creation_input_tokens === undefined
+          ? {}
+          : {
+              cache_creation_input_tokens: integer(
+                response.usage.cache_creation_input_tokens,
+              ),
+            }),
       },
     },
     losses,
@@ -288,6 +352,19 @@ function decodeContent(
         losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
         continue;
       }
+    } else if (type === "thinking") {
+      blocks.push({
+        type: "thinking",
+        thinking: string(block.thinking, `${path}[${index}].thinking`),
+        ...(block.signature === undefined
+          ? {}
+          : {
+              signature: nonEmptyString(
+                block.signature,
+                `${path}[${index}].signature`,
+              ),
+            }),
+      });
     } else if (type === "tool_use") {
       const inputPath = `${path}[${index}].input`;
       const input = object(block.input, inputPath);
@@ -336,12 +413,29 @@ function encodeContent(
   blocks: readonly Block[],
   path: string,
   losses: Loss[],
+  replay: boolean,
 ): JsonValue[] {
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
     if (block.type === "text") output.push({ type: "text", text: block.text });
-    else if (block.type === "image") {
+    else if (block.type === "thinking") {
+      output.push({
+        type: "thinking",
+        thinking: block.thinking,
+        ...(block.signature === undefined
+          ? {}
+          : { signature: block.signature }),
+      });
+      if (replay && block.signature === undefined)
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "signature",
+          reason: "degraded",
+          detail:
+            "unsigned thinking block; Anthropic may reject on replay",
+        });
+    } else if (block.type === "image") {
       const image = encodeImage(block);
       if (image === undefined)
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
@@ -387,8 +481,6 @@ function encodeContent(
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       });
-    } else {
-      fail(`content[${index}]: unsupported block type ${block.type}`);
     }
   }
   return output;
@@ -495,6 +587,11 @@ function object(value: JsonValue | undefined, name: string): JsonObject {
 function string(value: JsonValue | undefined, name: string): string {
   if (typeof value !== "string") fail(`${name} must be a string`);
   return value;
+}
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const result = string(value, name);
+  if (result.length === 0) fail(`${name} must not be empty`);
+  return result;
 }
 function boolean(value: JsonValue | undefined, name: string): boolean {
   if (typeof value !== "boolean") fail(`${name} must be a boolean`);

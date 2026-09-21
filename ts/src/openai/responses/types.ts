@@ -4,12 +4,18 @@ export interface ResponsesUsage {
   readonly input_tokens: bigint | JsonNumber;
   readonly output_tokens: bigint | JsonNumber;
   readonly total_tokens: bigint | JsonNumber;
+  readonly input_token_details?: {
+    readonly cached_tokens: bigint | JsonNumber;
+  };
+  readonly output_token_details?: {
+    readonly reasoning_tokens: bigint | JsonNumber;
+  };
 }
 
 export interface ResponsesOutputTextPart {
   readonly type: "output_text";
   readonly text: string;
-  readonly annotations: readonly unknown[];
+  readonly annotations?: readonly unknown[];
 }
 
 /** An opaque content part unsupported by the current Responses profile. */
@@ -28,6 +34,10 @@ export interface ResponsesOutputItem {
   readonly status?: string;
   readonly role?: string;
   readonly content?: readonly ResponsesOutputContentPart[];
+  /** Summary text parts for reasoning output items (N-R-13). */
+  readonly summary?: readonly ResponsesOutputContentPart[];
+  /** Opaque provider integrity token; dropped with an unmapped-field loss. */
+  readonly encrypted_content?: string;
   readonly call_id?: string;
   readonly name?: string;
   /** Opaque JSON text for function_call items. */

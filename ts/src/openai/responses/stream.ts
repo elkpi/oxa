@@ -2,6 +2,7 @@ import { OxaError } from "../../error.js";
 import {
   encodeUsageInteger,
   parseUsageInteger,
+  type Block,
   type Event,
   type StopReason,
   type Usage,
@@ -56,6 +57,9 @@ export class ResponsesStreamDecoder {
   #itemType = "";
   #itemId = "";
   #skippedCallId = "";
+  #reasoningOpen = false;
+  #reasoningSummaryCount = 0;
+  #reasoningSkippedIndex: number | undefined;
   #outputIndex = 0;
   #nextContentIndex = 0;
   #functionCall: FunctionCallState | undefined;
@@ -87,6 +91,14 @@ export class ResponsesStreamDecoder {
         ];
       case "response.output_item.added":
         return this.#itemAdded(event);
+      case "response.reasoning_summary_part.added":
+        return this.#reasoningPartAdded(event);
+      case "response.reasoning_summary_text.delta":
+        return this.#reasoningTextDelta(event);
+      case "response.reasoning_summary_text.done":
+        return this.#reasoningTextDone(event);
+      case "response.reasoning_summary_part.done":
+        return this.#reasoningPartDone(event);
       case "response.function_call_arguments.delta":
         return this.#argumentDelta(event);
       case "response.function_call_arguments.done":
@@ -155,6 +167,12 @@ export class ResponsesStreamDecoder {
     this.#functionCall = undefined;
     if (event.item.type === "message" && event.item.role === "assistant")
       return [];
+    if (event.item.type === "reasoning") {
+      this.#reasoningOpen = true;
+      this.#reasoningSummaryCount = 0;
+      this.#reasoningSkippedIndex = undefined;
+      return [];
+    }
     if (event.item.type === "function_call") {
       const callId = event.item.call_id ?? "";
       const name = event.item.name ?? "";
@@ -179,6 +197,99 @@ export class ResponsesStreamDecoder {
       this.#skippedCallId = event.item.call_id ?? "";
     this.#losses.push(this.#unsupportedItemLoss(index, event.item.type));
     return [];
+  }
+
+  #reasoningPartAdded(event: ResponsesStreamEvent): readonly Event[] {
+    this.#requireReasoningItem(event);
+    const contentIndex = this.#contentIndexOf(event);
+    if (this.#blockOpen || this.#skipped?.kind === "part")
+      this.#lifecycle("reasoning_summary_part.added with a part still open");
+    if (contentIndex !== this.#nextContentIndex)
+      this.#lifecycle(
+        `reasoning_summary_part.added content_index ${contentIndex}, want ${this.#nextContentIndex}`,
+      );
+    if (event.part === undefined)
+      this.#lifecycle("response.reasoning_summary_part.added without part");
+    this.#nextContentIndex += 1;
+    this.#contentIndex = contentIndex;
+    if (event.part.type !== "output_text") {
+      this.#reasoningSkippedIndex = contentIndex;
+      this.#losses.push({
+        path: `output[${this.#outputIndex}].content[${contentIndex}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: `Responses reasoning summary part type ${JSON.stringify(event.part.type)} is not decoded in the Responses stream profile`,
+      });
+      return [];
+    }
+    this.#blockOpen = true;
+    this.#blockIndex = this.#nextBlockIndex;
+    this.#nextBlockIndex += 1;
+    return [
+      {
+        type: "content_block_start",
+        index: this.#blockIndex,
+        block: { type: "thinking", thinking: event.part.text ?? "" },
+      },
+    ];
+  }
+
+  #reasoningTextDelta(event: ResponsesStreamEvent): readonly Event[] {
+    this.#requireReasoningItem(event);
+    const contentIndex = this.#contentIndexOf(event);
+    if (contentIndex === this.#reasoningSkippedIndex) return [];
+    if (!this.#blockOpen || contentIndex !== this.#contentIndex)
+      this.#lifecycle(
+        "reasoning_summary_text.delta does not match the open summary part",
+      );
+    if (event.delta === undefined)
+      this.#lifecycle("response.reasoning_summary_text.delta without delta");
+    return [
+      {
+        type: "content_block_delta",
+        index: this.#blockIndex,
+        delta: { type: "thinking_delta", text: event.delta },
+      },
+    ];
+  }
+
+  #reasoningTextDone(event: ResponsesStreamEvent): readonly Event[] {
+    this.#requireReasoningItem(event);
+    const contentIndex = this.#contentIndexOf(event);
+    if (contentIndex === this.#reasoningSkippedIndex) return [];
+    if (!this.#blockOpen || contentIndex !== this.#contentIndex)
+      this.#lifecycle(
+        "reasoning_summary_text.done does not match the open summary part",
+      );
+    return [];
+  }
+
+  #reasoningPartDone(event: ResponsesStreamEvent): readonly Event[] {
+    this.#requireReasoningItem(event);
+    if (event.part === undefined)
+      this.#lifecycle("response.reasoning_summary_part.done without part");
+    const contentIndex = this.#contentIndexOf(event);
+    if (contentIndex === this.#reasoningSkippedIndex) {
+      this.#reasoningSkippedIndex = undefined;
+      return [];
+    }
+    if (!this.#blockOpen || contentIndex !== this.#contentIndex)
+      this.#lifecycle(
+        "reasoning_summary_part.done does not match the open summary part",
+      );
+    this.#blockOpen = false;
+    this.#reasoningSummaryCount += 1;
+    return [{ type: "content_block_stop", index: this.#blockIndex }];
+  }
+
+  #requireReasoningItem(event: ResponsesStreamEvent): void {
+    this.#requireActiveItem(event);
+    if (!this.#reasoningOpen || this.#itemType !== "reasoning")
+      this.#lifecycle(
+        `${event.type} outside an open reasoning output item`,
+      );
+    if (this.#functionCall !== undefined)
+      this.#lifecycle(`${event.type} on function_call item`);
   }
 
   #argumentDelta(event: ResponsesStreamEvent): readonly Event[] {
@@ -387,6 +498,21 @@ export class ResponsesStreamDecoder {
       ];
       this.#toolUseSeen = true;
     }
+    if (this.#itemType === "reasoning") {
+      if (!this.#reasoningOpen)
+        this.#lifecycle("reasoning item closed without being opened");
+      if (this.#reasoningSummaryCount === 0 && this.#reasoningSkippedIndex === undefined)
+        this.#losses.push({
+          path: `output[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            "Responses reasoning output item with empty summary carries no convertible content",
+        });
+      this.#reasoningOpen = false;
+      this.#reasoningSummaryCount = 0;
+      this.#reasoningSkippedIndex = undefined;
+    }
     this.#itemOpen = false;
     this.#skipped = undefined;
     this.#itemType = "";
@@ -574,6 +700,12 @@ type EncoderItem =
       nextContentIndex: number;
     }
   | {
+      readonly kind: "reasoning";
+      readonly id: string;
+      readonly outputIndex: number;
+      readonly contentIndex: number;
+    }
+  | {
       readonly kind: "function_call";
       readonly id: string;
       readonly outputIndex: number;
@@ -587,6 +719,12 @@ type EncoderBlock =
       readonly index: number;
       readonly contentIndex: number;
       text: string;
+    }
+  | {
+      readonly kind: "thinking";
+      readonly index: number;
+      text: string;
+      signature: string | undefined;
     }
   | {
       readonly kind: "tool";
@@ -607,6 +745,7 @@ export class ResponsesStreamEncoder {
   #nextOutputIndex = 0;
   #nextMessageItem = 0;
   #nextFunctionItem = 0;
+  #nextReasoningItem = 0;
   #activeItem: EncoderItem | undefined;
   #activeBlock: EncoderBlock | undefined;
   readonly #completed: ResponsesOutputItem[] = [];
@@ -655,6 +794,8 @@ export class ResponsesStreamEncoder {
     this.#nextBlockIndex += 1;
     if (event.block.type === "text")
       return this.#startText(event.index, event.block.text);
+    if (event.block.type === "thinking")
+      return this.#startThinking(event.index, event.block);
     if (event.block.type === "tool_use")
       return this.#startTool(
         event.index,
@@ -663,6 +804,54 @@ export class ResponsesStreamEncoder {
         event.block.input,
       );
     this.#lifecycle(`unsupported content block ${event.block.type}`);
+  }
+
+  #startThinking(
+    index: number,
+    block: Extract<Block, { type: "thinking" }>,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined) {
+      if (this.#activeItem.kind !== "message")
+        this.#lifecycle(
+          "thinking block cannot open before the active item completes",
+        );
+      events.push(this.#closeMessageItem());
+    }
+    const ordinal = this.#nextReasoningItem++;
+    const item: Extract<EncoderItem, { kind: "reasoning" }> = {
+      kind: "reasoning",
+      id: this.#generatedId("rs", ordinal),
+      outputIndex: this.#nextOutputIndex++,
+      contentIndex: 0,
+    };
+    this.#activeItem = item;
+    this.#activeBlock = {
+      kind: "thinking",
+      index,
+      text: block.thinking,
+      signature: block.signature,
+    };
+    const part: ResponsesOutputTextPart = {
+      type: "output_text",
+      text: block.thinking,
+      annotations: [],
+    };
+    events.push(
+      {
+        type: "response.output_item.added",
+        output_index: item.outputIndex,
+        item: { type: "reasoning", id: item.id, status: "in_progress" },
+      },
+      {
+        type: "response.reasoning_summary_part.added",
+        item_id: item.id,
+        output_index: item.outputIndex,
+        content_index: item.contentIndex,
+        part,
+      },
+    );
+    return this.#result(events);
   }
 
   #startText(
@@ -766,6 +955,38 @@ export class ResponsesStreamEncoder {
         },
       ]);
     }
+    if (this.#activeBlock.kind === "thinking") {
+      if (event.delta.type === "thinking_delta") {
+        this.#activeBlock.text += event.delta.text;
+        if (this.#activeItem.kind !== "reasoning")
+          this.#lifecycle("thinking block has non-reasoning item");
+        return this.#result([
+          {
+            type: "response.reasoning_summary_text.delta",
+            item_id: this.#activeItem.id,
+            output_index: this.#activeItem.outputIndex,
+            content_index: this.#activeItem.contentIndex,
+            delta: event.delta.text,
+          },
+        ]);
+      }
+      if (event.delta.type === "signature_delta") {
+        this.#activeBlock.signature = undefined;
+        return {
+          value: [],
+          losses: [
+            {
+              path: `events[${event.index}].signature`,
+              field: "signature",
+              reason: "unmapped-field",
+              detail:
+                "Responses reasoning summaries have no signature field; the opaque signature delta is lost",
+            },
+          ],
+        };
+      }
+      this.#lifecycle("thinking block received non-thinking delta");
+    }
     if (event.delta.type !== "input_json_delta")
       this.#lifecycle("tool block received non-input-json delta");
     if (this.#activeItem.kind !== "function_call")
@@ -788,7 +1009,58 @@ export class ResponsesStreamEncoder {
     if (this.#activeItem === undefined)
       this.#lifecycle("content block has no active item");
     if (this.#activeBlock.kind === "text") return this.#stopText();
+    if (this.#activeBlock.kind === "thinking") return this.#stopThinking();
     return this.#stopTool();
+  }
+
+  #stopThinking(): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (
+      this.#activeBlock?.kind !== "thinking" ||
+      this.#activeItem?.kind !== "reasoning"
+    )
+      this.#lifecycle("thinking block without active reasoning item");
+    const block = this.#activeBlock;
+    const item = this.#activeItem;
+    const part: ResponsesOutputTextPart = {
+      type: "output_text",
+      text: block.text,
+      annotations: [],
+    };
+    const completed: ResponsesOutputItem = {
+      type: "reasoning",
+      id: item.id,
+      status: "completed",
+      summary: [part],
+    };
+    const losses: Loss[] = [];
+    if (block.signature !== undefined)
+      losses.push({
+        path: `events[${block.index}].signature`,
+        field: "signature",
+        reason: "unmapped-field",
+        detail:
+          "Responses reasoning summaries have no signature field; the opaque ThinkingBlock signature is lost",
+      });
+    this.#completed.push(completed);
+    this.#activeBlock = undefined;
+    this.#activeItem = undefined;
+    return {
+      value: [
+        {
+          type: "response.reasoning_summary_part.done",
+          item_id: item.id,
+          output_index: item.outputIndex,
+          content_index: item.contentIndex,
+          part,
+        },
+        {
+          type: "response.output_item.done",
+          output_index: item.outputIndex,
+          item: completed,
+        },
+      ],
+      losses,
+    };
   }
 
   #stopText(): ConversionResult<readonly ResponsesStreamEvent[]> {
@@ -1003,6 +1275,26 @@ export class ResponsesStreamEncoder {
               usage.output_tokens,
               "usage.output_tokens",
             ),
+            ...(usage.input_tokens_details === undefined
+              ? {}
+              : {
+                  input_token_details: {
+                    cached_tokens: encodeUsageInteger(
+                      usage.input_tokens_details.cached_tokens,
+                      "usage.input_tokens_details.cached_tokens",
+                    ),
+                  },
+                }),
+            ...(usage.output_tokens_details === undefined
+              ? {}
+              : {
+                  output_token_details: {
+                    reasoning_tokens: encodeUsageInteger(
+                      usage.output_tokens_details.reasoning_tokens,
+                      "usage.output_tokens_details.reasoning_tokens",
+                    ),
+                  },
+                }),
           };
     return {
       id: this.#id,
@@ -1018,6 +1310,16 @@ export class ResponsesStreamEncoder {
               output_tokens: encodedUsage.output_tokens,
               total_tokens:
                 encodedUsage.input_tokens + encodedUsage.output_tokens,
+              ...(encodedUsage.input_token_details === undefined
+                ? {}
+                : {
+                    input_token_details: encodedUsage.input_token_details,
+                  }),
+              ...(encodedUsage.output_token_details === undefined
+                ? {}
+                : {
+                    output_token_details: encodedUsage.output_token_details,
+                  }),
             },
           }),
     };

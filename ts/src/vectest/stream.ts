@@ -3,11 +3,17 @@ import {
   type Block,
   type EventStream,
   type MessageDelta,
+  type Usage,
 } from "../ir/index.js";
 
 interface NormalizedTextBlock {
   readonly type: "text";
   readonly text: string;
+}
+interface NormalizedThinkingBlock {
+  readonly type: "thinking";
+  readonly thinking: string;
+  readonly signature?: string;
 }
 interface NormalizedToolUseBlock {
   readonly type: "tool_use";
@@ -15,7 +21,10 @@ interface NormalizedToolUseBlock {
   readonly name: string;
   readonly input: string;
 }
-type NormalizedBlock = NormalizedTextBlock | NormalizedToolUseBlock;
+type NormalizedBlock =
+  | NormalizedTextBlock
+  | NormalizedThinkingBlock
+  | NormalizedToolUseBlock;
 interface NormalizedStream {
   readonly id: string;
   readonly model: string;
@@ -42,9 +51,22 @@ export function compareStreams(
     return "stop reason differs";
   if (left.terminal.stop_sequence !== right.terminal.stop_sequence)
     return "stop sequence differs";
+  const usageDifference = compareUsage(left.terminal.usage, right.terminal.usage);
+  if (usageDifference !== undefined) return usageDifference;
+  return undefined;
+}
+
+function compareUsage(expected: Usage, actual: Usage): string | undefined {
   if (
-    left.terminal.usage.input_tokens !== right.terminal.usage.input_tokens ||
-    left.terminal.usage.output_tokens !== right.terminal.usage.output_tokens
+    expected.input_tokens !== actual.input_tokens ||
+    expected.output_tokens !== actual.output_tokens ||
+    expected.cache_read_input_tokens !== actual.cache_read_input_tokens ||
+    expected.cache_creation_input_tokens !==
+      actual.cache_creation_input_tokens ||
+    expected.input_tokens_details?.cached_tokens !==
+      actual.input_tokens_details?.cached_tokens ||
+    expected.output_tokens_details?.reasoning_tokens !==
+      actual.output_tokens_details?.reasoning_tokens
   )
     return "usage differs";
   return undefined;
@@ -56,24 +78,46 @@ function normalize(stream: EventStream): NormalizedStream {
   if (start.type !== "message_start")
     throw new Error("checked stream lacks message start");
   const blocks: NormalizedBlock[] = [];
-  let open: { block: Block; text: string } | undefined;
+  let open:
+    | {
+        block: Block;
+        text: string;
+        thinking: string;
+        signature: string | undefined;
+      }
+    | undefined;
   let terminal: MessageDelta | undefined;
   for (const event of stream.events.slice(1)) {
     if (event.type === "content_block_start") {
       open = {
         block: event.block,
         text: event.block.type === "text" ? event.block.text : "",
+        thinking: event.block.type === "thinking" ? event.block.thinking : "",
+        signature:
+          event.block.type === "thinking" ? event.block.signature : undefined,
       };
       continue;
     }
     if (event.type === "content_block_delta") {
       if (event.delta.type === "text_delta") open!.text += event.delta.text;
+      else if (event.delta.type === "thinking_delta")
+        open!.thinking += event.delta.text;
+      else if (event.delta.type === "signature_delta")
+        open!.signature = event.delta.signature;
       continue;
     }
     if (event.type === "content_block_stop") {
       if (open!.block.type === "text")
         blocks.push({ type: "text", text: open!.text });
-      else if (open!.block.type === "tool_use") {
+      else if (open!.block.type === "thinking") {
+        blocks.push({
+          type: "thinking",
+          thinking: open!.thinking,
+          ...(open!.signature === undefined
+            ? {}
+            : { signature: open!.signature }),
+        });
+      } else if (open!.block.type === "tool_use") {
         blocks.push({
           type: "tool_use",
           id: open!.block.id,
@@ -100,6 +144,12 @@ function compareBlock(
   if (expected.type !== actual.type) return "type differs";
   if (expected.type === "text" && actual.type === "text")
     return expected.text === actual.text ? undefined : "text differs";
+  if (expected.type === "thinking" && actual.type === "thinking") {
+    if (expected.thinking !== actual.thinking) return "thinking differs";
+    return expected.signature === actual.signature
+      ? undefined
+      : "thinking signature differs";
+  }
   if (expected.type === "tool_use" && actual.type === "tool_use") {
     if (expected.id !== actual.id) return "tool id differs";
     if (expected.name !== actual.name) return "tool name differs";

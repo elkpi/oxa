@@ -227,6 +227,14 @@ function encodeBlock(block: Block): JsonObject {
   switch (block.type) {
     case "text":
       return { type: "text", text: block.text };
+    case "thinking":
+      return {
+        type: "thinking",
+        thinking: block.thinking,
+        ...(block.signature === undefined
+          ? {}
+          : { signature: block.signature }),
+      };
     case "image":
       return {
         type: "image",
@@ -258,6 +266,14 @@ function decodeBlock(value: JsonValue): Block {
   switch (block.type) {
     case "text":
       return { type: "text", text: string(block.text, "block.text") };
+    case "thinking":
+      return {
+        type: "thinking",
+        thinking: string(block.thinking, "block.thinking"),
+        ...(block.signature === undefined
+          ? {}
+          : { signature: nonEmptyString(block.signature, "block.signature") }),
+      };
     case "image":
       return {
         type: "image",
@@ -307,6 +323,9 @@ function encodeParams(params: Params): JsonObject {
     params.stop_sequences.length === 0
       ? {}
       : { stop_sequences: [...params.stop_sequences] }),
+    ...(params.reasoning_effort === undefined
+      ? {}
+      : { reasoning_effort: params.reasoning_effort }),
   };
 }
 
@@ -334,6 +353,14 @@ function decodeParams(value: JsonValue): Params {
             "params.stop_sequences",
           ).map((entry) => string(entry, "params.stop_sequences[]")),
         }),
+    ...(params.reasoning_effort === undefined
+      ? {}
+      : {
+          reasoning_effort: reasoningEffort(
+            params.reasoning_effort,
+            "params.reasoning_effort",
+          ),
+        }),
   };
 }
 
@@ -342,7 +369,8 @@ function paramsSet(params: Params): boolean {
     params.temperature !== undefined ||
     params.top_p !== undefined ||
     params.max_tokens !== undefined ||
-    (params.stop_sequences !== undefined && params.stop_sequences.length > 0)
+    (params.stop_sequences !== undefined && params.stop_sequences.length > 0) ||
+    params.reasoning_effort !== undefined
   );
 }
 
@@ -350,7 +378,39 @@ function encodeUsage(usage: Usage): JsonObject {
   return {
     input_tokens: integer(usage.input_tokens),
     output_tokens: integer(usage.output_tokens),
+    ...(usage.cache_read_input_tokens === undefined
+      ? {}
+      : { cache_read_input_tokens: integer(usage.cache_read_input_tokens) }),
+    ...(usage.cache_creation_input_tokens === undefined
+      ? {}
+      : {
+          cache_creation_input_tokens: integer(
+            usage.cache_creation_input_tokens,
+          ),
+        }),
+    ...(usage.input_tokens_details === undefined
+      ? {}
+      : { input_tokens_details: encodeInputTokensDetails(usage.input_tokens_details) }),
+    ...(usage.output_tokens_details === undefined
+      ? {}
+      : {
+          output_tokens_details: encodeOutputTokensDetails(
+            usage.output_tokens_details,
+          ),
+        }),
   };
+}
+
+function encodeInputTokensDetails(
+  details: NonNullable<Usage["input_tokens_details"]>,
+): JsonObject {
+  return { cached_tokens: integer(details.cached_tokens) };
+}
+
+function encodeOutputTokensDetails(
+  details: NonNullable<Usage["output_tokens_details"]>,
+): JsonObject {
+  return { reasoning_tokens: integer(details.reasoning_tokens) };
 }
 
 function decodeUsage(value: JsonValue | undefined): Usage {
@@ -358,6 +418,60 @@ function decodeUsage(value: JsonValue | undefined): Usage {
   return {
     input_tokens: token(usage.input_tokens, "usage.input_tokens"),
     output_tokens: token(usage.output_tokens, "usage.output_tokens"),
+    ...(usage.cache_read_input_tokens === undefined
+      ? {}
+      : {
+          cache_read_input_tokens: token(
+            usage.cache_read_input_tokens,
+            "usage.cache_read_input_tokens",
+          ),
+        }),
+    ...(usage.cache_creation_input_tokens === undefined
+      ? {}
+      : {
+          cache_creation_input_tokens: token(
+            usage.cache_creation_input_tokens,
+            "usage.cache_creation_input_tokens",
+          ),
+        }),
+    ...(usage.input_tokens_details === undefined
+      ? {}
+      : {
+          input_tokens_details: decodeInputTokensDetails(
+            usage.input_tokens_details,
+          ),
+        }),
+    ...(usage.output_tokens_details === undefined
+      ? {}
+      : {
+          output_tokens_details: decodeOutputTokensDetails(
+            usage.output_tokens_details,
+          ),
+        }),
+  };
+}
+
+function decodeInputTokensDetails(
+  value: JsonValue,
+): NonNullable<Usage["input_tokens_details"]> {
+  const details = object(value, "usage.input_tokens_details");
+  return {
+    cached_tokens: token(
+      details.cached_tokens,
+      "usage.input_tokens_details.cached_tokens",
+    ),
+  };
+}
+
+function decodeOutputTokensDetails(
+  value: JsonValue,
+): NonNullable<Usage["output_tokens_details"]> {
+  const details = object(value, "usage.output_tokens_details");
+  return {
+    reasoning_tokens: token(
+      details.reasoning_tokens,
+      "usage.output_tokens_details.reasoning_tokens",
+    ),
   };
 }
 
@@ -375,8 +489,12 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
 
 function documentRoot(document: JsonValue): JsonObject {
   const root = object(document, "IR document");
-  if (root.specVersion !== specVersion) fail("unsupported specVersion");
+  if (!supportedSpecVersion(root.specVersion)) fail("unsupported specVersion");
   return root;
+}
+
+function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
+  return value === "0.1.0" || value === "0.2.0";
 }
 
 function stringRecord(
@@ -393,7 +511,15 @@ function stringRecord(
 function token(value: JsonValue | undefined, name: string): bigint {
   if (!isJsonNumber(value) || !value.isInteger)
     fail(`${name} must be an integer`);
-  return BigInt(value.token);
+  let result: bigint;
+  try {
+    result = BigInt(value.token);
+  } catch {
+    fail(`${name} must be an integer`);
+  }
+  if (result < 0n || result > 9_223_372_036_854_775_807n)
+    fail(`${name} must be a non-negative signed int64 integer`);
+  return result;
 }
 
 function finiteNumber(value: JsonValue | undefined, name: string): number {
@@ -426,6 +552,27 @@ function object(value: JsonValue | undefined, name: string): JsonObject {
 function string(value: JsonValue | undefined, name: string): string {
   if (typeof value !== "string") fail(`${name} must be a string`);
   return value;
+}
+
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const result = string(value, name);
+  if (result.length === 0) fail(`${name} must not be empty`);
+  return result;
+}
+
+function reasoningEffort(
+  value: JsonValue | undefined,
+  name: string,
+): NonNullable<Params["reasoning_effort"]> {
+  const result = string(value, name);
+  if (
+    result !== "minimal" &&
+    result !== "low" &&
+    result !== "medium" &&
+    result !== "high"
+  )
+    fail(`${name} is unsupported`);
+  return result;
 }
 
 function boolean(value: JsonValue | undefined, name: string): boolean {

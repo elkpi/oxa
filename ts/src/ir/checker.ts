@@ -7,7 +7,12 @@ export function assertEventSequence(events: readonly Event[]): void {
     fail("stream must start with message_start");
   let expectedIndex = 0;
   let open:
-    | { readonly index: number; readonly block: Block; partialJson: string }
+    | {
+        readonly index: number;
+        readonly block: Block;
+        partialJson: string;
+        sawSignature: boolean;
+      }
     | undefined;
   let sawTerminal = false;
 
@@ -22,6 +27,17 @@ export function assertEventSequence(events: readonly Event[]): void {
       if (event.type === "content_block_delta") {
         if (event.index !== open.index || !matches(open.block, event.delta))
           fail("delta does not match open block");
+        if (open.block.type === "thinking") {
+          if (event.delta.type === "signature_delta") {
+            if (open.sawSignature) fail("thinking block has multiple signatures");
+            open = { ...open, sawSignature: true };
+          } else if (
+            event.delta.type === "thinking_delta" &&
+            open.sawSignature
+          ) {
+            fail("thinking delta must precede signature delta");
+          }
+        }
         if (event.delta.type === "input_json_delta")
           open = {
             ...open,
@@ -46,7 +62,13 @@ export function assertEventSequence(events: readonly Event[]): void {
     if (event.type === "content_block_start") {
       if (!Number.isInteger(event.index) || event.index !== expectedIndex)
         fail("block indexes must be contiguous");
-      open = { index: event.index, block: event.block, partialJson: "" };
+      open = {
+        index: event.index,
+        block: event.block,
+        partialJson: "",
+        sawSignature:
+          event.block.type === "thinking" && event.block.signature !== undefined,
+      };
       continue;
     }
     if (event.type === "message_delta") {
@@ -61,6 +83,8 @@ export function assertEventSequence(events: readonly Event[]): void {
 function matches(block: Block, delta: Delta): boolean {
   return (
     (block.type === "text" && delta.type === "text_delta") ||
+    (block.type === "thinking" &&
+      (delta.type === "thinking_delta" || delta.type === "signature_delta")) ||
     (block.type === "tool_use" && delta.type === "input_json_delta")
   );
 }

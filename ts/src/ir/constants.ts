@@ -1,6 +1,6 @@
 /** Intermediate Representation (IR) constants (spec/01, spec/02). */
 
-export const SPEC_VERSION = "0.1.0" as const;
+export const SPEC_VERSION = "0.2.0" as const;
 
 // Roles (spec/01 §3.3)
 export const ROLE_USER = "user" as const;
@@ -11,6 +11,7 @@ export const BLOCK_TYPE_TEXT = "text" as const;
 export const BLOCK_TYPE_IMAGE = "image" as const;
 export const BLOCK_TYPE_TOOL_USE = "tool_use" as const;
 export const BLOCK_TYPE_TOOL_RESULT = "tool_result" as const;
+export const BLOCK_TYPE_THINKING = "thinking" as const;
 
 // Tool choice modes (spec/01 §3.6)
 export const TOOL_CHOICE_AUTO = "auto" as const;
@@ -37,6 +38,8 @@ export const EVENT_TYPE_MESSAGE_DONE = "message_done" as const;
 // Streaming delta types (spec/01 §5.2)
 export const DELTA_TYPE_TEXT_DELTA = "text_delta" as const;
 export const DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta" as const;
+export const DELTA_TYPE_THINKING_DELTA = "thinking_delta" as const;
+export const DELTA_TYPE_SIGNATURE_DELTA = "signature_delta" as const;
 
 // Loss reasons (spec/02 §3)
 export const LOSS_UNMAPPED_FIELD = "unmapped-field" as const;

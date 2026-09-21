@@ -26,7 +26,7 @@ export function encodeEventStream(stream: EventStream): JsonObject {
 
 export function decodeEventStream(document: JsonValue): EventStream {
   const root = object(document, "event stream");
-  if (root.specVersion !== specVersion) fail("unsupported specVersion");
+  if (!supportedSpecVersion(root.specVersion)) fail("unsupported specVersion");
   if (!isJsonArray(root.events)) fail("events must be an array");
   const events = root.events.map(decodeEvent);
   assertEventSequence(events);
@@ -112,6 +112,12 @@ function decodeEvent(value: JsonValue): Event {
 
 function encodeBlock(block: Block): JsonObject {
   if (block.type === "text") return { type: "text", text: block.text };
+  if (block.type === "thinking")
+    return {
+      type: "thinking",
+      thinking: block.thinking,
+      ...(block.signature === undefined ? {} : { signature: block.signature }),
+    };
   if (block.type === "tool_use")
     return {
       type: "tool_use",
@@ -128,6 +134,14 @@ function decodeBlock(value: JsonValue | undefined): Block {
   const block = object(value, "block");
   if (block.type === "text")
     return { type: "text", text: string(block.text, "block.text") };
+  if (block.type === "thinking")
+    return {
+      type: "thinking",
+      thinking: string(block.thinking, "block.thinking"),
+      ...(block.signature === undefined
+        ? {}
+        : { signature: nonEmptyString(block.signature, "block.signature") }),
+    };
   if (block.type === "tool_use")
     return {
       type: "tool_use",
@@ -140,6 +154,10 @@ function decodeBlock(value: JsonValue | undefined): Block {
 function encodeDelta(delta: Delta): JsonObject {
   if (delta.type === "text_delta")
     return { type: "text_delta", text: delta.text };
+  if (delta.type === "thinking_delta")
+    return { type: "thinking_delta", text: delta.text };
+  if (delta.type === "signature_delta")
+    return { type: "signature_delta", signature: delta.signature };
   if (delta.type === "input_json_delta")
     return { type: "input_json_delta", partial_json: delta.partial_json };
   throw new OxaError("ir-invariant", "codec does not yet encode delta");
@@ -148,6 +166,16 @@ function decodeDelta(value: JsonValue | undefined): Delta {
   const delta = object(value, "delta");
   if (delta.type === "text_delta")
     return { type: "text_delta", text: string(delta.text, "delta.text") };
+  if (delta.type === "thinking_delta")
+    return {
+      type: "thinking_delta",
+      text: string(delta.text, "delta.text"),
+    };
+  if (delta.type === "signature_delta")
+    return {
+      type: "signature_delta",
+      signature: nonEmptyString(delta.signature, "delta.signature"),
+    };
   if (delta.type === "input_json_delta")
     return {
       type: "input_json_delta",
@@ -162,6 +190,34 @@ function encodeUsage(usage: Usage): JsonObject {
   return {
     input_tokens: integer(usage.input_tokens),
     output_tokens: integer(usage.output_tokens),
+    ...(usage.cache_read_input_tokens === undefined
+      ? {}
+      : { cache_read_input_tokens: integer(usage.cache_read_input_tokens) }),
+    ...(usage.cache_creation_input_tokens === undefined
+      ? {}
+      : {
+          cache_creation_input_tokens: integer(
+            usage.cache_creation_input_tokens,
+          ),
+        }),
+    ...(usage.input_tokens_details === undefined
+      ? {}
+      : {
+          input_tokens_details: {
+            cached_tokens: integer(
+              usage.input_tokens_details.cached_tokens,
+            ),
+          },
+        }),
+    ...(usage.output_tokens_details === undefined
+      ? {}
+      : {
+          output_tokens_details: {
+            reasoning_tokens: integer(
+              usage.output_tokens_details.reasoning_tokens,
+            ),
+          },
+        }),
   };
 }
 function decodeUsage(value: JsonValue | undefined): Usage {
@@ -169,6 +225,46 @@ function decodeUsage(value: JsonValue | undefined): Usage {
   return {
     input_tokens: token(usage.input_tokens, "usage.input_tokens"),
     output_tokens: token(usage.output_tokens, "usage.output_tokens"),
+    ...(usage.cache_read_input_tokens === undefined
+      ? {}
+      : {
+          cache_read_input_tokens: token(
+            usage.cache_read_input_tokens,
+            "usage.cache_read_input_tokens",
+          ),
+        }),
+    ...(usage.cache_creation_input_tokens === undefined
+      ? {}
+      : {
+          cache_creation_input_tokens: token(
+            usage.cache_creation_input_tokens,
+            "usage.cache_creation_input_tokens",
+          ),
+        }),
+    ...(usage.input_tokens_details === undefined
+      ? {}
+      : {
+          input_tokens_details: {
+            cached_tokens: token(
+              object(usage.input_tokens_details, "usage.input_tokens_details")
+                .cached_tokens,
+              "usage.input_tokens_details.cached_tokens",
+            ),
+          },
+        }),
+    ...(usage.output_tokens_details === undefined
+      ? {}
+      : {
+          output_tokens_details: {
+            reasoning_tokens: token(
+              object(
+                usage.output_tokens_details,
+                "usage.output_tokens_details",
+              ).reasoning_tokens,
+              "usage.output_tokens_details.reasoning_tokens",
+            ),
+          },
+        }),
   };
 }
 function index(value: JsonValue | undefined): number {
@@ -180,11 +276,15 @@ function index(value: JsonValue | undefined): number {
 function token(value: JsonValue | undefined, name: string): bigint {
   if (!isJsonNumber(value) || !value.isInteger)
     fail(`${name} must be an integer`);
+  let result: bigint;
   try {
-    return BigInt(value.token);
+    result = BigInt(value.token);
   } catch {
     fail(`${name} must be an integer`);
   }
+  if (result < 0n || result > 9_223_372_036_854_775_807n)
+    fail(`${name} must be a non-negative signed int64 integer`);
+  return result;
 }
 function object(value: JsonValue | undefined, name: string): JsonObject {
   if (
@@ -199,6 +299,14 @@ function object(value: JsonValue | undefined, name: string): JsonObject {
 function string(value: JsonValue | undefined, name: string): string {
   if (typeof value !== "string") fail(`${name} must be a string`);
   return value;
+}
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const result = string(value, name);
+  if (result.length === 0) fail(`${name} must not be empty`);
+  return result;
+}
+function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
+  return value === "0.1.0" || value === "0.2.0";
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", message);

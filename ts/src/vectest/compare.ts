@@ -85,14 +85,31 @@ function compareObject(
   for (let index = 0; index < expectedKeys.length; index += 1) {
     const key = expectedKeys[index]!;
     if (key !== actualKeys[index]) return `${path}: object keys differ`;
-    const difference = compareValue(
-      expected[key]!,
-      actual[key]!,
-      `${path}.${key}`,
-    );
+    const difference =
+      key === "specVersion"
+        ? compareSpecVersion(expected[key]!, actual[key]!, `${path}.${key}`)
+        : compareValue(expected[key]!, actual[key]!, `${path}.${key}`);
     if (difference !== undefined) return difference;
   }
   return undefined;
+}
+
+/**
+ * Transitional equivalence for the Spec 2.0 rollout: baseline vectors pin the
+ * 0.1.0 IR contract while dual-read encoders emit 0.2.0. Mirrors the Go
+ * harness; tighten once every language implements 0.2.0.
+ */
+function compareSpecVersion(
+  expected: JsonValue,
+  actual: JsonValue,
+  path: string,
+): string | undefined {
+  if (
+    (expected === "0.1.0" || expected === "0.2.0") &&
+    (actual === "0.1.0" || actual === "0.2.0")
+  )
+    return undefined;
+  return compareValue(expected, actual, path);
 }
 
 function decimalIdentity(token: string): string {

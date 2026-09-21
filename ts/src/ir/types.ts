@@ -1,7 +1,8 @@
 import type { JsonObject, JsonText } from "../json/index.js";
 
-export const specVersion = "0.1.0";
+export const specVersion = "0.2.0";
 
+export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
 export type StopReason =
   | "end_turn"
   | "max_tokens"
@@ -9,13 +10,28 @@ export type StopReason =
   | "tool_use"
   | "refusal"
   | "other";
+export interface InputTokensDetails {
+  readonly cached_tokens: bigint;
+}
+export interface OutputTokensDetails {
+  readonly reasoning_tokens: bigint;
+}
 export interface Usage {
   readonly input_tokens: bigint;
   readonly output_tokens: bigint;
+  readonly cache_read_input_tokens?: bigint;
+  readonly cache_creation_input_tokens?: bigint;
+  readonly input_tokens_details?: InputTokensDetails;
+  readonly output_tokens_details?: OutputTokensDetails;
 }
 export interface TextBlock {
   readonly type: "text";
   readonly text: string;
+}
+export interface ThinkingBlock {
+  readonly type: "thinking";
+  readonly thinking: string;
+  readonly signature?: string;
 }
 export interface ImageBlock {
   readonly type: "image";
@@ -35,16 +51,33 @@ export interface ToolResultBlock {
   readonly content: readonly Block[];
   readonly is_error?: boolean;
 }
-export type Block = TextBlock | ImageBlock | ToolUseBlock | ToolResultBlock;
+export type Block =
+  | TextBlock
+  | ThinkingBlock
+  | ImageBlock
+  | ToolUseBlock
+  | ToolResultBlock;
 export interface TextDelta {
   readonly type: "text_delta";
   readonly text: string;
+}
+export interface ThinkingDelta {
+  readonly type: "thinking_delta";
+  readonly text: string;
+}
+export interface SignatureDelta {
+  readonly type: "signature_delta";
+  readonly signature: string;
 }
 export interface InputJsonDelta {
   readonly type: "input_json_delta";
   readonly partial_json: JsonText;
 }
-export type Delta = TextDelta | InputJsonDelta;
+export type Delta =
+  | TextDelta
+  | ThinkingDelta
+  | SignatureDelta
+  | InputJsonDelta;
 export interface MessageStart {
   readonly type: "message_start";
   readonly id: string;
@@ -100,6 +133,7 @@ export interface Params {
   readonly top_p?: number;
   readonly max_tokens?: bigint;
   readonly stop_sequences?: readonly string[];
+  readonly reasoning_effort?: ReasoningEffort;
 }
 export interface Request {
   readonly model: string;

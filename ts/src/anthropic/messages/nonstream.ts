@@ -355,7 +355,7 @@ function encodeContent(
         name: block.name,
         input: withSourceText(object(value, inputPath), block.input),
       });
-    } else {
+    } else if (block.type === "tool_result") {
       const content: JsonValue[] = [];
       for (let child = 0; child < block.content.length; child += 1) {
         const nested = block.content[child]!;
@@ -387,6 +387,8 @@ function encodeContent(
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       });
+    } else {
+      fail(`content[${index}]: unsupported block type ${block.type}`);
     }
   }
   return output;

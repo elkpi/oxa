@@ -15,6 +15,7 @@ import type {
   Block,
   ImageBlock,
   Message,
+  ReasoningEffort,
   Request,
   Response,
   ToolChoice,
@@ -30,6 +31,7 @@ export function decodeRequest(
   options: NonstreamOptions = {},
 ): ConversionResult<Request> {
   const losses: Loss[] = [];
+  let effortValue: ReasoningEffort | undefined;
   if (wire.metadata !== undefined)
     losses.push(loss("metadata", "metadata", "unmapped-field"));
   if (wire.text !== undefined) {
@@ -39,8 +41,25 @@ export function decodeRequest(
     if (text.format !== undefined)
       losses.push(loss("text.format", "format", "unmapped-field"));
   }
-  if (wire.reasoning !== undefined)
-    losses.push(loss("reasoning", "reasoning", "unmapped-field"));
+  if (wire.reasoning !== undefined) {
+    const reasoning = object(wire.reasoning, "reasoning");
+    if (reasoning.effort !== undefined && reasoning.effort !== null) {
+      const effort = string(reasoning.effort, "reasoning.effort");
+      if (
+        effort === "minimal" ||
+        effort === "low" ||
+        effort === "medium" ||
+        effort === "high"
+      )
+        effortValue = effort;
+      else
+        losses.push(
+          loss("reasoning.effort", "effort", "unmapped-value"),
+        );
+    }
+    if (reasoning.summary !== undefined)
+      losses.push(loss("reasoning.summary", "summary", "unmapped-field"));
+  }
   if (wire.parallel_tool_calls !== undefined)
     losses.push(
       loss("parallel_tool_calls", "parallel_tool_calls", "unmapped-field"),
@@ -92,8 +111,10 @@ export function decodeRequest(
           : string(item.type, `input[${index}].type`);
       if (
         type === "function_call" ||
+        type === "reasoning" ||
         (type === "message" && item.role === "assistant")
       ) {
+        const thinking: Block[] = [];
         const texts: Block[] = [];
         const calls: Block[] = [];
         while (index < items.length) {
@@ -102,6 +123,23 @@ export function decodeRequest(
             current.type === undefined
               ? "message"
               : string(current.type, `input[${index}].type`);
+          if (currentType === "reasoning") {
+            const summary = array(current.summary, `input[${index}].summary`);
+            for (
+              let partIndex = 0;
+              partIndex < summary.length;
+              partIndex += 1
+            ) {
+              const part = object(summary[partIndex], `input[${index}].summary[${partIndex}]`);
+              if (part.type === "output_text" || part.type === "summary_text") {
+                const text = string(part.text, `input[${index}].summary[${partIndex}].text`);
+                if (text !== "")
+                  thinking.push({ type: "thinking", thinking: text });
+              }
+            }
+            index += 1;
+            continue;
+          }
           if (currentType === "function_call") {
             calls.push({
               type: "tool_use",
@@ -127,8 +165,8 @@ export function decodeRequest(
           );
           index += 1;
         }
-        const content = [...texts, ...calls];
-        messages.push({ role: "assistant", content });
+        const content = [...thinking, ...texts, ...calls];
+        messages.push({ role: "assistant", content: content.length === 0 ? [{ type: "text", text: "" }] : content });
         continue;
       }
       if (type === "function_call_output") {
@@ -195,6 +233,7 @@ export function decodeRequest(
       : {
           max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
+    ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -256,6 +295,50 @@ export function decodeResponse(
           text: string(part.text, `output[${index}].content[${child}].text`),
         });
       }
+    } else if (item.type === "reasoning") {
+      const summary = item.summary;
+      let converted = 0;
+      if (summary !== undefined && summary !== null) {
+        const parts = array(summary, `output[${index}].summary`);
+        for (
+          let partIndex = 0;
+          partIndex < parts.length;
+          partIndex += 1
+        ) {
+          const part = object(parts[partIndex], `output[${index}].summary[${partIndex}]`);
+          if (part.type !== "output_text") {
+            losses.push(
+              loss(
+                `output[${index}].summary[${partIndex}]`,
+                "type",
+                "unsupported-semantic",
+              ),
+            );
+            continue;
+          }
+          texts.push({
+            type: "thinking",
+            thinking: string(part.text, `output[${index}].summary[${partIndex}].text`),
+          });
+          converted += 1;
+        }
+      }
+      if (converted === 0)
+        losses.push({
+          path: `output[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            "Responses reasoning output item with empty summary carries no convertible content",
+        });
+      if (item.encrypted_content !== undefined)
+        losses.push(
+          loss(
+            `output[${index}].encrypted_content`,
+            "encrypted_content",
+            "unmapped-field",
+          ),
+        );
     } else if (item.type === "function_call") {
       calls.push({
         type: "tool_use",
@@ -295,9 +378,33 @@ export function decodeResponse(
       ? { input_tokens: 0n, output_tokens: 0n }
       : (() => {
           const value = object(wire.usage, "usage");
+          const inputDetails = value.input_token_details;
+          const outputDetails = value.output_token_details;
           return {
             input_tokens: whole(value.input_tokens, "usage.input_tokens"),
             output_tokens: whole(value.output_tokens, "usage.output_tokens"),
+            ...(inputDetails === undefined || inputDetails === null
+              ? {}
+              : {
+                  input_tokens_details: {
+                    cached_tokens: whole(
+                      object(inputDetails, "usage.input_token_details")
+                        .cached_tokens,
+                      "usage.input_token_details.cached_tokens",
+                    ),
+                  },
+                }),
+            ...(outputDetails === undefined || outputDetails === null
+              ? {}
+              : {
+                  output_tokens_details: {
+                    reasoning_tokens: whole(
+                      object(outputDetails, "usage.output_token_details")
+                        .reasoning_tokens,
+                      "usage.output_token_details.reasoning_tokens",
+                    ),
+                  },
+                }),
           };
         })();
   return {
@@ -324,17 +431,29 @@ export function encodeRequest(
   )
     losses.push(loss("metadata", "metadata", "unmapped-field"));
   const items: JsonValue[] = [];
+  let requestOrdinal = 0;
   for (let index = 0; index < request.messages.length; index += 1) {
     const message = request.messages[index]!;
     if (message.role === "assistant") {
       let text = "";
       let hasText = false;
+      const thinking: string[] = [];
       const calls: JsonValue[] = [];
       for (let child = 0; child < message.content.length; child += 1) {
         const block = message.content[child]!;
         if (block.type === "text") {
           text += block.text;
           hasText = true;
+        } else if (block.type === "thinking") {
+          thinking.push(block.thinking);
+          if (block.signature !== undefined)
+            losses.push(
+              loss(
+                `messages[${index}].content[${child}].signature`,
+                "signature",
+                "unmapped-field",
+              ),
+            );
         } else if (block.type === "tool_use") {
           calls.push({
             type: "function_call",
@@ -350,6 +469,18 @@ export function encodeRequest(
               "unsupported-semantic",
             ),
           );
+      }
+      if (thinking.length > 0) {
+        requestOrdinal += 1;
+        items.push({
+          type: "reasoning",
+          id: `rs_abc${String(123 + 333 * (requestOrdinal - 1)).padStart(3, "0")}`,
+          summary: thinking.map((entry) => ({
+            type: "output_text",
+            text: entry,
+            annotations: [],
+          })),
+        });
       }
       if (hasText) items.push({ role: "assistant", content: text });
       items.push(...calls);
@@ -397,6 +528,9 @@ export function encodeRequest(
       ...(params?.max_tokens === undefined
         ? {}
         : { max_output_tokens: integer(params.max_tokens) }),
+      ...(params?.reasoning_effort === undefined
+        ? {}
+        : { reasoning: { effort: params.reasoning_effort } }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -411,12 +545,19 @@ export function encodeResponse(
   const losses: Loss[] = [];
   let text = "";
   let hasText = false;
+  const thinking: string[] = [];
   const calls: JsonValue[] = [];
   for (let index = 0; index < response.content.length; index += 1) {
     const block = response.content[index]!;
     if (block.type === "text") {
       text += block.text;
       hasText = true;
+    } else if (block.type === "thinking") {
+      thinking.push(block.thinking);
+      if (block.signature !== undefined)
+        losses.push(
+          loss(`content[${index}].signature`, "signature", "unmapped-field"),
+        );
     } else if (block.type === "tool_use") {
       calls.push({
         type: "function_call",
@@ -430,6 +571,16 @@ export function encodeResponse(
       losses.push(loss(`content[${index}]`, "content", "unsupported-semantic"));
   }
   const output: JsonValue[] = [];
+  if (thinking.length > 0)
+    output.push({
+      type: "reasoning",
+      id: "rs_abc123",
+      summary: thinking.map((entry) => ({
+        type: "output_text",
+        text: entry,
+        annotations: [],
+      })),
+    });
   if (hasText || response.content.length === 0)
     output.push({
       type: "message",
@@ -477,6 +628,24 @@ export function encodeResponse(
         total_tokens: integer(
           response.usage.input_tokens + response.usage.output_tokens,
         ),
+        ...(response.usage.input_tokens_details === undefined
+          ? {}
+          : {
+              input_token_details: {
+                cached_tokens: integer(
+                  response.usage.input_tokens_details.cached_tokens,
+                ),
+              },
+            }),
+        ...(response.usage.output_tokens_details === undefined
+          ? {}
+          : {
+              output_token_details: {
+                reasoning_tokens: integer(
+                  response.usage.output_tokens_details.reasoning_tokens,
+                ),
+              },
+            }),
       },
     },
     losses,

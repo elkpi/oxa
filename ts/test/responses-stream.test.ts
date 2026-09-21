@@ -552,76 +552,341 @@ test("records an identity-less standalone unknown event with an item open", () =
   assert.deepEqual(decoder.Flush(), []);
 });
 
-test("contains unknown descendants of a skipped item in one item loss", () => {
+test("decodes reasoning summary parts into a thinking block with text.done validation", () => {
   const decoder = new ResponsesStreamDecoder();
   const actual = [
-    created("resp_reasoning", "gpt-4o-mini"),
+    created("resp_think_stream", "o3-mini"),
     {
       type: "response.output_item.added" as const,
       output_index: 0,
-      item: {
-        type: "reasoning",
-        id: "reasoning_1",
-        status: "in_progress",
-      },
+      item: { type: "reasoning", id: "rs_1", summary: [] },
     },
     {
       type: "response.reasoning_summary_part.added" as const,
-      item_id: "reasoning_1",
+      item_id: "rs_1",
       output_index: 0,
       content_index: 0,
+      part: { type: "output_text" as const, text: "" },
     },
     {
       type: "response.reasoning_summary_text.delta" as const,
-      item_id: "reasoning_1",
+      item_id: "rs_1",
       output_index: 0,
       content_index: 0,
-      delta: "opaque-reasoning-fragment",
+      delta: "Analyzing...",
+    },
+    {
+      type: "response.reasoning_summary_text.done" as const,
+      item_id: "rs_1",
+      output_index: 0,
+      content_index: 0,
+      text: "Analyzing...",
     },
     {
       type: "response.reasoning_summary_part.done" as const,
-      item_id: "reasoning_1",
+      item_id: "rs_1",
       output_index: 0,
       content_index: 0,
+      part: { type: "output_text" as const, text: "Analyzing..." },
     },
     {
       type: "response.output_item.done" as const,
       output_index: 0,
       item: {
         type: "reasoning",
-        id: "reasoning_1",
-        status: "completed",
+        id: "rs_1",
+        summary: [{ type: "output_text" as const, text: "Analyzing..." }],
       },
     },
     {
       type: "response.completed" as const,
       response: {
-        id: "resp_reasoning",
+        id: "resp_think_stream",
         object: "response",
         status: "completed",
-        model: "gpt-4o-mini",
+        model: "o3-mini",
         output: [],
+        usage: { input_tokens: 10n, output_tokens: 15n, total_tokens: 25n },
       },
     },
   ].flatMap((event) => decoder.Feed(event));
 
   assert.deepEqual(actual, [
-    { type: "message_start", id: "resp_reasoning", model: "gpt-4o-mini" },
+    { type: "message_start", id: "resp_think_stream", model: "o3-mini" },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "Analyzing..." },
+    },
+    { type: "content_block_stop", index: 0 },
     {
       type: "message_delta",
       stop_reason: "end_turn",
-      usage: { input_tokens: 0n, output_tokens: 0n },
+      usage: { input_tokens: 10n, output_tokens: 15n },
     },
     { type: "message_done" },
   ]);
+  assert.deepEqual(decoder.Flush(), []);
+  assert.deepEqual(decoder.Losses(), []);
+});
+
+test("records one loss for a reasoning item closed without summary parts", () => {
+  const decoder = new ResponsesStreamDecoder();
+  [
+    created("resp_empty_reasoning", "o3-mini"),
+    {
+      type: "response.output_item.added" as const,
+      output_index: 0,
+      item: { type: "reasoning", id: "rs_empty", summary: [] },
+    },
+    {
+      type: "response.output_item.done" as const,
+      output_index: 0,
+      item: { type: "reasoning", id: "rs_empty", summary: [] },
+    },
+  ].forEach((event) => decoder.Feed(event));
+
   assert.deepEqual(decoder.Losses(), [
     {
       path: "output[0]",
       field: "type",
       reason: "unsupported-semantic",
-      detail: 'Responses streaming output item type "reasoning" is not decoded',
+      detail:
+        "Responses reasoning output item with empty summary carries no convertible content",
     },
   ]);
+});
+
+test("encodes a thinking stream as a reasoning summary item", () => {
+  const encoder = new ResponsesStreamEncoder();
+  const actual = [
+    encoder.Apply({
+      type: "message_start",
+      id: "resp_think_from",
+      model: "o3-mini",
+    }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "Analyzing..." },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 0 }),
+    encoder.Apply({
+      type: "content_block_start",
+      index: 1,
+      block: { type: "text", text: "" },
+    }),
+    encoder.Apply({
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "text_delta", text: "Done." },
+    }),
+    encoder.Apply({ type: "content_block_stop", index: 1 }),
+    encoder.Apply({
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: {
+        input_tokens: 10n,
+        output_tokens: 15n,
+        input_tokens_details: { cached_tokens: 5n },
+        output_tokens_details: { reasoning_tokens: 10n },
+      },
+    }),
+    encoder.Apply({ type: "message_done" }),
+  ];
+  for (const result of actual) assert.deepEqual(result.losses, []);
+
+  const events = actual.flatMap(({ value }) => value);
+  assert.deepEqual(events, [
+    {
+      type: "response.created",
+      response: {
+        id: "resp_think_from",
+        object: "response",
+        status: "in_progress",
+        model: "o3-mini",
+        output: [],
+      },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 0,
+      item: { type: "reasoning", id: "rs_abc123", status: "in_progress" },
+    },
+    {
+      type: "response.reasoning_summary_part.added",
+      item_id: "rs_abc123",
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_text", text: "", annotations: [] },
+    },
+    {
+      type: "response.reasoning_summary_text.delta",
+      item_id: "rs_abc123",
+      output_index: 0,
+      content_index: 0,
+      delta: "Analyzing...",
+    },
+    {
+      type: "response.reasoning_summary_part.done",
+      item_id: "rs_abc123",
+      output_index: 0,
+      content_index: 0,
+      part: { type: "output_text", text: "Analyzing...", annotations: [] },
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        type: "reasoning",
+        id: "rs_abc123",
+        status: "completed",
+        summary: [{ type: "output_text", text: "Analyzing...", annotations: [] }],
+      },
+    },
+    {
+      type: "response.output_item.added",
+      output_index: 1,
+      item: { type: "message", id: "msg_abc123", status: "in_progress", role: "assistant" },
+    },
+    {
+      type: "response.content_part.added",
+      item_id: "msg_abc123",
+      output_index: 1,
+      content_index: 0,
+      part: { type: "output_text", text: "", annotations: [] },
+    },
+    {
+      type: "response.output_text.delta",
+      item_id: "msg_abc123",
+      output_index: 1,
+      content_index: 0,
+      delta: "Done.",
+    },
+    {
+      type: "response.output_text.done",
+      item_id: "msg_abc123",
+      output_index: 1,
+      content_index: 0,
+      text: "Done.",
+    },
+    {
+      type: "response.content_part.done",
+      item_id: "msg_abc123",
+      output_index: 1,
+      content_index: 0,
+      part: { type: "output_text", text: "Done.", annotations: [] },
+    },
+    {
+      type: "response.output_item.done",
+      output_index: 1,
+      item: {
+        type: "message",
+        id: "msg_abc123",
+        status: "completed",
+        role: "assistant",
+        content: [{ type: "output_text", text: "Done.", annotations: [] }],
+      },
+    },
+    {
+      type: "response.completed",
+      response: {
+        id: "resp_think_from",
+        object: "response",
+        status: "completed",
+        model: "o3-mini",
+        output: [
+          {
+            type: "reasoning",
+            id: "rs_abc123",
+            status: "completed",
+            summary: [
+              { type: "output_text", text: "Analyzing...", annotations: [] },
+            ],
+          },
+          {
+            type: "message",
+            id: "msg_abc123",
+            status: "completed",
+            role: "assistant",
+            content: [{ type: "output_text", text: "Done.", annotations: [] }],
+          },
+        ],
+        usage: {
+          input_tokens: 10n,
+          output_tokens: 15n,
+          total_tokens: 25n,
+          input_token_details: { cached_tokens: 5n },
+          output_token_details: { reasoning_tokens: 10n },
+        },
+      },
+    },
+  ]);
+});
+
+test("reports each stream signature source exactly once for reasoning blocks", () => {
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "resp_signature",
+    model: "o3-mini",
+  });
+  const started = encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "", signature: "start-sig" },
+  });
+  assert.equal(started.losses.length, 0);
+  const signed = encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "delta-sig" },
+  });
+  assert.deepEqual(signed.value, []);
+  assert.deepEqual(
+    signed.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
+  const stopped = encoder.Apply({ type: "content_block_stop", index: 0 });
+  assert.deepEqual(
+    stopped.losses.map(({ field, reason }) => ({ field, reason })),
+    [],
+  );
+
+  const unsigned = new ResponsesStreamEncoder();
+  unsigned.Apply({
+    type: "message_start",
+    id: "resp_signature2",
+    model: "o3-mini",
+  });
+  const cached = unsigned.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "", signature: "cached-sig" },
+  });
+  assert.equal(cached.losses.length, 0);
+  const stoppedCached = unsigned.Apply({
+    type: "content_block_stop",
+    index: 0,
+  });
+  assert.deepEqual(
+    stoppedCached.value.at(-1)?.type,
+    "response.output_item.done",
+  );
+  assert.deepEqual(
+    stoppedCached.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
 });
 
 test("encodes the M7 Responses function call vector with synthesized envelopes", () => {

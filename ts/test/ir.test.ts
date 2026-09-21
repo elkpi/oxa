@@ -4,7 +4,10 @@ import test from "node:test";
 import { OxaError } from "../src/error.js";
 import {
   assertEventSequence,
+  decodeEventStream,
   decodeRequest,
+  encodeEventStream,
+  encodeRequest,
   type Event,
 } from "../src/ir/index.js";
 
@@ -19,6 +22,106 @@ test("IR request decoding rejects empty message content", () => {
     (error: unknown) =>
       error instanceof OxaError && error.code === "invalid-input",
   );
+});
+
+test("emits 0.2.0 while accepting a 0.1.0 IR request", () => {
+  const request = {
+    model: "m",
+    messages: [
+      { role: "user" as const, content: [{ type: "text" as const, text: "hi" }] },
+    ],
+  };
+  assert.deepEqual(decodeRequest({ specVersion: "0.1.0", ...request }), request);
+  assert.equal(encodeRequest(request).specVersion, "0.2.0");
+});
+
+test("round-trips a signed thinking stream and usage details", () => {
+  const stream = {
+    events: [
+      { type: "message_start", id: "m", model: "model" },
+      {
+        type: "content_block_start",
+        index: 0,
+        block: { type: "thinking", thinking: "" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", text: "reason" },
+      },
+      {
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig" },
+      },
+      { type: "content_block_stop", index: 0 },
+      {
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 2n,
+          output_tokens: 3n,
+          input_tokens_details: { cached_tokens: 1n },
+          output_tokens_details: { reasoning_tokens: 2n },
+        },
+      },
+      { type: "message_done" },
+    ],
+  } as const;
+  assert.deepEqual(decodeEventStream(encodeEventStream(stream)), stream);
+});
+
+test("rejects a thinking delta after its signature", () => {
+  const events = [
+    { type: "message_start", id: "m", model: "model" },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "late" },
+    },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0n, output_tokens: 0n },
+    },
+    { type: "message_done" },
+  ] as const;
+  assert.throws(() => assertEventSequence(events), { code: "ir-invariant" });
+});
+
+test("rejects a signature delta after a thinking block signature", () => {
+  const events = [
+    { type: "message_start", id: "m", model: "model" },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "", signature: "first" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "second" },
+    },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "message_delta",
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0n, output_tokens: 0n },
+    },
+    { type: "message_done" },
+  ] as const;
+  assert.throws(() => assertEventSequence(events), { code: "ir-invariant" });
 });
 
 test("rejects a delta before its block start", () => {
@@ -63,7 +166,6 @@ test("accepts contiguous text block events", () => {
   assert.doesNotThrow(() => assertEventSequence(events));
 });
 
-import { decodeEventStream, encodeEventStream } from "../src/ir/index.js";
 import { jsonText, stringifyJson } from "../src/json/index.js";
 
 test("encodes and decodes an event stream with integer usage tokens", () => {
@@ -82,7 +184,7 @@ test("encodes and decodes an event stream with integer usage tokens", () => {
   const document = encodeEventStream(stream);
   assert.equal(
     stringifyJson(document),
-    '{"specVersion":"0.1.0","events":[{"type":"message_start","id":"m","model":"model"},{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":0}},{"type":"message_done"}]}',
+    '{"specVersion":"0.2.0","events":[{"type":"message_start","id":"m","model":"model"},{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":0}},{"type":"message_done"}]}',
   );
   assert.deepEqual(decodeEventStream(document), stream);
 });

@@ -772,7 +772,7 @@ with wording that names the actual scope:
 The TypeScript implementation validates all 154 golden vectors for Spec 2.0.0, including M7 opaque tool data, M9 thinking/reasoning streams, signatures, reasoning effort, and granular usage accounting.
 ```
 
-In `spec/README.md`, update the current-status sentence to state that Go **and TypeScript** implement the full 154-vector set, while Rust/Python/C++ remain on 130 baseline vectors pending Waves 3–5. Update root `README.md` only if its TypeScript matrix/count is no longer true. Leave every package/repository version and release-status line unchanged.
+In the same `ts/README.md` development block, replace `npm ci` with `npm install`; the package intentionally has no lockfile, so `npm ci` cannot succeed. In `spec/README.md`, update the current-status sentence to state that Go **and TypeScript** implement the full 154-vector set, while Rust/Python/C++ remain on 130 baseline vectors pending Waves 3–5. Update root `README.md` only if its TypeScript matrix/count is no longer true. Leave every package/repository version and release-status line unchanged.
 
 - [ ] **Step 2: Check formatting, types, runtime targets, package contents, and consumers**
 

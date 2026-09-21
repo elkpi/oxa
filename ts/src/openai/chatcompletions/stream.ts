@@ -26,6 +26,7 @@ export interface ChatCompletionsChoice {
 export interface ChatCompletionsDelta {
   readonly role?: string;
   readonly content?: string;
+  readonly reasoning_content?: string;
   readonly tool_calls?: readonly ChatCompletionsToolCallDelta[];
 }
 export interface ChatCompletionsToolCallDelta {
@@ -38,6 +39,12 @@ export interface ChatCompletionsUsage {
   readonly prompt_tokens: bigint | JsonNumber;
   readonly completion_tokens: bigint | JsonNumber;
   readonly total_tokens: bigint | JsonNumber;
+  readonly prompt_tokens_details?: {
+    readonly cached_tokens: bigint | JsonNumber;
+  };
+  readonly completion_tokens_details?: {
+    readonly reasoning_tokens: bigint | JsonNumber;
+  };
 }
 export interface ChatCompletionsStreamDecoderOptions {
   readonly modelMapper?: ModelMapper;
@@ -62,6 +69,8 @@ export class ChatCompletionsStreamDecoder {
   #finishSeen = false;
   #textOpen = false;
   #textIndex = 0;
+  #thinkingOpen = false;
+  #thinkingIndex = 0;
   #nextIrIndex = 0;
   #stopReason: StopReason = "other";
   #usage: Usage = { input_tokens: 0n, output_tokens: 0n };
@@ -87,6 +96,26 @@ export class ChatCompletionsStreamDecoder {
           chunk.usage.completion_tokens,
           "usage.completion_tokens",
         ),
+        ...(chunk.usage.prompt_tokens_details === undefined
+          ? {}
+          : {
+              input_tokens_details: {
+                cached_tokens: parseUsageInteger(
+                  chunk.usage.prompt_tokens_details.cached_tokens,
+                  "usage.prompt_tokens_details.cached_tokens",
+                ),
+              },
+            }),
+        ...(chunk.usage.completion_tokens_details === undefined
+          ? {}
+          : {
+              output_tokens_details: {
+                reasoning_tokens: parseUsageInteger(
+                  chunk.usage.completion_tokens_details.reasoning_tokens,
+                  "usage.completion_tokens_details.reasoning_tokens",
+                ),
+              },
+            }),
       };
     const choice = chunk.choices[0];
     if (choice === undefined) return [];
@@ -108,7 +137,36 @@ export class ChatCompletionsStreamDecoder {
       });
     }
     this.#recordToolCalls(choice.delta.tool_calls ?? []);
+    if (choice.delta.reasoning_content !== undefined) {
+      if (this.#textOpen) {
+        events.push({ type: "content_block_stop", index: this.#textIndex });
+        this.#textOpen = false;
+      }
+      if (!this.#thinkingOpen) {
+        this.#thinkingOpen = true;
+        this.#thinkingIndex = this.#nextIrIndex;
+        this.#nextIrIndex += 1;
+        events.push({
+          type: "content_block_start",
+          index: this.#thinkingIndex,
+          block: { type: "thinking", thinking: "" },
+        });
+      }
+      if (choice.delta.reasoning_content !== "")
+        events.push({
+          type: "content_block_delta",
+          index: this.#thinkingIndex,
+          delta: {
+            type: "thinking_delta",
+            text: choice.delta.reasoning_content,
+          },
+        });
+    }
     if (choice.delta.content !== undefined) {
+      if (this.#thinkingOpen) {
+        events.push({ type: "content_block_stop", index: this.#thinkingIndex });
+        this.#thinkingOpen = false;
+      }
       if (!this.#textOpen) {
         this.#textOpen = true;
         this.#textIndex = this.#nextIrIndex;
@@ -139,6 +197,10 @@ export class ChatCompletionsStreamDecoder {
       this.#lifecycle("stream ended without finish_reason");
     this.#flushed = true;
     const events: Event[] = [];
+    if (this.#thinkingOpen) {
+      events.push({ type: "content_block_stop", index: this.#thinkingIndex });
+      this.#thinkingOpen = false;
+    }
     if (this.#textOpen) {
       events.push({ type: "content_block_stop", index: this.#textIndex });
       this.#textOpen = false;
@@ -264,6 +326,7 @@ export interface ChatCompletionsStreamEncoderOptions {
 
 type EncoderBlock =
   | { readonly kind: "text"; readonly index: number }
+  | { readonly kind: "thinking"; readonly index: number }
   | {
       readonly kind: "tool";
       readonly index: number;
@@ -305,13 +368,11 @@ export class ChatCompletionsStreamEncoder {
         this.#model = mapModel(this.#modelMapper, event.model);
         return this.#result([this.#chunk({ role: "assistant" })]);
       case "content_block_start":
-        this.#startBlock(event);
-        return this.#result([]);
+        return this.#startBlock(event);
       case "content_block_delta":
         return this.#delta(event);
       case "content_block_stop":
-        this.#stopBlock(event.index);
-        return this.#result([]);
+        return this.#stopBlock(event.index);
       case "message_delta":
         return this.#terminal(event.stop_reason, event.usage);
       case "message_done":
@@ -322,7 +383,9 @@ export class ChatCompletionsStreamEncoder {
     }
   }
 
-  #startBlock(event: Extract<Event, { type: "content_block_start" }>): void {
+  #startBlock(
+    event: Extract<Event, { type: "content_block_start" }>,
+  ): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (!this.#started || this.#active !== undefined)
       this.#lifecycle("content_block_start out of grammar order");
     if (event.index !== this.#nextIrIndex)
@@ -333,7 +396,23 @@ export class ChatCompletionsStreamEncoder {
     if (event.block.type === "text") {
       if (this.#toolSeen) this.#orderingDegrade = true;
       this.#active = { kind: "text", index: event.index };
-      return;
+      return this.#result([]);
+    }
+    if (event.block.type === "thinking") {
+      this.#active = { kind: "thinking", index: event.index };
+      if (event.block.signature === undefined) return this.#result([]);
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${event.index}].signature`,
+            field: "signature",
+            reason: "unmapped-field",
+            detail:
+              "Chat Completions reasoning_content has no signature field; the opaque ThinkingBlock signature is lost",
+          },
+        ],
+      };
     }
     if (event.block.type !== "tool_use")
       this.#lifecycle(`unsupported content block ${event.block.type}`);
@@ -350,6 +429,7 @@ export class ChatCompletionsStreamEncoder {
       started: false,
     };
     this.#toolSeen = true;
+    return this.#result([]);
   }
 
   #delta(
@@ -362,6 +442,26 @@ export class ChatCompletionsStreamEncoder {
         this.#lifecycle("text block received non-text delta");
       return this.#result([this.#chunk({ content: event.delta.text })]);
     }
+    if (this.#active.kind === "thinking") {
+      if (event.delta.type === "thinking_delta")
+        return this.#result([
+          this.#chunk({ reasoning_content: event.delta.text }),
+        ]);
+      if (event.delta.type === "signature_delta")
+        return {
+          value: [],
+          losses: [
+            {
+              path: `events[${event.index}].signature`,
+              field: "signature",
+              reason: "unmapped-field",
+              detail:
+                "Chat Completions reasoning_content has no signature field; the opaque signature delta is lost",
+            },
+          ],
+        };
+      this.#lifecycle("thinking block received non-thinking delta");
+    }
     if (event.delta.type !== "input_json_delta")
       this.#lifecycle("tool block received non-input-json delta");
     const fragment = event.delta.partial_json as string;
@@ -370,7 +470,9 @@ export class ChatCompletionsStreamEncoder {
     return this.#result([]);
   }
 
-  #stopBlock(index: number): void {
+  #stopBlock(
+    index: number,
+  ): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (this.#active === undefined || index !== this.#active.index)
       this.#lifecycle("content_block_stop out of grammar order");
     if (this.#active.kind === "tool") {
@@ -384,6 +486,7 @@ export class ChatCompletionsStreamEncoder {
         );
     }
     this.#active = undefined;
+    return this.#result([]);
   }
 
   #terminal(
@@ -423,6 +526,26 @@ export class ChatCompletionsStreamEncoder {
         prompt_tokens: inputTokens,
         completion_tokens: outputTokens,
         total_tokens: inputTokens + outputTokens,
+        ...(usage.input_tokens_details === undefined
+          ? {}
+          : {
+              prompt_tokens_details: {
+                cached_tokens: encodeUsageInteger(
+                  usage.input_tokens_details.cached_tokens,
+                  "usage.input_tokens_details.cached_tokens",
+                ),
+              },
+            }),
+        ...(usage.output_tokens_details === undefined
+          ? {}
+          : {
+              completion_tokens_details: {
+                reasoning_tokens: encodeUsageInteger(
+                  usage.output_tokens_details.reasoning_tokens,
+                  "usage.output_tokens_details.reasoning_tokens",
+                ),
+              },
+            }),
       },
     });
     return { value: chunks, losses };

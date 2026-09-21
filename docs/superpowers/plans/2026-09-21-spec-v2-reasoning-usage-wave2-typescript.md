@@ -71,15 +71,12 @@ Add tests that pin 2.0 emission, 1.0 dual-read, thinking/signature round-trippin
 
 ```ts
 test("emits 0.2.0 while accepting a 0.1.0 IR request", () => {
-  assert.deepEqual(
-    decodeRequest({
-      specVersion: "0.1.0",
-      model: "m",
-      messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
-    }),
-    { model: "m", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }] },
-  );
-  assert.equal(encodeRequest(/* same request */).specVersion, "0.2.0");
+  const request = {
+    model: "m",
+    messages: [{ role: "user" as const, content: [{ type: "text" as const, text: "hi" }] }],
+  };
+  assert.deepEqual(decodeRequest({ specVersion: "0.1.0", ...request }), request);
+  assert.equal(encodeRequest(request).specVersion, "0.2.0");
 });
 
 test("round-trips a signed thinking stream and usage details", () => {
@@ -100,9 +97,13 @@ test("round-trips a signed thinking stream and usage details", () => {
 });
 
 test("rejects a thinking delta after its signature", () => {
-  assert.throws(() => assertEventSequence([/* valid start, signature, then thinking delta */]), {
-    code: "ir-invariant",
-  });
+  const events = [
+    { type: "message_start", id: "m", model: "model" },
+    { type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "late" } },
+  ] as const;
+  assert.throws(() => assertEventSequence(events), { code: "ir-invariant" });
 });
 ```
 
@@ -229,8 +230,14 @@ test("decodes assistant reasoning_content and explicit zero cached tokens", () =
 });
 
 test("encodes a signed thinking block with exactly one signature loss", () => {
-  const encoded = encodeResponse(/* response containing { type: "thinking", thinking: "x", signature: "s" } */);
-  assert.equal(encoded.value.choices[0]?.message.reasoning_content, "x");
+  const encoded = encodeResponse({
+    id: "chat_1", model: "o3-mini",
+    content: [{ type: "thinking", thinking: "plan", signature: "sig" }],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1n, output_tokens: 2n },
+  });
+  const choice = encoded.value.choices as readonly JsonObject[];
+  assert.equal(object(choice[0], "choice").message.reasoning_content, "plan");
   assert.deepEqual(encoded.losses.map(({ field, reason }) => ({ field, reason })), [
     { field: "signature", reason: "unmapped-field" },
   ]);
@@ -238,8 +245,37 @@ test("encodes a signed thinking block with exactly one signature loss", () => {
 
 test("streams reasoning content before text and preserves usage details", () => {
   const decoder = new ChatCompletionsStreamDecoder();
-  // Feed reasoning_content, then content, then the terminal usage chunk.
-  // Expect thinking start/delta/stop, text start/delta, and cached/reasoning details.
+  const actual = [
+    decoder.Feed({
+      id: "chat_1", model: "o3-mini",
+      choices: [{ delta: { role: "assistant", reasoning_content: "plan" }, finish_reason: null }],
+    }),
+    decoder.Feed({
+      id: "chat_1", model: "o3-mini",
+      choices: [{ delta: { content: "answer" }, finish_reason: "stop" }],
+      usage: {
+        prompt_tokens: 5n, completion_tokens: 8n, total_tokens: 13n,
+        prompt_tokens_details: { cached_tokens: 0n },
+        completion_tokens_details: { reasoning_tokens: 3n },
+      },
+    }),
+    decoder.Flush(),
+  ].flat();
+  assert.deepEqual(actual, [
+    { type: "message_start", id: "chat_1", model: "o3-mini" },
+    { type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "plan" } },
+    { type: "content_block_stop", index: 0 },
+    { type: "content_block_start", index: 1, block: { type: "text", text: "" } },
+    { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "answer" } },
+    { type: "content_block_stop", index: 1 },
+    { type: "message_delta", stop_reason: "end_turn", usage: {
+      input_tokens: 5n, output_tokens: 8n,
+      input_tokens_details: { cached_tokens: 0n },
+      output_tokens_details: { reasoning_tokens: 3n },
+    } },
+    { type: "message_done" },
+  ]);
 });
 ```
 
@@ -357,12 +393,51 @@ test("decodes a reasoning output item and reports encrypted content loss", () =>
 });
 
 test("decodes reasoning summary text done as a valid terminal summary event", () => {
-  // Feed created → reasoning item → summary part added → text delta → text done → part done → item done → completed.
-  // Assert thinking start/delta/stop and no unsupported-semantic loss.
+  const decoder = new ResponsesStreamDecoder();
+  const actual = [
+    created("resp_1", "o3-mini"),
+    { type: "response.output_item.added", output_index: 0,
+      item: { type: "reasoning", id: "rs_1", status: "in_progress" } },
+    { type: "response.reasoning_summary_part.added", item_id: "rs_1", output_index: 0,
+      content_index: 0, part: { type: "output_text", text: "", annotations: [] } },
+    { type: "response.reasoning_summary_text.delta", item_id: "rs_1", output_index: 0,
+      content_index: 0, delta: "Analyze" },
+    { type: "response.reasoning_summary_text.done", item_id: "rs_1", output_index: 0,
+      content_index: 0, text: "Analyze" },
+    { type: "response.reasoning_summary_part.done", item_id: "rs_1", output_index: 0,
+      content_index: 0, part: { type: "output_text", text: "Analyze", annotations: [] } },
+    { type: "response.output_item.done", output_index: 0,
+      item: { type: "reasoning", id: "rs_1", status: "completed",
+        summary: [{ type: "output_text", text: "Analyze", annotations: [] }] } },
+    { type: "response.completed", response: {
+      id: "resp_1", object: "response", status: "completed", model: "o3-mini", output: [],
+      usage: { input_tokens: 2n, output_tokens: 3n, total_tokens: 5n },
+    } },
+  ].flatMap((event) => decoder.Feed(event));
+  assert.deepEqual(actual.slice(1, 4), [
+    { type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "Analyze" } },
+    { type: "content_block_stop", index: 0 },
+  ]);
+  assert.deepEqual(decoder.Losses(), []);
 });
 
 test("encodes a thinking stream as a reasoning summary item", () => {
-  // Apply the M9 thinking sequence and assert item/part/delta/done envelopes and terminal usage detail fields.
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "resp_2", model: "o3-mini" });
+  const added = encoder.Apply({
+    type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" },
+  }).value;
+  const delta = encoder.Apply({
+    type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "Analyze" },
+  }).value;
+  const closed = encoder.Apply({ type: "content_block_stop", index: 0 }).value;
+  assert.equal(added[0]?.type, "response.output_item.added");
+  assert.equal(added[1]?.type, "response.reasoning_summary_part.added");
+  assert.equal(delta[0]?.type, "response.reasoning_summary_text.delta");
+  assert.deepEqual(closed.map((event) => event.type), [
+    "response.reasoning_summary_part.done", "response.output_item.done",
+  ]);
 });
 ```
 
@@ -469,14 +544,31 @@ test("maps an Anthropic thinking response block and cache usage", () => {
 });
 
 test("maps reasoning effort to the documented Anthropic budget with degradation", () => {
-  const encoded = encodeRequest(/* request params.reasoning_effort = "medium" */);
-  assert.equal(encoded.value.thinking?.budget_tokens, 8192n);
+  const encoded = encodeRequest({
+    model: "claude", messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    params: { max_tokens: 64n, reasoning_effort: "medium" },
+  });
+  assert.equal(object(encoded.value.thinking, "thinking").budget_tokens, 8192n);
   assert.deepEqual(encoded.losses.map(({ reason }) => reason), ["degraded"]);
 });
 
 test("encodes a full thinking start as an empty native placeholder plus synthesized deltas", () => {
-  // Apply start with thinking/signature and stop without deltas.
-  // Assert native start { type: "thinking", thinking: "" }, then thinking_delta, signature_delta, stop.
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "msg_2", model: "claude" });
+  const start = encoder.Apply({
+    type: "content_block_start", index: 0,
+    block: { type: "thinking", thinking: "consider", signature: "opaque-sig" },
+  }).value;
+  const stop = encoder.Apply({ type: "content_block_stop", index: 0 }).value;
+  assert.deepEqual(start, [{
+    type: "content_block_start", index: 0,
+    content_block: { type: "thinking", thinking: "" },
+  }]);
+  assert.deepEqual(stop, [
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "consider" } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "opaque-sig" } },
+    { type: "content_block_stop", index: 0 },
+  ]);
 });
 ```
 
@@ -546,7 +638,7 @@ git commit -m "feat(ts/anthropic): map thinking blocks, budgets, and cache usage
 
 - **Input scope:** The immutable `vectors/` tree and manifest, Task 1–4 implementations, `ts/src/vectest/`, and new TypeScript vector tests only.
 - **Output artifact:** The TypeScript loader consumes both contract versions and Node tests validate all non-stream and stream vectors, including every M9 from-IR/to-IR vector.
-- **Completion condition:** `npm test` reports 154 shared vectors, all TypeScript vector tests pass, and Go `veccheck` reports no manifest drift.
+- **Completion condition:** The new loader test asserts 154 shared vectors, all TypeScript vector tests pass, and Go `veccheck` reports no manifest drift.
 - **Verification:** `npm test`, `cd ../go && go run ./cmd/veccheck -root .. -check-manifest`, then `python3 scripts/check-constants.py` from repository root.
 - **Timeout/cancel:** Stop after 10 minutes if any failing vector cannot be reduced to its named fixture and corresponding spoke; never edit locked vectors/manifest as a workaround.
 - **Cleanup:** Do not modify `vectors/manifest.json`; remove no vectors; test helper output remains in `dist-test/` only.

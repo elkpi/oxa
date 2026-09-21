@@ -3,12 +3,18 @@ import type { JsonNumber, JsonObject, JsonText } from "../../json/index.js";
 export interface AnthropicUsage {
   readonly input_tokens: bigint | JsonNumber;
   readonly output_tokens: bigint | JsonNumber;
+  readonly cache_read_input_tokens?: bigint | JsonNumber;
+  readonly cache_creation_input_tokens?: bigint | JsonNumber;
 }
 
 /** A native block; opaque text retains tool input source bytes when known. */
 export interface AnthropicContentBlock {
   readonly type: string;
   readonly text?: string;
+  /** Model reasoning text for thinking blocks (N-AN-11). */
+  readonly thinking?: string;
+  /** Opaque provider integrity token; carried verbatim. */
+  readonly signature?: string;
   readonly id?: string;
   readonly name?: string;
   readonly input?: JsonText | JsonObject;
@@ -29,6 +35,10 @@ export interface AnthropicMessageEnvelope {
 export interface AnthropicStreamDelta {
   readonly type?: string;
   readonly text?: string;
+  /** Reasoning fragment for thinking_delta (native field name). */
+  readonly thinking?: string;
+  /** Opaque provider integrity token for signature_delta. */
+  readonly signature?: string;
   readonly partial_json?: string;
   readonly stop_reason?: string;
   readonly stop_sequence?: string | null;

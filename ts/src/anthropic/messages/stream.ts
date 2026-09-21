@@ -33,7 +33,8 @@ export class AnthropicStreamDecoder {
   #nextIrIndex = 0;
   #openNativeIndex: number | undefined;
   #openIrIndex = 0;
-  #openKind: "text" | "tool" | "skipped" | undefined;
+  #openKind: "text" | "thinking" | "tool" | "skipped" | undefined;
+  #thinkingStartSignature: string | undefined;
   #toolId = "";
   #toolName = "";
   #toolStartInput = "";
@@ -132,6 +133,24 @@ export class AnthropicStreamDecoder {
       this.#toolFragments = [];
       return [];
     }
+    if (block.type === "thinking") {
+      this.#openKind = "thinking";
+      this.#openIrIndex = this.#nextIrIndex++;
+      this.#thinkingStartSignature = block.signature;
+      return [
+        {
+          type: "content_block_start",
+          index: this.#openIrIndex,
+          block: {
+            type: "thinking",
+            thinking: block.thinking ?? "",
+            ...(block.signature === undefined
+              ? {}
+              : { signature: block.signature }),
+          },
+        },
+      ];
+    }
     if (block.type !== "text") {
       this.#openKind = "skipped";
       this.#losses.push({
@@ -163,6 +182,33 @@ export class AnthropicStreamDecoder {
         `content_block_delta index ${nativeIndex} does not match the open block`,
       );
     if (this.#openKind === "skipped") return [];
+    if (this.#openKind === "thinking") {
+      if (event.delta.type === "thinking_delta") {
+        if (event.delta.thinking === undefined)
+          this.#lifecycle("thinking_delta without thinking");
+        return [
+          {
+            type: "content_block_delta",
+            index: this.#openIrIndex,
+            delta: { type: "thinking_delta", text: event.delta.thinking },
+          },
+        ];
+      }
+      if (event.delta.type === "signature_delta") {
+        if (event.delta.signature === undefined)
+          this.#lifecycle("signature_delta without signature");
+        this.#thinkingStartSignature = undefined;
+        return [
+          {
+            type: "content_block_delta",
+            index: this.#openIrIndex,
+            delta: { type: "signature_delta", signature: event.delta.signature },
+          },
+        ];
+      }
+      this.#unknownDelta(nativeIndex, event.delta.type);
+      return [];
+    }
     if (this.#openKind === "tool") {
       if (event.delta.type === "text_delta")
         this.#lifecycle("text_delta on tool_use block");
@@ -202,6 +248,11 @@ export class AnthropicStreamDecoder {
     if (this.#openKind === "skipped") {
       this.#clearBlock();
       return [];
+    }
+    if (this.#openKind === "thinking") {
+      const index = this.#openIrIndex;
+      this.#clearBlock();
+      return [{ type: "content_block_stop", index }];
     }
     if (this.#openKind === "text") {
       const index = this.#openIrIndex;
@@ -308,6 +359,22 @@ export class AnthropicStreamDecoder {
         event.usage.output_tokens,
         "usage.output_tokens",
       ),
+      ...(event.usage.cache_read_input_tokens === undefined
+        ? {}
+        : {
+            cache_read_input_tokens: parseUsageInteger(
+              event.usage.cache_read_input_tokens,
+              "usage.cache_read_input_tokens",
+            ),
+          }),
+      ...(event.usage.cache_creation_input_tokens === undefined
+        ? {}
+        : {
+            cache_creation_input_tokens: parseUsageInteger(
+              event.usage.cache_creation_input_tokens,
+              "usage.cache_creation_input_tokens",
+            ),
+          }),
     };
   }
 
@@ -336,6 +403,7 @@ export class AnthropicStreamDecoder {
   #clearBlock(): void {
     this.#openNativeIndex = undefined;
     this.#openKind = undefined;
+    this.#thinkingStartSignature = undefined;
     this.#toolId = "";
     this.#toolName = "";
     this.#toolStartInput = "";
@@ -367,6 +435,14 @@ export interface AnthropicStreamEncoderOptions {
 
 type EncoderBlock =
   | { readonly kind: "text"; readonly index: number }
+  | {
+      readonly kind: "thinking";
+      readonly index: number;
+      thinking: string;
+      signature: string | undefined;
+      sawThinkingDelta: boolean;
+      sawSignatureDelta: boolean;
+    }
   | {
       readonly kind: "tool";
       readonly index: number;
@@ -447,6 +523,23 @@ export class AnthropicStreamEncoder {
         },
       ]);
     }
+    if (event.block.type === "thinking") {
+      this.#openBlock = {
+        kind: "thinking",
+        index: event.index,
+        thinking: event.block.thinking,
+        signature: event.block.signature,
+        sawThinkingDelta: false,
+        sawSignatureDelta: false,
+      };
+      return this.#result([
+        {
+          type: "content_block_start",
+          index: event.index,
+          content_block: { type: "thinking" },
+        },
+      ]);
+    }
     if (event.block.type === "tool_use") {
       if (event.block.id === "" || event.block.name === "")
         this.#lifecycle("tool_use requires nonempty id and name");
@@ -490,6 +583,30 @@ export class AnthropicStreamEncoder {
         },
       ]);
     }
+    if (this.#openBlock.kind === "thinking") {
+      if (event.delta.type === "thinking_delta") {
+        this.#openBlock.sawThinkingDelta = true;
+        return this.#result([
+          {
+            type: "content_block_delta",
+            index: event.index,
+            delta: { type: "thinking_delta", thinking: event.delta.text },
+          },
+        ]);
+      }
+      if (event.delta.type === "signature_delta") {
+        this.#openBlock.sawSignatureDelta = true;
+        this.#openBlock.signature = event.delta.signature;
+        return this.#result([
+          {
+            type: "content_block_delta",
+            index: event.index,
+            delta: { type: "signature_delta", signature: event.delta.signature },
+          },
+        ]);
+      }
+      this.#lifecycle("thinking block received non-thinking delta");
+    }
     if (event.delta.type !== "input_json_delta")
       this.#lifecycle("tool block received non-input-json delta");
     const fragment = event.delta.partial_json as string;
@@ -510,6 +627,24 @@ export class AnthropicStreamEncoder {
     if (block.kind === "text") {
       this.#openBlock = undefined;
       return this.#result([{ type: "content_block_stop", index }]);
+    }
+    if (block.kind === "thinking") {
+      const events: AnthropicStreamEvent[] = [];
+      if (!block.sawThinkingDelta && block.thinking !== "")
+        events.push({
+          type: "content_block_delta",
+          index,
+          delta: { type: "thinking_delta", thinking: block.thinking },
+        });
+      if (!block.sawSignatureDelta && block.signature !== undefined)
+        events.push({
+          type: "content_block_delta",
+          index,
+          delta: { type: "signature_delta", signature: block.signature },
+        });
+      events.push({ type: "content_block_stop", index });
+      this.#openBlock = undefined;
+      return this.#result(events);
     }
     const events: AnthropicStreamEvent[] = [];
     if (block.fragments.length === 0) {
@@ -568,6 +703,22 @@ export class AnthropicStreamEncoder {
         usage: {
           input_tokens: inputTokens,
           output_tokens: outputTokens,
+          ...(event.usage.cache_read_input_tokens === undefined
+            ? {}
+            : {
+                cache_read_input_tokens: encodeUsageInteger(
+                  event.usage.cache_read_input_tokens,
+                  "usage.cache_read_input_tokens",
+                ),
+              }),
+          ...(event.usage.cache_creation_input_tokens === undefined
+            ? {}
+            : {
+                cache_creation_input_tokens: encodeUsageInteger(
+                  event.usage.cache_creation_input_tokens,
+                  "usage.cache_creation_input_tokens",
+                ),
+              }),
         },
       },
     ]);

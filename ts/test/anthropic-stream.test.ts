@@ -240,6 +240,56 @@ test("decodes anthropic.stream.m9-thinking-to-ir with thinking and signature del
   assert.deepEqual(decoder.Losses(), []);
 });
 
+test("rejects thinking deltas after a native signature delta", () => {
+  const decoder = new AnthropicStreamDecoder();
+  decoder.Feed(messageStart("msg_late_thinking", "claude"));
+  decoder.Feed({
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "thinking", thinking: "" },
+  });
+  decoder.Feed({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig" },
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", thinking: "late" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects duplicate native signature deltas", () => {
+  const decoder = new AnthropicStreamDecoder();
+  decoder.Feed(messageStart("msg_duplicate_signature", "claude"));
+  decoder.Feed({
+    type: "content_block_start",
+    index: 0,
+    content_block: { type: "thinking", thinking: "" },
+  });
+  decoder.Feed({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig_1" },
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig_2" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("omits only empty text from Anthropic stream block starts", () => {
   const encoder = new AnthropicStreamEncoder();
   encoder.Apply({
@@ -283,6 +333,60 @@ test("omits only empty text from Anthropic stream block starts", () => {
         content_block: { type: "text", text: "initial" },
       },
     ],
+  );
+});
+
+test("rejects encoder thinking deltas after a signature delta", () => {
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "msg_late_thinking", model: "claude" });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", text: "late" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects duplicate encoder signature deltas", () => {
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "msg_duplicate_signature",
+    model: "claude",
+  });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig_1" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig_2" },
+      }),
+    { code: "stream-lifecycle" },
   );
 });
 

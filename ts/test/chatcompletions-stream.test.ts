@@ -153,6 +153,60 @@ test("streams reasoning content before text and preserves usage details", () => 
   assert.deepEqual(decoder.Losses(), []);
 });
 
+test("rejects thinking deltas after a Chat Completions signature delta", () => {
+  const encoder = new ChatCompletionsStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "chatcmpl_late", model: "o3-mini" });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", text: "late" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects duplicate Chat Completions signature deltas", () => {
+  const encoder = new ChatCompletionsStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "chatcmpl_duplicate_signature",
+    model: "o3-mini",
+  });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig_1" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig_2" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("encodes thinking deltas as reasoning_content chunks with terminal details", () => {
   const encoder = new ChatCompletionsStreamEncoder();
   const chunks = [

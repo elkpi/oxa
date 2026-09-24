@@ -747,6 +747,7 @@ type EncoderBlock =
       readonly index: number;
       text: string;
       signature: string | undefined;
+      sawSignatureDelta: boolean;
     }
   | {
       readonly kind: "tool";
@@ -853,6 +854,7 @@ export class ResponsesStreamEncoder {
       index,
       text: block.thinking,
       signature: block.signature,
+      sawSignatureDelta: false,
     };
     const part: ResponsesOutputTextPart = {
       type: "output_text",
@@ -979,6 +981,8 @@ export class ResponsesStreamEncoder {
     }
     if (this.#activeBlock.kind === "thinking") {
       if (event.delta.type === "thinking_delta") {
+        if (this.#activeBlock.sawSignatureDelta)
+          this.#lifecycle("thinking_delta after signature_delta");
         this.#activeBlock.text += event.delta.text;
         if (this.#activeItem.kind !== "reasoning")
           this.#lifecycle("thinking block has non-reasoning item");
@@ -993,6 +997,9 @@ export class ResponsesStreamEncoder {
         ]);
       }
       if (event.delta.type === "signature_delta") {
+        if (this.#activeBlock.sawSignatureDelta)
+          this.#lifecycle("duplicate signature_delta");
+        this.#activeBlock.sawSignatureDelta = true;
         this.#activeBlock.signature = undefined;
         return {
           value: [],

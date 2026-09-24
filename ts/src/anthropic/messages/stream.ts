@@ -35,6 +35,7 @@ export class AnthropicStreamDecoder {
   #openIrIndex = 0;
   #openKind: "text" | "thinking" | "tool" | "skipped" | undefined;
   #thinkingStartSignature: string | undefined;
+  #thinkingSignatureDeltaSeen = false;
   #toolId = "";
   #toolName = "";
   #toolStartInput = "";
@@ -137,6 +138,7 @@ export class AnthropicStreamDecoder {
       this.#openKind = "thinking";
       this.#openIrIndex = this.#nextIrIndex++;
       this.#thinkingStartSignature = block.signature;
+      this.#thinkingSignatureDeltaSeen = false;
       return [
         {
           type: "content_block_start",
@@ -184,6 +186,8 @@ export class AnthropicStreamDecoder {
     if (this.#openKind === "skipped") return [];
     if (this.#openKind === "thinking") {
       if (event.delta.type === "thinking_delta") {
+        if (this.#thinkingSignatureDeltaSeen)
+          this.#lifecycle("thinking_delta after signature_delta");
         if (event.delta.thinking === undefined)
           this.#lifecycle("thinking_delta without thinking");
         return [
@@ -195,8 +199,11 @@ export class AnthropicStreamDecoder {
         ];
       }
       if (event.delta.type === "signature_delta") {
+        if (this.#thinkingSignatureDeltaSeen)
+          this.#lifecycle("duplicate signature_delta");
         if (event.delta.signature === undefined)
           this.#lifecycle("signature_delta without signature");
+        this.#thinkingSignatureDeltaSeen = true;
         this.#thinkingStartSignature = undefined;
         return [
           {
@@ -407,6 +414,7 @@ export class AnthropicStreamDecoder {
     this.#openNativeIndex = undefined;
     this.#openKind = undefined;
     this.#thinkingStartSignature = undefined;
+    this.#thinkingSignatureDeltaSeen = false;
     this.#toolId = "";
     this.#toolName = "";
     this.#toolStartInput = "";
@@ -591,6 +599,8 @@ export class AnthropicStreamEncoder {
     }
     if (this.#openBlock.kind === "thinking") {
       if (event.delta.type === "thinking_delta") {
+        if (this.#openBlock.sawSignatureDelta)
+          this.#lifecycle("thinking_delta after signature_delta");
         this.#openBlock.sawThinkingDelta = true;
         return this.#result([
           {
@@ -601,6 +611,8 @@ export class AnthropicStreamEncoder {
         ]);
       }
       if (event.delta.type === "signature_delta") {
+        if (this.#openBlock.sawSignatureDelta)
+          this.#lifecycle("duplicate signature_delta");
         this.#openBlock.sawSignatureDelta = true;
         this.#openBlock.signature = event.delta.signature;
         return this.#result([

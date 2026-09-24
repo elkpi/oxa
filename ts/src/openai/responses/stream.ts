@@ -532,18 +532,39 @@ export class ResponsesStreamDecoder {
     const [stopReason, losses] = this.#decodeStatus(event.response);
     this.#losses.push(...losses);
     this.#terminated = true;
+    const nativeUsage = event.response.usage;
     const usage: Usage =
-      event.response.usage === undefined
+      nativeUsage === undefined
         ? { input_tokens: 0n, output_tokens: 0n }
         : {
             input_tokens: parseUsageInteger(
-              event.response.usage.input_tokens,
+              nativeUsage.input_tokens,
               "response.usage.input_tokens",
             ),
             output_tokens: parseUsageInteger(
-              event.response.usage.output_tokens,
+              nativeUsage.output_tokens,
               "response.usage.output_tokens",
             ),
+            ...(nativeUsage.input_token_details === undefined
+              ? {}
+              : {
+                  input_tokens_details: {
+                    cached_tokens: parseUsageInteger(
+                      nativeUsage.input_token_details.cached_tokens,
+                      "response.usage.input_token_details.cached_tokens",
+                    ),
+                  },
+                }),
+            ...(nativeUsage.output_token_details === undefined
+              ? {}
+              : {
+                  output_tokens_details: {
+                    reasoning_tokens: parseUsageInteger(
+                      nativeUsage.output_token_details.reasoning_tokens,
+                      "response.usage.output_token_details.reasoning_tokens",
+                    ),
+                  },
+                }),
           };
     return [
       { type: "message_delta", stop_reason: stopReason, usage },

@@ -1,10 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import {
-  decodeEventStream,
-  type Event,
-} from "../src/ir/index.js";
+import { decodeEventStream, type Event } from "../src/ir/index.js";
 import {
   fromValue,
   isJsonArray,
@@ -86,7 +83,10 @@ interface StreamFaceHarness {
   decodeFeed(event: unknown): readonly Event[];
   decodeFlush(): readonly Event[];
   decodeLosses(): readonly Loss[];
-  encodeApply(event: Event): { value: readonly unknown[]; losses: readonly Loss[] };
+  encodeApply(event: Event): {
+    value: readonly unknown[];
+    losses: readonly Loss[];
+  };
 }
 
 const harnesses: Record<string, () => StreamFaceHarness> = {
@@ -124,10 +124,7 @@ const harnesses: Record<string, () => StreamFaceHarness> = {
 
 function faceOf(name: string): string {
   const face = name.split(".")[0]!;
-  assert.ok(
-    face in harnesses,
-    `${name}: no stream harness for face ${face}`,
-  );
+  assert.ok(face in harnesses, `${name}: no stream harness for face ${face}`);
   return face;
 }
 
@@ -141,7 +138,9 @@ function withVectorName(name: string, run: () => void): void {
 }
 
 test("hydrates nested native indexes without rewriting opaque tool input", () => {
-  const input = parseJson('{"index":1,"nested":[{"content_index":2}]}') as JsonObject;
+  const input = parseJson(
+    '{"index":1,"nested":[{"content_index":2}]}',
+  ) as JsonObject;
   const nativeEvent = {
     choices: [
       {
@@ -156,7 +155,9 @@ test("hydrates nested native indexes without rewriting opaque tool input", () =>
     readonly choices: readonly [
       {
         readonly index: unknown;
-        readonly delta: { readonly tool_calls: readonly [{ readonly index: unknown }] };
+        readonly delta: {
+          readonly tool_calls: readonly [{ readonly index: unknown }];
+        };
         readonly input: unknown;
       },
     ];
@@ -179,56 +180,55 @@ test("runs every stream golden vector through the public converters", () => {
   for (const vector of vectors) {
     withVectorName(vector.name, () => {
       const harness = harnesses[faceOf(vector.name)]!();
-    const input = vector.document.input as JsonObject;
-    const expectedLosses = vector.document
-      .expected_losses as unknown as Loss[];
-    const conversion = vector.document.conversion as string;
+      const input = vector.document.input as JsonObject;
+      const expectedLosses = vector.document
+        .expected_losses as unknown as Loss[];
+      const conversion = vector.document.conversion as string;
 
-    if (conversion === "to-ir") {
-      const nativeEvents = (
-        input.events as readonly unknown[]
-      ).map(hydratePositions);
-      const actual: Event[] = [];
-      for (const event of nativeEvents)
-        actual.push(...harness.decodeFeed(event));
-      actual.push(...harness.decodeFlush());
-      const expectedIr = vector.document.expected_ir as JsonObject;
-      const difference = compareStreams(
-        decodeEventStream(expectedIr),
-        { events: actual },
-      );
-      assert.equal(difference, undefined, vector.name);
-      assert.deepEqual(
-        compareLosses(expectedLosses, harness.decodeLosses()),
-        undefined,
-        vector.name,
-      );
-    } else if (conversion === "from-ir") {
-      const events = decodeEventStream(input).events;
-      const actual: unknown[] = [];
-      const losses: Loss[] = [];
-      for (const event of events) {
-        const result = harness.encodeApply(event);
-        actual.push(...result.value);
-        losses.push(...result.losses);
+      if (conversion === "to-ir") {
+        const nativeEvents = (input.events as readonly unknown[]).map(
+          hydratePositions,
+        );
+        const actual: Event[] = [];
+        for (const event of nativeEvents)
+          actual.push(...harness.decodeFeed(event));
+        actual.push(...harness.decodeFlush());
+        const expectedIr = vector.document.expected_ir as JsonObject;
+        const difference = compareStreams(decodeEventStream(expectedIr), {
+          events: actual,
+        });
+        assert.equal(difference, undefined, vector.name);
+        assert.deepEqual(
+          compareLosses(expectedLosses, harness.decodeLosses()),
+          undefined,
+          vector.name,
+        );
+      } else if (conversion === "from-ir") {
+        const events = decodeEventStream(input).events;
+        const actual: unknown[] = [];
+        const losses: Loss[] = [];
+        for (const event of events) {
+          const result = harness.encodeApply(event);
+          actual.push(...result.value);
+          losses.push(...result.losses);
+        }
+        const expectedOutput = vector.document.expected_output as JsonObject;
+        const actualOutput = {
+          events: fromValue(actual as never),
+        } as unknown as JsonObject;
+        assert.deepEqual(
+          compareJson(expectedOutput, actualOutput),
+          undefined,
+          vector.name,
+        );
+        assert.deepEqual(
+          compareLosses(expectedLosses, losses),
+          undefined,
+          vector.name,
+        );
+      } else {
+        assert.fail(`${vector.name}: unknown conversion ${String(conversion)}`);
       }
-      const expectedOutput = vector.document.expected_output as JsonObject;
-      const actualOutput = {
-        events: fromValue(actual as never),
-      } as unknown as JsonObject;
-      assert.deepEqual(
-        compareJson(expectedOutput, actualOutput),
-        undefined,
-        vector.name,
-      );
-      assert.deepEqual(
-        compareLosses(expectedLosses, losses),
-        undefined,
-        vector.name,
-      );
-    } else {
-      assert.fail(`${vector.name}: unknown conversion ${String(conversion)}`);
-    }
     });
   }
 });

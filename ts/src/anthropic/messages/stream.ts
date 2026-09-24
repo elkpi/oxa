@@ -202,7 +202,10 @@ export class AnthropicStreamDecoder {
           {
             type: "content_block_delta",
             index: this.#openIrIndex,
-            delta: { type: "signature_delta", signature: event.delta.signature },
+            delta: {
+              type: "signature_delta",
+              signature: event.delta.signature,
+            },
           },
         ];
       }
@@ -604,7 +607,10 @@ export class AnthropicStreamEncoder {
           {
             type: "content_block_delta",
             index: event.index,
-            delta: { type: "signature_delta", signature: event.delta.signature },
+            delta: {
+              type: "signature_delta",
+              signature: event.delta.signature,
+            },
           },
         ]);
       }

@@ -82,9 +82,7 @@ export function decodeRequest(
       const budget = whole(thinking.budget_tokens, "thinking.budget_tokens");
       effortValue =
         budget <= 2048n ? "low" : budget <= 8192n ? "medium" : "high";
-      losses.push(
-        loss("thinking.budget_tokens", "budget_tokens", "degraded"),
-      );
+      losses.push(loss("thinking.budget_tokens", "budget_tokens", "degraded"));
     }
   }
   const tools = optionalArray(wire.tools, "tools").map((entry, index) => {
@@ -226,7 +224,12 @@ export function encodeRequest(
     role: message.role,
     content: shorthand
       ? (message.content[0] as { readonly text: string }).text
-      : encodeContent(message.content, `messages[${index}].content`, losses, true),
+      : encodeContent(
+          message.content,
+          `messages[${index}].content`,
+          losses,
+          true,
+        ),
   }));
   const tools =
     request.tools?.map((tool) => ({
@@ -432,8 +435,7 @@ function encodeContent(
           path: `${path}[${index}]`,
           field: "signature",
           reason: "degraded",
-          detail:
-            "unsigned thinking block; Anthropic may reject on replay",
+          detail: "unsigned thinking block; Anthropic may reject on replay",
         });
     } else if (block.type === "image") {
       const image = encodeImage(block);

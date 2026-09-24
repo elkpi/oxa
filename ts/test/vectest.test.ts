@@ -142,13 +142,13 @@ test("finds and loads repository vectors without native JSON coercion", () => {
   const vectors = loadVectors(root);
   assert.equal(vectors.length, 154);
   assert.equal(
-    vectors.filter((vector) => vector.document.spec_version === "0.2.0")
-      .length,
+    vectors.filter((vector) => vector.document.spec_version === "0.2.0").length,
     24,
   );
   assert.ok(
     vectors.some(
-      (vector) => vector.name === "responses.stream.m9-reasoning-summary-from-ir",
+      (vector) =>
+        vector.name === "responses.stream.m9-reasoning-summary-from-ir",
     ),
   );
   assert.ok(

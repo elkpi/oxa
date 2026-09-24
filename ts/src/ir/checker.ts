@@ -30,7 +30,8 @@ export function assertEventSequence(events: readonly Event[]): void {
           fail("delta does not match open block");
         if (open.block.type === "thinking") {
           if (event.delta.type === "signature_delta") {
-            if (open.sawSignature) fail("thinking block has multiple signatures");
+            if (open.sawSignature)
+              fail("thinking block has multiple signatures");
             open = { ...open, sawSignature: true };
           } else if (
             event.delta.type === "thinking_delta" &&

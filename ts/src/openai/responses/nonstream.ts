@@ -52,10 +52,7 @@ export function decodeRequest(
         effort === "high"
       )
         effortValue = effort;
-      else
-        losses.push(
-          loss("reasoning.effort", "effort", "unmapped-value"),
-        );
+      else losses.push(loss("reasoning.effort", "effort", "unmapped-value"));
     }
     if (reasoning.summary !== undefined)
       losses.push(loss("reasoning.summary", "summary", "unmapped-field"));
@@ -130,9 +127,15 @@ export function decodeRequest(
               partIndex < summary.length;
               partIndex += 1
             ) {
-              const part = object(summary[partIndex], `input[${index}].summary[${partIndex}]`);
+              const part = object(
+                summary[partIndex],
+                `input[${index}].summary[${partIndex}]`,
+              );
               if (part.type === "output_text" || part.type === "summary_text") {
-                const text = string(part.text, `input[${index}].summary[${partIndex}].text`);
+                const text = string(
+                  part.text,
+                  `input[${index}].summary[${partIndex}].text`,
+                );
                 if (text !== "")
                   thinking.push({ type: "thinking", thinking: text });
               }
@@ -166,7 +169,11 @@ export function decodeRequest(
           index += 1;
         }
         const content = [...thinking, ...texts, ...calls];
-        messages.push({ role: "assistant", content: content.length === 0 ? [{ type: "text", text: "" }] : content });
+        messages.push({
+          role: "assistant",
+          content:
+            content.length === 0 ? [{ type: "text", text: "" }] : content,
+        });
         continue;
       }
       if (type === "function_call_output") {
@@ -300,12 +307,11 @@ export function decodeResponse(
       let converted = 0;
       if (summary !== undefined && summary !== null) {
         const parts = array(summary, `output[${index}].summary`);
-        for (
-          let partIndex = 0;
-          partIndex < parts.length;
-          partIndex += 1
-        ) {
-          const part = object(parts[partIndex], `output[${index}].summary[${partIndex}]`);
+        for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+          const part = object(
+            parts[partIndex],
+            `output[${index}].summary[${partIndex}]`,
+          );
           if (part.type !== "output_text") {
             losses.push(
               loss(
@@ -318,7 +324,10 @@ export function decodeResponse(
           }
           texts.push({
             type: "thinking",
-            thinking: string(part.text, `output[${index}].summary[${partIndex}].text`),
+            thinking: string(
+              part.text,
+              `output[${index}].summary[${partIndex}].text`,
+            ),
           });
           converted += 1;
         }

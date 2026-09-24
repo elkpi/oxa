@@ -111,9 +111,17 @@ test("maps reasoning effort budgets in both directions with degraded losses", ()
       messages: [{ role: "user", content: "Solve this puzzle." }],
       thinking: { type: "enabled", budget_tokens: integer(budget) },
     });
-    assert.equal(decoded.value.params?.reasoning_effort, effort, `budget ${budget}`);
+    assert.equal(
+      decoded.value.params?.reasoning_effort,
+      effort,
+      `budget ${budget}`,
+    );
     assert.deepEqual(
-      decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+      decoded.losses.map(({ path, field, reason }) => ({
+        path,
+        field,
+        reason,
+      })),
       [
         {
           path: "thinking.budget_tokens",
@@ -135,7 +143,10 @@ test("maps reasoning effort budgets in both directions with degraded losses", ()
     const encoded = encodeRequest({
       model: "claude-3-7-sonnet-20250219",
       messages: [
-        { role: "user", content: [{ type: "text", text: "Solve this puzzle." }] },
+        {
+          role: "user",
+          content: [{ type: "text", text: "Solve this puzzle." }],
+        },
       ],
       params: { max_tokens: 4096n, reasoning_effort: effort },
     });
@@ -145,7 +156,11 @@ test("maps reasoning effort budgets in both directions with degraded losses", ()
       `effort ${effort}`,
     );
     assert.deepEqual(
-      encoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+      encoded.losses.map(({ path, field, reason }) => ({
+        path,
+        field,
+        reason,
+      })),
       [
         {
           path: "params.reasoning_effort",
@@ -178,7 +193,13 @@ test("encodes unsigned request thinking blocks with a degraded signature loss", 
   ]);
   assert.deepEqual(
     encoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
-    [{ path: "messages[1].content[0]", field: "signature", reason: "degraded" }],
+    [
+      {
+        path: "messages[1].content[0]",
+        field: "signature",
+        reason: "degraded",
+      },
+    ],
   );
 });
 

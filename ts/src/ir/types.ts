@@ -73,11 +73,7 @@ export interface InputJsonDelta {
   readonly type: "input_json_delta";
   readonly partial_json: JsonText;
 }
-export type Delta =
-  | TextDelta
-  | ThinkingDelta
-  | SignatureDelta
-  | InputJsonDelta;
+export type Delta = TextDelta | ThinkingDelta | SignatureDelta | InputJsonDelta;
 export interface MessageStart {
   readonly type: "message_start";
   readonly id: string;

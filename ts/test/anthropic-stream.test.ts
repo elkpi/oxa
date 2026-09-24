@@ -192,7 +192,11 @@ test("decodes anthropic.stream.m9-thinking-to-ir with thinking and signature del
   ].flatMap((event) => decoder.Feed(event));
 
   assert.deepEqual(actual, [
-    { type: "message_start", id: "msg_think_stream", model: "claude-3-7-sonnet-20250219" },
+    {
+      type: "message_start",
+      id: "msg_think_stream",
+      model: "claude-3-7-sonnet-20250219",
+    },
     {
       type: "content_block_start",
       index: 0,
@@ -238,7 +242,11 @@ test("decodes anthropic.stream.m9-thinking-to-ir with thinking and signature del
 
 test("omits only empty text from Anthropic stream block starts", () => {
   const encoder = new AnthropicStreamEncoder();
-  encoder.Apply({ type: "message_start", id: "msg_text_start", model: "claude" });
+  encoder.Apply({
+    type: "message_start",
+    id: "msg_text_start",
+    model: "claude",
+  });
 
   assert.deepEqual(
     encoder.Apply({
@@ -246,7 +254,13 @@ test("omits only empty text from Anthropic stream block starts", () => {
       index: 0,
       block: { type: "text", text: "" },
     }).value,
-    [{ type: "content_block_start", index: 0, content_block: { type: "text" } }],
+    [
+      {
+        type: "content_block_start",
+        index: 0,
+        content_block: { type: "text" },
+      },
+    ],
   );
 
   assert.deepEqual(
@@ -262,11 +276,13 @@ test("omits only empty text from Anthropic stream block starts", () => {
       index: 1,
       block: { type: "text", text: "initial" },
     }).value,
-    [{
-      type: "content_block_start",
-      index: 1,
-      content_block: { type: "text", text: "initial" },
-    }],
+    [
+      {
+        type: "content_block_start",
+        index: 1,
+        content_block: { type: "text", text: "initial" },
+      },
+    ],
   );
 });
 
@@ -281,7 +297,11 @@ test("encodes a full thinking start as an empty placeholder plus synthesized del
     encoder.Apply({
       type: "content_block_start",
       index: 0,
-      block: { type: "thinking", thinking: "Thinking carefully.", signature: "sig_abc" },
+      block: {
+        type: "thinking",
+        thinking: "Thinking carefully.",
+        signature: "sig_abc",
+      },
     }),
     encoder.Apply({ type: "content_block_stop", index: 0 }),
     encoder.Apply({
@@ -310,7 +330,11 @@ test("encodes a full thinking start as an empty placeholder plus synthesized del
         usage: { input_tokens: 0n, output_tokens: 0n },
       },
     },
-    { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+    {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "thinking" },
+    },
     {
       type: "content_block_delta",
       index: 0,
@@ -369,7 +393,11 @@ test("keeps supplied thinking deltas and forwards cache usage", () => {
   ].flatMap(({ value }) => value);
 
   assert.deepEqual(actual.slice(1, 5), [
-    { type: "content_block_start", index: 0, content_block: { type: "thinking" } },
+    {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "thinking" },
+    },
     {
       type: "content_block_delta",
       index: 0,

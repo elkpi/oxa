@@ -36,7 +36,13 @@ test("drops an unknown reasoning_effort with exactly one unmapped-value loss", (
   assert.equal(decoded.value.params?.reasoning_effort, undefined);
   assert.deepEqual(
     decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
-    [{ path: "reasoning_effort", field: "reasoning_effort", reason: "unmapped-value" }],
+    [
+      {
+        path: "reasoning_effort",
+        field: "reasoning_effort",
+        reason: "unmapped-value",
+      },
+    ],
   );
 });
 
@@ -59,7 +65,13 @@ test("encodes a signed thinking block with exactly one signature loss", () => {
   assert.equal(message.content, "42 is the answer.");
   assert.deepEqual(
     encoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
-    [{ path: "content[0].signature", field: "signature", reason: "unmapped-field" }],
+    [
+      {
+        path: "content[0].signature",
+        field: "signature",
+        reason: "unmapped-field",
+      },
+    ],
   );
 });
 
@@ -70,13 +82,18 @@ test("streams reasoning content before text and preserves usage details", () => 
       id: "chatcmpl-stream-think",
       model: "o3-mini",
       choices: [
-        { delta: { role: "assistant", reasoning_content: "Pondering " }, finish_reason: null },
+        {
+          delta: { role: "assistant", reasoning_content: "Pondering " },
+          finish_reason: null,
+        },
       ],
     }),
     decoder.Feed({
       id: "chatcmpl-stream-think",
       model: "o3-mini",
-      choices: [{ delta: { reasoning_content: "deeply..." }, finish_reason: null }],
+      choices: [
+        { delta: { reasoning_content: "deeply..." }, finish_reason: null },
+      ],
     }),
     decoder.Feed({
       id: "chatcmpl-stream-think",
@@ -94,12 +111,32 @@ test("streams reasoning content before text and preserves usage details", () => 
   ].flat();
   assert.deepEqual(actual, [
     { type: "message_start", id: "chatcmpl-stream-think", model: "o3-mini" },
-    { type: "content_block_start", index: 0, block: { type: "thinking", thinking: "" } },
-    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "Pondering " } },
-    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", text: "deeply..." } },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: { type: "thinking", thinking: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "Pondering " },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "thinking_delta", text: "deeply..." },
+    },
     { type: "content_block_stop", index: 0 },
-    { type: "content_block_start", index: 1, block: { type: "text", text: "" } },
-    { type: "content_block_delta", index: 1, delta: { type: "text_delta", text: "42." } },
+    {
+      type: "content_block_start",
+      index: 1,
+      block: { type: "text", text: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "text_delta", text: "42." },
+    },
     { type: "content_block_stop", index: 1 },
     {
       type: "message_delta",
@@ -172,15 +209,8 @@ test("encodes thinking deltas as reasoning_content chunks with terminal details"
         object: "chat.completion.chunk",
         created: 0,
         model: "o3-mini",
-        choices: [{ index: 0, delta: { role: "assistant" }, finish_reason: null }],
-      },
-      {
-        id: "chatcmpl-from-think",
-        object: "chat.completion.chunk",
-        created: 0,
-        model: "o3-mini",
         choices: [
-          { index: 0, delta: { reasoning_content: "Reasoning " }, finish_reason: null },
+          { index: 0, delta: { role: "assistant" }, finish_reason: null },
         ],
       },
       {
@@ -189,7 +219,11 @@ test("encodes thinking deltas as reasoning_content chunks with terminal details"
         created: 0,
         model: "o3-mini",
         choices: [
-          { index: 0, delta: { reasoning_content: "text." }, finish_reason: null },
+          {
+            index: 0,
+            delta: { reasoning_content: "Reasoning " },
+            finish_reason: null,
+          },
         ],
       },
       {
@@ -197,7 +231,22 @@ test("encodes thinking deltas as reasoning_content chunks with terminal details"
         object: "chat.completion.chunk",
         created: 0,
         model: "o3-mini",
-        choices: [{ index: 0, delta: { content: "Answer." }, finish_reason: null }],
+        choices: [
+          {
+            index: 0,
+            delta: { reasoning_content: "text." },
+            finish_reason: null,
+          },
+        ],
+      },
+      {
+        id: "chatcmpl-from-think",
+        object: "chat.completion.chunk",
+        created: 0,
+        model: "o3-mini",
+        choices: [
+          { index: 0, delta: { content: "Answer." }, finish_reason: null },
+        ],
       },
       {
         id: "chatcmpl-from-think",

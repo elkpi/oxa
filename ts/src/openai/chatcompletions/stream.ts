@@ -326,7 +326,11 @@ export interface ChatCompletionsStreamEncoderOptions {
 
 type EncoderBlock =
   | { readonly kind: "text"; readonly index: number }
-  | { readonly kind: "thinking"; readonly index: number }
+  | {
+      readonly kind: "thinking";
+      readonly index: number;
+      sawSignatureDelta: boolean;
+    }
   | {
       readonly kind: "tool";
       readonly index: number;
@@ -399,7 +403,11 @@ export class ChatCompletionsStreamEncoder {
       return this.#result([]);
     }
     if (event.block.type === "thinking") {
-      this.#active = { kind: "thinking", index: event.index };
+      this.#active = {
+        kind: "thinking",
+        index: event.index,
+        sawSignatureDelta: false,
+      };
       if (event.block.signature === undefined) return this.#result([]);
       return {
         value: [],
@@ -443,11 +451,17 @@ export class ChatCompletionsStreamEncoder {
       return this.#result([this.#chunk({ content: event.delta.text })]);
     }
     if (this.#active.kind === "thinking") {
-      if (event.delta.type === "thinking_delta")
+      if (event.delta.type === "thinking_delta") {
+        if (this.#active.sawSignatureDelta)
+          this.#lifecycle("thinking_delta after signature_delta");
         return this.#result([
           this.#chunk({ reasoning_content: event.delta.text }),
         ]);
-      if (event.delta.type === "signature_delta")
+      }
+      if (event.delta.type === "signature_delta") {
+        if (this.#active.sawSignatureDelta)
+          this.#lifecycle("duplicate signature_delta");
+        this.#active.sawSignatureDelta = true;
         return {
           value: [],
           losses: [
@@ -460,6 +474,7 @@ export class ChatCompletionsStreamEncoder {
             },
           ],
         };
+      }
       this.#lifecycle("thinking block received non-thinking delta");
     }
     if (event.delta.type !== "input_json_delta")

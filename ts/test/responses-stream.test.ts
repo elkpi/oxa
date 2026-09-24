@@ -700,6 +700,60 @@ test("records one loss for a reasoning item closed without summary parts", () =>
   ]);
 });
 
+test("rejects thinking deltas after a Responses signature delta", () => {
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "resp_late", model: "o3-mini" });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "thinking_delta", text: "late" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects duplicate Responses signature deltas", () => {
+  const encoder = new ResponsesStreamEncoder();
+  encoder.Apply({
+    type: "message_start",
+    id: "resp_duplicate_signature",
+    model: "o3-mini",
+  });
+  encoder.Apply({
+    type: "content_block_start",
+    index: 0,
+    block: { type: "thinking", thinking: "" },
+  });
+  encoder.Apply({
+    type: "content_block_delta",
+    index: 0,
+    delta: { type: "signature_delta", signature: "sig_1" },
+  });
+
+  assert.throws(
+    () =>
+      encoder.Apply({
+        type: "content_block_delta",
+        index: 0,
+        delta: { type: "signature_delta", signature: "sig_2" },
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("encodes a thinking stream as a reasoning summary item", () => {
   const encoder = new ResponsesStreamEncoder();
   const actual = [

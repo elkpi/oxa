@@ -746,7 +746,6 @@ type EncoderBlock =
       readonly kind: "thinking";
       readonly index: number;
       text: string;
-      signature: string | undefined;
       sawSignatureDelta: boolean;
     }
   | {
@@ -834,6 +833,15 @@ export class ResponsesStreamEncoder {
     block: Extract<Block, { type: "thinking" }>,
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
     const events: ResponsesStreamEvent[] = [];
+    const losses: Loss[] = [];
+    if (block.signature !== undefined)
+      losses.push({
+        path: `events[${index}].signature`,
+        field: "signature",
+        reason: "unmapped-field",
+        detail:
+          "Responses reasoning summaries have no signature field; the opaque ThinkingBlock signature is lost",
+      });
     if (this.#activeItem !== undefined) {
       if (this.#activeItem.kind !== "message")
         this.#lifecycle(
@@ -853,7 +861,6 @@ export class ResponsesStreamEncoder {
       kind: "thinking",
       index,
       text: block.thinking,
-      signature: block.signature,
       sawSignatureDelta: false,
     };
     const part: ResponsesOutputTextPart = {
@@ -875,7 +882,7 @@ export class ResponsesStreamEncoder {
         part,
       },
     );
-    return this.#result(events);
+    return { value: events, losses };
   }
 
   #startText(
@@ -1000,7 +1007,6 @@ export class ResponsesStreamEncoder {
         if (this.#activeBlock.sawSignatureDelta)
           this.#lifecycle("duplicate signature_delta");
         this.#activeBlock.sawSignatureDelta = true;
-        this.#activeBlock.signature = undefined;
         return {
           value: [],
           losses: [
@@ -1061,15 +1067,6 @@ export class ResponsesStreamEncoder {
       status: "completed",
       summary: [part],
     };
-    const losses: Loss[] = [];
-    if (block.signature !== undefined)
-      losses.push({
-        path: `events[${block.index}].signature`,
-        field: "signature",
-        reason: "unmapped-field",
-        detail:
-          "Responses reasoning summaries have no signature field; the opaque ThinkingBlock signature is lost",
-      });
     this.#completed.push(completed);
     this.#activeBlock = undefined;
     this.#activeItem = undefined;
@@ -1088,7 +1085,7 @@ export class ResponsesStreamEncoder {
           item: completed,
         },
       ],
-      losses,
+      losses: [],
     };
   }
 

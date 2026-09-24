@@ -945,7 +945,10 @@ test("reports each stream signature source exactly once for reasoning blocks", (
     index: 0,
     block: { type: "thinking", thinking: "", signature: "start-sig" },
   });
-  assert.equal(started.losses.length, 0);
+  assert.deepEqual(
+    started.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
   const signed = encoder.Apply({
     type: "content_block_delta",
     index: 0,
@@ -973,7 +976,10 @@ test("reports each stream signature source exactly once for reasoning blocks", (
     index: 0,
     block: { type: "thinking", thinking: "", signature: "cached-sig" },
   });
-  assert.equal(cached.losses.length, 0);
+  assert.deepEqual(
+    cached.losses.map(({ field, reason }) => ({ field, reason })),
+    [{ field: "signature", reason: "unmapped-field" }],
+  );
   const stoppedCached = unsigned.Apply({
     type: "content_block_stop",
     index: 0,
@@ -982,10 +988,7 @@ test("reports each stream signature source exactly once for reasoning blocks", (
     stoppedCached.value.at(-1)?.type,
     "response.output_item.done",
   );
-  assert.deepEqual(
-    stoppedCached.losses.map(({ field, reason }) => ({ field, reason })),
-    [{ field: "signature", reason: "unmapped-field" }],
-  );
+  assert.deepEqual(stoppedCached.losses, []);
 });
 
 test("encodes the M7 Responses function call vector with synthesized envelopes", () => {

@@ -201,10 +201,7 @@ test("encodes request reasoning effort and thinking input items", () => {
 });
 
 test("rejects negative and out-of-range Responses usage details", () => {
-  const invalidValues = [
-    integer(-1n),
-    integer(9_223_372_036_854_775_808n),
-  ];
+  const invalidValues = [integer(-1n), integer(9_223_372_036_854_775_808n)];
   for (const value of invalidValues) {
     for (const usageDetail of [
       { input_token_details: { cached_tokens: value } },

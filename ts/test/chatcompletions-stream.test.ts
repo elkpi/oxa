@@ -155,7 +155,11 @@ test("streams reasoning content before text and preserves usage details", () => 
 
 test("rejects thinking deltas after a Chat Completions signature delta", () => {
   const encoder = new ChatCompletionsStreamEncoder();
-  encoder.Apply({ type: "message_start", id: "chatcmpl_late", model: "o3-mini" });
+  encoder.Apply({
+    type: "message_start",
+    id: "chatcmpl_late",
+    model: "o3-mini",
+  });
   encoder.Apply({
     type: "content_block_start",
     index: 0,

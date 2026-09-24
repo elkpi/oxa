@@ -116,6 +116,29 @@ test("decodes reasoning input items into assistant thinking blocks", () => {
   assert.deepEqual(decoded.losses, []);
 });
 
+test("accepts reasoning request items with absent or empty summaries", () => {
+  const summaries = [undefined, []] as const;
+  for (const summary of summaries) {
+    const decoded = decodeRequest({
+      model: "o3-mini",
+      input: [
+        { type: "message", role: "user", content: "question" },
+        {
+          type: "reasoning",
+          id: "rs_empty",
+          ...(summary === undefined ? {} : { summary }),
+        },
+        { type: "message", role: "assistant", content: "answer" },
+      ],
+    });
+
+    assert.deepEqual(decoded.value.messages[1]?.content, [
+      { type: "text", text: "answer" },
+    ]);
+    assert.deepEqual(decoded.losses, []);
+  }
+});
+
 test("encodes thinking blocks as reasoning items and reports signature loss", () => {
   const encoded = encodeResponse({
     id: "resp_reasoning1",

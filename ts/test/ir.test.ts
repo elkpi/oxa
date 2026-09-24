@@ -100,18 +100,23 @@ test("rejects a thinking delta after its signature", () => {
   assert.throws(() => assertEventSequence(events), { code: "ir-invariant" });
 });
 
-test("rejects a signature delta after a thinking block signature", () => {
+test("accepts a start signature followed by one signature delta", () => {
   const events = [
     { type: "message_start", id: "m", model: "model" },
     {
       type: "content_block_start",
       index: 0,
-      block: { type: "thinking", thinking: "", signature: "first" },
+      block: { type: "thinking", thinking: "Thinking carefully.", signature: "sig_abc" },
     },
     {
       type: "content_block_delta",
       index: 0,
-      delta: { type: "signature_delta", signature: "second" },
+      delta: { type: "thinking_delta", text: "more" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "signature_delta", signature: "sig_abc" },
     },
     { type: "content_block_stop", index: 0 },
     {
@@ -121,7 +126,7 @@ test("rejects a signature delta after a thinking block signature", () => {
     },
     { type: "message_done" },
   ] as const;
-  assert.throws(() => assertEventSequence(events), { code: "ir-invariant" });
+  assert.doesNotThrow(() => assertEventSequence(events));
 });
 
 test("rejects a delta before its block start", () => {
@@ -285,4 +290,29 @@ test("rejects tool input whose raw fragments do not match", () => {
     (error: unknown) =>
       error instanceof OxaError && error.code === "ir-invariant",
   );
+});
+
+test("accepts a tool block without argument fragments for encoder synthesis", () => {
+  const events: readonly Event[] = [
+    { type: "message_start", id: "m", model: "model" },
+    {
+      type: "content_block_start",
+      index: 0,
+      block: {
+        type: "tool_use",
+        id: "tool_1",
+        name: "lookup",
+        input: jsonText('{"city":"Paris"}'),
+      },
+    },
+    { type: "content_block_stop", index: 0 },
+    {
+      type: "message_delta",
+      stop_reason: "tool_use",
+      usage: { input_tokens: 1n, output_tokens: 2n },
+    },
+    { type: "message_done" },
+  ];
+
+  assert.doesNotThrow(() => assertEventSequence(events));
 });

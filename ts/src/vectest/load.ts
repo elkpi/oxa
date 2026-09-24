@@ -37,8 +37,7 @@ export function loadVectors(root: string): readonly VectorFixture[] {
   const directory = join(root, "vectors");
   return vectorFiles(directory)
     .sort()
-    .map((path) => loadVector(path, root))
-    .filter((v) => v.document.spec_version === "0.1.0");
+    .map((path) => loadVector(path, root));
 }
 
 function vectorFiles(directory: string): string[] {

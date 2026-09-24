@@ -10,7 +10,7 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { validateRequest } from "../../ir/index.js";
+import { parseUsageInteger, validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
@@ -399,9 +399,12 @@ export function decodeResponse(
               ? {}
               : {
                   input_tokens_details: {
-                    cached_tokens: whole(
-                      object(inputDetails, "usage.input_token_details")
-                        .cached_tokens,
+                    cached_tokens: parseUsageInteger(
+                      whole(
+                        object(inputDetails, "usage.input_token_details")
+                          .cached_tokens,
+                        "usage.input_token_details.cached_tokens",
+                      ),
                       "usage.input_token_details.cached_tokens",
                     ),
                   },
@@ -410,9 +413,12 @@ export function decodeResponse(
               ? {}
               : {
                   output_tokens_details: {
-                    reasoning_tokens: whole(
-                      object(outputDetails, "usage.output_token_details")
-                        .reasoning_tokens,
+                    reasoning_tokens: parseUsageInteger(
+                      whole(
+                        object(outputDetails, "usage.output_token_details")
+                          .reasoning_tokens,
+                        "usage.output_token_details.reasoning_tokens",
+                      ),
                       "usage.output_token_details.reasoning_tokens",
                     ),
                   },

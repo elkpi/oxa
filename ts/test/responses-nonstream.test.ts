@@ -200,6 +200,35 @@ test("encodes request reasoning effort and thinking input items", () => {
   assert.deepEqual(encoded.losses, []);
 });
 
+test("rejects negative and out-of-range Responses usage details", () => {
+  const invalidValues = [
+    integer(-1n),
+    integer(9_223_372_036_854_775_808n),
+  ];
+  for (const value of invalidValues) {
+    for (const usageDetail of [
+      { input_token_details: { cached_tokens: value } },
+      { output_token_details: { reasoning_tokens: value } },
+    ]) {
+      assert.throws(() =>
+        decodeResponse({
+          id: "resp_invalid_usage_details",
+          object: "response",
+          model: "o3-mini",
+          status: "completed",
+          output: [],
+          usage: {
+            input_tokens: integer(1n),
+            output_tokens: integer(2n),
+            total_tokens: integer(3n),
+            ...usageDetail,
+          },
+        }),
+      );
+    }
+  }
+});
+
 test("decodes responses usage token details", () => {
   const decoded = decodeResponse({
     id: "resp_details",

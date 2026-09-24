@@ -6,9 +6,10 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: v1.0.1 released.** The specification, golden vectors,
-and all five reference implementations (Go, TypeScript, Rust, Python, and C++) pass the
-identical 130 golden vectors across nonstream, cross-protocol, and stream suites.
+**Status: v1.0.1 released.** The specification and golden vectors are shared
+across five implementations. Go and TypeScript validate all 154 Spec 2.0
+vectors; Rust, Python, and C++ remain on the 130-vector baseline pending
+Waves 3–5.
 
 ## What is oxa?
 

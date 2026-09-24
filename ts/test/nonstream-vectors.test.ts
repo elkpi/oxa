@@ -168,10 +168,7 @@ test("encodes multiple thinking blocks without dropping earlier reasoning", () =
 });
 
 test("rejects negative and out-of-range Chat Completions usage details", () => {
-  const invalidValues = [
-    integer(-1n),
-    integer(9_223_372_036_854_775_808n),
-  ];
+  const invalidValues = [integer(-1n), integer(9_223_372_036_854_775_808n)];
   const detailCases = [
     (value: (typeof invalidValues)[number]) => ({
       prompt_tokens_details: { cached_tokens: value },

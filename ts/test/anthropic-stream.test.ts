@@ -338,7 +338,11 @@ test("omits only empty text from Anthropic stream block starts", () => {
 
 test("rejects encoder thinking deltas after a signature delta", () => {
   const encoder = new AnthropicStreamEncoder();
-  encoder.Apply({ type: "message_start", id: "msg_late_thinking", model: "claude" });
+  encoder.Apply({
+    type: "message_start",
+    id: "msg_late_thinking",
+    model: "claude",
+  });
   encoder.Apply({
     type: "content_block_start",
     index: 0,

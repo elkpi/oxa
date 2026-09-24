@@ -148,7 +148,9 @@ export function decodeRequest(
         losses,
       );
       if (message.content === null && calls.length > 0)
-    content = content.filter((block) => block.type !== "text" || block.text !== "");
+        content = content.filter(
+          (block) => block.type !== "text" || block.text !== "",
+        );
       content.push(...calls);
       if (content.length === 0) content.push({ type: "text", text: "" });
       messages.push({ role, content });
@@ -220,7 +222,9 @@ export function decodeResponse(
     losses,
   );
   if (message.content === null && calls.length > 0)
-    content = content.filter((block) => block.type !== "text" || block.text !== "");
+    content = content.filter(
+      (block) => block.type !== "text" || block.text !== "",
+    );
   content.push(...calls);
   if (message.function_call !== undefined)
     losses.push(

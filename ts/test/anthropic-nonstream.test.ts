@@ -204,10 +204,7 @@ test("encodes unsigned request thinking blocks with a degraded signature loss", 
 });
 
 test("rejects negative and out-of-range Anthropic cache usage", () => {
-  const invalidValues = [
-    integer(-1n),
-    integer(9_223_372_036_854_775_808n),
-  ];
+  const invalidValues = [integer(-1n), integer(9_223_372_036_854_775_808n)];
   for (const value of invalidValues) {
     for (const usageDetail of [
       { cache_read_input_tokens: value },

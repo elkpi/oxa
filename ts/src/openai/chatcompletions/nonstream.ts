@@ -147,7 +147,8 @@ export function decodeRequest(
         `messages[${index}].tool_calls`,
         losses,
       );
-      if (message.content === null && calls.length > 0) content = [];
+      if (message.content === null && calls.length > 0)
+    content = content.filter((block) => block.type !== "text" || block.text !== "");
       content.push(...calls);
       if (content.length === 0) content.push({ type: "text", text: "" });
       messages.push({ role, content });
@@ -218,7 +219,8 @@ export function decodeResponse(
     "choices[0].message.tool_calls",
     losses,
   );
-  if (message.content === null && calls.length > 0) content = [];
+  if (message.content === null && calls.length > 0)
+    content = content.filter((block) => block.type !== "text" || block.text !== "");
   content.push(...calls);
   if (message.function_call !== undefined)
     losses.push(
@@ -596,7 +598,7 @@ function encodeAssistant(
     const block = blocks[index]!;
     if (block.type === "text") content += block.text;
     else if (block.type === "thinking") {
-      reasoning = block.thinking;
+      reasoning = (reasoning ?? "") + block.thinking;
       if (block.signature !== undefined)
         losses.push(
           loss(`${path}[${index}].signature`, "signature", "unmapped-field"),

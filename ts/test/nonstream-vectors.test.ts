@@ -14,6 +14,7 @@ import {
   encodeResponse as encodeIrResponse,
 } from "../src/ir/index.js";
 import {
+  integer,
   isJsonArray,
   isJsonNumber,
   type JsonArray,
@@ -83,6 +84,87 @@ test("runs every Chat Completions non-stream vector", () => {
       vector.name,
     );
   }
+});
+
+test("preserves request reasoning when assistant tool calls have null content", () => {
+  const decoded = decodeRequest({
+    model: "gpt-4o-mini",
+    messages: [
+      { role: "user", content: "question" },
+      {
+        role: "assistant",
+        content: null,
+        reasoning_content: "Plan.",
+        tool_calls: [
+          {
+            id: "call_1",
+            type: "function",
+            function: { name: "lookup", arguments: "{}" },
+          },
+        ],
+      },
+      { role: "tool", tool_call_id: "call_1", content: "result" },
+    ],
+  });
+
+  const content = decoded.value.messages[1]?.content;
+  assert.deepEqual(content?.[0], { type: "thinking", thinking: "Plan." });
+  assert.equal(content?.[1]?.type, "tool_use");
+});
+
+test("preserves response reasoning when tool calls have null content", () => {
+  const decoded = decodeResponse({
+    id: "chatcmpl_tool_reasoning",
+    model: "o3-mini",
+    choices: [
+      {
+        index: integer(0n),
+        message: {
+          role: "assistant",
+          content: null,
+          reasoning_content: "Plan.",
+          tool_calls: [
+            {
+              id: "call_1",
+              type: "function",
+              function: { name: "lookup", arguments: "{}" },
+            },
+          ],
+        },
+        finish_reason: "tool_calls",
+      },
+    ],
+    usage: {
+      prompt_tokens: integer(1n),
+      completion_tokens: integer(1n),
+      total_tokens: integer(2n),
+    },
+  });
+
+  assert.deepEqual(decoded.value.content[0], {
+    type: "thinking",
+    thinking: "Plan.",
+  });
+  assert.equal(decoded.value.content[1]?.type, "tool_use");
+});
+
+test("encodes multiple thinking blocks without dropping earlier reasoning", () => {
+  const encoded = encodeResponse({
+    id: "chatcmpl_multiple_thinking",
+    model: "o3-mini",
+    content: [
+      { type: "thinking", thinking: "First." },
+      { type: "thinking", thinking: "Second." },
+      { type: "text", text: "Answer." },
+    ],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1n, output_tokens: 2n },
+  });
+  const choices = array(encoded.value.choices, "choices");
+  const choice = object(choices[0], "choices[0]");
+  const message = object(choice.message, "choices[0].message");
+
+  assert.equal(message.reasoning_content, "First.Second.");
 });
 
 function losses(value: JsonValue | undefined, name: string): readonly Loss[] {

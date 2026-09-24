@@ -121,7 +121,10 @@ export function decodeRequest(
               ? "message"
               : string(current.type, `input[${index}].type`);
           if (currentType === "reasoning") {
-            const summary = array(current.summary, `input[${index}].summary`);
+            const summary =
+              current.summary === undefined
+                ? []
+                : array(current.summary, `input[${index}].summary`);
             for (
               let partIndex = 0;
               partIndex < summary.length;

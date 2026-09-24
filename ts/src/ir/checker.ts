@@ -11,6 +11,7 @@ export function assertEventSequence(events: readonly Event[]): void {
         readonly index: number;
         readonly block: Block;
         partialJson: string;
+        sawInputJsonDelta: boolean;
         sawSignature: boolean;
       }
     | undefined;
@@ -42,12 +43,14 @@ export function assertEventSequence(events: readonly Event[]): void {
           open = {
             ...open,
             partialJson: open.partialJson + event.delta.partial_json,
+            sawInputJsonDelta: true,
           };
         continue;
       }
       if (event.type === "content_block_stop" && event.index === open.index) {
         if (
           open.block.type === "tool_use" &&
+          open.sawInputJsonDelta &&
           open.partialJson !== open.block.input
         )
           fail(
@@ -66,8 +69,10 @@ export function assertEventSequence(events: readonly Event[]): void {
         index: event.index,
         block: event.block,
         partialJson: "",
-        sawSignature:
-          event.block.type === "thinking" && event.block.signature !== undefined,
+        sawInputJsonDelta: false,
+        // Tracks signature DELTAS only: a start-block signature does not
+        // consume the single-signature budget (anthropic.stream.m9 vector).
+        sawSignature: false,
       };
       continue;
     }

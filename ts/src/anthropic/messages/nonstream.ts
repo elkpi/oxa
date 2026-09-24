@@ -15,7 +15,7 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { validateRequest } from "../../ir/index.js";
+import { parseUsageInteger, validateRequest } from "../../ir/index.js";
 import type {
   Block,
   ImageBlock,
@@ -164,16 +164,22 @@ export function decodeResponse(
         ...(usage.cache_read_input_tokens === undefined
           ? {}
           : {
-              cache_read_input_tokens: whole(
-                usage.cache_read_input_tokens,
+              cache_read_input_tokens: parseUsageInteger(
+                whole(
+                  usage.cache_read_input_tokens,
+                  "usage.cache_read_input_tokens",
+                ),
                 "usage.cache_read_input_tokens",
               ),
             }),
         ...(usage.cache_creation_input_tokens === undefined
           ? {}
           : {
-              cache_creation_input_tokens: whole(
-                usage.cache_creation_input_tokens,
+              cache_creation_input_tokens: parseUsageInteger(
+                whole(
+                  usage.cache_creation_input_tokens,
+                  "usage.cache_creation_input_tokens",
+                ),
                 "usage.cache_creation_input_tokens",
               ),
             }),

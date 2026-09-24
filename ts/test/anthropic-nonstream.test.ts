@@ -203,6 +203,35 @@ test("encodes unsigned request thinking blocks with a degraded signature loss", 
   );
 });
 
+test("rejects negative and out-of-range Anthropic cache usage", () => {
+  const invalidValues = [
+    integer(-1n),
+    integer(9_223_372_036_854_775_808n),
+  ];
+  for (const value of invalidValues) {
+    for (const usageDetail of [
+      { cache_read_input_tokens: value },
+      { cache_creation_input_tokens: value },
+    ]) {
+      assert.throws(() =>
+        decodeResponse({
+          id: "msg_invalid_usage_details",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5",
+          content: [{ type: "text", text: "answer" }],
+          stop_reason: "end_turn",
+          usage: {
+            input_tokens: integer(1n),
+            output_tokens: integer(2n),
+            ...usageDetail,
+          },
+        }),
+      );
+    }
+  }
+});
+
 test("raw tool input preserves source bytes", () => {
   const rawInput = jsonText('{ "b" : "\\u0041", "a" : 1e+01 }');
   const source = `{"id":"msg_raw","type":"message","role":"assistant","model":"claude-sonnet-4-5","content":[{"type":"tool_use","id":"toolu_raw","name":"inspect","input":${rawInput}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":2}}`;

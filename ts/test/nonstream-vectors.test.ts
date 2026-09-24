@@ -167,6 +167,45 @@ test("encodes multiple thinking blocks without dropping earlier reasoning", () =
   assert.equal(message.reasoning_content, "First.Second.");
 });
 
+test("rejects negative and out-of-range Chat Completions usage details", () => {
+  const invalidValues = [
+    integer(-1n),
+    integer(9_223_372_036_854_775_808n),
+  ];
+  const detailCases = [
+    (value: (typeof invalidValues)[number]) => ({
+      prompt_tokens_details: { cached_tokens: value },
+    }),
+    (value: (typeof invalidValues)[number]) => ({
+      completion_tokens_details: { reasoning_tokens: value },
+    }),
+  ];
+
+  for (const value of invalidValues) {
+    for (const details of detailCases) {
+      assert.throws(() =>
+        decodeResponse({
+          id: "chatcmpl_invalid_usage_details",
+          model: "o3-mini",
+          choices: [
+            {
+              index: integer(0n),
+              message: { role: "assistant", content: "answer" },
+              finish_reason: "stop",
+            },
+          ],
+          usage: {
+            prompt_tokens: integer(1n),
+            completion_tokens: integer(2n),
+            total_tokens: integer(3n),
+            ...details(value),
+          },
+        }),
+      );
+    }
+  }
+});
+
 function losses(value: JsonValue | undefined, name: string): readonly Loss[] {
   return array(value, `${name}.expected_losses`).map((entry, index) => {
     const loss = object(entry, `${name}.expected_losses[${index}]`);

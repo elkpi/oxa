@@ -60,6 +60,7 @@ export class ResponsesStreamDecoder {
   #reasoningOpen = false;
   #reasoningSummaryCount = 0;
   #reasoningSkippedIndex: number | undefined;
+  #reasoningTextDoneSeen = false;
   #outputIndex = 0;
   #nextContentIndex = 0;
   #functionCall: FunctionCallState | undefined;
@@ -212,6 +213,7 @@ export class ResponsesStreamDecoder {
       this.#lifecycle("response.reasoning_summary_part.added without part");
     this.#nextContentIndex += 1;
     this.#contentIndex = contentIndex;
+    this.#reasoningTextDoneSeen = false;
     if (event.part.type !== "output_text") {
       this.#reasoningSkippedIndex = contentIndex;
       this.#losses.push({
@@ -242,6 +244,8 @@ export class ResponsesStreamDecoder {
       this.#lifecycle(
         "reasoning_summary_text.delta does not match the open summary part",
       );
+    if (this.#reasoningTextDoneSeen)
+      this.#lifecycle("reasoning_summary_text.delta after text.done");
     if (event.delta === undefined)
       this.#lifecycle("response.reasoning_summary_text.delta without delta");
     return [
@@ -261,6 +265,9 @@ export class ResponsesStreamDecoder {
       this.#lifecycle(
         "reasoning_summary_text.done does not match the open summary part",
       );
+    if (this.#reasoningTextDoneSeen)
+      this.#lifecycle("duplicate reasoning_summary_text.done");
+    this.#reasoningTextDoneSeen = true;
     return [];
   }
 

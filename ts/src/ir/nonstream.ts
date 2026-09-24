@@ -390,7 +390,11 @@ function encodeUsage(usage: Usage): JsonObject {
         }),
     ...(usage.input_tokens_details === undefined
       ? {}
-      : { input_tokens_details: encodeInputTokensDetails(usage.input_tokens_details) }),
+      : {
+          input_tokens_details: encodeInputTokensDetails(
+            usage.input_tokens_details,
+          ),
+        }),
     ...(usage.output_tokens_details === undefined
       ? {}
       : {

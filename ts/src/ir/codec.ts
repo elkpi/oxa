@@ -204,9 +204,7 @@ function encodeUsage(usage: Usage): JsonObject {
       ? {}
       : {
           input_tokens_details: {
-            cached_tokens: integer(
-              usage.input_tokens_details.cached_tokens,
-            ),
+            cached_tokens: integer(usage.input_tokens_details.cached_tokens),
           },
         }),
     ...(usage.output_tokens_details === undefined
@@ -257,10 +255,8 @@ function decodeUsage(value: JsonValue | undefined): Usage {
       : {
           output_tokens_details: {
             reasoning_tokens: token(
-              object(
-                usage.output_tokens_details,
-                "usage.output_tokens_details",
-              ).reasoning_tokens,
+              object(usage.output_tokens_details, "usage.output_tokens_details")
+                .reasoning_tokens,
               "usage.output_tokens_details.reasoning_tokens",
             ),
           },

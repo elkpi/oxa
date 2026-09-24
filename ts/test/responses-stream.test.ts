@@ -751,13 +751,20 @@ test("encodes a thinking stream as a reasoning summary item", () => {
         type: "reasoning",
         id: "rs_abc123",
         status: "completed",
-        summary: [{ type: "output_text", text: "Analyzing...", annotations: [] }],
+        summary: [
+          { type: "output_text", text: "Analyzing...", annotations: [] },
+        ],
       },
     },
     {
       type: "response.output_item.added",
       output_index: 1,
-      item: { type: "message", id: "msg_abc123", status: "in_progress", role: "assistant" },
+      item: {
+        type: "message",
+        id: "msg_abc123",
+        status: "in_progress",
+        role: "assistant",
+      },
     },
     {
       type: "response.content_part.added",

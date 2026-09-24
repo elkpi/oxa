@@ -470,9 +470,7 @@ export class ChatCompletionsStreamEncoder {
     return this.#result([]);
   }
 
-  #stopBlock(
-    index: number,
-  ): ConversionResult<readonly ChatCompletionsChunk[]> {
+  #stopBlock(index: number): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (this.#active === undefined || index !== this.#active.index)
       this.#lifecycle("content_block_stop out of grammar order");
     if (this.#active.kind === "tool") {

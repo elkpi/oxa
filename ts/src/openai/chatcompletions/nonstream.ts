@@ -714,10 +714,7 @@ function decodeReasoningEffort(
 
 function decodeUsageDetails(
   value: JsonObject,
-): Pick<
-  Response["usage"],
-  "input_tokens_details" | "output_tokens_details"
-> {
+): Pick<Response["usage"], "input_tokens_details" | "output_tokens_details"> {
   const promptDetails = value.prompt_tokens_details;
   const completionDetails = value.completion_tokens_details;
   return {
@@ -726,7 +723,8 @@ function decodeUsageDetails(
       : {
           input_tokens_details: {
             cached_tokens: whole(
-              object(promptDetails, "usage.prompt_tokens_details").cached_tokens,
+              object(promptDetails, "usage.prompt_tokens_details")
+                .cached_tokens,
               "usage.prompt_tokens_details.cached_tokens",
             ),
           },
@@ -736,10 +734,8 @@ function decodeUsageDetails(
       : {
           output_tokens_details: {
             reasoning_tokens: whole(
-              object(
-                completionDetails,
-                "usage.completion_tokens_details",
-              ).reasoning_tokens,
+              object(completionDetails, "usage.completion_tokens_details")
+                .reasoning_tokens,
               "usage.completion_tokens_details.reasoning_tokens",
             ),
           },

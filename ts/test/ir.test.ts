@@ -28,10 +28,16 @@ test("emits 0.2.0 while accepting a 0.1.0 IR request", () => {
   const request = {
     model: "m",
     messages: [
-      { role: "user" as const, content: [{ type: "text" as const, text: "hi" }] },
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+      },
     ],
   };
-  assert.deepEqual(decodeRequest({ specVersion: "0.1.0", ...request }), request);
+  assert.deepEqual(
+    decodeRequest({ specVersion: "0.1.0", ...request }),
+    request,
+  );
   assert.equal(encodeRequest(request).specVersion, "0.2.0");
 });
 
@@ -106,7 +112,11 @@ test("accepts a start signature followed by one signature delta", () => {
     {
       type: "content_block_start",
       index: 0,
-      block: { type: "thinking", thinking: "Thinking carefully.", signature: "sig_abc" },
+      block: {
+        type: "thinking",
+        thinking: "Thinking carefully.",
+        signature: "sig_abc",
+      },
     },
     {
       type: "content_block_delta",

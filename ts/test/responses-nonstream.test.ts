@@ -131,9 +131,7 @@ test("encodes thinking blocks as reasoning items and reports signature loss", ()
     {
       type: "reasoning",
       id: "rs_abc123",
-      summary: [
-        { type: "output_text", text: "Step 1.", annotations: [] },
-      ],
+      summary: [{ type: "output_text", text: "Step 1.", annotations: [] }],
     },
     {
       type: "message",

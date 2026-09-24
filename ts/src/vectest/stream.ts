@@ -51,7 +51,10 @@ export function compareStreams(
     return "stop reason differs";
   if (left.terminal.stop_sequence !== right.terminal.stop_sequence)
     return "stop sequence differs";
-  const usageDifference = compareUsage(left.terminal.usage, right.terminal.usage);
+  const usageDifference = compareUsage(
+    left.terminal.usage,
+    right.terminal.usage,
+  );
   if (usageDifference !== undefined) return usageDifference;
   return undefined;
 }

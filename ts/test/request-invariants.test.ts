@@ -222,7 +222,9 @@ function blockDocument(block: Block): JsonObject {
       return {
         type: "thinking",
         thinking: block.thinking,
-        ...(block.signature === undefined ? {} : { signature: block.signature }),
+        ...(block.signature === undefined
+          ? {}
+          : { signature: block.signature }),
       };
     case "image":
       return {

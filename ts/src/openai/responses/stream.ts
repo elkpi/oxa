@@ -285,9 +285,7 @@ export class ResponsesStreamDecoder {
   #requireReasoningItem(event: ResponsesStreamEvent): void {
     this.#requireActiveItem(event);
     if (!this.#reasoningOpen || this.#itemType !== "reasoning")
-      this.#lifecycle(
-        `${event.type} outside an open reasoning output item`,
-      );
+      this.#lifecycle(`${event.type} outside an open reasoning output item`);
     if (this.#functionCall !== undefined)
       this.#lifecycle(`${event.type} on function_call item`);
   }
@@ -501,7 +499,10 @@ export class ResponsesStreamDecoder {
     if (this.#itemType === "reasoning") {
       if (!this.#reasoningOpen)
         this.#lifecycle("reasoning item closed without being opened");
-      if (this.#reasoningSummaryCount === 0 && this.#reasoningSkippedIndex === undefined)
+      if (
+        this.#reasoningSummaryCount === 0 &&
+        this.#reasoningSkippedIndex === undefined
+      )
         this.#losses.push({
           path: `output[${index}]`,
           field: "type",

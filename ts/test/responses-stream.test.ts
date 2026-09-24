@@ -635,6 +635,44 @@ test("decodes reasoning summary parts into a thinking block with text.done valid
   assert.deepEqual(decoder.Losses(), []);
 });
 
+test("preserves terminal reasoning and cache usage details", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_usage_details", "o3-mini"));
+
+  assert.deepEqual(
+    decoder.Feed({
+      type: "response.completed",
+      response: {
+        id: "resp_usage_details",
+        object: "response",
+        status: "completed",
+        model: "o3-mini",
+        output: [],
+        usage: {
+          input_tokens: 10n,
+          output_tokens: 15n,
+          total_tokens: 25n,
+          input_token_details: { cached_tokens: 4n },
+          output_token_details: { reasoning_tokens: 8n },
+        },
+      },
+    }),
+    [
+      {
+        type: "message_delta",
+        stop_reason: "end_turn",
+        usage: {
+          input_tokens: 10n,
+          output_tokens: 15n,
+          input_tokens_details: { cached_tokens: 4n },
+          output_tokens_details: { reasoning_tokens: 8n },
+        },
+      },
+      { type: "message_done" },
+    ],
+  );
+});
+
 test("records one loss for a reasoning item closed without summary parts", () => {
   const decoder = new ResponsesStreamDecoder();
   [

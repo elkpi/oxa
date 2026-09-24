@@ -635,6 +635,85 @@ test("decodes reasoning summary parts into a thinking block with text.done valid
   assert.deepEqual(decoder.Losses(), []);
 });
 
+test("rejects reasoning summary deltas after text.done", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_late_reasoning_delta", "o3-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: { type: "reasoning", id: "rs_late", status: "in_progress" },
+  });
+  decoder.Feed({
+    type: "response.reasoning_summary_part.added",
+    item_id: "rs_late",
+    output_index: 0,
+    content_index: 0,
+    part: { type: "output_text", text: "" },
+  });
+  decoder.Feed({
+    type: "response.reasoning_summary_text.delta",
+    item_id: "rs_late",
+    output_index: 0,
+    content_index: 0,
+    delta: "reasoning",
+  });
+  decoder.Feed({
+    type: "response.reasoning_summary_text.done",
+    item_id: "rs_late",
+    output_index: 0,
+    content_index: 0,
+    text: "reasoning",
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "response.reasoning_summary_text.delta",
+        item_id: "rs_late",
+        output_index: 0,
+        content_index: 0,
+        delta: "late",
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
+test("rejects duplicate reasoning summary text.done", () => {
+  const decoder = new ResponsesStreamDecoder();
+  decoder.Feed(created("resp_duplicate_reasoning_done", "o3-mini"));
+  decoder.Feed({
+    type: "response.output_item.added",
+    output_index: 0,
+    item: { type: "reasoning", id: "rs_duplicate", status: "in_progress" },
+  });
+  decoder.Feed({
+    type: "response.reasoning_summary_part.added",
+    item_id: "rs_duplicate",
+    output_index: 0,
+    content_index: 0,
+    part: { type: "output_text", text: "" },
+  });
+  decoder.Feed({
+    type: "response.reasoning_summary_text.done",
+    item_id: "rs_duplicate",
+    output_index: 0,
+    content_index: 0,
+    text: "",
+  });
+
+  assert.throws(
+    () =>
+      decoder.Feed({
+        type: "response.reasoning_summary_text.done",
+        item_id: "rs_duplicate",
+        output_index: 0,
+        content_index: 0,
+        text: "",
+      }),
+    { code: "stream-lifecycle" },
+  );
+});
+
 test("preserves terminal reasoning and cache usage details", () => {
   const decoder = new ResponsesStreamDecoder();
   decoder.Feed(created("resp_usage_details", "o3-mini"));

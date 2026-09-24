@@ -519,7 +519,10 @@ export class AnthropicStreamEncoder {
         {
           type: "content_block_start",
           index: event.index,
-          content_block: { type: "text", text: event.block.text },
+          content_block: {
+            type: "text",
+            ...(event.block.text === "" ? {} : { text: event.block.text }),
+          },
         },
       ]);
     }

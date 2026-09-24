@@ -236,6 +236,40 @@ test("decodes anthropic.stream.m9-thinking-to-ir with thinking and signature del
   assert.deepEqual(decoder.Losses(), []);
 });
 
+test("omits only empty text from Anthropic stream block starts", () => {
+  const encoder = new AnthropicStreamEncoder();
+  encoder.Apply({ type: "message_start", id: "msg_text_start", model: "claude" });
+
+  assert.deepEqual(
+    encoder.Apply({
+      type: "content_block_start",
+      index: 0,
+      block: { type: "text", text: "" },
+    }).value,
+    [{ type: "content_block_start", index: 0, content_block: { type: "text" } }],
+  );
+
+  assert.deepEqual(
+    encoder.Apply({
+      type: "content_block_stop",
+      index: 0,
+    }).value,
+    [{ type: "content_block_stop", index: 0 }],
+  );
+  assert.deepEqual(
+    encoder.Apply({
+      type: "content_block_start",
+      index: 1,
+      block: { type: "text", text: "initial" },
+    }).value,
+    [{
+      type: "content_block_start",
+      index: 1,
+      content_block: { type: "text", text: "initial" },
+    }],
+  );
+});
+
 test("encodes a full thinking start as an empty placeholder plus synthesized deltas", () => {
   const encoder = new AnthropicStreamEncoder();
   const actual = [

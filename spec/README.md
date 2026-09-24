@@ -8,9 +8,9 @@ is the contract every implementation (Go first, then Rust, Python, and C++)
 MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.0.0** — Go implements the full 154-vector set
-including reasoning and usage; TypeScript, Rust, Python, and C++ validate against
-the 130 baseline vectors pending their Wave 2–5 updates. See [CHANGELOG.md](CHANGELOG.md)
+Current spec version: **2.0.0** — Go and TypeScript implement and validate the full
+154-vector set including reasoning and usage; Rust, Python, and C++ remain on the
+130-vector baseline pending their Waves 3–5 updates. See [CHANGELOG.md](CHANGELOG.md)
 and the versioning policy below.
 
 ## Versioning policy

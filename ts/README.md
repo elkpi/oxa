@@ -75,7 +75,7 @@ The package includes declarations for the root and every public subpath.
 From this directory:
 
 ```sh
-npm ci
+npm install
 npm run release:check
 ```
 
@@ -93,7 +93,8 @@ shapes by its JSON schemas, and semantics by its specifications, in that order:
 2. `spec/schema/`
 3. `spec/*.md`
 
-The TypeScript implementation passes the same 125 golden vectors as the Go
-reference implementation, including exact M7 raw tool-data handling.
+The TypeScript implementation validates all 154 golden vectors for Spec 2.0.0,
+including M7 opaque tool data, M9 thinking/reasoning streams, signatures,
+reasoning effort, and granular usage accounting.
 
 Apache-2.0. See `LICENSE` and `NOTICE`.

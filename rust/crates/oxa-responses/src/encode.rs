@@ -151,7 +151,10 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     text: thinking.clone(),
                     annotations: Vec::new(),
                 });
-                if signature.is_some() {
+                if signature
+                    .as_deref()
+                    .is_some_and(|signature| !signature.is_empty())
+                {
                     losses.push(loss(
                         format!("content[{index}].signature"),
                         "signature",

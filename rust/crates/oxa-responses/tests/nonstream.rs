@@ -297,6 +297,27 @@ fn encodes_reasoning_summary_and_usage_details() {
 }
 
 #[test]
+fn empty_signature_records_no_signature_loss() {
+    let response = IrResponse {
+        id: "resp_empty_sig".to_string(),
+        model: "o3-mini".to_string(),
+        content: vec![Block::Thinking {
+            thinking: "Analyze.".to_string(),
+            signature: Some(String::new()),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage::default(),
+    };
+    let (wire, losses) = encode_response(&response, &Config::default()).expect("encode response");
+    assert!(
+        !losses.iter().any(|loss| loss.field == "signature"),
+        "an empty signature is absent, not a loss: {losses:?}"
+    );
+    assert_eq!(wire.output[0].summary[0].text, "Analyze.");
+}
+
+#[test]
 fn encodes_refusal_with_the_required_empty_error_message() {
     let response = IrResponse {
         id: "resp_1".to_string(),

@@ -209,6 +209,263 @@ fn stream_completed(id: &str, model: &str, in_tokens: i64, out_tokens: i64) -> S
 }
 
 #[test]
+fn stream_decoder_accepts_id_less_reasoning_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_noid", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.added".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.added".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.delta".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                delta: Some("hmm".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.done".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    text: "hmm".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.done".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    status: "completed".to_string(),
+                    summary: vec![OutputPart {
+                        kind: "output_text".to_string(),
+                        text: "hmm".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_noid", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+    got.extend(decoder.flush().unwrap());
+
+    let blocks: Vec<&Block> = got
+        .iter()
+        .filter_map(|event| match event {
+            Event::ContentBlockStart { block, .. } => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        blocks,
+        vec![&Block::Thinking {
+            thinking: String::new(),
+            signature: None,
+        }],
+        "an id-less reasoning item still converts like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
+fn stream_decoder_opens_text_parts_under_reasoning_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_mix", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.added".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    id: "rs_1".to_string(),
+                    kind: "reasoning".to_string(),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_part_added(0, 0, "rs_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&stream_text_delta(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_text_done(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_part_done(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.done".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    id: "rs_1".to_string(),
+                    kind: "reasoning".to_string(),
+                    status: "completed".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_mix", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+
+    let block = got.iter().find_map(|event| match event {
+        Event::ContentBlockStart { block, .. } => Some(block.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        block,
+        Some(Block::Text {
+            text: String::new(),
+        }),
+        "message parts under a reasoning item open a text block like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
+fn stream_decoder_opens_reasoning_summary_under_message_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_msg_rs", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_item_added(0, "msg_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.added".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.delta".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                delta: Some("ponder".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.done".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    text: "ponder".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_item_done(0, "msg_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_msg_rs", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+
+    let block = got.iter().find_map(|event| match event {
+        Event::ContentBlockStart { block, .. } => Some(block.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        block,
+        Some(Block::Thinking {
+            thinking: String::new(),
+            signature: None,
+        }),
+        "reasoning summary parts under a message item open a thinking block like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
 fn stream_decoder_happy_path() {
     let config = Config::default();
     let mut d = StreamDecoder::new(&config);

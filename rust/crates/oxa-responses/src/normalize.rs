@@ -539,7 +539,10 @@ pub(crate) fn encode_assistant_message(
                     text: thinking.clone(),
                     annotations: Vec::new(),
                 });
-                if signature.is_some() {
+                if signature
+                    .as_deref()
+                    .is_some_and(|signature| !signature.is_empty())
+                {
                     losses.push(loss(
                         format!("{path}[{index}].signature"),
                         "signature",

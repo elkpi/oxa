@@ -140,9 +140,6 @@ impl StreamDecoder {
                     return Ok(Vec::new());
                 }
                 if item.kind == ITEM_TYPE_REASONING {
-                    if item.id.is_empty() {
-                        return Err(Error::new("responses: reasoning item requires id"));
-                    }
                     self.record_encrypted_content_loss(output_index, &item.encrypted_content);
                     return Ok(Vec::new());
                 }
@@ -174,11 +171,6 @@ impl StreamDecoder {
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.content_part.added on function_call item",
-                    ));
-                }
-                if !self.skipped_item && self.item_type != ITEM_TYPE_MESSAGE {
-                    return Err(Error::new(
-                        "responses: response.content_part.added on non-message item",
                     ));
                 }
                 if self.block_open || self.skipped_part {
@@ -277,11 +269,6 @@ impl StreamDecoder {
                         "responses: response.output_text.delta on function_call item",
                     ));
                 }
-                if !self.skipped_item && self.item_type != ITEM_TYPE_MESSAGE {
-                    return Err(Error::new(
-                        "responses: response.output_text.delta on non-message item",
-                    ));
-                }
                 let content_index = ev.content_index.unwrap_or(-1);
                 if self.skipped_item || self.skipped_part {
                     if content_index != self.content_index {
@@ -314,11 +301,6 @@ impl StreamDecoder {
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.output_text.done on function_call item",
-                    ));
-                }
-                if !self.skipped_item && self.item_type != ITEM_TYPE_MESSAGE {
-                    return Err(Error::new(
-                        "responses: response.output_text.done on non-message item",
                     ));
                 }
                 let content_index = ev.content_index.unwrap_or(-1);
@@ -361,11 +343,6 @@ impl StreamDecoder {
                     self.content_index = content_index;
                     self.skipped_part = true;
                     return Ok(Vec::new());
-                }
-                if self.item_type != ITEM_TYPE_REASONING {
-                    return Err(Error::new(
-                        "responses: reasoning_summary_part.added on non-reasoning item",
-                    ));
                 }
                 if self.block_open || self.skipped_part {
                     return Err(Error::new(
@@ -426,11 +403,6 @@ impl StreamDecoder {
                     }
                     return Ok(Vec::new());
                 }
-                if self.item_type != ITEM_TYPE_REASONING {
-                    return Err(Error::new(
-                        "responses: reasoning_summary_text.delta on non-reasoning item",
-                    ));
-                }
                 let content_index = ev.content_index.unwrap_or(-1);
                 if !self.block_open || content_index != self.content_index {
                     return Err(Error::new(
@@ -460,11 +432,6 @@ impl StreamDecoder {
                         )));
                     }
                     return Ok(Vec::new());
-                }
-                if self.item_type != ITEM_TYPE_REASONING {
-                    return Err(Error::new(
-                        "responses: reasoning_summary_text.done on non-reasoning item",
-                    ));
                 }
                 let content_index = ev.content_index.unwrap_or(-1);
                 if !self.block_open || content_index != self.content_index {
@@ -498,11 +465,6 @@ impl StreamDecoder {
                     self.skipped_part = false;
                     return Ok(Vec::new());
                 }
-                if self.item_type != ITEM_TYPE_REASONING {
-                    return Err(Error::new(
-                        "responses: reasoning_summary_part.done on non-reasoning item",
-                    ));
-                }
                 if !self.block_open || content_index != self.content_index {
                     return Err(Error::new(
                         "responses: reasoning_summary_part.done does not match the open content part",
@@ -518,11 +480,6 @@ impl StreamDecoder {
                 if self.function_call.is_some() {
                     return Err(Error::new(
                         "responses: response.content_part.done on function_call item",
-                    ));
-                }
-                if !self.skipped_item && self.item_type != ITEM_TYPE_MESSAGE {
-                    return Err(Error::new(
-                        "responses: response.content_part.done on non-message item",
                     ));
                 }
                 if ev.part.is_none() {

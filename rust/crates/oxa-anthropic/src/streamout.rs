@@ -7,8 +7,9 @@ use crate::config::Config;
 use crate::encode::encode_stop_reason;
 use crate::error::Error;
 use crate::types::{
-    BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_USE, BlockWire, DELTA_TYPE_INPUT_JSON_DELTA,
-    DELTA_TYPE_TEXT_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START,
+    BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE, BlockWire,
+    DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_SIGNATURE_DELTA, DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP, EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START,
     EVENT_TYPE_MESSAGE_STOP, MessageStartWire, ROLE_ASSISTANT, StreamDelta, StreamEvent,
     TYPE_MESSAGE, UsageWire,
@@ -24,6 +25,11 @@ pub struct StreamEncoder {
     open_index: i64,
     block_open: bool,
     open_tool: bool,
+    open_thinking: bool,
+    thinking_input: String,
+    thinking_signature: Option<String>,
+    thinking_parts: Vec<String>,
+    signature_seen: bool,
     tool_input: String,
     tool_parts: Vec<String>,
     delta_seen: bool,
@@ -42,6 +48,11 @@ impl StreamEncoder {
             open_index: 0,
             block_open: false,
             open_tool: false,
+            open_thinking: false,
+            thinking_input: String::new(),
+            thinking_signature: None,
+            thinking_parts: Vec::new(),
+            signature_seen: false,
             tool_input: String::new(),
             tool_parts: Vec::new(),
             delta_seen: false,
@@ -76,6 +87,7 @@ impl StreamEncoder {
                             usage: Some(UsageWire {
                                 input_tokens: 0,
                                 output_tokens: 0,
+                                ..UsageWire::default()
                             }),
                         }),
                         ..Default::default()
@@ -100,6 +112,7 @@ impl StreamEncoder {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
+                        self.open_thinking = false;
                         self.open_index = *index;
                         Ok((
                             vec![StreamEvent {
@@ -108,6 +121,33 @@ impl StreamEncoder {
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_TEXT.to_string(),
                                     text: text.clone(),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
+                    Block::Thinking {
+                        thinking,
+                        signature,
+                    } => {
+                        self.next_index += 1;
+                        self.block_open = true;
+                        self.open_tool = false;
+                        self.open_thinking = true;
+                        self.open_index = *index;
+                        self.thinking_input = thinking.clone();
+                        self.thinking_signature = signature.clone();
+                        self.thinking_parts.clear();
+                        self.signature_seen = false;
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
+                                index: Some(*index),
+                                content_block: Some(BlockWire {
+                                    kind: BLOCK_TYPE_THINKING.to_string(),
+                                    thinking: None,
                                     ..Default::default()
                                 }),
                                 ..Default::default()
@@ -129,6 +169,7 @@ impl StreamEncoder {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = true;
+                        self.open_thinking = false;
                         self.open_index = *index;
                         self.tool_input = input.clone();
                         self.tool_parts.clear();
@@ -162,9 +203,59 @@ impl StreamEncoder {
                     ));
                 }
                 match delta {
+                    Delta::ThinkingDelta { text } => {
+                        if !self.open_thinking {
+                            return Err(Error::new(
+                                "anthropic: ThinkingDelta on non-thinking block",
+                            ));
+                        }
+                        if self.signature_seen {
+                            return Err(Error::new(
+                                "anthropic: thinking_delta after signature_delta",
+                            ));
+                        }
+                        self.thinking_parts.push(text.clone());
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                                index: Some(*index),
+                                delta: Some(StreamDelta {
+                                    kind: DELTA_TYPE_THINKING_DELTA.to_string(),
+                                    thinking: Some(text.clone()),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
+                    Delta::SignatureDelta { signature } => {
+                        if !self.open_thinking {
+                            return Err(Error::new(
+                                "anthropic: SignatureDelta on non-thinking block",
+                            ));
+                        }
+                        if self.signature_seen {
+                            return Err(Error::new("anthropic: duplicate signature_delta"));
+                        }
+                        self.signature_seen = true;
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                                index: Some(*index),
+                                delta: Some(StreamDelta {
+                                    kind: DELTA_TYPE_SIGNATURE_DELTA.to_string(),
+                                    signature: Some(signature.clone()),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
                     Delta::TextDelta { text } => {
-                        if self.open_tool {
-                            return Err(Error::new("anthropic: TextDelta on tool_use block"));
+                        if self.open_tool || self.open_thinking {
+                            return Err(Error::new("anthropic: TextDelta on non-text block"));
                         }
                         Ok((
                             vec![StreamEvent {
@@ -207,6 +298,50 @@ impl StreamEncoder {
                         "anthropic: ContentBlockStop out of grammar order",
                     ));
                 }
+                if self.open_thinking {
+                    let mut events = Vec::new();
+                    if self.thinking_parts.is_empty() && !self.thinking_input.is_empty() {
+                        events.push(StreamEvent {
+                            kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                            index: Some(*index),
+                            delta: Some(StreamDelta {
+                                kind: DELTA_TYPE_THINKING_DELTA.to_string(),
+                                thinking: Some(self.thinking_input.clone()),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        });
+                    }
+                    if !self.signature_seen
+                        && self
+                            .thinking_signature
+                            .as_deref()
+                            .is_some_and(|signature| !signature.is_empty())
+                    {
+                        events.push(StreamEvent {
+                            kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                            index: Some(*index),
+                            delta: Some(StreamDelta {
+                                kind: DELTA_TYPE_SIGNATURE_DELTA.to_string(),
+                                signature: self.thinking_signature.clone(),
+                                ..Default::default()
+                            }),
+                            ..Default::default()
+                        });
+                    }
+                    events.push(StreamEvent {
+                        kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
+                        index: Some(*index),
+                        ..Default::default()
+                    });
+                    self.block_open = false;
+                    self.open_thinking = false;
+                    self.thinking_input.clear();
+                    self.thinking_signature = None;
+                    self.thinking_parts.clear();
+                    self.signature_seen = false;
+                    return Ok((events, Vec::new()));
+                }
                 let mut events = Vec::new();
                 if self.open_tool {
                     if self.tool_parts.is_empty() {
@@ -233,6 +368,7 @@ impl StreamEncoder {
                 });
                 self.block_open = false;
                 self.open_tool = false;
+                self.open_thinking = false;
                 self.tool_input.clear();
                 self.tool_parts.clear();
                 Ok((events, Vec::new()))
@@ -258,6 +394,8 @@ impl StreamEncoder {
                         usage: Some(UsageWire {
                             input_tokens: usage.input_tokens,
                             output_tokens: usage.output_tokens,
+                            cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                            cache_read_input_tokens: usage.cache_read_input_tokens,
                         }),
                         ..Default::default()
                     }],

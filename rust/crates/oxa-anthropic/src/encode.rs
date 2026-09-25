@@ -2,7 +2,10 @@
 
 use serde_json::value::RawValue;
 
-use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
+use oxa_ir::{
+    Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
+    StopReason,
+};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -11,10 +14,11 @@ use crate::normalize::{
     require_json_object, unsupported_block_loss,
 };
 use crate::types::{
-    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire,
-    ContentValue, Message, ROLE_ASSISTANT, ROLE_USER, Request, Response, SOURCE_TYPE_BASE64,
-    SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL,
-    STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE, ToolWire, UsageWire,
+    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT,
+    BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, Message, ROLE_ASSISTANT, ROLE_USER, Request,
+    Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
+    STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE,
+    ThinkingWire, ToolWire, UsageWire,
 };
 
 /// Applied when an IR request carries no `params.max_tokens` and the
@@ -123,6 +127,24 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             .stop_sequences
             .clone()
             .filter(|sequences| !sequences.is_empty());
+        if let Some(effort) = params.reasoning_effort {
+            let budget_tokens = match effort {
+                ReasoningEffort::Minimal => 1024,
+                ReasoningEffort::Low => 2048,
+                ReasoningEffort::Medium => 8192,
+                ReasoningEffort::High => 16384,
+            };
+            out.thinking = Some(ThinkingWire {
+                kind: "enabled".to_string(),
+                budget_tokens,
+            });
+            losses.push(loss(
+                "params.reasoning_effort",
+                "reasoning_effort",
+                LossReason::Degraded,
+                "budget approximated",
+            ));
+        }
     }
     Ok((out, losses))
 }
@@ -156,6 +178,31 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             Vec::new(),
             true,
         )),
+        Block::Thinking {
+            thinking,
+            signature,
+        } => {
+            let losses = if signature.is_none() {
+                vec![loss(
+                    path,
+                    "signature",
+                    LossReason::Degraded,
+                    "unsigned thinking block; Anthropic may reject on replay",
+                )]
+            } else {
+                Vec::new()
+            };
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_THINKING.to_string(),
+                    thinking: Some(thinking.clone()),
+                    signature: signature.clone(),
+                    ..BlockWire::default()
+                },
+                losses,
+                true,
+            ))
+        }
         Block::Image {
             media_type,
             data,
@@ -333,6 +380,8 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         usage: Some(UsageWire {
             input_tokens: resp.usage.input_tokens,
             output_tokens: resp.usage.output_tokens,
+            cache_creation_input_tokens: resp.usage.cache_creation_input_tokens,
+            cache_read_input_tokens: resp.usage.cache_read_input_tokens,
         }),
         ..Response::default()
     };
@@ -384,6 +433,31 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             Vec::new(),
             true,
         )),
+        Block::Thinking {
+            thinking,
+            signature,
+        } => {
+            let losses = if signature.is_none() {
+                vec![loss(
+                    path,
+                    "signature",
+                    LossReason::Degraded,
+                    "unsigned thinking block; Anthropic may reject on replay",
+                )]
+            } else {
+                Vec::new()
+            };
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_THINKING.to_string(),
+                    thinking: Some(thinking.clone()),
+                    signature: signature.clone(),
+                    ..BlockWire::default()
+                },
+                losses,
+                true,
+            ))
+        }
         Block::Image {
             media_type,
             data,

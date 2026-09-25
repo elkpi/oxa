@@ -9,7 +9,8 @@ use crate::decode::decode_stop_reason;
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_USE, DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_TEXT_DELTA,
+    BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE, DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA, DELTA_TYPE_TEXT_DELTA, DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START, EVENT_TYPE_CONTENT_BLOCK_STOP,
     EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START, EVENT_TYPE_MESSAGE_STOP, StreamEvent,
 };
@@ -25,6 +26,8 @@ pub struct StreamDecoder {
     open_ir_index: i64,
     block_open: bool,
     open_tool: bool,
+    open_thinking: bool,
+    thinking_signature_seen: bool,
     tool_id: String,
     tool_name: String,
     tool_input: String,
@@ -52,6 +55,8 @@ impl StreamDecoder {
             open_ir_index: 0,
             block_open: false,
             open_tool: false,
+            open_thinking: false,
+            thinking_signature_seen: false,
             tool_id: String::new(),
             tool_name: String::new(),
             tool_input: String::new(),
@@ -61,10 +66,7 @@ impl StreamDecoder {
             delta_seen: false,
             stop: None,
             stop_seq: None,
-            usage: Usage {
-                input_tokens: 0,
-                output_tokens: 0,
-            },
+            usage: Usage::default(),
             stopped: false,
             flushed: false,
         }
@@ -137,6 +139,7 @@ impl StreamDecoder {
                     self.next_index += 1;
                     self.block_open = true;
                     self.open_tool = true;
+                    self.open_thinking = false;
                     self.open_index = index;
                     self.open_ir_index = self.next_ir_index;
                     self.next_ir_index += 1;
@@ -150,6 +153,24 @@ impl StreamDecoder {
                         .to_string();
                     self.tool_parts.clear();
                     return Ok(Vec::new());
+                }
+                if block.kind == BLOCK_TYPE_THINKING {
+                    let thinking = block.thinking.as_deref().unwrap_or_default();
+                    self.next_index += 1;
+                    self.block_open = true;
+                    self.open_tool = false;
+                    self.open_thinking = true;
+                    self.thinking_signature_seen = false;
+                    self.open_index = index;
+                    self.open_ir_index = self.next_ir_index;
+                    self.next_ir_index += 1;
+                    return Ok(vec![Event::ContentBlockStart {
+                        index: self.open_ir_index,
+                        block: Block::Thinking {
+                            thinking: thinking.to_string(),
+                            signature: block.signature.clone(),
+                        },
+                    }]);
                 }
                 if block.kind != BLOCK_TYPE_TEXT {
                     self.next_index += 1;
@@ -169,6 +190,7 @@ impl StreamDecoder {
                 self.next_index += 1;
                 self.block_open = true;
                 self.open_tool = false;
+                self.open_thinking = false;
                 self.open_index = index;
                 self.open_ir_index = self.next_ir_index;
                 self.next_ir_index += 1;
@@ -211,6 +233,48 @@ impl StreamDecoder {
                         _ => {}
                     }
                 }
+                if self.open_thinking {
+                    return match delta.kind.as_str() {
+                        DELTA_TYPE_THINKING_DELTA => {
+                            if self.thinking_signature_seen {
+                                return Err(Error::new(
+                                    "anthropic: thinking_delta after signature_delta",
+                                ));
+                            }
+                            let Some(thinking) = delta.thinking.as_deref() else {
+                                return Err(Error::new(
+                                    "anthropic: thinking_delta without thinking",
+                                ));
+                            };
+                            Ok(vec![Event::ContentBlockDelta {
+                                index: self.open_ir_index,
+                                delta: Delta::ThinkingDelta {
+                                    text: thinking.to_string(),
+                                },
+                            }])
+                        }
+                        DELTA_TYPE_SIGNATURE_DELTA => {
+                            if self.thinking_signature_seen {
+                                return Err(Error::new("anthropic: duplicate signature_delta"));
+                            }
+                            let Some(signature) = delta.signature.as_deref() else {
+                                return Err(Error::new(
+                                    "anthropic: signature_delta without signature",
+                                ));
+                            };
+                            self.thinking_signature_seen = true;
+                            Ok(vec![Event::ContentBlockDelta {
+                                index: self.open_ir_index,
+                                delta: Delta::SignatureDelta {
+                                    signature: signature.to_string(),
+                                },
+                            }])
+                        }
+                        other => Err(Error::new(format!(
+                            "anthropic: delta {other} on thinking block"
+                        ))),
+                    };
+                }
                 match delta.kind.as_str() {
                     DELTA_TYPE_TEXT_DELTA => Ok(vec![Event::ContentBlockDelta {
                         index: self.open_ir_index,
@@ -221,6 +285,9 @@ impl StreamDecoder {
                     DELTA_TYPE_INPUT_JSON_DELTA => {
                         Err(Error::new("anthropic: input_json_delta on non-tool block"))
                     }
+                    DELTA_TYPE_THINKING_DELTA | DELTA_TYPE_SIGNATURE_DELTA => Err(Error::new(
+                        "anthropic: thinking delta on non-thinking block",
+                    )),
                     other => {
                         self.losses.push(loss(
                             format!("content_block_delta[{index}].delta.type"),
@@ -296,6 +363,8 @@ impl StreamDecoder {
                     return Ok(events);
                 }
                 self.block_open = false;
+                self.open_thinking = false;
+                self.thinking_signature_seen = false;
                 Ok(vec![Event::ContentBlockStop {
                     index: self.open_ir_index,
                 }])
@@ -323,6 +392,9 @@ impl StreamDecoder {
                     self.usage = Usage {
                         input_tokens: usage.input_tokens,
                         output_tokens: usage.output_tokens,
+                        cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                        cache_read_input_tokens: usage.cache_read_input_tokens,
+                        ..Usage::default()
                     };
                 }
                 self.delta_seen = true;

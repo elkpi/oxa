@@ -7,9 +7,10 @@ use oxa_ir::{Block, Loss, LossReason, SystemBlock, ToolChoice, ToolChoiceMode};
 
 use crate::error::Error;
 use crate::types::{
-    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire,
-    ContentValue, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL, SystemBlockWire, TOOL_CHOICE_TYPE_ANY,
-    TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE, TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
+    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT,
+    BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL,
+    SystemBlockWire, TOOL_CHOICE_TYPE_ANY, TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE,
+    TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
 };
 
 pub(crate) fn loss(
@@ -152,6 +153,17 @@ pub(crate) fn decode_block(
         BLOCK_TYPE_TEXT => {
             block = Some(Block::Text {
                 text: wire.text.clone(),
+            });
+        }
+        BLOCK_TYPE_THINKING => {
+            let Some(thinking) = wire.thinking.as_deref() else {
+                return Err(Error::new(format!(
+                    "anthropic: {path}.thinking is required"
+                )));
+            };
+            block = Some(Block::Thinking {
+                thinking: thinking.to_string(),
+                signature: wire.signature.clone(),
             });
         }
         BLOCK_TYPE_IMAGE => {

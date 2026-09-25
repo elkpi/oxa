@@ -65,6 +65,7 @@ impl Converter for FakeCrossConverter {
             usage: Usage {
                 input_tokens: 0,
                 output_tokens: 0,
+                ..Usage::default()
             },
         };
         Ok((resp, self.decode_losses.clone()))

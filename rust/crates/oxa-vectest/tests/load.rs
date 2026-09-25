@@ -98,6 +98,32 @@ fn load_vectors_yields_empty_when_the_directory_is_missing() {
 }
 
 #[test]
+fn repository_loader_includes_all_spec_2_vectors() {
+    let root = find_repo_root(Path::new(env!("CARGO_MANIFEST_DIR")))
+        .expect("integration test must locate the monorepo root");
+    let mut vectors = Vec::new();
+    for (face, mode) in [
+        ("anthropic", "nonstream"),
+        ("anthropic", "stream"),
+        ("chatcompletions", "nonstream"),
+        ("chatcompletions", "stream"),
+        ("cross", "nonstream"),
+        ("responses", "nonstream"),
+        ("responses", "stream"),
+    ] {
+        vectors.extend(load_vectors(&root, face, mode).expect("load vectors"));
+    }
+    assert_eq!(vectors.len(), 154);
+    assert_eq!(
+        vectors
+            .iter()
+            .filter(|vector| vector.spec_version == "0.2.0")
+            .count(),
+        24
+    );
+}
+
+#[test]
 fn is_request_follows_the_response_tag() {
     let mut request = Vector {
         tags: vec!["request".to_string(), "text".to_string()],

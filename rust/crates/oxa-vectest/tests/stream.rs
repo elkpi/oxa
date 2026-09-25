@@ -47,6 +47,7 @@ fn message_delta(stop: StopReason) -> Event {
         usage: Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..Usage::default()
         },
     }
 }
@@ -182,6 +183,7 @@ fn run_stream_to_ir_feeds_flushes_and_compares() {
             usage: Usage {
                 input_tokens: 2,
                 output_tokens: 3,
+                ..Usage::default()
             },
         },
         done(),

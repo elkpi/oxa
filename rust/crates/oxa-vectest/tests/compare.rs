@@ -56,6 +56,28 @@ fn compare_json_cases() {
 }
 
 #[test]
+fn compare_json_accepts_transitional_spec_versions() {
+    let cases = [
+        ("0.1.0", "0.2.0"),
+        ("0.2.0", "0.1.0"),
+        ("0.1.0", "0.1.0"),
+        ("0.2.0", "0.2.0"),
+    ];
+    for (expected_version, actual_version) in cases {
+        let expected = value(&format!(r#"{{"specVersion":"{expected_version}"}}"#));
+        let actual = value(&format!(r#"{{"specVersion":"{actual_version}"}}"#));
+        compare_json(&expected, &actual).expect("0.1.0 and 0.2.0 are transitional equivalents");
+    }
+    assert!(
+        compare_json(
+            &value(r#"{"specVersion":"0.2.0"}"#),
+            &value(r#"{"specVersion":"0.3.0"}"#)
+        )
+        .is_err()
+    );
+}
+
+#[test]
 fn mismatch_message_carries_the_first_difference_path() {
     let err = compare_json(
         &value(r#"{"a":{"b":[1,2]}}"#),

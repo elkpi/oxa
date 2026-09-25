@@ -7,9 +7,8 @@ in-process libraries.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Status: v1.0.1 released.** The specification and golden vectors are shared
-across five implementations. Go and TypeScript validate all 154 Spec 2.0
-vectors; Rust, Python, and C++ remain on the 130-vector baseline pending
-Waves 3–5.
+across five implementations. Go, TypeScript, and Rust validate all 154 Spec 2.0
+vectors; Python and C++ remain on the 130-vector baseline pending Waves 4–5.
 
 ## What is oxa?
 
@@ -77,14 +76,15 @@ cpp/       C++ implementation (v1.0.1)
 
 ## Current capabilities
 
-The multi-language implementations convert between each protocol face and a
-shared intermediate representation (IR):
+The Go, TypeScript, and Rust Spec 2.0 implementations convert between each
+protocol face and a shared intermediate representation (IR). Python and C++
+remain on the Spec 1.0 baseline until their Waves 4 and 5 are complete.
 
 | Conversion              | Nonstream                                             | Streaming                                                   |
 | ----------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
-| Chat Completions ↔ IR   | requests and responses (incl. reasoning)              | text + thinking events + `tool_calls` argument aggregation |
-| Responses ↔ IR          | requests and responses (incl. reasoning)              | text + thinking events + function-call argument aggregation |
-| Anthropic Messages ↔ IR | requests and responses (incl. thinking)               | text + thinking events + `input_json_delta` aggregation    |
+| Chat Completions ↔ IR   | requests and responses (reasoning + granular usage)   | text + thinking/signature events + `tool_calls` aggregation |
+| Responses ↔ IR          | requests and responses (reasoning + granular usage)   | text + thinking/signature events + function-call aggregation |
+| Anthropic Messages ↔ IR | requests and responses (thinking + granular usage)    | text + thinking/signature events + `input_json_delta` aggregation |
 | Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`)            |
 
 Semantic gaps are never silent: every conversion also returns an ordered

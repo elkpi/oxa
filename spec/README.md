@@ -4,14 +4,14 @@ This directory contains the normative specification for oxa, a collection of
 pure protocol-conversion libraries translating between three protocol faces —
 OpenAI Chat Completions (CC), OpenAI Responses, and Anthropic Messages —
 through a hub-and-spoke intermediate representation (IR). The specification
-is the contract every implementation (Go first, then Rust, Python, and C++)
-MUST satisfy.
+is the contract every implementation (Go first, then TypeScript, Rust, Python,
+and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.0.0** — Go and TypeScript implement and validate the full
-154-vector set including reasoning and usage; Rust, Python, and C++ remain on the
-130-vector baseline pending their Waves 3–5 updates. See [CHANGELOG.md](CHANGELOG.md)
-and the versioning policy below.
+Current spec version: **2.0.0** — Go, TypeScript, and Rust implement and validate
+the full 154-vector set including reasoning and usage; Python and C++ remain on
+the 130-vector baseline pending Waves 4–5. See [CHANGELOG.md](CHANGELOG.md) and
+the versioning policy below.
 
 ## Versioning policy
 
@@ -39,7 +39,7 @@ The version series are tied to the implementation roadmap:
 | 0.3.0 | The C++ implementation |
 | 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
 | 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
-| 2.0.0 | Reasoning content and usage granularity across all faces (Go reference implementation in Wave 1; other languages in Waves 2–5) |
+| 2.0.0 | Reasoning content and usage granularity across all faces (Go Wave 1; TypeScript Wave 2; Rust Wave 3; Python Wave 4; C++ Wave 5) |
 
 Post-1.0 evolution ladder:
 

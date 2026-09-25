@@ -209,6 +209,34 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
 }
 
 #[test]
+fn empty_signature_records_no_signature_loss() {
+    let response = oxa_ir::Response {
+        id: "r".to_string(),
+        model: "o3-mini".to_string(),
+        content: vec![Block::Thinking {
+            thinking: "Plan.".to_string(),
+            signature: Some(String::new()),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            ..Usage::default()
+        },
+    };
+    let (wire, losses) = encode_response(&response, &Config::default()).expect("encode response");
+    assert!(
+        !losses.iter().any(|loss| loss.field == "signature"),
+        "an empty signature is absent, not a loss: {losses:?}"
+    );
+    assert_eq!(
+        wire.choices[0].message.reasoning_content.as_deref(),
+        Some("Plan.")
+    );
+}
+
+#[test]
 fn maps_optional_usage_details_in_both_directions() {
     let wire = wire_response(serde_json::json!({
         "id": "r",

@@ -458,7 +458,10 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
             } => {
                 has_reasoning = true;
                 reasoning.push_str(thinking);
-                if signature.is_some() {
+                if signature
+                    .as_deref()
+                    .is_some_and(|signature| !signature.is_empty())
+                {
                     losses.push(loss(
                         format!("{path}[{index}].signature"),
                         "signature",

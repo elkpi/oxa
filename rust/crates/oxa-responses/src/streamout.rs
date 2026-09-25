@@ -11,15 +11,19 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
     EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
-    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
-    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, IncompleteWire, OBJECT_RESPONSE, OutputItem,
-    OutputPart, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, Response, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent, UsageWire,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA, ErrorWire,
+    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING, IncompleteWire, InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem,
+    OutputPart, OutputTokenDetailsWire, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, Response,
+    STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent, UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum StreamOutputItemKind {
     Message,
+    Reasoning,
     FunctionCall,
 }
 
@@ -54,6 +58,7 @@ pub struct StreamEncoder {
     next_output_index: i64,
     next_message_item: usize,
     next_function_item: usize,
+    next_reasoning_item: usize,
     active_item: Option<StreamOutputItem>,
     active_block: Option<StreamEncodeBlock>,
     completed: Vec<OutputItem>,
@@ -73,6 +78,7 @@ impl StreamEncoder {
             next_output_index: 0,
             next_message_item: 0,
             next_function_item: 0,
+            next_reasoning_item: 0,
             active_item: None,
             active_block: None,
             completed: Vec::new(),
@@ -126,6 +132,10 @@ impl StreamEncoder {
                 self.next_block_index += 1;
                 match block {
                     Block::Text { text } => self.start_text_block(*index, text),
+                    Block::Thinking {
+                        thinking,
+                        signature,
+                    } => self.start_thinking_block(*index, thinking, signature.as_deref()),
                     Block::ToolUse { id, name, input } => {
                         self.start_function_call_block(*index, id, name, input)
                     }
@@ -164,6 +174,35 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    StreamOutputItemKind::Reasoning => match delta {
+                        Delta::ThinkingDelta { text } => {
+                            active_block.text.push_str(text);
+                            Ok((
+                                vec![StreamEvent {
+                                    kind: EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA
+                                        .to_string(),
+                                    item_id: Some(active_item.id.clone()),
+                                    output_index: Some(active_item.output_index),
+                                    content_index: Some(active_block.content_index),
+                                    delta: Some(text.clone()),
+                                    ..Default::default()
+                                }],
+                                Vec::new(),
+                            ))
+                        }
+                        Delta::SignatureDelta { .. } => Ok((
+                            Vec::new(),
+                            vec![loss(
+                                format!("events[{index}].delta.signature"),
+                                "signature",
+                                LossReason::UnmappedField,
+                                "Responses carries no signature delta in streaming reasoning",
+                            )],
+                        )),
+                        _ => Err(Error::new(
+                            "responses: ThinkingBlock received non-thinking delta",
+                        )),
+                    },
                     StreamOutputItemKind::FunctionCall => {
                         let Delta::InputJsonDelta { partial_json } = delta else {
                             return Err(Error::new(
@@ -197,6 +236,7 @@ impl StreamEncoder {
                 }
                 match active_block.kind {
                     StreamOutputItemKind::Message => self.stop_text_block(),
+                    StreamOutputItemKind::Reasoning => self.stop_thinking_block(),
                     StreamOutputItemKind::FunctionCall => self.stop_function_call_block(),
                 }
             }
@@ -206,12 +246,15 @@ impl StreamEncoder {
                 }
                 let mut out = Vec::new();
                 if let Some(active) = &self.active_item {
-                    if active.kind != StreamOutputItemKind::Message {
-                        return Err(Error::new(
-                            "responses: MessageDelta with an uncompleted function_call item",
-                        ));
+                    match active.kind {
+                        StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                        StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                        StreamOutputItemKind::FunctionCall => {
+                            return Err(Error::new(
+                                "responses: MessageDelta with an uncompleted function_call item",
+                            ));
+                        }
                     }
-                    out.push(self.close_message_item());
                 }
                 let (mut terminal, losses) = self.terminal(ev)?;
                 if let Some(resp) = &mut terminal.response {
@@ -237,17 +280,23 @@ impl StreamEncoder {
         text: &str,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => {}
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                StreamOutputItemKind::FunctionCall => {
+                    return Err(Error::new(
+                        "responses: TextBlock cannot open before the active function_call item completes",
+                    ));
+                }
+            }
+        }
         if self.active_item.is_none() {
             let (item, added) = self.open_message_item();
             self.active_item = Some(item);
             out.push(added);
         }
-        let active = self.active_item.as_mut().unwrap();
-        if active.kind != StreamOutputItemKind::Message {
-            return Err(Error::new(
-                "responses: TextBlock cannot open before the active function_call item completes",
-            ));
-        }
+        let active = self.active_item.as_mut().expect("message item opened");
         let content_index = active.next_content_index;
         active.next_content_index += 1;
         let part = OutputPart {
@@ -275,6 +324,70 @@ impl StreamEncoder {
         Ok((out, Vec::new()))
     }
 
+    fn start_thinking_block(
+        &mut self,
+        index: i64,
+        thinking: &str,
+        signature: Option<&str>,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                // Consecutive thinking blocks merge into one reasoning item,
+                // mirroring the Go reference encoder.
+                StreamOutputItemKind::Reasoning => {}
+                StreamOutputItemKind::FunctionCall => {
+                    return Err(Error::new(
+                        "responses: ThinkingBlock cannot open before the active function_call item completes",
+                    ));
+                }
+            }
+        }
+        if self.active_item.is_none() {
+            let (item, added) = self.open_reasoning_item();
+            self.active_item = Some(item);
+            out.push(added);
+        }
+        let active = self.active_item.as_mut().expect("reasoning item active");
+        let content_index = active.next_content_index;
+        active.next_content_index += 1;
+        let part = OutputPart {
+            kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+            text: thinking.to_string(),
+            annotations: Vec::new(),
+        };
+        active.content.push(part.clone());
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::Reasoning,
+            content_index,
+            text: thinking.to_string(),
+            tool_input: String::new(),
+            fragments: Vec::new(),
+        });
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED.to_string(),
+            item_id: Some(active.id.clone()),
+            output_index: Some(active.output_index),
+            content_index: Some(content_index),
+            part: Some(part),
+            ..Default::default()
+        });
+        let losses = signature
+            .filter(|signature| !signature.is_empty())
+            .map(|_| {
+                vec![loss(
+                    format!("events[{index}].block.signature"),
+                    "signature",
+                    LossReason::UnmappedField,
+                    "Responses carries no signature in reasoning summary",
+                )]
+            })
+            .unwrap_or_default();
+        Ok((out, losses))
+    }
+
     fn start_function_call_block(
         &mut self,
         index: i64,
@@ -289,12 +402,15 @@ impl StreamEncoder {
         }
         let mut out = Vec::new();
         if let Some(active) = &self.active_item {
-            if active.kind != StreamOutputItemKind::Message {
-                return Err(Error::new(
-                    "responses: ToolUseBlock cannot open before the active function_call item completes",
-                ));
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                StreamOutputItemKind::FunctionCall => {
+                    return Err(Error::new(
+                        "responses: ToolUseBlock cannot open before the active function_call item completes",
+                    ));
+                }
             }
-            out.push(self.close_message_item());
         }
         let (item, added) = self.open_function_call_item(id, name);
         self.active_item = Some(item);
@@ -346,6 +462,40 @@ impl StreamEncoder {
                     ..Default::default()
                 },
             ],
+            Vec::new(),
+        ))
+    }
+
+    fn stop_thinking_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        if self
+            .active_item
+            .as_ref()
+            .is_none_or(|item| item.kind != StreamOutputItemKind::Reasoning)
+        {
+            return Err(Error::new(
+                "responses: thinking block without an active reasoning item",
+            ));
+        }
+        let block = self.active_block.take().expect("active block");
+        let content_index = usize::try_from(block.content_index)
+            .map_err(|_| Error::new("responses: negative reasoning content index"))?;
+        let active_item = self.active_item.as_mut().expect("reasoning item");
+        active_item.content[content_index].text = block.text;
+        let part = active_item.content[content_index].clone();
+        let item_id = active_item.id.clone();
+        let output_index = active_item.output_index;
+        // The shared reasoning item stays open across consecutive thinking
+        // blocks; close_reasoning_item emits output_item.done at the next
+        // non-thinking block or at MessageDelta.
+        Ok((
+            vec![StreamEvent {
+                kind: EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE.to_string(),
+                item_id: Some(item_id),
+                output_index: Some(output_index),
+                content_index: Some(block.content_index),
+                part: Some(part),
+                ..Default::default()
+            }],
             Vec::new(),
         ))
     }
@@ -472,6 +622,56 @@ impl StreamEncoder {
         (item, event)
     }
 
+    fn open_reasoning_item(&mut self) -> (StreamOutputItem, StreamEvent) {
+        let id = stream_generated_item_id("rs", self.next_reasoning_item);
+        self.next_reasoning_item += 1;
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        let item = StreamOutputItem {
+            kind: StreamOutputItemKind::Reasoning,
+            id: id.clone(),
+            output_index,
+            content: Vec::new(),
+            next_content_index: 0,
+            call_id: String::new(),
+            name: String::new(),
+        };
+        let event = StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
+            output_index: Some(output_index),
+            item: Some(OutputItem {
+                id,
+                kind: ITEM_TYPE_REASONING.to_string(),
+                status: STATUS_IN_PROGRESS.to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        (item, event)
+    }
+
+    fn close_reasoning_item(&mut self) -> StreamEvent {
+        let item = self
+            .active_item
+            .take()
+            .expect("active reasoning item to close");
+        let completed = OutputItem {
+            id: item.id,
+            kind: ITEM_TYPE_REASONING.to_string(),
+            status: STATUS_COMPLETED.to_string(),
+            summary: item.content,
+            ..Default::default()
+        };
+        let event = StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
+            output_index: Some(item.output_index),
+            item: Some(completed.clone()),
+            ..Default::default()
+        };
+        self.completed.push(completed);
+        event
+    }
+
     fn close_message_item(&mut self) -> StreamEvent {
         let item = self
             .active_item
@@ -511,6 +711,16 @@ impl StreamEncoder {
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
                 total_tokens: usage.input_tokens + usage.output_tokens,
+                input_token_details: usage.input_tokens_details.map(|details| {
+                    InputTokenDetailsWire {
+                        cached_tokens: details.cached_tokens,
+                    }
+                }),
+                output_token_details: usage.output_tokens_details.map(|details| {
+                    OutputTokenDetailsWire {
+                        reasoning_tokens: details.reasoning_tokens,
+                    }
+                }),
             }),
             ..Default::default()
         };

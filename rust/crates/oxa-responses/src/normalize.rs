@@ -9,8 +9,9 @@ use oxa_ir::{
 use crate::error::Error;
 use crate::types::{
     ContentPart, ContentValue, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-    ITEM_TYPE_MESSAGE, InputItem, PART_TYPE_INPUT_IMAGE, PART_TYPE_INPUT_TEXT, ROLE_ASSISTANT,
-    ROLE_USER, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, InputItem, OutputPart, PART_TYPE_INPUT_IMAGE,
+    PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, TOOL_CHOICE_AUTO,
+    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION,
 };
 
 pub(crate) fn loss(
@@ -153,12 +154,37 @@ pub(crate) fn decode_assistant_run(
     items: &[InputItem],
     start: usize,
 ) -> Result<(Option<IrMessage>, usize, Vec<Loss>), Error> {
+    let mut thinkings = Vec::new();
     let mut text = Vec::new();
     let mut calls = Vec::new();
     let mut losses = Vec::new();
     let mut index = start;
     while index < items.len() {
         let item = &items[index];
+        if item.kind == ITEM_TYPE_REASONING {
+            for (part_index, part) in item.summary.iter().enumerate() {
+                if part.kind == PART_TYPE_OUTPUT_TEXT || part.kind == "summary_text" {
+                    if !part.text.is_empty() {
+                        thinkings.push(Block::Thinking {
+                            thinking: part.text.clone(),
+                            signature: None,
+                        });
+                    }
+                } else {
+                    losses.push(loss(
+                        format!("input[{index}].summary[{part_index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        format!(
+                            "Responses reasoning summary type {:?} has no IR equivalent",
+                            part.kind
+                        ),
+                    ));
+                }
+            }
+            index += 1;
+            continue;
+        }
         if item.kind == ITEM_TYPE_FUNCTION_CALL {
             calls.push(Block::ToolUse {
                 id: item.call_id.clone(),
@@ -178,14 +204,16 @@ pub(crate) fn decode_assistant_run(
         losses.extend(block_losses);
         index += 1;
     }
-    text.extend(calls);
-    if text.is_empty() {
+    let mut content = thinkings;
+    content.extend(text);
+    content.extend(calls);
+    if content.is_empty() {
         return Ok((None, index, losses));
     }
     Ok((
         Some(IrMessage {
             role: Role::Assistant,
-            content: text,
+            content,
         }),
         index,
         losses,
@@ -491,6 +519,7 @@ pub(crate) fn encode_assistant_message(
     blocks: &[Block],
     path: &str,
 ) -> (Vec<InputItem>, Vec<Loss>) {
+    let mut thinkings = Vec::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut calls = Vec::new();
@@ -500,6 +529,24 @@ pub(crate) fn encode_assistant_message(
             Block::Text { text: value } => {
                 text.push_str(value);
                 has_text = true;
+            }
+            Block::Thinking {
+                thinking,
+                signature,
+            } => {
+                thinkings.push(OutputPart {
+                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+                    text: thinking.clone(),
+                    annotations: Vec::new(),
+                });
+                if signature.is_some() {
+                    losses.push(loss(
+                        format!("{path}[{index}].signature"),
+                        "signature",
+                        LossReason::UnmappedField,
+                        "Responses reasoning input items carry no provider signature",
+                    ));
+                }
             }
             Block::ToolUse { id, name, input } => calls.push(InputItem {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
@@ -517,6 +564,13 @@ pub(crate) fn encode_assistant_message(
         }
     }
     let mut items = Vec::new();
+    if !thinkings.is_empty() {
+        items.push(InputItem {
+            kind: ITEM_TYPE_REASONING.to_string(),
+            summary: thinkings,
+            ..InputItem::default()
+        });
+    }
     if has_text || blocks.is_empty() {
         items.push(InputItem {
             role: ROLE_ASSISTANT.to_string(),

@@ -1,15 +1,19 @@
 //! IR → face conversions (spec/11 §4).
 
-use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
+use oxa_ir::{
+    Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
+    StopReason, Usage,
+};
 
 use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{encode_assistant_message, encode_tool_choice, encode_user_message, loss};
 use crate::types::{
     ContentValue, ERROR_CODE_REFUSAL, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
-    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, IncompleteWire, Input, OBJECT_RESPONSE, OutputItem,
-    OutputPart, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response,
-    STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, ToolDef, UsageWire,
+    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input,
+    InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire,
+    PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response, STATUS_COMPLETED,
+    STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, ToolDef, UsageWire,
 };
 
 /// Converts an IR request to a Responses wire request (IR → face). System
@@ -93,6 +97,15 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.temperature = params.temperature;
         out.top_p = params.top_p;
         out.max_output_tokens = params.max_tokens;
+        out.reasoning = params.reasoning_effort.map(|effort| {
+            let effort = match effort {
+                ReasoningEffort::Minimal => "minimal",
+                ReasoningEffort::Low => "low",
+                ReasoningEffort::Medium => "medium",
+                ReasoningEffort::High => "high",
+            };
+            serde_json::json!({ "effort": effort })
+        });
         if params
             .stop_sequences
             .as_ref()
@@ -112,7 +125,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
 /// Converts an IR response to a Responses wire response (IR → face). Envelope
 /// fields absent from the IR use N-R-12's documented defaults without loss.
 pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, Vec<Loss>), Error> {
+    validate_usage(&resp.usage)?;
+    let total_tokens = resp
+        .usage
+        .input_tokens
+        .checked_add(resp.usage.output_tokens)
+        .ok_or_else(|| Error::new("responses: derived total_tokens exceeds int64"))?;
     let mut losses = Vec::new();
+    let mut thinkings = Vec::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut calls = Vec::new();
@@ -121,6 +141,27 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             Block::Text { text: value } => {
                 text.push_str(value);
                 has_text = true;
+            }
+            Block::Thinking {
+                thinking,
+                signature,
+            } => {
+                thinkings.push(OutputPart {
+                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+                    text: thinking.clone(),
+                    annotations: Vec::new(),
+                });
+                if signature
+                    .as_deref()
+                    .is_some_and(|signature| !signature.is_empty())
+                {
+                    losses.push(loss(
+                        format!("content[{index}].signature"),
+                        "signature",
+                        LossReason::UnmappedField,
+                        "Responses reasoning output items carry no provider signature",
+                    ));
+                }
             }
             Block::ToolUse { id, name, input } => calls.push(OutputItem {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
@@ -153,6 +194,17 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     text,
                     annotations: Vec::new(),
                 }],
+                ..OutputItem::default()
+            },
+        );
+    }
+    if !thinkings.is_empty() {
+        output.insert(
+            0,
+            OutputItem {
+                kind: ITEM_TYPE_REASONING.to_string(),
+                id: "rs_abc123".to_string(),
+                summary: thinkings,
                 ..OutputItem::default()
             },
         );
@@ -199,11 +251,55 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             usage: Some(UsageWire {
                 input_tokens: resp.usage.input_tokens,
                 output_tokens: resp.usage.output_tokens,
-                total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+                total_tokens,
+                input_token_details: resp.usage.input_tokens_details.map(|details| {
+                    InputTokenDetailsWire {
+                        cached_tokens: details.cached_tokens,
+                    }
+                }),
+                output_token_details: resp.usage.output_tokens_details.map(|details| {
+                    OutputTokenDetailsWire {
+                        reasoning_tokens: details.reasoning_tokens,
+                    }
+                }),
             }),
             incomplete_details,
             error,
         },
         losses,
     ))
+}
+
+fn validate_usage(usage: &Usage) -> Result<(), Error> {
+    for (path, value) in [
+        ("usage.input_tokens", Some(usage.input_tokens)),
+        ("usage.output_tokens", Some(usage.output_tokens)),
+        (
+            "usage.cache_read_input_tokens",
+            usage.cache_read_input_tokens,
+        ),
+        (
+            "usage.cache_creation_input_tokens",
+            usage.cache_creation_input_tokens,
+        ),
+        (
+            "usage.input_tokens_details.cached_tokens",
+            usage
+                .input_tokens_details
+                .map(|details| details.cached_tokens),
+        ),
+        (
+            "usage.output_tokens_details.reasoning_tokens",
+            usage
+                .output_tokens_details
+                .map(|details| details.reasoning_tokens),
+        ),
+    ] {
+        if value.is_some_and(|value| value < 0) {
+            return Err(Error::new(format!(
+                "responses: {path} must be non-negative"
+            )));
+        }
+    }
+    Ok(())
 }

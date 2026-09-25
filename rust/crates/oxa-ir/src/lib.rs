@@ -19,6 +19,7 @@ pub use codec::{Error, SPEC_VERSION, from_json, to_json};
 pub use event::{Delta, Event, EventStream};
 pub use loss::{Loss, LossReason};
 pub use request::{
-    Block, Message, Params, Request, Role, SystemBlock, Tool, ToolChoice, ToolChoiceMode,
+    Block, Message, Params, ReasoningEffort, Request, Role, SystemBlock, Tool, ToolChoice,
+    ToolChoiceMode,
 };
-pub use response::{Response, StopReason, Usage};
+pub use response::{InputTokensDetails, OutputTokensDetails, Response, StopReason, Usage};

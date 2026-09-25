@@ -1,4 +1,4 @@
-use oxa_ir::{Block, Delta, Event, StopReason, Usage};
+use oxa_ir::{Block, Delta, Event, InputTokensDetails, OutputTokensDetails, StopReason, Usage};
 use oxa_responses::{
     Config, OutputItem, OutputPart, Response, StreamDecoder, StreamEncoder, StreamEvent, UsageWire,
 };
@@ -200,11 +200,269 @@ fn stream_completed(id: &str, model: &str, in_tokens: i64, out_tokens: i64) -> S
                 input_tokens: in_tokens,
                 output_tokens: out_tokens,
                 total_tokens: in_tokens + out_tokens,
+                ..UsageWire::default()
             }),
             ..Default::default()
         }),
         ..Default::default()
     }
+}
+
+#[test]
+fn stream_decoder_accepts_id_less_reasoning_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_noid", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.added".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.added".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.delta".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                delta: Some("hmm".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.done".to_string(),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    text: "hmm".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.done".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    status: "completed".to_string(),
+                    summary: vec![OutputPart {
+                        kind: "output_text".to_string(),
+                        text: "hmm".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_noid", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+    got.extend(decoder.flush().unwrap());
+
+    let blocks: Vec<&Block> = got
+        .iter()
+        .filter_map(|event| match event {
+            Event::ContentBlockStart { block, .. } => Some(block),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        blocks,
+        vec![&Block::Thinking {
+            thinking: String::new(),
+            signature: None,
+        }],
+        "an id-less reasoning item still converts like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
+fn stream_decoder_opens_text_parts_under_reasoning_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_mix", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.added".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    id: "rs_1".to_string(),
+                    kind: "reasoning".to_string(),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_part_added(0, 0, "rs_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&stream_text_delta(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_text_done(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_part_done(0, 0, "rs_1", "text"))
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.done".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    id: "rs_1".to_string(),
+                    kind: "reasoning".to_string(),
+                    status: "completed".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_mix", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+
+    let block = got.iter().find_map(|event| match event {
+        Event::ContentBlockStart { block, .. } => Some(block.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        block,
+        Some(Block::Text {
+            text: String::new(),
+        }),
+        "message parts under a reasoning item open a text block like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
+fn stream_decoder_opens_reasoning_summary_under_message_items() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(
+        decoder
+            .feed(&stream_created("resp_msg_rs", "o3-mini"))
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_item_added(0, "msg_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.added".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.delta".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                delta: Some("ponder".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.done".to_string(),
+                item_id: Some("msg_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    text: "ponder".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(decoder.feed(&stream_item_done(0, "msg_1")).unwrap());
+    got.extend(
+        decoder
+            .feed(&stream_completed("resp_msg_rs", "o3-mini", 1, 1))
+            .unwrap(),
+    );
+
+    let block = got.iter().find_map(|event| match event {
+        Event::ContentBlockStart { block, .. } => Some(block.clone()),
+        _ => None,
+    });
+    assert_eq!(
+        block,
+        Some(Block::Thinking {
+            thinking: String::new(),
+            signature: None,
+        }),
+        "reasoning summary parts under a message item open a thinking block like the Go reference"
+    );
+    assert!(decoder.losses().is_empty());
 }
 
 #[test]
@@ -257,6 +515,7 @@ fn stream_decoder_happy_path() {
             usage: Usage {
                 input_tokens: 3,
                 output_tokens: 5,
+                ..Usage::default()
             },
         },
         Event::MessageDone {},
@@ -264,6 +523,336 @@ fn stream_decoder_happy_path() {
 
     assert_eq!(got, want);
     assert!(d.losses().is_empty());
+}
+
+#[test]
+fn stream_decoder_maps_reasoning_summary_and_usage_details() {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    let mut got = Vec::new();
+    got.extend(decoder.feed(&stream_created("resp_m9", "o3-mini")).unwrap());
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.added".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    id: "rs_1".to_string(),
+                    status: "in_progress".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.added".to_string(),
+                item_id: Some("rs_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.delta".to_string(),
+                item_id: Some("rs_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                delta: Some("Plan.".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_text.done".to_string(),
+                item_id: Some("rs_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                text: Some("Plan.".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.reasoning_summary_part.done".to_string(),
+                item_id: Some("rs_1".to_string()),
+                output_index: Some(0),
+                content_index: Some(0),
+                part: Some(OutputPart {
+                    kind: "output_text".to_string(),
+                    text: "Plan.".to_string(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.output_item.done".to_string(),
+                output_index: Some(0),
+                item: Some(OutputItem {
+                    kind: "reasoning".to_string(),
+                    id: "rs_1".to_string(),
+                    status: "completed".to_string(),
+                    summary: vec![OutputPart {
+                        kind: "output_text".to_string(),
+                        text: "Plan.".to_string(),
+                        ..Default::default()
+                    }],
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(
+        decoder
+            .feed(&StreamEvent {
+                kind: "response.completed".to_string(),
+                response: Some(Response {
+                    id: "resp_m9".to_string(),
+                    object: "response".to_string(),
+                    status: "completed".to_string(),
+                    model: "o3-mini".to_string(),
+                    output: Vec::new(),
+                    usage: Some(UsageWire {
+                        input_tokens: 10,
+                        output_tokens: 15,
+                        total_tokens: 25,
+                        input_token_details: Some(oxa_responses::InputTokenDetailsWire {
+                            cached_tokens: 4,
+                        }),
+                        output_token_details: Some(oxa_responses::OutputTokenDetailsWire {
+                            reasoning_tokens: 8,
+                        }),
+                    }),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            })
+            .unwrap(),
+    );
+    got.extend(decoder.flush().unwrap());
+
+    assert_eq!(
+        got,
+        vec![
+            Event::MessageStart {
+                id: "resp_m9".to_string(),
+                model: "o3-mini".to_string(),
+            },
+            Event::ContentBlockStart {
+                index: 0,
+                block: Block::Thinking {
+                    thinking: String::new(),
+                    signature: None,
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::ThinkingDelta {
+                    text: "Plan.".to_string(),
+                },
+            },
+            Event::ContentBlockStop { index: 0 },
+            Event::MessageDelta {
+                stop_reason: StopReason::EndTurn,
+                stop_sequence: None,
+                usage: Usage {
+                    input_tokens: 10,
+                    output_tokens: 15,
+                    input_tokens_details: Some(InputTokensDetails { cached_tokens: 4 }),
+                    output_tokens_details: Some(OutputTokensDetails {
+                        reasoning_tokens: 8,
+                    }),
+                    ..Usage::default()
+                },
+            },
+            Event::MessageDone {},
+        ]
+    );
+    assert!(decoder.losses().is_empty());
+}
+
+#[test]
+fn stream_encoder_merges_consecutive_thinking_blocks_into_one_reasoning_item() {
+    let mut encoder = StreamEncoder::new(&Config::default());
+    encoder
+        .apply(&Event::MessageStart {
+            id: "resp_merge".to_string(),
+            model: "o3-mini".to_string(),
+        })
+        .unwrap();
+
+    let (first_start, _) = encoder
+        .apply(&Event::ContentBlockStart {
+            index: 0,
+            block: Block::Thinking {
+                thinking: String::new(),
+                signature: None,
+            },
+        })
+        .unwrap();
+    encoder
+        .apply(&Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::ThinkingDelta {
+                text: "one.".to_string(),
+            },
+        })
+        .unwrap();
+    let (first_stop, _) = encoder
+        .apply(&Event::ContentBlockStop { index: 0 })
+        .unwrap();
+    let (second_start, _) = encoder
+        .apply(&Event::ContentBlockStart {
+            index: 1,
+            block: Block::Thinking {
+                thinking: String::new(),
+                signature: None,
+            },
+        })
+        .unwrap();
+    encoder
+        .apply(&Event::ContentBlockDelta {
+            index: 1,
+            delta: Delta::ThinkingDelta {
+                text: "two.".to_string(),
+            },
+        })
+        .unwrap();
+    let (second_stop, _) = encoder
+        .apply(&Event::ContentBlockStop { index: 1 })
+        .unwrap();
+
+    let added_items: Vec<&str> = first_start
+        .iter()
+        .chain(second_start.iter())
+        .filter(|event| event.kind == "response.output_item.added")
+        .filter_map(|event| event.item.as_ref().map(|item| item.id.as_str()))
+        .collect();
+    assert_eq!(added_items, ["rs_abc123"], "one shared reasoning item");
+    let second_part = second_start
+        .iter()
+        .find(|event| event.kind == "response.reasoning_summary_part.added")
+        .expect("second part added");
+    assert_eq!(second_part.content_index, Some(1));
+    assert_eq!(second_part.item_id.as_deref(), Some("rs_abc123"));
+    for stop in [first_stop, second_stop] {
+        assert!(
+            stop.iter()
+                .all(|event| event.kind != "response.output_item.done"),
+            "thinking stops must not close the shared reasoning item"
+        );
+    }
+
+    let (text_start, _) = encoder
+        .apply(&Event::ContentBlockStart {
+            index: 2,
+            block: Block::Text {
+                text: String::new(),
+            },
+        })
+        .unwrap();
+    let kinds: Vec<&str> = text_start.iter().map(|event| event.kind.as_str()).collect();
+    assert_eq!(
+        kinds,
+        [
+            "response.output_item.done",
+            "response.output_item.added",
+            "response.content_part.added",
+        ],
+        "the reasoning item closes just before the message item opens"
+    );
+}
+
+#[test]
+fn stream_encoder_maps_reasoning_summary_and_signature_loss() {
+    let mut encoder = StreamEncoder::new(&Config::default());
+    encoder
+        .apply(&Event::MessageStart {
+            id: "resp_m9_out".to_string(),
+            model: "o3-mini".to_string(),
+        })
+        .unwrap();
+    let (started, start_losses) = encoder
+        .apply(&Event::ContentBlockStart {
+            index: 0,
+            block: Block::Thinking {
+                thinking: String::new(),
+                signature: Some("opaque".to_string()),
+            },
+        })
+        .unwrap();
+    assert_eq!(
+        started
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "response.output_item.added",
+            "response.reasoning_summary_part.added",
+        ]
+    );
+    assert_eq!(start_losses.len(), 1);
+    let (delta, delta_losses) = encoder
+        .apply(&Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::ThinkingDelta {
+                text: "Plan.".to_string(),
+            },
+        })
+        .unwrap();
+    assert_eq!(delta[0].kind, "response.reasoning_summary_text.delta");
+    assert!(delta_losses.is_empty());
+    let (done, _) = encoder
+        .apply(&Event::ContentBlockStop { index: 0 })
+        .unwrap();
+    assert_eq!(
+        done.iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        ["response.reasoning_summary_part.done"],
+        "the reasoning item closes later, not at the thinking stop"
+    );
+    let (message, _) = encoder
+        .apply(&Event::ContentBlockStart {
+            index: 1,
+            block: Block::Text {
+                text: String::new(),
+            },
+        })
+        .unwrap();
+    assert_eq!(
+        message
+            .iter()
+            .map(|event| event.kind.as_str())
+            .collect::<Vec<_>>(),
+        [
+            "response.output_item.done",
+            "response.output_item.added",
+            "response.content_part.added",
+        ]
+    );
+    let closed = &message[0].item.as_ref().unwrap();
+    assert_eq!(closed.kind, "reasoning");
+    assert_eq!(closed.status, "completed");
+    assert_eq!(closed.summary[0].text, "Plan.");
 }
 
 #[test]
@@ -344,6 +933,7 @@ fn stream_encoder_happy_path() {
             usage: Usage {
                 input_tokens: 10,
                 output_tokens: 2,
+                ..Usage::default()
             },
         })
         .unwrap();

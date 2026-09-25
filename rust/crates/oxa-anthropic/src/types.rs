@@ -15,6 +15,7 @@ pub const ROLE_USER: &str = "user";
 pub const ROLE_ASSISTANT: &str = "assistant";
 
 pub const BLOCK_TYPE_TEXT: &str = "text";
+pub const BLOCK_TYPE_THINKING: &str = "thinking";
 pub const BLOCK_TYPE_IMAGE: &str = "image";
 pub const BLOCK_TYPE_TOOL_USE: &str = "tool_use";
 pub const BLOCK_TYPE_TOOL_RESULT: &str = "tool_result";
@@ -42,6 +43,8 @@ pub const EVENT_TYPE_MESSAGE_STOP: &str = "message_stop";
 
 pub const DELTA_TYPE_TEXT_DELTA: &str = "text_delta";
 pub const DELTA_TYPE_INPUT_JSON_DELTA: &str = "input_json_delta";
+pub const DELTA_TYPE_THINKING_DELTA: &str = "thinking_delta";
+pub const DELTA_TYPE_SIGNATURE_DELTA: &str = "signature_delta";
 
 pub const TYPE_MESSAGE: &str = "message";
 
@@ -65,6 +68,8 @@ pub struct Request {
     pub top_p: Option<f64>,
     #[serde(rename = "stop_sequences", skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
+    #[serde(rename = "thinking", skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<ThinkingWire>,
     /// The specific {user_id} semantic; presence is dropped with a single
     /// unmapped-field loss.
     #[serde(rename = "metadata", skip_serializing_if = "Option::is_none")]
@@ -73,6 +78,16 @@ pub struct Request {
     pub tools: Option<Vec<ToolWire>>,
     #[serde(rename = "tool_choice", skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoiceWire>,
+}
+
+/// The request-side Anthropic thinking configuration.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThinkingWire {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "budget_tokens")]
+    pub budget_tokens: i64,
 }
 
 /// Request system content: a plain string or a block array.
@@ -221,6 +236,10 @@ pub struct BlockWire {
     pub kind: String,
     #[serde(rename = "text", skip_serializing_if = "String::is_empty")]
     pub text: String,
+    #[serde(rename = "thinking", skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    #[serde(rename = "signature", skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
     #[serde(rename = "cache_control", skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<Value>,
     // tool_use
@@ -246,6 +265,8 @@ impl PartialEq for BlockWire {
     fn eq(&self, other: &Self) -> bool {
         self.kind == other.kind
             && self.text == other.text
+            && self.thinking == other.thinking
+            && self.signature == other.signature
             && self.cache_control == other.cache_control
             && self.id == other.id
             && self.name == other.name
@@ -303,6 +324,16 @@ pub struct UsageWire {
     pub input_tokens: i64,
     #[serde(rename = "output_tokens")]
     pub output_tokens: i64,
+    #[serde(
+        rename = "cache_creation_input_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cache_creation_input_tokens: Option<i64>,
+    #[serde(
+        rename = "cache_read_input_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cache_read_input_tokens: Option<i64>,
 }
 
 /// One Anthropic Messages streaming event.
@@ -351,6 +382,10 @@ pub struct StreamDelta {
     pub kind: String,
     #[serde(rename = "text", skip_serializing_if = "String::is_empty")]
     pub text: String,
+    #[serde(rename = "thinking", skip_serializing_if = "Option::is_none")]
+    pub thinking: Option<String>,
+    #[serde(rename = "signature", skip_serializing_if = "Option::is_none")]
+    pub signature: Option<String>,
     #[serde(rename = "partial_json", skip_serializing_if = "Option::is_none")]
     pub partial_json: Option<String>,
     #[serde(rename = "stop_reason", skip_serializing_if = "Option::is_none")]

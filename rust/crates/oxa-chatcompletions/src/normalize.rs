@@ -446,10 +446,30 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
         ..Message::default()
     };
     let mut text = String::new();
+    let mut reasoning = String::new();
+    let mut has_reasoning = false;
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
             Block::Text { text: value } => text.push_str(value),
+            Block::Thinking {
+                thinking,
+                signature,
+            } => {
+                has_reasoning = true;
+                reasoning.push_str(thinking);
+                if signature
+                    .as_deref()
+                    .is_some_and(|signature| !signature.is_empty())
+                {
+                    losses.push(loss(
+                        format!("{path}[{index}].signature"),
+                        "signature",
+                        LossReason::UnmappedField,
+                        "Chat Completions reasoning_content has no signature field; the opaque signature is dropped",
+                    ));
+                }
+            }
             Block::ToolUse { id, name, input } => {
                 out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
                     id: id.clone(),
@@ -477,6 +497,9 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
         }
     }
     out.content = Some(ContentValue::Text(text));
+    if has_reasoning {
+        out.reasoning_content = Some(reasoning);
+    }
     (out, losses)
 }
 

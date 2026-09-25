@@ -19,6 +19,7 @@ pub const TOOL_CHOICE_REQUIRED: &str = "required";
 pub const ITEM_TYPE_MESSAGE: &str = "message";
 pub const ITEM_TYPE_FUNCTION_CALL: &str = "function_call";
 pub const ITEM_TYPE_FUNCTION_CALL_OUTPUT: &str = "function_call_output";
+pub const ITEM_TYPE_REASONING: &str = "reasoning";
 
 pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
 pub const PART_TYPE_OUTPUT_TEXT: &str = "output_text";
@@ -42,6 +43,14 @@ pub const EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED: &str = "response.content_part.
 pub const EVENT_TYPE_RESPONSE_CONTENT_PART_DONE: &str = "response.content_part.done";
 pub const EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA: &str = "response.output_text.delta";
 pub const EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE: &str = "response.output_text.done";
+pub const EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED: &str =
+    "response.reasoning_summary_part.added";
+pub const EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE: &str =
+    "response.reasoning_summary_part.done";
+pub const EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA: &str =
+    "response.reasoning_summary_text.delta";
+pub const EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE: &str =
+    "response.reasoning_summary_text.done";
 pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA: &str =
     "response.function_call_arguments.delta";
 pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE: &str =
@@ -118,10 +127,14 @@ impl Default for Input {
 pub struct InputItem {
     #[serde(rename = "type", default, skip_serializing_if = "String::is_empty")]
     pub kind: String,
+    #[serde(rename = "id", default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
     #[serde(rename = "role", default, skip_serializing_if = "String::is_empty")]
     pub role: String,
     #[serde(rename = "content", default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ContentValue>,
+    #[serde(rename = "summary", default, skip_serializing_if = "Vec::is_empty")]
+    pub summary: Vec<OutputPart>,
     #[serde(rename = "call_id", default, skip_serializing_if = "String::is_empty")]
     pub call_id: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
@@ -225,6 +238,14 @@ pub struct OutputItem {
     pub role: String,
     #[serde(rename = "content", default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<OutputPart>,
+    #[serde(rename = "summary", default, skip_serializing_if = "Vec::is_empty")]
+    pub summary: Vec<OutputPart>,
+    #[serde(
+        rename = "encrypted_content",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub encrypted_content: String,
     #[serde(rename = "call_id", default, skip_serializing_if = "String::is_empty")]
     pub call_id: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
@@ -248,8 +269,23 @@ pub struct OutputPart {
     pub annotations: Vec<Value>,
 }
 
+/// Cached input-token breakdown from Responses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputTokenDetailsWire {
+    #[serde(rename = "cached_tokens")]
+    pub cached_tokens: i64,
+}
+
+/// Reasoning output-token breakdown from Responses.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputTokenDetailsWire {
+    #[serde(rename = "reasoning_tokens")]
+    pub reasoning_tokens: i64,
+}
+
 /// Responses token usage. `total_tokens` is an envelope-derived field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UsageWire {
     #[serde(rename = "input_tokens")]
     pub input_tokens: i64,
@@ -257,6 +293,16 @@ pub struct UsageWire {
     pub output_tokens: i64,
     #[serde(rename = "total_tokens")]
     pub total_tokens: i64,
+    #[serde(
+        rename = "input_token_details",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub input_token_details: Option<InputTokenDetailsWire>,
+    #[serde(
+        rename = "output_token_details",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_token_details: Option<OutputTokenDetailsWire>,
 }
 
 /// Why a Responses response was incomplete.

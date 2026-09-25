@@ -3,17 +3,19 @@
 use oxa_ir::{Block, Delta, Event, Loss, LossReason};
 
 use crate::config::Config;
-use crate::encode::encode_finish_reason;
+use crate::encode::{encode_finish_reason, validate_usage};
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    ChoiceDelta, Chunk, DeltaPayload, FunctionDelta, OBJECT_CHAT_COMPLETION_CHUNK, ROLE_ASSISTANT,
-    TOOL_TYPE_FUNCTION, ToolCallDelta, UsageWire,
+    ChoiceDelta, Chunk, CompletionTokensDetailsWire, DeltaPayload, FunctionDelta,
+    OBJECT_CHAT_COMPLETION_CHUNK, PromptTokensDetailsWire, ROLE_ASSISTANT, TOOL_TYPE_FUNCTION,
+    ToolCallDelta, UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
 enum StreamBlockKind {
     Text,
+    Thinking,
     Tool,
 }
 
@@ -26,6 +28,7 @@ struct StreamEncodeBlock {
     fragments: Vec<String>,
     native_index: usize,
     tool_started: bool,
+    signature_seen: bool,
 }
 
 /// Incrementally converts an IR event stream into Chat Completions chunks.
@@ -114,8 +117,34 @@ impl StreamEncoder {
                             fragments: Vec::new(),
                             native_index: 0,
                             tool_started: false,
+                            signature_seen: false,
                         });
                         Ok((Vec::new(), Vec::new()))
+                    }
+                    Block::Thinking { signature, .. } => {
+                        self.active = Some(StreamEncodeBlock {
+                            kind: StreamBlockKind::Thinking,
+                            index: *index,
+                            tool_id: String::new(),
+                            tool_name: String::new(),
+                            tool_input: String::new(),
+                            fragments: Vec::new(),
+                            native_index: 0,
+                            tool_started: false,
+                            signature_seen: false,
+                        });
+                        let losses = signature
+                            .as_ref()
+                            .map(|_| {
+                                vec![loss(
+                                    format!("events[{index}].signature"),
+                                    "signature",
+                                    LossReason::UnmappedField,
+                                    "Chat Completions reasoning_content has no signature field; the opaque signature is lost",
+                                )]
+                            })
+                            .unwrap_or_default();
+                        Ok((Vec::new(), losses))
                     }
                     Block::ToolUse { id, name, input } => {
                         if id.is_empty() || name.is_empty() {
@@ -135,6 +164,7 @@ impl StreamEncoder {
                             fragments: Vec::new(),
                             native_index,
                             tool_started: false,
+                            signature_seen: false,
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
@@ -169,6 +199,42 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    StreamBlockKind::Thinking => match delta {
+                        Delta::ThinkingDelta { text } => {
+                            if active.signature_seen {
+                                return Err(Error::new(
+                                    "chatcompletions: thinking delta after signature_delta",
+                                ));
+                            }
+                            Ok((
+                                vec![self.chunk(DeltaPayload {
+                                    reasoning_content: Some(text.clone()),
+                                    ..Default::default()
+                                })],
+                                Vec::new(),
+                            ))
+                        }
+                        Delta::SignatureDelta { .. } => {
+                            if active.signature_seen {
+                                return Err(Error::new(
+                                    "chatcompletions: duplicate signature_delta",
+                                ));
+                            }
+                            active.signature_seen = true;
+                            Ok((
+                                Vec::new(),
+                                vec![loss(
+                                    format!("events[{index}].signature"),
+                                    "signature",
+                                    LossReason::UnmappedField,
+                                    "Chat Completions reasoning_content has no signature field; the opaque signature delta is lost",
+                                )],
+                            ))
+                        }
+                        _ => Err(Error::new(
+                            "chatcompletions: ThinkingBlock received a non-thinking delta",
+                        )),
+                    },
                     StreamBlockKind::Tool => {
                         let Delta::InputJsonDelta { partial_json } = delta else {
                             return Err(Error::new(
@@ -220,6 +286,13 @@ impl StreamEncoder {
                         "chatcompletions: MessageDelta out of grammar order",
                     ));
                 }
+                validate_usage(usage)?;
+                let total_tokens = usage
+                    .input_tokens
+                    .checked_add(usage.output_tokens)
+                    .ok_or_else(|| {
+                        Error::new("chatcompletions: derived total_tokens exceeds int64")
+                    })?;
                 let (finish, finish_loss) = encode_finish_reason(*stop_reason)?;
                 let mut losses = Vec::new();
                 if let Some(l) = finish_loss {
@@ -248,7 +321,17 @@ impl StreamEncoder {
                     usage: Some(UsageWire {
                         prompt_tokens: usage.input_tokens,
                         completion_tokens: usage.output_tokens,
-                        total_tokens: usage.input_tokens + usage.output_tokens,
+                        total_tokens,
+                        prompt_tokens_details: usage.input_tokens_details.map(|details| {
+                            PromptTokensDetailsWire {
+                                cached_tokens: details.cached_tokens,
+                            }
+                        }),
+                        completion_tokens_details: usage.output_tokens_details.map(|details| {
+                            CompletionTokensDetailsWire {
+                                reasoning_tokens: details.reasoning_tokens,
+                            }
+                        }),
                     }),
                 });
                 Ok((chunks, losses))

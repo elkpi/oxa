@@ -1,8 +1,8 @@
 //! Face → IR conversions (spec/11 §4).
 
 use oxa_ir::{
-    Block, Loss, LossReason, Params, Request as IrRequest, Response as IrResponse, Role,
-    StopReason, Usage,
+    Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
+    Request as IrRequest, Response as IrResponse, Role, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -13,8 +13,9 @@ use crate::normalize::{
 };
 use crate::types::{
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-    ITEM_TYPE_MESSAGE, Input, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER,
-    Request, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, Input, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
+    ROLE_SYSTEM, ROLE_USER, Request, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE,
+    TOOL_TYPE_FUNCTION, UsageWire,
 };
 
 /// Converts a Responses wire request to the IR (face → IR). Semantic
@@ -48,12 +49,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 .and_then(|text| text.format.as_ref())
                 .is_some(),
             "Responses text output format has no IR equivalent in v1.",
-        ),
-        (
-            "reasoning",
-            "reasoning",
-            wire.reasoning.is_some(),
-            "Responses reasoning effort configuration has no IR equivalent in v1.",
         ),
         (
             "parallel_tool_calls",
@@ -166,7 +161,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             )));
                         }
                     },
-                    ITEM_TYPE_FUNCTION_CALL => {
+                    ITEM_TYPE_FUNCTION_CALL | ITEM_TYPE_REASONING => {
                         let (message, next, run_losses) = decode_assistant_run(items, index)?;
                         if let Some(message) = message {
                             request.messages.push(message);
@@ -197,16 +192,68 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             "responses: request carries no conversation input",
         ));
     }
+    let reasoning_effort = decode_reasoning_effort(wire.reasoning.as_ref(), &mut losses)?;
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens: wire.max_output_tokens,
         stop_sequences: None,
+        reasoning_effort,
     };
-    if params.temperature.is_some() || params.top_p.is_some() || params.max_tokens.is_some() {
+    if params.temperature.is_some()
+        || params.top_p.is_some()
+        || params.max_tokens.is_some()
+        || params.reasoning_effort.is_some()
+    {
         request.params = Some(params);
     }
     Ok((request, losses))
+}
+
+fn decode_reasoning_effort(
+    value: Option<&serde_json::Value>,
+    losses: &mut Vec<Loss>,
+) -> Result<Option<ReasoningEffort>, Error> {
+    let effort = match value {
+        None | Some(serde_json::Value::Null) => return Ok(None),
+        Some(serde_json::Value::String(effort)) => effort.as_str(),
+        Some(serde_json::Value::Object(reasoning)) => {
+            if reasoning.contains_key("summary") {
+                losses.push(loss(
+                    "reasoning.summary",
+                    "summary",
+                    LossReason::UnmappedField,
+                    "Responses reasoning summary preference has no IR equivalent",
+                ));
+            }
+            match reasoning.get("effort") {
+                None | Some(serde_json::Value::Null) => return Ok(None),
+                Some(serde_json::Value::String(effort)) => effort.as_str(),
+                Some(_) => return Err(Error::new("responses: reasoning.effort must be a string")),
+            }
+        }
+        Some(_) => {
+            return Err(Error::new(
+                "responses: reasoning must be an object or string",
+            ));
+        }
+    };
+    let mapped = match effort {
+        "minimal" => Some(ReasoningEffort::Minimal),
+        "low" => Some(ReasoningEffort::Low),
+        "medium" => Some(ReasoningEffort::Medium),
+        "high" => Some(ReasoningEffort::High),
+        other => {
+            losses.push(loss(
+                "reasoning.effort",
+                "effort",
+                LossReason::UnmappedValue,
+                format!("unknown reasoning effort value {other:?}"),
+            ));
+            None
+        }
+    };
+    Ok(mapped)
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -218,11 +265,49 @@ fn non_empty(value: String) -> Option<String> {
 /// derived and therefore ignored.
 pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, Vec<Loss>), Error> {
     let mut losses = Vec::new();
+    let mut thinkings = Vec::new();
     let mut text = Vec::new();
     let mut calls = Vec::new();
     let mut has_tool_use = false;
     for (item_index, item) in wire.output.iter().enumerate() {
         match item.kind.as_str() {
+            ITEM_TYPE_REASONING => {
+                if item.summary.is_empty() {
+                    losses.push(loss(
+                        format!("output[{item_index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "Responses reasoning output item with empty summary carries no convertible content",
+                    ));
+                } else {
+                    for (part_index, part) in item.summary.iter().enumerate() {
+                        if part.kind == PART_TYPE_OUTPUT_TEXT {
+                            thinkings.push(Block::Thinking {
+                                thinking: part.text.clone(),
+                                signature: None,
+                            });
+                        } else {
+                            losses.push(loss(
+                                format!("output[{item_index}].summary[{part_index}]"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                format!(
+                                    "Responses reasoning summary type {:?} has no IR equivalent",
+                                    part.kind
+                                ),
+                            ));
+                        }
+                    }
+                }
+                if !item.encrypted_content.is_empty() {
+                    losses.push(loss(
+                        format!("output[{item_index}].encrypted_content"),
+                        "encrypted_content",
+                        LossReason::UnmappedField,
+                        "Responses reasoning encrypted_content has no IR equivalent",
+                    ));
+                }
+            }
             ITEM_TYPE_MESSAGE => {
                 for (content_index, part) in item.content.iter().enumerate() {
                     if part.kind != PART_TYPE_OUTPUT_TEXT {
@@ -268,22 +353,60 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     }
     let (stop_reason, status_losses) = decode_status(wire, has_tool_use)?;
     losses.extend(status_losses);
-    text.extend(calls);
-    let usage = wire.usage.unwrap_or_default();
+    let mut content = thinkings;
+    content.extend(text);
+    content.extend(calls);
     Ok((
         IrResponse {
             id: wire.id.clone(),
             model: config.map_model(&wire.model),
-            content: text,
+            content,
             stop_reason,
             stop_sequence: None,
-            usage: Usage {
-                input_tokens: usage.input_tokens,
-                output_tokens: usage.output_tokens,
-            },
+            usage: decode_usage(wire.usage.as_ref())?,
         },
         losses,
     ))
+}
+
+fn decode_usage(wire: Option<&UsageWire>) -> Result<Usage, Error> {
+    let Some(wire) = wire else {
+        return Ok(Usage::default());
+    };
+    Ok(Usage {
+        input_tokens: nonnegative_usage(wire.input_tokens, "usage.input_tokens")?,
+        output_tokens: nonnegative_usage(wire.output_tokens, "usage.output_tokens")?,
+        input_tokens_details: wire
+            .input_token_details
+            .map(|details| {
+                nonnegative_usage(
+                    details.cached_tokens,
+                    "usage.input_token_details.cached_tokens",
+                )
+                .map(|cached_tokens| InputTokensDetails { cached_tokens })
+            })
+            .transpose()?,
+        output_tokens_details: wire
+            .output_token_details
+            .map(|details| {
+                nonnegative_usage(
+                    details.reasoning_tokens,
+                    "usage.output_token_details.reasoning_tokens",
+                )
+                .map(|reasoning_tokens| OutputTokensDetails { reasoning_tokens })
+            })
+            .transpose()?,
+        ..Usage::default()
+    })
+}
+
+fn nonnegative_usage(value: i64, path: &str) -> Result<i64, Error> {
+    if value < 0 {
+        return Err(Error::new(format!(
+            "responses: {path} must be non-negative"
+        )));
+    }
+    Ok(value)
 }
 
 pub(crate) fn decode_status(

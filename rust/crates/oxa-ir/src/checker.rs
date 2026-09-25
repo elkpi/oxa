@@ -44,6 +44,7 @@ struct OpenTool {
 
 enum OpenBlock {
     Text,
+    Thinking { signature_seen: bool },
     Tool(OpenTool),
 }
 
@@ -88,6 +89,12 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                 next_index += 1;
                 open = Some(match block {
                     Block::Text { .. } => (*index, OpenBlock::Text),
+                    Block::Thinking { .. } => (
+                        *index,
+                        OpenBlock::Thinking {
+                            signature_seen: false,
+                        },
+                    ),
                     Block::ToolUse { input, .. } => (
                         *index,
                         OpenBlock::Tool(OpenTool {
@@ -121,6 +128,17 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                 }
                 match (kind, delta) {
                     (OpenBlock::Text, Delta::TextDelta { .. }) => {}
+                    (OpenBlock::Thinking { signature_seen }, Delta::ThinkingDelta { .. }) => {
+                        if *signature_seen {
+                            return Err(violate(i, "thinking delta after signature_delta"));
+                        }
+                    }
+                    (OpenBlock::Thinking { signature_seen }, Delta::SignatureDelta { .. }) => {
+                        if *signature_seen {
+                            return Err(violate(i, "multiple signatures in thinking block"));
+                        }
+                        *signature_seen = true;
+                    }
                     (OpenBlock::Tool(tool), Delta::InputJsonDelta { partial_json }) => {
                         tool.fragments.push_str(partial_json);
                         tool.fragment_count += 1;
@@ -242,6 +260,7 @@ fn validate_tool_input(
 fn block_kind(block: &Block) -> &'static str {
     match block {
         Block::Text { .. } => "text",
+        Block::Thinking { .. } => "thinking",
         Block::Image { .. } => "image",
         Block::ToolUse { .. } => "tool_use",
         Block::ToolResult { .. } => "tool_result",
@@ -252,5 +271,7 @@ fn delta_kind(delta: &Delta) -> &'static str {
     match delta {
         Delta::TextDelta { .. } => "text_delta",
         Delta::InputJsonDelta { .. } => "input_json_delta",
+        Delta::ThinkingDelta { .. } => "thinking_delta",
+        Delta::SignatureDelta { .. } => "signature_delta",
     }
 }

@@ -135,6 +135,7 @@ fn bare_response(model: &str) -> Response {
         usage: Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..Usage::default()
         },
     }
 }

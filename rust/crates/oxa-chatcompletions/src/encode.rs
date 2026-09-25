@@ -1,6 +1,9 @@
 //! IR → face conversions (spec/10 §4).
 
-use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
+use oxa_ir::{
+    Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
+    StopReason, Usage,
+};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -8,9 +11,10 @@ use crate::normalize::{
     encode_assistant_message, encode_tool_choice, encode_tool_result, encode_user_content, loss,
 };
 use crate::types::{
-    Choice, ContentValue, FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
-    FINISH_REASON_TOOL_CALLS, FunctionWire, Message, OBJECT_CHAT_COMPLETION, ROLE_SYSTEM,
-    ROLE_USER, Request, Response, TOOL_TYPE_FUNCTION, ToolWire, UsageWire,
+    Choice, CompletionTokensDetailsWire, ContentValue, FINISH_REASON_CONTENT_FILTER,
+    FINISH_REASON_LENGTH, FINISH_REASON_STOP, FINISH_REASON_TOOL_CALLS, FunctionWire, Message,
+    OBJECT_CHAT_COMPLETION, PromptTokensDetailsWire, ROLE_SYSTEM, ROLE_USER, Request, Response,
+    TOOL_TYPE_FUNCTION, ToolWire, UsageWire,
 };
 
 /// Converts an IR request to a Chat Completions wire request (IR → face).
@@ -141,6 +145,15 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             .clone()
             .filter(|stops| !stops.is_empty());
         out.stop = stop;
+        out.reasoning_effort = params.reasoning_effort.map(|effort| {
+            match effort {
+                ReasoningEffort::Minimal => "minimal",
+                ReasoningEffort::Low => "low",
+                ReasoningEffort::Medium => "medium",
+                ReasoningEffort::High => "high",
+            }
+            .to_string()
+        });
     }
     Ok((out, losses))
 }
@@ -159,6 +172,12 @@ fn non_null(value: &serde_json::Value) -> Option<serde_json::Value> {
 /// message role assistant) and record no loss. usage.total_tokens is derived
 /// and recomputed.
 pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, Vec<Loss>), Error> {
+    validate_usage(&resp.usage)?;
+    let total_tokens = resp
+        .usage
+        .input_tokens
+        .checked_add(resp.usage.output_tokens)
+        .ok_or_else(|| Error::new("chatcompletions: derived total_tokens exceeds int64"))?;
     let (message, mut losses) = encode_assistant_message(&resp.content, "content");
     let (finish, finish_loss) = encode_finish_reason(resp.stop_reason)?;
     if let Some(l) = finish_loss {
@@ -178,11 +197,55 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             usage: Some(UsageWire {
                 prompt_tokens: resp.usage.input_tokens,
                 completion_tokens: resp.usage.output_tokens,
-                total_tokens: resp.usage.input_tokens + resp.usage.output_tokens,
+                total_tokens,
+                prompt_tokens_details: resp.usage.input_tokens_details.map(|details| {
+                    PromptTokensDetailsWire {
+                        cached_tokens: details.cached_tokens,
+                    }
+                }),
+                completion_tokens_details: resp.usage.output_tokens_details.map(|details| {
+                    CompletionTokensDetailsWire {
+                        reasoning_tokens: details.reasoning_tokens,
+                    }
+                }),
             }),
         },
         losses,
     ))
+}
+
+pub(crate) fn validate_usage(usage: &Usage) -> Result<(), Error> {
+    for (path, value) in [
+        ("usage.input_tokens", Some(usage.input_tokens)),
+        ("usage.output_tokens", Some(usage.output_tokens)),
+        (
+            "usage.cache_read_input_tokens",
+            usage.cache_read_input_tokens,
+        ),
+        (
+            "usage.cache_creation_input_tokens",
+            usage.cache_creation_input_tokens,
+        ),
+        (
+            "usage.input_tokens_details.cached_tokens",
+            usage
+                .input_tokens_details
+                .map(|details| details.cached_tokens),
+        ),
+        (
+            "usage.output_tokens_details.reasoning_tokens",
+            usage
+                .output_tokens_details
+                .map(|details| details.reasoning_tokens),
+        ),
+    ] {
+        if value.is_some_and(|value| value < 0) {
+            return Err(Error::new(format!(
+                "chatcompletions: {path} must be non-negative"
+            )));
+        }
+    }
+    Ok(())
 }
 
 pub(crate) fn encode_finish_reason(

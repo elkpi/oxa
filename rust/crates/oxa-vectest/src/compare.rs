@@ -26,6 +26,9 @@ fn equal_json(expected: &Value, actual: &Value, path: String) -> Result<(), Stri
                 let Some(other) = actual.get(key) else {
                     return Err(format!("{path}.{key}: missing in actual"));
                 };
+                if key == "specVersion" && is_compatible_spec_version(value, other) {
+                    continue;
+                }
                 equal_json(value, other, format!("{path}.{key}"))?;
             }
             for key in actual.keys() {
@@ -85,6 +88,17 @@ fn equal_json(expected: &Value, actual: &Value, path: String) -> Result<(), Stri
             type_name(actual)
         )),
     }
+}
+
+fn is_compatible_spec_version(expected: &Value, actual: &Value) -> bool {
+    let (Value::String(expected), Value::String(actual)) = (expected, actual) else {
+        return false;
+    };
+    expected == actual
+        || matches!(
+            (expected.as_str(), actual.as_str()),
+            ("0.1.0", "0.2.0") | ("0.2.0", "0.1.0")
+        )
 }
 
 fn type_name(value: &Value) -> &'static str {

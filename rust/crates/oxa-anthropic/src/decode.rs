@@ -1,7 +1,8 @@
 //! Face → IR conversions (spec/12 §4).
 
 use oxa_ir::{
-    Loss, LossReason, Params, Request as IrRequest, Response as IrResponse, StopReason, Usage,
+    Loss, LossReason, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
+    StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -94,6 +95,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         return Err(Error::new("anthropic: request carries no messages"));
     }
 
+    let reasoning_effort = wire.thinking.as_ref().and_then(|thinking| {
+        if thinking.kind != "enabled" {
+            return None;
+        }
+        let effort = if thinking.budget_tokens <= 2048 {
+            ReasoningEffort::Low
+        } else if thinking.budget_tokens <= 8192 {
+            ReasoningEffort::Medium
+        } else {
+            ReasoningEffort::High
+        };
+        losses.push(loss(
+            "thinking.budget_tokens",
+            "budget_tokens",
+            LossReason::Degraded,
+            "budget approximated",
+        ));
+        Some(effort)
+    });
+
     let stop = wire
         .stop_sequences
         .clone()
@@ -103,6 +124,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         top_p: wire.top_p,
         max_tokens: Some(wire.max_tokens),
         stop_sequences: stop,
+        reasoning_effort,
     };
     req.params = Some(params);
     Ok((req, losses))
@@ -143,11 +165,11 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             .map(|usage| Usage {
                 input_tokens: usage.input_tokens,
                 output_tokens: usage.output_tokens,
+                cache_creation_input_tokens: usage.cache_creation_input_tokens,
+                cache_read_input_tokens: usage.cache_read_input_tokens,
+                ..Usage::default()
             })
-            .unwrap_or(Usage {
-                input_tokens: 0,
-                output_tokens: 0,
-            }),
+            .unwrap_or_default(),
     };
     Ok((resp, losses))
 }

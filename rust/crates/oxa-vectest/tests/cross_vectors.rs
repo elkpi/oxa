@@ -64,7 +64,7 @@ converter!(Anthropic, "anthropic", anthropic);
 converter!(ChatCompletions, "chatcompletions", chatcompletions);
 converter!(Responses, "responses", responses);
 
-fn assert_cross(source: &dyn Converter, target: &dyn Converter) {
+fn assert_cross(source: &dyn Converter, target: &dyn Converter, expected: usize) {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
     match run_cross_in(manifest_dir, source, target) {
         Ok(Outcome::Skipped) => panic!(
@@ -73,8 +73,8 @@ fn assert_cross(source: &dyn Converter, target: &dyn Converter) {
         Ok(Outcome::Ran(report)) => {
             assert_eq!(
                 report.executed,
-                2,
-                "expected request and response cross vectors for {} -> {}",
+                expected,
+                "unexpected cross vector count for {} -> {}",
                 source.face(),
                 target.face()
             );
@@ -106,10 +106,10 @@ fn nonstream_cross_vectors() {
         config: responses::Config::default(),
     };
 
-    assert_cross(&anthropic, &chatcompletions);
-    assert_cross(&anthropic, &responses);
-    assert_cross(&chatcompletions, &anthropic);
-    assert_cross(&chatcompletions, &responses);
-    assert_cross(&responses, &anthropic);
-    assert_cross(&responses, &chatcompletions);
+    assert_cross(&anthropic, &chatcompletions, 3);
+    assert_cross(&anthropic, &responses, 2);
+    assert_cross(&chatcompletions, &anthropic, 3);
+    assert_cross(&chatcompletions, &responses, 2);
+    assert_cross(&responses, &anthropic, 3);
+    assert_cross(&responses, &chatcompletions, 2);
 }

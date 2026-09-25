@@ -1,6 +1,8 @@
 //! OpenAI Responses streaming decoder: converts Responses streaming events into IR events (face → IR).
 
-use oxa_ir::{Block, Delta, Event, Loss, LossReason, Usage};
+use oxa_ir::{
+    Block, Delta, Event, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Usage,
+};
 
 use crate::config::Config;
 use crate::decode::decode_status;
@@ -12,8 +14,12 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
     EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
-    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-    ITEM_TYPE_MESSAGE, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, PART_TYPE_OUTPUT_TEXT,
+    ROLE_ASSISTANT, StreamEvent,
 };
 
 struct StreamFunctionCall {
@@ -41,6 +47,7 @@ pub struct StreamDecoder {
     next_content_index: i64,
     function_call: Option<StreamFunctionCall>,
     tool_use_seen: bool,
+    encrypted_content_loss_recorded: bool,
     block_open: bool,
     skipped_part: bool,
     block_index: i64,
@@ -68,6 +75,7 @@ impl StreamDecoder {
             next_content_index: 0,
             function_call: None,
             tool_use_seen: false,
+            encrypted_content_loss_recorded: false,
             block_open: false,
             skipped_part: false,
             block_index: 0,
@@ -126,8 +134,13 @@ impl StreamDecoder {
                 self.skipped_call_id.clear();
                 self.next_content_index = 0;
                 self.function_call = None;
+                self.encrypted_content_loss_recorded = false;
 
                 if item.kind == ITEM_TYPE_MESSAGE && item.role == ROLE_ASSISTANT {
+                    return Ok(Vec::new());
+                }
+                if item.kind == ITEM_TYPE_REASONING {
+                    self.record_encrypted_content_loss(output_index, &item.encrypted_content);
                     return Ok(Vec::new());
                 }
                 if item.kind == ITEM_TYPE_FUNCTION_CALL {
@@ -311,6 +324,157 @@ impl StreamDecoder {
                 self.text_done = true;
                 Ok(Vec::new())
             }
+            EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED)?;
+                if self.skipped_item {
+                    if self.block_open || self.skipped_part {
+                        return Err(Error::new(
+                            "responses: reasoning_summary_part.added with a part still open",
+                        ));
+                    }
+                    let content_index = ev.content_index.unwrap_or(-1);
+                    if content_index != self.next_content_index {
+                        return Err(Error::new(format!(
+                            "responses: reasoning_summary_part.added content_index {}, want {}",
+                            content_index, self.next_content_index
+                        )));
+                    }
+                    self.next_content_index += 1;
+                    self.content_index = content_index;
+                    self.skipped_part = true;
+                    return Ok(Vec::new());
+                }
+                if self.block_open || self.skipped_part {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_part.added with a part still open",
+                    ));
+                }
+                let content_index = ev.content_index.unwrap_or(-1);
+                if content_index != self.next_content_index {
+                    return Err(Error::new(format!(
+                        "responses: reasoning_summary_part.added content_index {}, want {}",
+                        content_index, self.next_content_index
+                    )));
+                }
+                self.next_content_index += 1;
+                self.content_index = content_index;
+                let Some(part) = &ev.part else {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_part.added without part",
+                    ));
+                };
+                if part.kind != PART_TYPE_OUTPUT_TEXT {
+                    self.skipped_part = true;
+                    self.losses.push(loss(
+                        format!(
+                            "output[{}].summary[{}]",
+                            self.output_index, content_index
+                        ),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        format!(
+                            "Responses reasoning summary type {:?} is not decoded in the stream profile",
+                            part.kind
+                        ),
+                    ));
+                    return Ok(Vec::new());
+                }
+                self.block_open = true;
+                self.block_index = self.next_block_index;
+                self.next_block_index += 1;
+                self.text_done = false;
+                Ok(vec![Event::ContentBlockStart {
+                    index: self.block_index,
+                    block: Block::Thinking {
+                        thinking: String::new(),
+                        signature: None,
+                    },
+                }])
+            }
+            EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA)?;
+                if self.skipped_item || self.skipped_part {
+                    let content_index = ev.content_index.unwrap_or(-1);
+                    if content_index != self.content_index {
+                        return Err(Error::new(format!(
+                            "responses: reasoning_summary_text.delta content_index {} does not match the skipped part",
+                            content_index
+                        )));
+                    }
+                    return Ok(Vec::new());
+                }
+                let content_index = ev.content_index.unwrap_or(-1);
+                if !self.block_open || content_index != self.content_index {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_text.delta does not match the open content part",
+                    ));
+                }
+                if self.text_done {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_text.delta after text.done",
+                    ));
+                }
+                Ok(vec![Event::ContentBlockDelta {
+                    index: self.block_index,
+                    delta: Delta::ThinkingDelta {
+                        text: ev.delta.clone().unwrap_or_default(),
+                    },
+                }])
+            }
+            EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE)?;
+                if self.skipped_item || self.skipped_part {
+                    let content_index = ev.content_index.unwrap_or(-1);
+                    if content_index != self.content_index {
+                        return Err(Error::new(format!(
+                            "responses: reasoning_summary_text.done content_index {} does not match the skipped part",
+                            content_index
+                        )));
+                    }
+                    return Ok(Vec::new());
+                }
+                let content_index = ev.content_index.unwrap_or(-1);
+                if !self.block_open || content_index != self.content_index {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_text.done does not match the open content part",
+                    ));
+                }
+                if self.text_done {
+                    return Err(Error::new(
+                        "responses: duplicate reasoning_summary_text.done",
+                    ));
+                }
+                self.text_done = true;
+                Ok(Vec::new())
+            }
+            EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE => {
+                self.require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE)?;
+                if ev.part.is_none() {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_part.done without part",
+                    ));
+                }
+                let content_index = ev.content_index.unwrap_or(-1);
+                if self.skipped_item || self.skipped_part {
+                    if content_index != self.content_index {
+                        return Err(Error::new(format!(
+                            "responses: reasoning_summary_part.done content_index {} does not match the skipped part",
+                            content_index
+                        )));
+                    }
+                    self.skipped_part = false;
+                    return Ok(Vec::new());
+                }
+                if !self.block_open || content_index != self.content_index {
+                    return Err(Error::new(
+                        "responses: reasoning_summary_part.done does not match the open content part",
+                    ));
+                }
+                self.block_open = false;
+                Ok(vec![Event::ContentBlockStop {
+                    index: self.block_index,
+                }])
+            }
             EVENT_TYPE_RESPONSE_CONTENT_PART_DONE => {
                 self.require_active_item(ev, EVENT_TYPE_RESPONSE_CONTENT_PART_DONE)?;
                 if self.function_call.is_some() {
@@ -366,6 +530,9 @@ impl StreamDecoder {
                     return Err(Error::new(
                         "responses: response.output_item.done does not match the open item",
                     ));
+                }
+                if self.item_type == ITEM_TYPE_REASONING {
+                    self.record_encrypted_content_loss(output_index, &item.encrypted_content);
                 }
                 if self.skipped_item
                     && self.item_type == ITEM_TYPE_FUNCTION_CALL_OUTPUT
@@ -444,11 +611,19 @@ impl StreamDecoder {
                     .map(|u| Usage {
                         input_tokens: u.input_tokens,
                         output_tokens: u.output_tokens,
+                        input_tokens_details: u.input_token_details.map(|details| {
+                            InputTokensDetails {
+                                cached_tokens: details.cached_tokens,
+                            }
+                        }),
+                        output_tokens_details: u.output_token_details.map(|details| {
+                            OutputTokensDetails {
+                                reasoning_tokens: details.reasoning_tokens,
+                            }
+                        }),
+                        ..Usage::default()
                     })
-                    .unwrap_or(Usage {
-                        input_tokens: 0,
-                        output_tokens: 0,
-                    });
+                    .unwrap_or_default();
                 Ok(vec![
                     Event::MessageDelta {
                         stop_reason: stop,
@@ -507,6 +682,19 @@ impl StreamDecoder {
                 Ok(Vec::new())
             }
         }
+    }
+
+    fn record_encrypted_content_loss(&mut self, output_index: i64, encrypted_content: &str) {
+        if encrypted_content.is_empty() || self.encrypted_content_loss_recorded {
+            return;
+        }
+        self.losses.push(loss(
+            format!("output[{output_index}].encrypted_content"),
+            "encrypted_content",
+            LossReason::UnmappedField,
+            "Responses reasoning encrypted_content has no IR equivalent",
+        ));
+        self.encrypted_content_loss_recorded = true;
     }
 
     fn require_started(&self, event_type: &str) -> Result<(), Error> {

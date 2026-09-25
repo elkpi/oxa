@@ -3,7 +3,7 @@
 use oxa_ir::{Block, Delta, Event, Loss, LossReason, StopReason, Usage};
 
 use crate::config::Config;
-use crate::decode::decode_finish_reason;
+use crate::decode::{decode_finish_reason, decode_usage};
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{Chunk, TOOL_TYPE_FUNCTION, ToolCallDelta};
@@ -24,6 +24,8 @@ pub struct StreamDecoder {
     started: bool,
     text_open: bool,
     text_index: i64,
+    thinking_open: bool,
+    thinking_index: i64,
     next_ir_index: i64,
     id: String,
     model: String,
@@ -43,6 +45,8 @@ impl StreamDecoder {
             started: false,
             text_open: false,
             text_index: 0,
+            thinking_open: false,
+            thinking_index: 0,
             next_ir_index: 0,
             id: String::new(),
             model: String::new(),
@@ -60,10 +64,7 @@ impl StreamDecoder {
             return Err(Error::new("chatcompletions: chunk fed after stream flush"));
         }
         if let Some(usage) = &chunk.usage {
-            self.usage = Some(Usage {
-                input_tokens: usage.prompt_tokens,
-                output_tokens: usage.completion_tokens,
-            });
+            self.usage = Some(decode_usage(Some(usage))?);
         }
         if chunk.choices.is_empty() {
             return Ok(Vec::new());
@@ -94,7 +95,45 @@ impl StreamDecoder {
             self.record_tool_calls(calls)?;
         }
 
+        if let Some(reasoning) = choice
+            .delta
+            .reasoning_content
+            .as_ref()
+            .filter(|reasoning| !reasoning.is_empty())
+        {
+            if self.text_open {
+                events.push(Event::ContentBlockStop {
+                    index: self.text_index,
+                });
+                self.text_open = false;
+            }
+            if !self.thinking_open {
+                self.thinking_open = true;
+                self.thinking_index = self.next_ir_index;
+                self.next_ir_index += 1;
+                events.push(Event::ContentBlockStart {
+                    index: self.thinking_index,
+                    block: Block::Thinking {
+                        thinking: String::new(),
+                        signature: None,
+                    },
+                });
+            }
+            events.push(Event::ContentBlockDelta {
+                index: self.thinking_index,
+                delta: Delta::ThinkingDelta {
+                    text: reasoning.clone(),
+                },
+            });
+        }
+
         if let Some(content) = &choice.delta.content {
+            if self.thinking_open {
+                events.push(Event::ContentBlockStop {
+                    index: self.thinking_index,
+                });
+                self.thinking_open = false;
+            }
             if !self.text_open {
                 self.text_open = true;
                 self.text_index = self.next_ir_index;
@@ -198,6 +237,12 @@ impl StreamDecoder {
         self.flushed = true;
 
         let mut events = Vec::new();
+        if self.thinking_open {
+            events.push(Event::ContentBlockStop {
+                index: self.thinking_index,
+            });
+            self.thinking_open = false;
+        }
         if self.text_open {
             events.push(Event::ContentBlockStop {
                 index: self.text_index,
@@ -243,10 +288,7 @@ impl StreamDecoder {
             events.push(Event::ContentBlockStop { index });
         }
 
-        let usage = self.usage.unwrap_or(Usage {
-            input_tokens: 0,
-            output_tokens: 0,
-        });
+        let usage = self.usage.unwrap_or_default();
 
         events.push(Event::MessageDelta {
             stop_reason: stop,

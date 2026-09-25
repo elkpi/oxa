@@ -5,7 +5,7 @@
 use oxa_anthropic::{
     Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
 };
-use oxa_ir::{LossReason, StopReason};
+use oxa_ir::{Block, LossReason, ReasoningEffort, StopReason, Usage};
 use serde_json::Value;
 
 fn wire_request(json: Value) -> Request {
@@ -137,6 +137,7 @@ fn tool_choice_named_requires_a_name() {
             top_p: None,
             max_tokens: Some(8),
             stop_sequences: None,
+            reasoning_effort: None,
         }),
         metadata: None,
     };
@@ -215,6 +216,7 @@ fn single_text_message_renders_the_string_shorthand() {
             top_p: None,
             max_tokens: Some(8),
             stop_sequences: None,
+            reasoning_effort: None,
         }),
         metadata: None,
     };
@@ -247,6 +249,7 @@ fn encoding_ir_stop_other_is_a_structural_error() {
         usage: oxa_ir::Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..oxa_ir::Usage::default()
         },
     };
     let err = encode_response(&resp, &Config::default()).expect_err("stop other");
@@ -277,6 +280,7 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
             top_p: None,
             max_tokens: Some(8),
             stop_sequences: None,
+            reasoning_effort: None,
         }),
         metadata: None,
     };
@@ -344,4 +348,181 @@ fn request_json_deserialization_canonicalizes_tool_input_in_generic_content() {
         encoded.contains(r#""input":{"x":10.0}"#),
         "input remains canonical in the wire JSON: {encoded}"
     );
+}
+
+#[test]
+fn decodes_anthropic_reasoning_effort_at_budget_boundaries() {
+    for (budget, expected) in [
+        (2048, ReasoningEffort::Low),
+        (2049, ReasoningEffort::Medium),
+        (8192, ReasoningEffort::Medium),
+        (8193, ReasoningEffort::High),
+    ] {
+        let mut wire = minimal_request();
+        wire["thinking"] = serde_json::json!({
+            "type": "enabled",
+            "budget_tokens": budget
+        });
+        let (decoded, losses) =
+            decode_request(&wire_request(wire), &Config::default()).expect("decode request");
+        assert_eq!(
+            decoded
+                .params
+                .as_ref()
+                .and_then(|params| params.reasoning_effort),
+            Some(expected),
+            "budget {budget}"
+        );
+        let loss = loss_with(&losses, "thinking.budget_tokens", "budget_tokens");
+        assert_eq!(loss.reason, LossReason::Degraded);
+        assert_eq!(loss.detail, "budget approximated");
+    }
+}
+
+#[test]
+fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
+    let req = oxa_ir::Request {
+        model: "m".to_string(),
+        system: Vec::new(),
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::Assistant,
+            content: vec![Block::Thinking {
+                thinking: "reasoning".to_string(),
+                signature: None,
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: Some(oxa_ir::Params {
+            temperature: None,
+            top_p: None,
+            max_tokens: Some(8),
+            stop_sequences: None,
+            reasoning_effort: Some(ReasoningEffort::Minimal),
+        }),
+        metadata: None,
+    };
+
+    let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
+    let thinking = wire.thinking.as_ref().expect("thinking config");
+    assert_eq!(thinking.kind, "enabled");
+    assert_eq!(thinking.budget_tokens, 1024);
+    let Some(oxa_anthropic::ContentValue::Blocks(blocks)) = &wire.messages[0].content else {
+        panic!("thinking block must render as a block array");
+    };
+    assert_eq!(blocks[0].kind, "thinking");
+    assert_eq!(blocks[0].thinking.as_deref(), Some("reasoning"));
+    assert_eq!(blocks[0].signature, None);
+    assert_eq!(losses.len(), 2);
+    assert_eq!(
+        loss_with(&losses, "params.reasoning_effort", "reasoning_effort").reason,
+        LossReason::Degraded
+    );
+    assert_eq!(
+        loss_with(&losses, "messages[0].content[0]", "signature").detail,
+        "unsigned thinking block; Anthropic may reject on replay"
+    );
+}
+
+#[test]
+fn preserves_thinking_signature_and_optional_cache_usage() {
+    let wire = wire_response(serde_json::json!({
+        "id": "msg_1",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude",
+        "content": [{
+            "type": "thinking",
+            "thinking": "consider",
+            "signature": "opaque-signature"
+        }],
+        "stop_reason": "end_turn",
+        "usage": {
+            "input_tokens": 4,
+            "output_tokens": 2,
+            "cache_read_input_tokens": 0
+        }
+    }));
+    let (decoded, losses) = decode_response(&wire, &Config::default()).expect("decode response");
+    assert!(losses.is_empty());
+    assert_eq!(
+        decoded.content,
+        vec![Block::Thinking {
+            thinking: "consider".to_string(),
+            signature: Some("opaque-signature".to_string()),
+        }]
+    );
+    assert_eq!(
+        decoded.usage,
+        Usage {
+            input_tokens: 4,
+            output_tokens: 2,
+            cache_read_input_tokens: Some(0),
+            ..Usage::default()
+        }
+    );
+
+    let (encoded, losses) = encode_response(&decoded, &Config::default()).expect("encode response");
+    assert!(losses.is_empty());
+    assert_eq!(encoded.content[0].kind, "thinking");
+    assert_eq!(encoded.content[0].thinking.as_deref(), Some("consider"));
+    assert_eq!(
+        encoded.content[0].signature.as_deref(),
+        Some("opaque-signature")
+    );
+    assert_eq!(
+        encoded
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.cache_read_input_tokens),
+        Some(0)
+    );
+    assert_eq!(
+        encoded
+            .usage
+            .as_ref()
+            .and_then(|usage| usage.cache_creation_input_tokens),
+        None
+    );
+}
+
+#[test]
+fn decodes_a_thinking_block_with_no_thinking_field_as_empty_text() {
+    let wire = wire_response(serde_json::json!({
+        "id": "msg_bare",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude",
+        "content": [{ "type": "thinking", "signature": "sig_x" }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+    }));
+    let (decoded, losses) = decode_response(&wire, &Config::default()).expect("decode response");
+    assert!(losses.is_empty());
+    assert_eq!(
+        decoded.content,
+        vec![Block::Thinking {
+            thinking: String::new(),
+            signature: Some("sig_x".to_string()),
+        }]
+    );
+}
+
+#[test]
+fn empty_signature_is_treated_as_unsigned_on_encode() {
+    let response = oxa_ir::Response {
+        id: "msg_empty_sig".to_string(),
+        model: "claude".to_string(),
+        content: vec![Block::Thinking {
+            thinking: "consider".to_string(),
+            signature: Some(String::new()),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage::default(),
+    };
+    let (wire, losses) = encode_response(&response, &Config::default()).expect("encode response");
+    let loss = loss_with(&losses, "content[0]", "signature");
+    assert_eq!(loss.reason, LossReason::Degraded);
+    assert_eq!(wire.content[0].signature, None);
 }

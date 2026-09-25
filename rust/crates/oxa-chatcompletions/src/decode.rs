@@ -3,8 +3,8 @@
 use serde_json::Value;
 
 use oxa_ir::{
-    Block, Loss, LossReason, Params, Request as IrRequest, Response as IrResponse, Role,
-    StopReason, Usage,
+    Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
+    Request as IrRequest, Response as IrResponse, Role, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -121,6 +121,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         let (mut content, content_losses) =
             decode_content(message.content.as_ref(), &content_path)?;
         losses.extend(content_losses);
+        if message.role == ROLE_ASSISTANT {
+            if let Some(reasoning) = &message.reasoning_content
+                && !reasoning.is_empty()
+            {
+                content.insert(
+                    0,
+                    Block::Thinking {
+                        thinking: reasoning.clone(),
+                        signature: None,
+                    },
+                );
+            }
+        } else if message.reasoning_content.is_some() {
+            losses.push(loss(
+                format!("messages[{index}].reasoning_content"),
+                "reasoning_content",
+                LossReason::UnmappedField,
+                "Chat Completions reasoning_content is defined only for assistant messages",
+            ));
+        }
         if message.role != ROLE_SYSTEM && content.is_empty() {
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
@@ -143,9 +163,9 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 let (tool_blocks, tool_losses) =
                     decode_tool_calls(calls, &format!("messages[{index}].tool_calls"));
                 if message.content.is_none() && !tool_blocks.is_empty() {
-                    // A tool-only assistant message has no normal content to
-                    // prepend.
-                    content.clear();
+                    // Drop only the empty placeholder; reasoning blocks remain.
+                    content
+                        .retain(|block| !matches!(block, Block::Text { text } if text.is_empty()));
                 }
                 content.extend(tool_blocks);
                 messages.push(oxa_ir::Message {
@@ -183,15 +203,78 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         top_p: wire.top_p,
         max_tokens: wire.max_tokens,
         stop_sequences: stop,
+        reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
     };
     let params_set = params.temperature.is_some()
         || params.top_p.is_some()
         || params.max_tokens.is_some()
-        || params.stop_sequences.is_some();
+        || params.stop_sequences.is_some()
+        || params.reasoning_effort.is_some();
     if params_set {
         req.params = Some(params);
     }
     Ok((req, losses))
+}
+
+fn decode_reasoning_effort(value: Option<&str>, losses: &mut Vec<Loss>) -> Option<ReasoningEffort> {
+    match value {
+        Some("minimal") => Some(ReasoningEffort::Minimal),
+        Some("low") => Some(ReasoningEffort::Low),
+        Some("medium") => Some(ReasoningEffort::Medium),
+        Some("high") => Some(ReasoningEffort::High),
+        Some(other) => {
+            losses.push(loss(
+                "reasoning_effort",
+                "reasoning_effort",
+                LossReason::UnmappedValue,
+                format!("Chat Completions reasoning_effort {other:?} has no IR equivalent"),
+            ));
+            None
+        }
+        None => None,
+    }
+}
+
+pub(crate) fn decode_usage(wire: Option<&crate::types::UsageWire>) -> Result<Usage, Error> {
+    let Some(wire) = wire else {
+        return Ok(Usage::default());
+    };
+    Ok(Usage {
+        input_tokens: nonnegative_usage(wire.prompt_tokens, "usage.prompt_tokens")?,
+        output_tokens: nonnegative_usage(wire.completion_tokens, "usage.completion_tokens")?,
+        input_tokens_details: wire
+            .prompt_tokens_details
+            .as_ref()
+            .map(|details| {
+                nonnegative_usage(
+                    details.cached_tokens,
+                    "usage.prompt_tokens_details.cached_tokens",
+                )
+                .map(|cached_tokens| InputTokensDetails { cached_tokens })
+            })
+            .transpose()?,
+        output_tokens_details: wire
+            .completion_tokens_details
+            .as_ref()
+            .map(|details| {
+                nonnegative_usage(
+                    details.reasoning_tokens,
+                    "usage.completion_tokens_details.reasoning_tokens",
+                )
+                .map(|reasoning_tokens| OutputTokensDetails { reasoning_tokens })
+            })
+            .transpose()?,
+        ..Usage::default()
+    })
+}
+
+fn nonnegative_usage(value: i64, path: &str) -> Result<i64, Error> {
+    if value < 0 {
+        return Err(Error::new(format!(
+            "chatcompletions: {path} must be non-negative"
+        )));
+    }
+    Ok(value)
 }
 
 fn non_empty(value: String) -> Option<String> {
@@ -214,6 +297,26 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
         "choices[0].message.content",
     )?;
     losses.extend(content_losses);
+    if choice.message.role == ROLE_ASSISTANT {
+        if let Some(reasoning) = &choice.message.reasoning_content
+            && !reasoning.is_empty()
+        {
+            blocks.insert(
+                0,
+                Block::Thinking {
+                    thinking: reasoning.clone(),
+                    signature: None,
+                },
+            );
+        }
+    } else if choice.message.reasoning_content.is_some() {
+        losses.push(loss(
+            "choices[0].message.reasoning_content",
+            "reasoning_content",
+            LossReason::UnmappedField,
+            "Chat Completions reasoning_content is defined only for assistant messages",
+        ));
+    }
     let default_calls = Vec::new();
     let calls = choice
         .message
@@ -222,8 +325,8 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
         .unwrap_or(&default_calls);
     let (tool_blocks, tool_losses) = decode_tool_calls(calls, "choices[0].message.tool_calls");
     if choice.message.content.is_none() && !tool_blocks.is_empty() {
-        // A tool-only assistant response has no normal content to prepend.
-        blocks.clear();
+        // Drop only the empty placeholder; reasoning blocks remain.
+        blocks.retain(|block| !matches!(block, Block::Text { text } if text.is_empty()));
     }
     blocks.extend(tool_blocks);
     losses.extend(tool_losses);
@@ -245,17 +348,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
         content: blocks,
         stop_reason: stop,
         stop_sequence: None,
-        usage: wire
-            .usage
-            .as_ref()
-            .map(|usage| Usage {
-                input_tokens: usage.prompt_tokens,
-                output_tokens: usage.completion_tokens,
-            })
-            .unwrap_or(Usage {
-                input_tokens: 0,
-                output_tokens: 0,
-            }),
+        usage: decode_usage(wire.usage.as_ref())?,
     };
     Ok((resp, losses))
 }

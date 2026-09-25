@@ -199,8 +199,9 @@ Each rule has a stable ID usable as a vector tag.
   minimal → 1024, low → 2048, medium → 8192, high → 16384 (encode),
   and decode budget ≤ 2048 → low, ≤ 8192 → medium, else → high, each with
   a `degraded` loss `{path:"params"/"thinking", field:"reasoning_effort"|"budget_tokens", reason:"degraded", detail:"budget approximated"}`.
-  An unsigned request ThinkingBlock encodes as a thinking block WITHOUT
-  signature plus a `degraded` loss `{path:"content[i]", field:"signature", reason:"degraded", detail:"unsigned thinking block; Anthropic may reject on replay"}`.
+  An unsigned ThinkingBlock encoded to either a request or response renders as
+  a thinking block WITHOUT signature plus a `degraded` loss
+  `{path:"content[i]", field:"signature", reason:"degraded", detail:"unsigned thinking block; Anthropic may reject on replay"}`. The replay risk is especially relevant to requests.
 
 ## 8. Loss Catalog
 
@@ -212,7 +213,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | response `type`, `role` | exempt (envelope) | both | N-AN-10 |
 | `cache_control` on a mapped block or system block | unmapped-field | request/response → IR | Anthropic prompt-caching annotations have no IR equivalent in v1 |
 | `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation (N-AN-11) |
-| `content[i].signature` (unsigned thinking block) | degraded | IR → request | unsigned thinking block replayed to Anthropic may be rejected (N-AN-11) |
+| `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |
 | unknown block type or unknown image source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
 | `tool_choice.disable_parallel_tool_use` | unmapped-field | request → IR | no IR equivalent in v1 |

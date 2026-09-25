@@ -7,6 +7,7 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_DEGRADED,
+    LOSS_UNMAPPED_FIELD,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -16,8 +17,11 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -105,6 +109,9 @@ class StreamEncoder:
                     index=ev.index,
                 )
                 return [], []
+            if isinstance(ev.block, ThinkingBlock):
+                self._active = _StreamEncodeBlock(kind="thinking", index=ev.index)
+                return [], []
             if isinstance(ev.block, ToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("chatcompletions: ToolUseBlock requires nonempty ID and name")
@@ -131,6 +138,19 @@ class StreamEncoder:
                     raise ValueError("chatcompletions: TextBlock received non-text delta")
                 chunk = self._chunk({"content": ev.delta.text})
                 return [chunk], []
+            if self._active.kind == "thinking":
+                if isinstance(ev.delta, ThinkingDelta):
+                    return [self._chunk({"reasoning_content": ev.delta.text})], []
+                if isinstance(ev.delta, SignatureDelta):
+                    return [], [
+                        loss(
+                            f"events[{ev.index}].delta.signature",
+                            "signature",
+                            LOSS_UNMAPPED_FIELD,
+                            "Chat Completions carries no signature delta",
+                        )
+                    ]
+                raise ValueError("chatcompletions: ThinkingBlock received non-thinking delta")
             if self._active.kind == "tool":
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("chatcompletions: ToolUseBlock received non-input-json delta")
@@ -183,6 +203,20 @@ class StreamEncoder:
             chunks = list(self._pending_tools)
             self._pending_tools.clear()
 
+            usage: dict[str, Any] = {
+                "prompt_tokens": ev.usage.input_tokens,
+                "completion_tokens": ev.usage.output_tokens,
+                "total_tokens": ev.usage.input_tokens + ev.usage.output_tokens,
+            }
+            if ev.usage.input_tokens_details is not None:
+                usage["prompt_tokens_details"] = {
+                    "cached_tokens": ev.usage.input_tokens_details.cached_tokens
+                }
+            if ev.usage.output_tokens_details is not None:
+                usage["completion_tokens_details"] = {
+                    "reasoning_tokens": ev.usage.output_tokens_details.reasoning_tokens
+                }
+
             chunks.append(
                 {
                     "id": self._id,
@@ -196,11 +230,7 @@ class StreamEncoder:
                             "finish_reason": finish,
                         }
                     ],
-                    "usage": {
-                        "prompt_tokens": ev.usage.input_tokens,
-                        "completion_tokens": ev.usage.output_tokens,
-                        "total_tokens": ev.usage.input_tokens + ev.usage.output_tokens,
-                    },
+                    "usage": usage,
                 }
             )
             return chunks, losses

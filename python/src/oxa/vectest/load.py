@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import json
-import os
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -45,6 +44,7 @@ class Vector:
     expected_output: Any | None = None
     expected_losses: list[Loss] = field(default_factory=list)
     tags: list[str] = field(default_factory=list)
+    spec_version: str = ""
 
     def is_request(self) -> bool:
         return "response" not in self.tags
@@ -81,11 +81,13 @@ def load_vectors(root: Path | str, face: str, mode: str) -> list[Vector]:
     vectors: list[Vector] = []
     for filename in filenames:
         path = dir_path / filename
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             text = f.read()
         data = json.loads(text)
-        if data.get("spec_version") not in (None, "", "0.1.0"):
-            continue
+        if data.get("spec_version") not in (None, "", "0.1.0", "0.2.0"):
+            raise ValueError(
+                f"unsupported vector spec_version {data.get('spec_version')!r}: {path}"
+            )
         input_raw = _extract_field_raw(text, "input")
         if not input_raw and "input" in data:
             input_raw = json.dumps(data["input"], ensure_ascii=False)
@@ -109,6 +111,7 @@ def load_vectors(root: Path | str, face: str, mode: str) -> list[Vector]:
                 expected_output=data.get("expected_output"),
                 expected_losses=expected_losses,
                 tags=data.get("tags", []),
+                spec_version=data.get("spec_version", ""),
             )
         )
     return vectors

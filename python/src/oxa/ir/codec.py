@@ -8,10 +8,13 @@ from typing import Any
 from oxa.ir.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -20,6 +23,7 @@ from oxa.ir.constants import (
     EVENT_TYPE_MESSAGE_START,
     SPEC_VERSION,
     STOP_STOP_SEQUENCE,
+    SUPPORTED_SPEC_VERSIONS,
     TOOL_CHOICE_TOOL,
 )
 from oxa.ir.loss import Loss
@@ -33,15 +37,20 @@ from oxa.ir.types import (
     EventStream,
     ImageBlock,
     InputJsonDelta,
+    InputTokensDetails,
     Message,
     MessageDelta,
     MessageDone,
     MessageStart,
+    OutputTokensDetails,
     Params,
     Request,
     Response,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     Tool,
     ToolChoice,
     ToolResultBlock,
@@ -54,12 +63,67 @@ class CodecError(ValueError):
     """Raised when an IR document violates structural schema requirements."""
 
 
+def _dump_usage(usage: Usage) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+    }
+    if usage.cache_read_input_tokens is not None:
+        out["cache_read_input_tokens"] = usage.cache_read_input_tokens
+    if usage.cache_creation_input_tokens is not None:
+        out["cache_creation_input_tokens"] = usage.cache_creation_input_tokens
+    if usage.input_tokens_details is not None:
+        out["input_tokens_details"] = {"cached_tokens": usage.input_tokens_details.cached_tokens}
+    if usage.output_tokens_details is not None:
+        out["output_tokens_details"] = {
+            "reasoning_tokens": usage.output_tokens_details.reasoning_tokens
+        }
+    return out
+
+
+def _load_usage(data: dict[str, Any]) -> Usage:
+    input_details = data.get("input_tokens_details")
+    output_details = data.get("output_tokens_details")
+    return Usage(
+        input_tokens=int(data.get("input_tokens", 0)),
+        output_tokens=int(data.get("output_tokens", 0)),
+        cache_read_input_tokens=(
+            int(data["cache_read_input_tokens"])
+            if data.get("cache_read_input_tokens") is not None
+            else None
+        ),
+        cache_creation_input_tokens=(
+            int(data["cache_creation_input_tokens"])
+            if data.get("cache_creation_input_tokens") is not None
+            else None
+        ),
+        input_tokens_details=(
+            InputTokensDetails(cached_tokens=int(input_details["cached_tokens"]))
+            if input_details is not None
+            else None
+        ),
+        output_tokens_details=(
+            OutputTokensDetails(reasoning_tokens=int(output_details["reasoning_tokens"]))
+            if output_details is not None
+            else None
+        ),
+    )
+
+
 # ---- Blocks ----------------------------------------------------------------
 
 
 def dump_block(block: Block) -> dict[str, Any]:
     if isinstance(block, TextBlock):
         return {"type": BLOCK_TYPE_TEXT, "text": block.text}
+    if isinstance(block, ThinkingBlock):
+        out: dict[str, Any] = {
+            "type": BLOCK_TYPE_THINKING,
+            "thinking": block.thinking,
+        }
+        if block.signature is not None:
+            out["signature"] = block.signature
+        return out
     if isinstance(block, ImageBlock):
         has_data = bool(block.data)
         has_url = bool(block.url)
@@ -90,14 +154,14 @@ def dump_block(block: Block) -> dict[str, Any]:
     if isinstance(block, ToolResultBlock):
         if not block.tool_use_id:
             raise CodecError("tool_result block requires non-empty tool_use_id")
-        out: dict[str, Any] = {
+        res: dict[str, Any] = {
             "type": BLOCK_TYPE_TOOL_RESULT,
             "tool_use_id": block.tool_use_id,
             "content": [dump_block(b) for b in block.content],
         }
         if block.is_error:
-            out["is_error"] = True
-        return out
+            res["is_error"] = True
+        return res
     raise CodecError(f"unknown block type: {type(block)}")
 
 
@@ -105,6 +169,8 @@ def load_block(data: dict[str, Any]) -> Block:
     kind = data.get("type")
     if kind == BLOCK_TYPE_TEXT:
         return TextBlock(text=data["text"])
+    if kind == BLOCK_TYPE_THINKING:
+        return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"))
     if kind == BLOCK_TYPE_IMAGE:
         return ImageBlock(
             media_type=data.get("media_type"),
@@ -135,6 +201,10 @@ def dump_delta(delta: Delta) -> dict[str, Any]:
         return {"type": DELTA_TYPE_TEXT_DELTA, "text": delta.text}
     if isinstance(delta, InputJsonDelta):
         return {"type": DELTA_TYPE_INPUT_JSON_DELTA, "partial_json": delta.partial_json}
+    if isinstance(delta, ThinkingDelta):
+        return {"type": DELTA_TYPE_THINKING_DELTA, "text": delta.text}
+    if isinstance(delta, SignatureDelta):
+        return {"type": DELTA_TYPE_SIGNATURE_DELTA, "signature": delta.signature}
     raise CodecError(f"unknown delta type: {type(delta)}")
 
 
@@ -144,6 +214,10 @@ def load_delta(data: dict[str, Any]) -> Delta:
         return TextDelta(text=data["text"])
     if kind == DELTA_TYPE_INPUT_JSON_DELTA:
         return InputJsonDelta(partial_json=data["partial_json"])
+    if kind == DELTA_TYPE_THINKING_DELTA:
+        return ThinkingDelta(text=data["text"])
+    if kind == DELTA_TYPE_SIGNATURE_DELTA:
+        return SignatureDelta(signature=data["signature"])
     raise CodecError(f"unknown delta discriminant: {kind}")
 
 
@@ -175,10 +249,7 @@ def dump_event(event: Event) -> dict[str, Any]:
         out: dict[str, Any] = {
             "type": EVENT_TYPE_MESSAGE_DELTA,
             "stop_reason": event.stop_reason,
-            "usage": {
-                "input_tokens": event.usage.input_tokens,
-                "output_tokens": event.usage.output_tokens,
-            },
+            "usage": _dump_usage(event.usage),
         }
         if event.stop_reason == STOP_STOP_SEQUENCE:
             if event.stop_sequence:
@@ -203,10 +274,7 @@ def load_event(data: dict[str, Any]) -> Event:
         return ContentBlockStop(index=int(data["index"]))
     if kind == EVENT_TYPE_MESSAGE_DELTA:
         usage_data = data.get("usage", {})
-        usage = Usage(
-            input_tokens=int(usage_data.get("input_tokens", 0)),
-            output_tokens=int(usage_data.get("output_tokens", 0)),
-        )
+        usage = _load_usage(usage_data)
         return MessageDelta(
             stop_reason=data["stop_reason"],
             usage=usage,
@@ -262,6 +330,8 @@ def dump_request(req: Request) -> dict[str, Any]:
             p_dict["max_tokens"] = req.params.max_tokens
         if req.params.stop_sequences is not None:
             p_dict["stop_sequences"] = req.params.stop_sequences
+        if req.params.reasoning_effort is not None:
+            p_dict["reasoning_effort"] = req.params.reasoning_effort
         if p_dict:
             out["params"] = p_dict
     if req.metadata:
@@ -270,22 +340,23 @@ def dump_request(req: Request) -> dict[str, Any]:
 
 
 def load_request(data: dict[str, Any] | str) -> Request:
-    if isinstance(data, str):
-        data = json.loads(data)
-    version = data.get("specVersion")
-    if version != SPEC_VERSION:
-        raise CodecError(f"unsupported specVersion {version!r}, want {SPEC_VERSION!r}")
+    raw: dict[str, Any] = json.loads(data) if isinstance(data, str) else data
+    version = raw.get("specVersion")
+    if version not in SUPPORTED_SPEC_VERSIONS:
+        raise CodecError(
+            f"unsupported specVersion {version!r}, supported versions are {SUPPORTED_SPEC_VERSIONS!r}"
+        )
 
     system: list[TextBlock] = []
-    if "system" in data:
-        for b in data["system"]:
+    if "system" in raw:
+        for b in raw["system"]:
             blk = load_block(b)
             if not isinstance(blk, TextBlock):
                 raise CodecError("system block must be text")
             system.append(blk)
 
     messages: list[Message] = []
-    for m in data.get("messages", []):
+    for m in raw.get("messages", []):
         messages.append(
             Message(
                 role=m["role"],
@@ -294,35 +365,39 @@ def load_request(data: dict[str, Any] | str) -> Request:
         )
 
     tools: list[Tool] | None = None
-    if "tools" in data:
+    if "tools" in raw:
         tools = [
             Tool(
                 name=t["name"],
                 input_schema=t["input_schema"],
                 description=t.get("description"),
             )
-            for t in data["tools"]
+            for t in raw["tools"]
         ]
 
     tool_choice: ToolChoice | None = None
-    if "tool_choice" in data:
-        tc = data["tool_choice"]
+    if "tool_choice" in raw:
+        tc = raw["tool_choice"]
         tool_choice = ToolChoice(mode=tc["mode"], name=tc.get("name"))
 
     params: Params | None = None
-    if "params" in data:
-        p = data["params"]
+    if "params" in raw:
+        p = raw["params"]
+        effort = p.get("reasoning_effort")
+        if effort is not None and effort not in ("minimal", "low", "medium", "high"):
+            raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
         params = Params(
             temperature=p.get("temperature"),
             top_p=p.get("top_p"),
             max_tokens=p.get("max_tokens"),
             stop_sequences=p.get("stop_sequences"),
+            reasoning_effort=effort,
         )
 
-    metadata = data.get("metadata")
+    metadata = raw.get("metadata")
 
     return Request(
-        model=data["model"],
+        model=raw["model"],
         messages=messages,
         system=system,
         tools=tools,
@@ -342,10 +417,7 @@ def dump_response(resp: Response) -> dict[str, Any]:
         "model": resp.model,
         "content": [dump_block(b) for b in resp.content],
         "stop_reason": resp.stop_reason,
-        "usage": {
-            "input_tokens": resp.usage.input_tokens,
-            "output_tokens": resp.usage.output_tokens,
-        },
+        "usage": _dump_usage(resp.usage),
     }
     if resp.stop_reason == STOP_STOP_SEQUENCE:
         if resp.stop_sequence:
@@ -356,25 +428,23 @@ def dump_response(resp: Response) -> dict[str, Any]:
 
 
 def load_response(data: dict[str, Any] | str) -> Response:
-    if isinstance(data, str):
-        data = json.loads(data)
-    version = data.get("specVersion")
-    if version != SPEC_VERSION:
-        raise CodecError(f"unsupported specVersion {version!r}, want {SPEC_VERSION!r}")
+    raw: dict[str, Any] = json.loads(data) if isinstance(data, str) else data
+    version = raw.get("specVersion")
+    if version not in SUPPORTED_SPEC_VERSIONS:
+        raise CodecError(
+            f"unsupported specVersion {version!r}, supported versions are {SUPPORTED_SPEC_VERSIONS!r}"
+        )
 
-    content = [load_block(b) for b in data.get("content", [])]
-    usage_data = data.get("usage", {})
-    usage = Usage(
-        input_tokens=int(usage_data.get("input_tokens", 0)),
-        output_tokens=int(usage_data.get("output_tokens", 0)),
-    )
+    content = [load_block(b) for b in raw.get("content", [])]
+    usage_data = raw.get("usage", {})
+    usage = _load_usage(usage_data)
     return Response(
-        id=data["id"],
-        model=data["model"],
+        id=raw["id"],
+        model=raw["model"],
         content=content,
-        stop_reason=data["stop_reason"],
+        stop_reason=raw["stop_reason"],
         usage=usage,
-        stop_sequence=data.get("stop_sequence"),
+        stop_sequence=raw.get("stop_sequence"),
     )
 
 
@@ -389,15 +459,17 @@ def dump_event_stream(stream: EventStream) -> dict[str, Any]:
 
 
 def load_event_stream(data: dict[str, Any] | list[dict[str, Any]] | str) -> EventStream:
-    if isinstance(data, str):
-        data = json.loads(data)
-    if isinstance(data, list):
+    parsed: Any = json.loads(data) if isinstance(data, str) else data
+    if isinstance(parsed, list):
         # Bare array of events without document envelope
-        return EventStream(events=[load_event(e) for e in data])
-    version = data.get("specVersion")
-    if version != SPEC_VERSION:
-        raise CodecError(f"unsupported specVersion {version!r}, want {SPEC_VERSION!r}")
-    return EventStream(events=[load_event(e) for e in data.get("events", [])])
+        return EventStream(events=[load_event(e) for e in parsed])
+    raw: dict[str, Any] = parsed
+    version = raw.get("specVersion")
+    if version not in SUPPORTED_SPEC_VERSIONS:
+        raise CodecError(
+            f"unsupported specVersion {version!r}, supported versions are {SUPPORTED_SPEC_VERSIONS!r}"
+        )
+    return EventStream(events=[load_event(e) for e in raw.get("events", [])])
 
 
 # ---- Loss ------------------------------------------------------------------

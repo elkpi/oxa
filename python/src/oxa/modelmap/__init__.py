@@ -7,7 +7,7 @@ The model string is otherwise opaque and passes through verbatim.
 
 from __future__ import annotations
 
-from typing import Mapping
+from collections.abc import Mapping
 
 
 class Table:

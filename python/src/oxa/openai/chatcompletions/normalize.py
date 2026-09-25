@@ -2,14 +2,10 @@
 
 from __future__ import annotations
 
-from typing import Any
 import urllib.parse
+from typing import Any
 
 from oxa.ir import (
-    BLOCK_TYPE_IMAGE,
-    BLOCK_TYPE_TEXT,
-    BLOCK_TYPE_TOOL_RESULT,
-    BLOCK_TYPE_TOOL_USE,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
     ROLE_USER,
@@ -20,22 +16,31 @@ from oxa.ir import (
     Block,
     ImageBlock,
     Loss,
-    Message as IrMessage,
     SystemBlock,
     TextBlock,
+    ThinkingBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
+)
+from oxa.ir import (
+    Message as IrMessage,
 )
 from oxa.openai.chatcompletions.constants import (
     CONTENT_PART_TYPE_IMAGE_URL,
     CONTENT_PART_TYPE_TEXT,
     ROLE_ASSISTANT,
     ROLE_TOOL,
-    TOOL_CHOICE_AUTO as CC_TOOL_CHOICE_AUTO,
-    TOOL_CHOICE_NONE as CC_TOOL_CHOICE_NONE,
-    TOOL_CHOICE_REQUIRED as CC_TOOL_CHOICE_REQUIRED,
     TOOL_TYPE_FUNCTION,
+)
+from oxa.openai.chatcompletions.constants import (
+    TOOL_CHOICE_AUTO as CC_TOOL_CHOICE_AUTO,
+)
+from oxa.openai.chatcompletions.constants import (
+    TOOL_CHOICE_NONE as CC_TOOL_CHOICE_NONE,
+)
+from oxa.openai.chatcompletions.constants import (
+    TOOL_CHOICE_REQUIRED as CC_TOOL_CHOICE_REQUIRED,
 )
 
 
@@ -64,7 +69,9 @@ def decode_content(
     return [], []
 
 
-def decode_content_part(part: dict[str, Any], path: str, index: usize_or_int) -> tuple[list[Block], list[Loss]]:
+def decode_content_part(
+    part: dict[str, Any], path: str, index: usize_or_int
+) -> tuple[list[Block], list[Loss]]:
     kind = part.get("type", "")
     if kind == CONTENT_PART_TYPE_TEXT:
         return [TextBlock(text=part.get("text", ""))], []
@@ -357,12 +364,26 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
     """N-CC-9 renders assistant text and tool_use blocks."""
     out: dict[str, Any] = {"role": ROLE_ASSISTANT}
     text_chunks: list[str] = []
+    reasoning_chunks: list[str] = []
+    has_reasoning = False
     tool_calls: list[dict[str, Any]] = []
     losses: list[Loss] = []
 
     for index, block in enumerate(blocks):
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
+        elif isinstance(block, ThinkingBlock):
+            has_reasoning = True
+            reasoning_chunks.append(block.thinking)
+            if block.signature:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].signature",
+                        "signature",
+                        LOSS_UNMAPPED_FIELD,
+                        "Chat Completions reasoning_content has no signature field; the opaque signature is dropped",
+                    )
+                )
         elif isinstance(block, ToolUseBlock):
             tool_calls.append(
                 {
@@ -394,6 +415,8 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
             )
 
     out["content"] = "".join(text_chunks)
+    if has_reasoning:
+        out["reasoning_content"] = "".join(reasoning_chunks)
     if tool_calls:
         out["tool_calls"] = tool_calls
     return out, losses

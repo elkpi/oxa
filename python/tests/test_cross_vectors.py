@@ -4,20 +4,38 @@ import unittest
 
 from oxa.anthropic.messages import (
     decode_request as an_decode_request,
+)
+from oxa.anthropic.messages import (
     decode_response as an_decode_response,
+)
+from oxa.anthropic.messages import (
     encode_request as an_encode_request,
+)
+from oxa.anthropic.messages import (
     encode_response as an_encode_response,
 )
 from oxa.openai.chatcompletions import (
     decode_request as cc_decode_request,
+)
+from oxa.openai.chatcompletions import (
     decode_response as cc_decode_response,
+)
+from oxa.openai.chatcompletions import (
     encode_request as cc_encode_request,
+)
+from oxa.openai.chatcompletions import (
     encode_response as cc_encode_response,
 )
 from oxa.openai.responses import (
     decode_request as resp_decode_request,
+)
+from oxa.openai.responses import (
     decode_response as resp_decode_response,
+)
+from oxa.openai.responses import (
     encode_request as resp_encode_request,
+)
+from oxa.openai.responses import (
     encode_response as resp_encode_response,
 )
 from oxa.vectest import (
@@ -53,7 +71,7 @@ class CrossVectorsTest(unittest.TestCase):
             return
 
         vectors = load_cross_vectors(root)
-        self.assertEqual(len(vectors), 12, "expected 12 cross nonstream vectors")
+        self.assertEqual(len(vectors), 15, "expected 15 cross nonstream vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

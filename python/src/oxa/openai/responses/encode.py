@@ -8,21 +8,23 @@ from oxa.ir import (
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
-    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
-    ROLE_USER as IR_ROLE_USER,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
-    Block,
-    ImageBlock,
     Loss,
     Request,
     Response,
     TextBlock,
-    ToolResultBlock,
+    ThinkingBlock,
     ToolUseBlock,
+)
+from oxa.ir import (
+    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
+)
+from oxa.ir import (
+    ROLE_USER as IR_ROLE_USER,
 )
 from oxa.modelmap import Table
 from oxa.openai.responses.constants import (
@@ -30,6 +32,7 @@ from oxa.openai.responses.constants import (
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING,
     OBJECT_RESPONSE,
     PART_TYPE_OUTPUT_TEXT,
     ROLE_ASSISTANT,
@@ -125,6 +128,8 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.max_tokens is not None:
             out["max_output_tokens"] = req.params.max_tokens
+        if req.params.reasoning_effort is not None:
+            out["reasoning"] = {"effort": req.params.reasoning_effort}
         if req.params.stop_sequences:
             losses.append(
                 loss(
@@ -144,6 +149,7 @@ def encode_response(
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR response to a Responses wire response (IR → face)."""
     losses: list[Loss] = []
+    thinkings: list[dict[str, Any]] = []
     text_chunks: list[str] = []
     has_text = False
     calls: list[dict[str, Any]] = []
@@ -152,6 +158,23 @@ def encode_response(
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
             has_text = True
+        elif isinstance(block, ThinkingBlock):
+            thinkings.append(
+                {
+                    "type": PART_TYPE_OUTPUT_TEXT,
+                    "text": block.thinking,
+                    "annotations": [],
+                }
+            )
+            if block.signature:
+                losses.append(
+                    loss(
+                        f"content[{index}].signature",
+                        "signature",
+                        LOSS_UNMAPPED_FIELD,
+                        "Responses reasoning output items carry no provider signature",
+                    )
+                )
         elif isinstance(block, ToolUseBlock):
             calls.append(
                 {
@@ -191,6 +214,15 @@ def encode_response(
                 ],
             },
         )
+    if thinkings:
+        output.insert(
+            0,
+            {
+                "type": ITEM_TYPE_REASONING,
+                "id": "rs_abc123",
+                "summary": thinkings,
+            },
+        )
 
     status = STATUS_COMPLETED
     incomplete_details = None
@@ -221,17 +253,27 @@ def encode_response(
     if table is not None:
         model = table.map(model)
 
+    usage: dict[str, Any] = {
+        "input_tokens": resp.usage.input_tokens,
+        "output_tokens": resp.usage.output_tokens,
+        "total_tokens": resp.usage.input_tokens + resp.usage.output_tokens,
+    }
+    if resp.usage.input_tokens_details is not None:
+        usage["input_token_details"] = {
+            "cached_tokens": resp.usage.input_tokens_details.cached_tokens
+        }
+    if resp.usage.output_tokens_details is not None:
+        usage["output_token_details"] = {
+            "reasoning_tokens": resp.usage.output_tokens_details.reasoning_tokens
+        }
+
     out: dict[str, Any] = {
         "id": resp.id,
         "object": OBJECT_RESPONSE,
         "status": status,
         "model": model,
         "output": output,
-        "usage": {
-            "input_tokens": resp.usage.input_tokens,
-            "output_tokens": resp.usage.output_tokens,
-            "total_tokens": resp.usage.input_tokens + resp.usage.output_tokens,
-        },
+        "usage": usage,
     }
     if incomplete_details is not None:
         out["incomplete_details"] = incomplete_details

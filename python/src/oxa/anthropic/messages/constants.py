@@ -6,6 +6,7 @@ ROLE_USER: Final = "user"
 ROLE_ASSISTANT: Final = "assistant"
 
 BLOCK_TYPE_TEXT: Final = "text"
+BLOCK_TYPE_THINKING: Final = "thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
@@ -33,6 +34,8 @@ EVENT_TYPE_MESSAGE_STOP: Final = "message_stop"
 
 DELTA_TYPE_TEXT_DELTA: Final = "text_delta"
 DELTA_TYPE_INPUT_JSON_DELTA: Final = "input_json_delta"
+DELTA_TYPE_THINKING_DELTA: Final = "thinking_delta"
+DELTA_TYPE_SIGNATURE_DELTA: Final = "signature_delta"
 
 TYPE_MESSAGE: Final = "message"
 
@@ -40,6 +43,7 @@ __all__ = [
     "ROLE_USER",
     "ROLE_ASSISTANT",
     "BLOCK_TYPE_TEXT",
+    "BLOCK_TYPE_THINKING",
     "BLOCK_TYPE_IMAGE",
     "BLOCK_TYPE_TOOL_USE",
     "BLOCK_TYPE_TOOL_RESULT",
@@ -62,5 +66,7 @@ __all__ = [
     "EVENT_TYPE_MESSAGE_STOP",
     "DELTA_TYPE_TEXT_DELTA",
     "DELTA_TYPE_INPUT_JSON_DELTA",
+    "DELTA_TYPE_THINKING_DELTA",
+    "DELTA_TYPE_SIGNATURE_DELTA",
     "TYPE_MESSAGE",
 ]

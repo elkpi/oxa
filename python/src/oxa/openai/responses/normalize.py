@@ -2,19 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Any
 import urllib.parse
+from typing import Any
 
 from oxa.ir import (
-    BLOCK_TYPE_IMAGE,
-    BLOCK_TYPE_TEXT,
-    BLOCK_TYPE_TOOL_RESULT,
-    BLOCK_TYPE_TOOL_USE,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
-    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
-    ROLE_USER as IR_ROLE_USER,
     TOOL_CHOICE_ANY,
     TOOL_CHOICE_AUTO,
     TOOL_CHOICE_NONE,
@@ -22,25 +16,42 @@ from oxa.ir import (
     Block,
     ImageBlock,
     Loss,
-    Message as IrMessage,
     SystemBlock,
     TextBlock,
+    ThinkingBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
+)
+from oxa.ir import (
+    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
+)
+from oxa.ir import (
+    ROLE_USER as IR_ROLE_USER,
+)
+from oxa.ir import (
+    Message as IrMessage,
 )
 from oxa.openai.responses.constants import (
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_FUNCTION_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING,
     PART_TYPE_INPUT_IMAGE,
     PART_TYPE_INPUT_TEXT,
+    PART_TYPE_OUTPUT_TEXT,
     ROLE_ASSISTANT,
     ROLE_USER,
-    TOOL_CHOICE_AUTO as RESP_TOOL_CHOICE_AUTO,
-    TOOL_CHOICE_NONE as RESP_TOOL_CHOICE_NONE,
-    TOOL_CHOICE_REQUIRED as RESP_TOOL_CHOICE_REQUIRED,
     TOOL_TYPE_FUNCTION,
+)
+from oxa.openai.responses.constants import (
+    TOOL_CHOICE_AUTO as RESP_TOOL_CHOICE_AUTO,
+)
+from oxa.openai.responses.constants import (
+    TOOL_CHOICE_NONE as RESP_TOOL_CHOICE_NONE,
+)
+from oxa.openai.responses.constants import (
+    TOOL_CHOICE_REQUIRED as RESP_TOOL_CHOICE_REQUIRED,
 )
 
 
@@ -75,7 +86,9 @@ def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
     return [], []
 
 
-def decode_content_part(part: dict[str, Any], path: str, index: int) -> tuple[list[Block], list[Loss]]:
+def decode_content_part(
+    part: dict[str, Any], path: str, index: int
+) -> tuple[list[Block], list[Loss]]:
     kind = part.get("type", "")
     if kind == PART_TYPE_INPUT_TEXT:
         return [TextBlock(text=part.get("text", ""))], []
@@ -144,6 +157,7 @@ def decode_assistant_run(
     start: int,
 ) -> tuple[IrMessage | None, int, list[Loss]]:
     """N-R-5 merges assistant items and function-call items into one assistant message."""
+    thinkings: list[Block] = []
     text: list[Block] = []
     calls: list[Block] = []
     losses: list[Loss] = []
@@ -152,6 +166,22 @@ def decode_assistant_run(
     while index < len(items):
         item = items[index]
         kind = item.get("type", "")
+        if kind == ITEM_TYPE_REASONING:
+            for part_index, part in enumerate(item.get("summary", [])):
+                part_type = part.get("type", "")
+                if part_type in (PART_TYPE_OUTPUT_TEXT, "summary_text"):
+                    thinkings.append(ThinkingBlock(thinking=part.get("text", "")))
+                else:
+                    losses.append(
+                        loss(
+                            f"input[{index}].summary[{part_index}]",
+                            "type",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            f"Responses reasoning summary type {part_type!r} has no IR equivalent",
+                        )
+                    )
+            index += 1
+            continue
         if kind == ITEM_TYPE_FUNCTION_CALL:
             calls.append(
                 ToolUseBlock(
@@ -171,10 +201,10 @@ def decode_assistant_run(
         losses.extend(b_losses)
         index += 1
 
-    text.extend(calls)
-    if not text:
+    content = thinkings + text + calls
+    if not content:
         return None, index, losses
-    return IrMessage(role=IR_ROLE_ASSISTANT, content=text), index, losses
+    return IrMessage(role=IR_ROLE_ASSISTANT, content=content), index, losses
 
 
 def decode_output_run(
@@ -423,6 +453,7 @@ def encode_assistant_message(
     blocks: list[Block],
     path: str,
 ) -> tuple[list[dict[str, Any]], list[Loss]]:
+    thinkings: list[dict[str, Any]] = []
     text_chunks: list[str] = []
     has_text = False
     calls: list[dict[str, Any]] = []
@@ -432,6 +463,23 @@ def encode_assistant_message(
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
             has_text = True
+        elif isinstance(block, ThinkingBlock):
+            thinkings.append(
+                {
+                    "type": PART_TYPE_OUTPUT_TEXT,
+                    "text": block.thinking,
+                    "annotations": [],
+                }
+            )
+            if block.signature:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].signature",
+                        "signature",
+                        LOSS_UNMAPPED_FIELD,
+                        "Responses reasoning input items carry no provider signature",
+                    )
+                )
         elif isinstance(block, ToolUseBlock):
             calls.append(
                 {
@@ -452,6 +500,8 @@ def encode_assistant_message(
             )
 
     items: list[dict[str, Any]] = []
+    if thinkings:
+        items.append({"type": ITEM_TYPE_REASONING, "summary": thinkings})
     if has_text or not blocks:
         items.append(
             {

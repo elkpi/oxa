@@ -107,7 +107,9 @@ class AnthropicNonstreamTest(unittest.TestCase):
         }
         resp, losses = decode_response(wire)
         self.assertEqual(resp.stop_reason, STOP_OTHER)
-        self.assertTrue(any(l.reason == LOSS_UNMAPPED_VALUE and l.field == "stop_reason" for l in losses))
+        self.assertTrue(
+            any(l.reason == LOSS_UNMAPPED_VALUE and l.field == "stop_reason" for l in losses)
+        )
 
 
 if __name__ == "__main__":

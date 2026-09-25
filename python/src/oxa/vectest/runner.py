@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from oxa.ir import (
     Event,
@@ -53,7 +54,9 @@ def run_nonstream_vector(
             ir_resp = load_response(vector.input)
             actual_wire, losses = encode_response(ir_resp, table)
 
-        assert vector.expected_output is not None, f"vector {vector.name}: expected_output is missing"
+        assert vector.expected_output is not None, (
+            f"vector {vector.name}: expected_output is missing"
+        )
         compare_json(vector.expected_output, actual_wire)
         compare_losses(vector.expected_losses, losses)
 
@@ -151,7 +154,9 @@ def run_stream_vector(
             all_losses.extend(losses)
 
         actual_wire = {"events": wire_events}
-        assert vector.expected_output is not None, f"vector {vector.name}: expected_output is missing"
+        assert vector.expected_output is not None, (
+            f"vector {vector.name}: expected_output is missing"
+        )
         compare_json(vector.expected_output, actual_wire)
         compare_losses(vector.expected_losses, all_losses)
 

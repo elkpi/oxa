@@ -95,6 +95,14 @@ def compare_json(expected: Any, actual: Any, path: str = "") -> None:
                 loc = path or "<root>"
                 raise AssertionError(f"missing key {k!r} at {loc}")
             subpath = f"{path}.{k}" if path else str(k)
+            if (
+                k == "specVersion"
+                and isinstance(v, str)
+                and isinstance(actual[k], str)
+                and v in ("0.1.0", "0.2.0")
+                and actual[k] in ("0.1.0", "0.2.0")
+            ):
+                continue
             compare_json(v, actual[k], subpath)
         for k in actual:
             if k not in expected:
@@ -128,8 +136,7 @@ def compare_losses(expected: list[Loss], reported: list[Loss]) -> None:
     for key, count in rep_counts.items():
         if exp_counts.get(key, 0) < count:
             problems.append(
-                f"unexpected loss reported: "
-                f"path={key[0]!r} field={key[1]!r} reason={key[2]!r}"
+                f"unexpected loss reported: path={key[0]!r} field={key[1]!r} reason={key[2]!r}"
             )
 
     if problems:

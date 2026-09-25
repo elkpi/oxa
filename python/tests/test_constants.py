@@ -10,10 +10,13 @@ from oxa.anthropic.messages.constants import (
 from oxa.ir import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -33,6 +36,7 @@ from oxa.ir import (
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
+    SUPPORTED_SPEC_VERSIONS,
     TOOL_CHOICE_ANY,
     TOOL_CHOICE_AUTO,
     TOOL_CHOICE_NONE,
@@ -41,6 +45,7 @@ from oxa.ir import (
     DeltaType,
     EventType,
     LossReason,
+    ReasoningEffort,
     Role,
     StopReason,
     ToolChoiceMode,
@@ -60,13 +65,17 @@ from oxa.openai.responses.constants import (
 
 
 def test_ir_constants_values() -> None:
-    assert SPEC_VERSION == "0.1.0"
+    assert SPEC_VERSION == "0.2.0"
+    assert SUPPORTED_SPEC_VERSIONS == ("0.1.0", "0.2.0")
+    effort: ReasoningEffort = "high"
+    assert effort == "high"
     role: Role = ROLE_USER
     assert role == "user"
     assert ROLE_ASSISTANT == "assistant"
     b_type: BlockType = BLOCK_TYPE_TEXT
     assert b_type == "text"
     assert BLOCK_TYPE_IMAGE == "image"
+    assert BLOCK_TYPE_THINKING == "thinking"
     assert BLOCK_TYPE_TOOL_USE == "tool_use"
     assert BLOCK_TYPE_TOOL_RESULT == "tool_result"
     tc_mode: ToolChoiceMode = TOOL_CHOICE_AUTO
@@ -91,6 +100,8 @@ def test_ir_constants_values() -> None:
     d_type: DeltaType = DELTA_TYPE_TEXT_DELTA
     assert d_type == "text_delta"
     assert DELTA_TYPE_INPUT_JSON_DELTA == "input_json_delta"
+    assert DELTA_TYPE_THINKING_DELTA == "thinking_delta"
+    assert DELTA_TYPE_SIGNATURE_DELTA == "signature_delta"
     l_reason: LossReason = LOSS_UNMAPPED_FIELD
     assert l_reason == "unmapped-field"
     assert LOSS_UNMAPPED_VALUE == "unmapped-value"

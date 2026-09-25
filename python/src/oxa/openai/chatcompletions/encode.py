@@ -8,8 +8,6 @@ from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
-    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
-    ROLE_USER as IR_ROLE_USER,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
@@ -20,6 +18,12 @@ from oxa.ir import (
     Request,
     Response,
     ToolResultBlock,
+)
+from oxa.ir import (
+    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
+)
+from oxa.ir import (
+    ROLE_USER as IR_ROLE_USER,
 )
 from oxa.modelmap import Table
 from oxa.openai.chatcompletions.constants import (
@@ -128,16 +132,12 @@ def encode_request(
                 )
 
             for pos, res in enumerate(results):
-                tool_msg, tool_losses = encode_tool_result(
-                    res, f"messages[{index}].content[{pos}]"
-                )
+                tool_msg, tool_losses = encode_tool_result(res, f"messages[{index}].content[{pos}]")
                 out["messages"].append(tool_msg)
                 losses.extend(tool_losses)
 
             if normal or not results:
-                content, content_losses = encode_user_content(
-                    normal, f"messages[{index}].content"
-                )
+                content, content_losses = encode_user_content(normal, f"messages[{index}].content")
                 out["messages"].append({"role": ROLE_USER, "content": content})
                 losses.extend(content_losses)
         else:
@@ -152,6 +152,8 @@ def encode_request(
             out["max_tokens"] = req.params.max_tokens
         if req.params.stop_sequences:
             out["stop"] = req.params.stop_sequences
+        if req.params.reasoning_effort is not None:
+            out["reasoning_effort"] = req.params.reasoning_effort
 
     return out, losses
 
@@ -173,6 +175,20 @@ def encode_response(
     if table is not None:
         model = table.map(model)
 
+    usage: dict[str, Any] = {
+        "prompt_tokens": resp.usage.input_tokens,
+        "completion_tokens": resp.usage.output_tokens,
+        "total_tokens": resp.usage.input_tokens + resp.usage.output_tokens,
+    }
+    if resp.usage.input_tokens_details is not None:
+        usage["prompt_tokens_details"] = {
+            "cached_tokens": resp.usage.input_tokens_details.cached_tokens
+        }
+    if resp.usage.output_tokens_details is not None:
+        usage["completion_tokens_details"] = {
+            "reasoning_tokens": resp.usage.output_tokens_details.reasoning_tokens
+        }
+
     return (
         {
             "id": resp.id,
@@ -186,11 +202,7 @@ def encode_response(
                     "finish_reason": finish_reason,
                 }
             ],
-            "usage": {
-                "prompt_tokens": resp.usage.input_tokens,
-                "completion_tokens": resp.usage.output_tokens,
-                "total_tokens": resp.usage.input_tokens + resp.usage.output_tokens,
-            },
+            "usage": usage,
         },
         losses,
     )

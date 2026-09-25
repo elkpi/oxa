@@ -3,15 +3,10 @@
 import unittest
 
 from oxa.ir import (
-    LOSS_DEGRADED,
-    LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
-    STOP_END_TURN,
     STOP_OTHER,
     STOP_STOP_SEQUENCE,
-    Message,
-    Request,
     Response,
     TextBlock,
     Usage,

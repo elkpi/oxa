@@ -7,19 +7,21 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
-    Block,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
-    Delta,
     Event,
     InputJsonDelta,
+    InputTokensDetails,
     Loss,
     MessageDelta,
     MessageDone,
     MessageStart,
+    OutputTokensDetails,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
     Usage,
 )
@@ -37,9 +39,14 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
     EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
     EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE,
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_FUNCTION_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING,
     PART_TYPE_OUTPUT_TEXT,
     ROLE_ASSISTANT,
 )
@@ -153,6 +160,8 @@ class StreamDecoder:
 
             if item_type == ITEM_TYPE_MESSAGE and item.get("role") == ROLE_ASSISTANT:
                 return []
+            if item_type == ITEM_TYPE_REASONING:
+                return []
             if item_type == ITEM_TYPE_FUNCTION_CALL:
                 call_id = item.get("call_id", "")
                 name = item.get("name", "")
@@ -208,7 +217,11 @@ class StreamDecoder:
             self._block_index = self._next_block_index
             self._next_block_index += 1
             self._text_done = False
-            return [ContentBlockStart(index=self._block_index, block=TextBlock(text=part.get("text", "")))]
+            return [
+                ContentBlockStart(
+                    index=self._block_index, block=TextBlock(text=part.get("text", ""))
+                )
+            ]
 
         if kind == EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA:
             if self._skipped_item:
@@ -260,7 +273,11 @@ class StreamDecoder:
                 )
             if self._text_done:
                 raise ValueError("responses: output_text.delta after output_text.done")
-            return [ContentBlockDelta(index=self._block_index, delta=TextDelta(text=str(ev.get("delta", ""))))]
+            return [
+                ContentBlockDelta(
+                    index=self._block_index, delta=TextDelta(text=str(ev.get("delta", "")))
+                )
+            ]
 
         if kind == EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE:
             self._require_active_item(ev, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE)
@@ -274,13 +291,109 @@ class StreamDecoder:
                     )
                 return []
             if not self._block_open or content_index != self._content_index:
-                raise ValueError(
-                    "responses: output_text.done does not match the open content part"
-                )
+                raise ValueError("responses: output_text.done does not match the open content part")
             if self._text_done:
                 raise ValueError("responses: duplicate output_text.done")
             self._text_done = True
             return []
+
+        if kind == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED:
+            self._require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED)
+            if self._block_open or self._skipped_part:
+                raise ValueError("responses: reasoning_summary_part.added with a part still open")
+            content_index = int(ev.get("content_index", -1))
+            if content_index != self._next_content_index:
+                raise ValueError(
+                    f"responses: reasoning_summary_part.added content_index {content_index}, want {self._next_content_index}"
+                )
+            self._next_content_index += 1
+            self._content_index = content_index
+            part = ev.get("part")
+            if not isinstance(part, dict):
+                raise ValueError("responses: reasoning_summary_part.added without part")
+            if self._skipped_item:
+                self._skipped_part = True
+                return []
+            if part.get("type") != PART_TYPE_OUTPUT_TEXT:
+                self._skipped_part = True
+                self._losses.append(
+                    loss(
+                        f"output[{self._output_index}].summary[{content_index}]",
+                        "type",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        f"Responses reasoning summary type {part.get('type')!r} is not decoded in the stream profile",
+                    )
+                )
+                return []
+            self._block_open = True
+            self._block_index = self._next_block_index
+            self._next_block_index += 1
+            self._text_done = False
+            return [
+                ContentBlockStart(
+                    index=self._block_index,
+                    block=ThinkingBlock(thinking=""),
+                )
+            ]
+
+        if kind == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA:
+            self._require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA)
+            content_index = int(ev.get("content_index", -1))
+            if self._skipped_item or self._skipped_part:
+                if content_index != self._content_index:
+                    raise ValueError(
+                        f"responses: reasoning_summary_text.delta content_index {content_index} does not match the skipped part"
+                    )
+                return []
+            if not self._block_open or content_index != self._content_index:
+                raise ValueError(
+                    "responses: reasoning_summary_text.delta does not match the open content part"
+                )
+            if self._text_done:
+                raise ValueError("responses: reasoning_summary_text.delta after text.done")
+            return [
+                ContentBlockDelta(
+                    index=self._block_index,
+                    delta=ThinkingDelta(text=str(ev.get("delta", ""))),
+                )
+            ]
+
+        if kind == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE:
+            self._require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE)
+            content_index = int(ev.get("content_index", -1))
+            if self._skipped_item or self._skipped_part:
+                if content_index != self._content_index:
+                    raise ValueError(
+                        f"responses: reasoning_summary_text.done content_index {content_index} does not match the skipped part"
+                    )
+                return []
+            if not self._block_open or content_index != self._content_index:
+                raise ValueError(
+                    "responses: reasoning_summary_text.done does not match the open content part"
+                )
+            if self._text_done:
+                raise ValueError("responses: duplicate reasoning_summary_text.done")
+            self._text_done = True
+            return []
+
+        if kind == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE:
+            self._require_active_item(ev, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE)
+            if "part" not in ev:
+                raise ValueError("responses: reasoning_summary_part.done without part")
+            content_index = int(ev.get("content_index", -1))
+            if self._skipped_item or self._skipped_part:
+                if content_index != self._content_index:
+                    raise ValueError(
+                        f"responses: reasoning_summary_part.done content_index {content_index} does not match the skipped part"
+                    )
+                self._skipped_part = False
+                return []
+            if not self._block_open or content_index != self._content_index:
+                raise ValueError(
+                    "responses: reasoning_summary_part.done does not match the open content part"
+                )
+            self._block_open = False
+            return [ContentBlockStop(index=self._block_index)]
 
         if kind == EVENT_TYPE_RESPONSE_CONTENT_PART_DONE:
             self._require_active_item(ev, EVENT_TYPE_RESPONSE_CONTENT_PART_DONE)
@@ -393,9 +506,23 @@ class StreamDecoder:
             self._terminated = True
 
             usage_raw = response.get("usage", {})
+            input_details = usage_raw.get("input_token_details")
+            output_details = usage_raw.get("output_token_details")
             usage = Usage(
                 input_tokens=int(usage_raw.get("input_tokens", 0)),
                 output_tokens=int(usage_raw.get("output_tokens", 0)),
+                input_tokens_details=(
+                    InputTokensDetails(cached_tokens=int(input_details["cached_tokens"]))
+                    if isinstance(input_details, dict)
+                    and input_details.get("cached_tokens") is not None
+                    else None
+                ),
+                output_tokens_details=(
+                    OutputTokensDetails(reasoning_tokens=int(output_details["reasoning_tokens"]))
+                    if isinstance(output_details, dict)
+                    and output_details.get("reasoning_tokens") is not None
+                    else None
+                ),
             )
             return [
                 MessageDelta(stop_reason=stop, usage=usage),
@@ -405,9 +532,7 @@ class StreamDecoder:
         # Unknown event types: absorb identity-matching descendants of an
         # active skipped unit (N-S-3); validate identity against the open
         # supported unit otherwise; always keep at most one loss per event.
-        has_identity = (
-            "output_index" in ev or "item_id" in ev or "content_index" in ev
-        )
+        has_identity = "output_index" in ev or "item_id" in ev or "content_index" in ev
         if self._skipped_item or self._skipped_part:
             if has_identity:
                 self._require_active_item(ev, kind)

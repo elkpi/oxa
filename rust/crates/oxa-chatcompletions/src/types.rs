@@ -44,6 +44,8 @@ pub struct Request {
     pub max_tokens: Option<i64>,
     #[serde(rename = "stop", skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
+    #[serde(rename = "reasoning_effort", skip_serializing_if = "Option::is_none")]
+    pub reasoning_effort: Option<String>,
     #[serde(rename = "tools", skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolWire>>,
     /// auto | none | required | a named-function object; kept raw so the
@@ -110,6 +112,8 @@ pub struct Message {
     pub role: String,
     #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
     pub content: Option<ContentValue>,
+    #[serde(rename = "reasoning_content", skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(rename = "tool_calls", skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
     #[serde(rename = "tool_call_id", skip_serializing_if = "String::is_empty")]
@@ -190,6 +194,22 @@ pub struct Choice {
     pub finish_reason: String,
 }
 
+/// Prompt-token breakdown from a Chat Completions usage object.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PromptTokensDetailsWire {
+    #[serde(rename = "cached_tokens")]
+    pub cached_tokens: i64,
+}
+
+/// Completion-token breakdown from a Chat Completions usage object.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompletionTokensDetailsWire {
+    #[serde(rename = "reasoning_tokens")]
+    pub reasoning_tokens: i64,
+}
+
 /// The wire usage object. `total_tokens` is derived (prompt + completion) and
 /// recomputed on encode, so its absence on the IR side carries no loss
 /// (vectors/README.md loss conventions, DERIVED fields).
@@ -202,6 +222,16 @@ pub struct UsageWire {
     pub completion_tokens: i64,
     #[serde(rename = "total_tokens")]
     pub total_tokens: i64,
+    #[serde(
+        rename = "prompt_tokens_details",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_tokens_details: Option<PromptTokensDetailsWire>,
+    #[serde(
+        rename = "completion_tokens_details",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub completion_tokens_details: Option<CompletionTokensDetailsWire>,
 }
 
 /// One Chat Completions streamed chunk (object "chat.completion.chunk").
@@ -242,6 +272,8 @@ pub struct DeltaPayload {
     pub role: String,
     #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
+    #[serde(rename = "reasoning_content", skip_serializing_if = "Option::is_none")]
+    pub reasoning_content: Option<String>,
     #[serde(rename = "tool_calls", skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCallDelta>>,
 }

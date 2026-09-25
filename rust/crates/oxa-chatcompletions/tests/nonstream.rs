@@ -4,7 +4,10 @@
 use oxa_chatcompletions::{
     Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
 };
-use oxa_ir::{LossReason, StopReason};
+use oxa_ir::{
+    Block, InputTokensDetails, LossReason, OutputTokensDetails, Params, ReasoningEffort, Role,
+    StopReason, Usage,
+};
 use oxa_modelmap::Table;
 use serde_json::Value;
 
@@ -76,6 +79,305 @@ fn missing_finish_reason_is_a_structural_error() {
         err.to_string().contains("finish_reason is missing"),
         "{err}"
     );
+}
+
+#[test]
+fn decodes_reasoning_content_and_effort() {
+    let wire = wire_request(serde_json::json!({
+        "model": "o3-mini",
+        "reasoning_effort": "high",
+        "messages": [
+            { "role": "user", "content": "question" },
+            {
+                "role": "assistant",
+                "reasoning_content": "Plan carefully.",
+                "content": "answer"
+            }
+        ]
+    }));
+    let (request, losses) = decode_request(&wire, &Config::default()).expect("decode");
+
+    assert_eq!(
+        request
+            .params
+            .as_ref()
+            .and_then(|params| params.reasoning_effort),
+        Some(ReasoningEffort::High)
+    );
+    assert!(matches!(
+        request.messages[1].content.first(),
+        Some(Block::Thinking { thinking, signature: None }) if thinking == "Plan carefully."
+    ));
+    assert!(losses.is_empty());
+}
+
+#[test]
+fn drops_unknown_reasoning_effort_with_one_value_loss() {
+    let wire = wire_request(serde_json::json!({
+        "model": "o3-mini",
+        "reasoning_effort": "ultra",
+        "messages": [{ "role": "user", "content": "question" }]
+    }));
+    let (request, losses) = decode_request(&wire, &Config::default()).expect("decode");
+
+    assert_eq!(
+        request
+            .params
+            .as_ref()
+            .and_then(|params| params.reasoning_effort),
+        None
+    );
+    let loss = loss_with(&losses, "reasoning_effort", "reasoning_effort");
+    assert_eq!(loss.reason, LossReason::UnmappedValue);
+}
+
+#[test]
+fn encodes_reasoning_content_and_reports_signature_losses() {
+    let request = oxa_ir::Request {
+        model: "o3-mini".to_string(),
+        system: Vec::new(),
+        messages: vec![
+            oxa_ir::Message {
+                role: Role::User,
+                content: vec![Block::Text {
+                    text: "question".to_string(),
+                }],
+            },
+            oxa_ir::Message {
+                role: Role::Assistant,
+                content: vec![
+                    Block::Thinking {
+                        thinking: "Plan.".to_string(),
+                        signature: Some("opaque".to_string()),
+                    },
+                    Block::Text {
+                        text: "answer".to_string(),
+                    },
+                ],
+            },
+        ],
+        tools: None,
+        tool_choice: None,
+        params: Some(Params {
+            temperature: None,
+            top_p: None,
+            max_tokens: None,
+            stop_sequences: None,
+            reasoning_effort: Some(ReasoningEffort::High),
+        }),
+        metadata: None,
+    };
+    let (wire, request_losses) =
+        encode_request(&request, &Config::default()).expect("encode request");
+    assert_eq!(wire.reasoning_effort.as_deref(), Some("high"));
+    assert_eq!(wire.messages[1].reasoning_content.as_deref(), Some("Plan."));
+    assert_eq!(
+        loss_with(
+            &request_losses,
+            "messages[1].content[0].signature",
+            "signature"
+        )
+        .reason,
+        LossReason::UnmappedField
+    );
+
+    let response = oxa_ir::Response {
+        id: "r".to_string(),
+        model: "o3-mini".to_string(),
+        content: vec![Block::Thinking {
+            thinking: "Plan.".to_string(),
+            signature: Some("opaque".to_string()),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            ..Usage::default()
+        },
+    };
+    let (wire, response_losses) =
+        encode_response(&response, &Config::default()).expect("encode response");
+    assert_eq!(
+        wire.choices[0].message.reasoning_content.as_deref(),
+        Some("Plan.")
+    );
+    assert_eq!(
+        loss_with(&response_losses, "content[0].signature", "signature").reason,
+        LossReason::UnmappedField
+    );
+}
+
+#[test]
+fn maps_optional_usage_details_in_both_directions() {
+    let wire = wire_response(serde_json::json!({
+        "id": "r",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "o3-mini",
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": "answer" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 5,
+            "completion_tokens": 7,
+            "total_tokens": 12,
+            "prompt_tokens_details": { "cached_tokens": 0 },
+            "completion_tokens_details": { "reasoning_tokens": 3 }
+        }
+    }));
+    let (decoded, losses) = decode_response(&wire, &Config::default()).expect("decode usage");
+    assert_eq!(
+        decoded.usage.input_tokens_details,
+        Some(InputTokensDetails { cached_tokens: 0 })
+    );
+    assert_eq!(
+        decoded.usage.output_tokens_details,
+        Some(OutputTokensDetails {
+            reasoning_tokens: 3
+        })
+    );
+    assert!(losses.is_empty());
+
+    let mut response = decoded;
+    response.usage.cache_read_input_tokens = Some(0);
+    response.usage.cache_creation_input_tokens = Some(4);
+    let (encoded, _) = encode_response(&response, &Config::default()).expect("encode usage");
+    let usage = encoded.usage.expect("usage present");
+    assert_eq!(usage.prompt_tokens_details.unwrap().cached_tokens, 0);
+    assert_eq!(usage.completion_tokens_details.unwrap().reasoning_tokens, 3);
+}
+
+#[test]
+fn encodes_multiple_thinking_blocks_in_encounter_order() {
+    let response = oxa_ir::Response {
+        id: "r".to_string(),
+        model: "o3-mini".to_string(),
+        content: vec![
+            Block::Thinking {
+                thinking: "First.".to_string(),
+                signature: None,
+            },
+            Block::Thinking {
+                thinking: "Second.".to_string(),
+                signature: None,
+            },
+        ],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            ..Usage::default()
+        },
+    };
+    let (wire, losses) = encode_response(&response, &Config::default()).expect("encode");
+
+    assert_eq!(
+        wire.choices[0].message.reasoning_content.as_deref(),
+        Some("First.Second.")
+    );
+    assert!(losses.is_empty());
+}
+
+#[test]
+fn rejects_negative_usage_details_on_decode_and_encode() {
+    let wire = wire_response(serde_json::json!({
+        "id": "r",
+        "object": "chat.completion",
+        "created": 0,
+        "model": "o3-mini",
+        "choices": [{
+            "index": 0,
+            "message": { "role": "assistant", "content": "answer" },
+            "finish_reason": "stop"
+        }],
+        "usage": {
+            "prompt_tokens": 1,
+            "completion_tokens": 2,
+            "total_tokens": 3,
+            "prompt_tokens_details": { "cached_tokens": -1 }
+        }
+    }));
+    assert!(decode_response(&wire, &Config::default()).is_err());
+
+    let response = oxa_ir::Response {
+        id: "r".to_string(),
+        model: "o3-mini".to_string(),
+        content: Vec::new(),
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            output_tokens_details: Some(OutputTokensDetails {
+                reasoning_tokens: -1,
+            }),
+            ..Usage::default()
+        },
+    };
+    assert!(encode_response(&response, &Config::default()).is_err());
+}
+
+#[test]
+fn rejects_negative_nonstream_usage_details() {
+    for detail in [
+        serde_json::json!({ "prompt_tokens_details": { "cached_tokens": -1 } }),
+        serde_json::json!({ "completion_tokens_details": { "reasoning_tokens": -1 } }),
+    ] {
+        let mut wire = serde_json::json!({
+            "id": "r",
+            "object": "chat.completion",
+            "created": 0,
+            "model": "o3-mini",
+            "choices": [{
+                "index": 0,
+                "message": { "role": "assistant", "content": "answer" },
+                "finish_reason": "stop"
+            }],
+            "usage": {
+                "prompt_tokens": 1,
+                "completion_tokens": 2,
+                "total_tokens": 3
+            }
+        });
+        for (key, value) in detail.as_object().unwrap() {
+            wire["usage"][key] = value.clone();
+        }
+        let err = decode_response(&wire_response(wire), &Config::default())
+            .expect_err("negative usage detail");
+        assert!(err.to_string().contains("non-negative"), "{err}");
+    }
+
+    let invalid = [
+        Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            input_tokens_details: Some(InputTokensDetails { cached_tokens: -1 }),
+            ..Usage::default()
+        },
+        Usage {
+            input_tokens: 1,
+            output_tokens: 2,
+            output_tokens_details: Some(OutputTokensDetails {
+                reasoning_tokens: -1,
+            }),
+            ..Usage::default()
+        },
+    ];
+    for usage in invalid {
+        let response = oxa_ir::Response {
+            id: "r".to_string(),
+            model: "o3-mini".to_string(),
+            content: Vec::new(),
+            stop_reason: StopReason::EndTurn,
+            stop_sequence: None,
+            usage,
+        };
+        assert!(encode_response(&response, &Config::default()).is_err());
+    }
 }
 
 #[test]
@@ -160,6 +462,7 @@ fn encoding_an_ir_stop_other_is_a_structural_error() {
         usage: oxa_ir::Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..oxa_ir::Usage::default()
         },
     };
     let err = encode_response(&resp, &Config::default()).expect_err("stop other");
@@ -180,6 +483,7 @@ fn encoding_a_stop_sequence_reports_the_value_loss() {
         usage: oxa_ir::Usage {
             input_tokens: 1,
             output_tokens: 2,
+            ..oxa_ir::Usage::default()
         },
     };
     let (wire, losses) = encode_response(&resp, &Config::default()).expect("encode");

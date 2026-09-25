@@ -156,13 +156,8 @@ pub(crate) fn decode_block(
             });
         }
         BLOCK_TYPE_THINKING => {
-            let Some(thinking) = wire.thinking.as_deref() else {
-                return Err(Error::new(format!(
-                    "anthropic: {path}.thinking is required"
-                )));
-            };
             block = Some(Block::Thinking {
-                thinking: thinking.to_string(),
+                thinking: wire.thinking.clone().unwrap_or_default(),
                 signature: wire.signature.clone(),
             });
         }

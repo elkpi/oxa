@@ -182,6 +182,11 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             thinking,
             signature,
         } => {
+            // An empty signature is absent (the Go zero-value convention), so
+            // Some("") replays as unsigned with the degraded loss.
+            let signature = signature
+                .as_deref()
+                .filter(|signature| !signature.is_empty());
             let losses = if signature.is_none() {
                 vec![loss(
                     path,
@@ -196,7 +201,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 BlockWire {
                     kind: BLOCK_TYPE_THINKING.to_string(),
                     thinking: Some(thinking.clone()),
-                    signature: signature.clone(),
+                    signature: signature.map(str::to_string),
                     ..BlockWire::default()
                 },
                 losses,
@@ -437,6 +442,11 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             thinking,
             signature,
         } => {
+            // An empty signature is absent (the Go zero-value convention), so
+            // Some("") replays as unsigned with the degraded loss.
+            let signature = signature
+                .as_deref()
+                .filter(|signature| !signature.is_empty());
             let losses = if signature.is_none() {
                 vec![loss(
                     path,
@@ -451,7 +461,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 BlockWire {
                     kind: BLOCK_TYPE_THINKING.to_string(),
                     thinking: Some(thinking.clone()),
-                    signature: signature.clone(),
+                    signature: signature.map(str::to_string),
                     ..BlockWire::default()
                 },
                 losses,

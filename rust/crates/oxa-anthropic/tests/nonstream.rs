@@ -485,3 +485,44 @@ fn preserves_thinking_signature_and_optional_cache_usage() {
         None
     );
 }
+
+#[test]
+fn decodes_a_thinking_block_with_no_thinking_field_as_empty_text() {
+    let wire = wire_response(serde_json::json!({
+        "id": "msg_bare",
+        "type": "message",
+        "role": "assistant",
+        "model": "claude",
+        "content": [{ "type": "thinking", "signature": "sig_x" }],
+        "stop_reason": "end_turn",
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+    }));
+    let (decoded, losses) = decode_response(&wire, &Config::default()).expect("decode response");
+    assert!(losses.is_empty());
+    assert_eq!(
+        decoded.content,
+        vec![Block::Thinking {
+            thinking: String::new(),
+            signature: Some("sig_x".to_string()),
+        }]
+    );
+}
+
+#[test]
+fn empty_signature_is_treated_as_unsigned_on_encode() {
+    let response = oxa_ir::Response {
+        id: "msg_empty_sig".to_string(),
+        model: "claude".to_string(),
+        content: vec![Block::Thinking {
+            thinking: "consider".to_string(),
+            signature: Some(String::new()),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage::default(),
+    };
+    let (wire, losses) = encode_response(&response, &Config::default()).expect("encode response");
+    let loss = loss_with(&losses, "content[0]", "signature");
+    assert_eq!(loss.reason, LossReason::Degraded);
+    assert_eq!(wire.content[0].signature, None);
+}

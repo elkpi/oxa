@@ -46,11 +46,49 @@ pub enum StopReason {
     Other,
 }
 
-/// Token usage totals (spec/01 §4.2).
+/// Fine-grained input token usage (spec/01 §4.2).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InputTokensDetails {
+    #[serde(rename = "cached_tokens")]
+    pub cached_tokens: i64,
+}
+
+/// Fine-grained output token usage (spec/01 §4.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OutputTokensDetails {
+    #[serde(rename = "reasoning_tokens")]
+    pub reasoning_tokens: i64,
+}
+
+/// Token usage totals and optional granularity details (spec/01 §4.2).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Usage {
     #[serde(rename = "input_tokens")]
     pub input_tokens: i64,
     #[serde(rename = "output_tokens")]
     pub output_tokens: i64,
+    #[serde(
+        rename = "cache_read_input_tokens",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cache_read_input_tokens: Option<i64>,
+    #[serde(
+        rename = "cache_creation_input_tokens",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub cache_creation_input_tokens: Option<i64>,
+    #[serde(
+        rename = "input_tokens_details",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub input_tokens_details: Option<InputTokensDetails>,
+    #[serde(
+        rename = "output_tokens_details",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_tokens_details: Option<OutputTokensDetails>,
 }

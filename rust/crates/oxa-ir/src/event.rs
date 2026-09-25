@@ -55,7 +55,8 @@ pub enum Event {
 }
 
 /// The delta payload of a `content_block_delta` event (spec/01 §5.2).
-/// `InputJSONDelta::partial_json` is opaque raw JSON text (INV-1).
+/// `InputJSONDelta::partial_json` and `SignatureDelta::signature` are opaque
+/// values (INV-1).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Delta {
@@ -68,6 +69,16 @@ pub enum Delta {
     InputJsonDelta {
         #[serde(rename = "partial_json")]
         partial_json: String,
+    },
+    #[serde(rename = "thinking_delta")]
+    ThinkingDelta {
+        #[serde(rename = "text")]
+        text: String,
+    },
+    #[serde(rename = "signature_delta")]
+    SignatureDelta {
+        #[serde(rename = "signature")]
+        signature: String,
     },
 }
 

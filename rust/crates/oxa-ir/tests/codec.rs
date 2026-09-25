@@ -4,16 +4,19 @@
 //! round trip here compares structurally (INV-7): object key order is
 //! irrelevant, integers stay integers, and raw tool-input strings are opaque.
 
-use oxa_ir::{Event, EventStream, Request, Response, from_json, to_json};
+use oxa_ir::{
+    Block, Delta, Event, EventStream, ReasoningEffort, Request, Response, from_json, to_json,
+};
 use serde_json::Value;
 
 fn value(s: &str) -> Value {
     serde_json::from_str(s).expect("test JSON must parse")
 }
 
-fn assert_structurally_equal(left: &str, right: &str) {
-    let (l, r) = (value(left), value(right));
-    assert_eq!(l, r, "structural equality (INV-7) violated");
+fn assert_020_encoding_matches(input: &str, encoded: &str) {
+    let mut expected = value(input);
+    expected["specVersion"] = Value::String("0.2.0".to_string());
+    assert_eq!(expected, value(encoded), "IR encoding differs from input");
 }
 
 const SPEC_REQUEST: &str = r#"{
@@ -74,24 +77,24 @@ const SPEC_EVENT_STREAM: &str = r#"{
 }"#;
 
 #[test]
-fn spec01_request_round_trips() {
+fn legacy_request_round_trips_as_spec20() {
     let req: Request = from_json(SPEC_REQUEST).expect("decode");
     let out = to_json(&req).expect("encode");
-    assert_structurally_equal(SPEC_REQUEST, &out);
+    assert_020_encoding_matches(SPEC_REQUEST, &out);
 }
 
 #[test]
-fn spec01_response_round_trips() {
+fn legacy_response_round_trips_as_spec20() {
     let resp: Response = from_json(SPEC_RESPONSE).expect("decode");
     let out = to_json(&resp).expect("encode");
-    assert_structurally_equal(SPEC_RESPONSE, &out);
+    assert_020_encoding_matches(SPEC_RESPONSE, &out);
 }
 
 #[test]
-fn spec01_event_stream_round_trips() {
+fn legacy_event_stream_round_trips_as_spec20() {
     let stream: EventStream = from_json(SPEC_EVENT_STREAM).expect("decode");
     let out = to_json(&stream).expect("encode");
-    assert_structurally_equal(SPEC_EVENT_STREAM, &out);
+    assert_020_encoding_matches(SPEC_EVENT_STREAM, &out);
     assert_eq!(stream.events.len(), 7);
     assert!(matches!(stream.events[0], Event::MessageStart { .. }));
     assert!(matches!(stream.events[6], Event::MessageDone {}));
@@ -169,6 +172,104 @@ fn absent_and_zero_are_distinct_in_params() {
     assert!(
         bare_out.get("system").is_none(),
         "absent system stays absent"
+    );
+}
+
+#[test]
+fn emits_spec_020_and_dual_reads_010() {
+    let legacy: Request = from_json(SPEC_REQUEST).expect("read legacy 0.1.0 request");
+    let encoded = to_json(&legacy).expect("encode as 0.2.0");
+    let encoded_value = value(&encoded);
+    assert_eq!(encoded_value["specVersion"].as_str(), Some("0.2.0"));
+
+    let current = SPEC_REQUEST.replace("\"0.1.0\"", "\"0.2.0\"");
+    let decoded: Request = from_json(&current).expect("read 0.2.0 request");
+    assert_eq!(decoded, legacy);
+}
+
+#[test]
+fn thinking_blocks_and_deltas_use_locked_json_shapes() {
+    let signed = Block::Thinking {
+        thinking: "consider".to_string(),
+        signature: Some("sig_opaque".to_string()),
+    };
+    assert_eq!(
+        serde_json::to_value(&signed).expect("encode thinking block"),
+        value(r#"{"type":"thinking","thinking":"consider","signature":"sig_opaque"}"#),
+    );
+
+    let unsigned = Block::Thinking {
+        thinking: "reasoning".to_string(),
+        signature: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&unsigned).expect("encode unsigned thinking block"),
+        value(r#"{"type":"thinking","thinking":"reasoning"}"#),
+    );
+
+    let deltas = [
+        Delta::ThinkingDelta {
+            text: "reasoning".to_string(),
+        },
+        Delta::SignatureDelta {
+            signature: "sig_opaque".to_string(),
+        },
+    ];
+    assert_eq!(
+        serde_json::to_value(deltas).expect("encode reasoning deltas"),
+        value(
+            r#"[{"type":"thinking_delta","text":"reasoning"},{"type":"signature_delta","signature":"sig_opaque"}]"#,
+        ),
+    );
+}
+
+#[test]
+fn reasoning_effort_and_optional_usage_details_round_trip() {
+    let mut request: Request = from_json(SPEC_REQUEST).expect("decode request");
+    request
+        .params
+        .as_mut()
+        .expect("params present")
+        .reasoning_effort = Some(ReasoningEffort::High);
+    let request_json = to_json(&request).expect("encode reasoning effort");
+    let request_value = value(&request_json);
+    assert_eq!(request_value["params"]["reasoning_effort"], "high");
+    assert_eq!(
+        from_json::<Request>(&request_json).expect("round-trip effort"),
+        request
+    );
+
+    let absent: Response = from_json(SPEC_RESPONSE).expect("decode response without details");
+    let absent_json = value(&to_json(&absent).expect("encode absent details"));
+    assert!(
+        absent_json["usage"]
+            .get("cache_read_input_tokens")
+            .is_none()
+    );
+    assert!(absent_json["usage"].get("input_tokens_details").is_none());
+
+    let mut response: Response = from_json(SPEC_RESPONSE).expect("decode response");
+    response.usage.cache_read_input_tokens = Some(0);
+    response.usage.cache_creation_input_tokens = Some(5);
+    response.usage.input_tokens_details = Some(oxa_ir::InputTokensDetails { cached_tokens: 0 });
+    response.usage.output_tokens_details = Some(oxa_ir::OutputTokensDetails {
+        reasoning_tokens: 7,
+    });
+    let encoded = to_json(&response).expect("encode usage details");
+    let encoded_value = value(&encoded);
+    assert_eq!(encoded_value["usage"]["cache_read_input_tokens"], 0);
+    assert_eq!(encoded_value["usage"]["cache_creation_input_tokens"], 5);
+    assert_eq!(
+        encoded_value["usage"]["input_tokens_details"]["cached_tokens"],
+        0
+    );
+    assert_eq!(
+        encoded_value["usage"]["output_tokens_details"]["reasoning_tokens"],
+        7
+    );
+    assert_eq!(
+        from_json::<Response>(&encoded).expect("round-trip usage details"),
+        response
     );
 }
 

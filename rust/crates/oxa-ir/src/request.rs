@@ -57,7 +57,7 @@ pub struct Message {
     pub content: Vec<Block>,
 }
 
-/// A content block (spec/01 §3.4). Sealed; exactly four variants in v1.
+/// A content block (spec/01 §3.4). Sealed; includes the Spec 2.0 thinking variant.
 /// `ToolUseBlock::input` is opaque raw JSON text (INV-1): it is a plain
 /// string and is never parsed or re-serialized by any conversion path.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -67,6 +67,13 @@ pub enum Block {
     Text {
         #[serde(rename = "text")]
         text: String,
+    },
+    #[serde(rename = "thinking")]
+    Thinking {
+        #[serde(rename = "thinking")]
+        thinking: String,
+        #[serde(rename = "signature", default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
     },
     #[serde(rename = "image")]
     Image {
@@ -138,6 +145,19 @@ pub enum ToolChoiceMode {
     None,
 }
 
+/// Request-side reasoning effort (spec/01 §3.7). Closed set since Spec 2.0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ReasoningEffort {
+    #[serde(rename = "minimal")]
+    Minimal,
+    #[serde(rename = "low")]
+    Low,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "high")]
+    High,
+}
+
 /// Sampling parameters (spec/01 §3.7). Absent fields are meaningful:
 /// `Option` distinguishes absent from zero, matching the pointer semantics
 /// of the Go reference implementation.
@@ -163,4 +183,10 @@ pub struct Params {
         skip_serializing_if = "Option::is_none"
     )]
     pub stop_sequences: Option<Vec<String>>,
+    #[serde(
+        rename = "reasoning_effort",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub reasoning_effort: Option<ReasoningEffort>,
 }

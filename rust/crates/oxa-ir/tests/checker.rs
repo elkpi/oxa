@@ -57,6 +57,7 @@ fn message_delta(stop: StopReason) -> Event {
         usage: Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..Usage::default()
         },
     }
 }
@@ -94,6 +95,102 @@ fn assert_rejects(events: Vec<Event>, event_index: usize, fragment: &str) {
         err.message.contains(fragment),
         "violation message {:?} must mention {fragment:?}",
         err.message
+    );
+}
+
+#[test]
+fn accepts_m9_thinking_deltas_then_one_signature_delta() {
+    let events = vec![
+        start(),
+        Event::ContentBlockStart {
+            index: 0,
+            block: Block::Thinking {
+                thinking: "".to_string(),
+                signature: Some("sig_start".to_string()),
+            },
+        },
+        Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::ThinkingDelta {
+                text: "reasoning".to_string(),
+            },
+        },
+        Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::SignatureDelta {
+                signature: "sig_delta".to_string(),
+            },
+        },
+        block_stop(0),
+        message_delta(StopReason::EndTurn),
+        done(),
+    ];
+    validate_event_stream(&EventStream { events }).expect("valid M9 stream");
+}
+
+#[test]
+fn rejects_thinking_delta_after_signature_delta() {
+    assert_rejects(
+        vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: Block::Thinking {
+                    thinking: "".to_string(),
+                    signature: None,
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::SignatureDelta {
+                    signature: "sig_1".to_string(),
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::ThinkingDelta {
+                    text: "late".to_string(),
+                },
+            },
+            block_stop(0),
+            message_delta(StopReason::EndTurn),
+            done(),
+        ],
+        3,
+        "thinking delta after signature",
+    );
+}
+
+#[test]
+fn rejects_duplicate_signature_deltas() {
+    assert_rejects(
+        vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: Block::Thinking {
+                    thinking: "".to_string(),
+                    signature: None,
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::SignatureDelta {
+                    signature: "sig_1".to_string(),
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::SignatureDelta {
+                    signature: "sig_2".to_string(),
+                },
+            },
+            block_stop(0),
+            message_delta(StopReason::EndTurn),
+            done(),
+        ],
+        3,
+        "multiple signatures",
     );
 }
 
@@ -298,6 +395,7 @@ fn message_delta_with_sequence(stop: StopReason, seq: Option<String>) -> Event {
         usage: Usage {
             input_tokens: 0,
             output_tokens: 0,
+            ..Usage::default()
         },
     }
 }

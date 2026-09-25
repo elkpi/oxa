@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 41);
+    CHECK(rep_res->executed == 45);
     std::printf("test_responses: all %zu vectors passed\n", rep_res->executed);
     return 0;
 }

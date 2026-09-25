@@ -9,12 +9,19 @@
 
 int main() {
     // IR constants (spec/01, spec/02)
-    assert(oxa::ir::SPEC_VERSION == "0.1.0");
+    assert(oxa::ir::SPEC_VERSION == "0.2.0");
+    assert(oxa::ir::LEGACY_SPEC_VERSION == "0.1.0");
+
+    assert(oxa::ir::REASONING_EFFORT_MINIMAL == "minimal");
+    assert(oxa::ir::REASONING_EFFORT_LOW == "low");
+    assert(oxa::ir::REASONING_EFFORT_MEDIUM == "medium");
+    assert(oxa::ir::REASONING_EFFORT_HIGH == "high");
 
     assert(oxa::ir::ROLE_USER == "user");
     assert(oxa::ir::ROLE_ASSISTANT == "assistant");
 
     assert(oxa::ir::BLOCK_TYPE_TEXT == "text");
+    assert(oxa::ir::BLOCK_TYPE_THINKING == "thinking");
     assert(oxa::ir::BLOCK_TYPE_IMAGE == "image");
     assert(oxa::ir::BLOCK_TYPE_TOOL_USE == "tool_use");
     assert(oxa::ir::BLOCK_TYPE_TOOL_RESULT == "tool_result");
@@ -40,6 +47,8 @@ int main() {
 
     assert(oxa::ir::DELTA_TYPE_TEXT_DELTA == "text_delta");
     assert(oxa::ir::DELTA_TYPE_INPUT_JSON_DELTA == "input_json_delta");
+    assert(oxa::ir::DELTA_TYPE_THINKING_DELTA == "thinking_delta");
+    assert(oxa::ir::DELTA_TYPE_SIGNATURE_DELTA == "signature_delta");
 
     assert(oxa::ir::LOSS_UNMAPPED_FIELD == "unmapped-field");
     assert(oxa::ir::LOSS_UNMAPPED_VALUE == "unmapped-value");

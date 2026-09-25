@@ -334,11 +334,21 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
             }
             req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(content)});
         } else if (role == "assistant") {
+            const auto* reasoning = m.find("reasoning_content");
+            if (reasoning != nullptr && !reasoning->is_null()) {
+                if (!reasoning->is_string()) {
+                    return invalid_argument("chatcompletions: reasoning_content must be a string");
+                }
+                content.insert(content.begin(), ir::ThinkingBlock{reasoning->as_string(), std::nullopt});
+            }
             auto [tc_blocks, tc_losses] =
                 decode_tool_calls(m.find("tool_calls"), "messages[" + std::to_string(index) + "].tool_calls");
             const auto* c_val = m.find("content");
             if ((!c_val || c_val->is_null()) && !tc_blocks.empty()) {
-                content.clear();
+                content.erase(std::remove_if(content.begin(), content.end(), [](const ir::Block& block) {
+                                  return !std::holds_alternative<ir::ThinkingBlock>(block);
+                              }),
+                              content.end());
             }
             content.insert(content.end(), std::make_move_iterator(tc_blocks.begin()),
                            std::make_move_iterator(tc_blocks.end()));
@@ -390,6 +400,21 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
         if (!stops.empty()) {
             params.stop_sequences = std::move(stops);
             has_params = true;
+        }
+    }
+    if (const auto* effort = wire.find("reasoning_effort"); effort && !effort->is_null()) {
+        if (!effort->is_string()) {
+            return invalid_argument("chatcompletions: reasoning_effort must be a string");
+        }
+        const std::string value = effort->as_string();
+        if (value == ir::REASONING_EFFORT_MINIMAL || value == ir::REASONING_EFFORT_LOW ||
+            value == ir::REASONING_EFFORT_MEDIUM || value == ir::REASONING_EFFORT_HIGH) {
+            params.reasoning_effort = value;
+            has_params = true;
+        } else {
+            losses.push_back(make_cc_loss(
+                "reasoning_effort", "reasoning_effort", ir::LOSS_UNMAPPED_VALUE,
+                "Chat Completions reasoning_effort \"" + value + "\" has no IR equivalent"));
         }
     }
     if (has_params) req.params = std::move(params);
@@ -474,11 +499,22 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             json::Value am = json::Value::object();
             am.set("role", json::Value::string("assistant"));
             std::string text;
+            std::string reasoning;
+            bool has_reasoning = false;
             json::Value tc_arr = json::Value::array();
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
                 if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     text += tb->text;
+                } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+                    has_reasoning = true;
+                    reasoning += thinking->thinking;
+                    if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].signature",
+                            "signature", ir::LOSS_UNMAPPED_FIELD,
+                            "Chat Completions reasoning_content has no signature field; the opaque signature is dropped"));
+                    }
                 } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
                     json::Value tcw = json::Value::object();
                     tcw.set("id", json::Value::string(tu->id));
@@ -496,6 +532,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 }
             }
             am.set("content", json::Value::string(std::move(text)));
+            if (has_reasoning) {
+                am.set("reasoning_content", json::Value::string(std::move(reasoning)));
+            }
             if (!tc_arr.as_array().empty()) {
                 am.set("tool_calls", std::move(tc_arr));
             }
@@ -607,6 +646,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
             out.set("stop", std::move(stops));
         }
+        if (p.reasoning_effort.has_value()) {
+            out.set("reasoning_effort", json::Value::string(*p.reasoning_effort));
+        }
     }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
@@ -628,11 +670,20 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
     OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(msg->find("content"), "choices[0].message.content"));
     losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
     auto blocks = std::move(c_res.first);
+    if (const auto* reasoning = msg->find("reasoning_content"); reasoning && !reasoning->is_null()) {
+        if (!reasoning->is_string()) {
+            return invalid_argument("chatcompletions: reasoning_content must be a string");
+        }
+        blocks.insert(blocks.begin(), ir::ThinkingBlock{reasoning->as_string(), std::nullopt});
+    }
 
     auto [tool_blocks, tool_losses] = decode_tool_calls(msg->find("tool_calls"), "choices[0].message.tool_calls");
     const auto* content_val = msg->find("content");
     if ((!content_val || content_val->is_null()) && !tool_blocks.empty()) {
-        blocks.clear();
+        blocks.erase(std::remove_if(blocks.begin(), blocks.end(), [](const ir::Block& block) {
+                         return !std::holds_alternative<ir::ThinkingBlock>(block);
+                     }),
+                     blocks.end());
     }
     blocks.insert(blocks.end(), std::make_move_iterator(tool_blocks.begin()),
                   std::make_move_iterator(tool_blocks.end()));
@@ -666,6 +717,16 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
         if (const auto* ct = u_val->find("completion_tokens"); ct && ct->is_int()) {
             resp.usage.output_tokens = ct->as_int();
         }
+        if (const auto* details = u_val->find("prompt_tokens_details"); details && details->is_object()) {
+            if (const auto* cached = details->find("cached_tokens"); cached && cached->is_int()) {
+                resp.usage.input_tokens_details = ir::InputTokensDetails{cached->as_int()};
+            }
+        }
+        if (const auto* details = u_val->find("completion_tokens_details"); details && details->is_object()) {
+            if (const auto* reasoning = details->find("reasoning_tokens"); reasoning && reasoning->is_int()) {
+                resp.usage.output_tokens_details = ir::OutputTokensDetails{reasoning->as_int()};
+            }
+        }
     }
 
     return Conversion<ir::Response>{std::move(resp), std::move(losses)};
@@ -689,11 +750,22 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     json::Value msg = json::Value::object();
     msg.set("role", json::Value::string("assistant"));
     std::string text;
+    std::string reasoning;
+    bool has_reasoning = false;
     json::Value tc_arr = json::Value::array();
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
         const auto& b = resp.content[i];
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
+        } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+            has_reasoning = true;
+            reasoning += thinking->thinking;
+            if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                losses.push_back(make_cc_loss(
+                    "content[" + std::to_string(i) + "].signature", "signature",
+                    ir::LOSS_UNMAPPED_FIELD,
+                    "Chat Completions reasoning_content has no signature field; the opaque signature is dropped"));
+            }
         } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
             json::Value tcw = json::Value::object();
             tcw.set("id", json::Value::string(tu->id));
@@ -710,6 +782,9 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         }
     }
     msg.set("content", json::Value::string(std::move(text)));
+    if (has_reasoning) {
+        msg.set("reasoning_content", json::Value::string(std::move(reasoning)));
+    }
     if (!tc_arr.as_array().empty()) {
         msg.set("tool_calls", std::move(tc_arr));
     }
@@ -730,6 +805,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     usage.set("prompt_tokens", json::Value::integer(resp.usage.input_tokens));
     usage.set("completion_tokens", json::Value::integer(resp.usage.output_tokens));
     usage.set("total_tokens", json::Value::integer(resp.usage.input_tokens + resp.usage.output_tokens));
+    if (resp.usage.input_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("cached_tokens", json::Value::integer(resp.usage.input_tokens_details->cached_tokens));
+        usage.set("prompt_tokens_details", std::move(details));
+    }
+    if (resp.usage.output_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("reasoning_tokens", json::Value::integer(resp.usage.output_tokens_details->reasoning_tokens));
+        usage.set("completion_tokens_details", std::move(details));
+    }
     out.set("usage", std::move(usage));
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
@@ -747,6 +832,16 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         ir::Usage us;
         if (const auto* pt = u->find("prompt_tokens"); pt && pt->is_int()) us.input_tokens = pt->as_int();
         if (const auto* ct = u->find("completion_tokens"); ct && ct->is_int()) us.output_tokens = ct->as_int();
+        if (const auto* details = u->find("prompt_tokens_details"); details && details->is_object()) {
+            if (const auto* cached = details->find("cached_tokens"); cached && cached->is_int()) {
+                us.input_tokens_details = ir::InputTokensDetails{cached->as_int()};
+            }
+        }
+        if (const auto* details = u->find("completion_tokens_details"); details && details->is_object()) {
+            if (const auto* reasoning = details->find("reasoning_tokens"); reasoning && reasoning->is_int()) {
+                us.output_tokens_details = ir::OutputTokensDetails{reasoning->as_int()};
+            }
+        }
         usage_ = us;
     }
 
@@ -796,8 +891,27 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         }
     }
 
+    if (const auto* reasoning = delta->find("reasoning_content"); reasoning && reasoning->is_string()) {
+        if (text_open_) {
+            events.push_back(ir::ContentBlockStop{text_index_});
+            text_open_ = false;
+        }
+        if (!thinking_open_) {
+            thinking_open_ = true;
+            thinking_index_ = next_block_index_++;
+            events.push_back(ir::ContentBlockStart{
+                thinking_index_, ir::ThinkingBlock{"", std::nullopt}});
+        }
+        events.push_back(ir::ContentBlockDelta{
+            thinking_index_, ir::ThinkingDelta{reasoning->as_string()}});
+    }
+
     if (const auto* cv = delta->find("content"); cv && cv->is_string()) {
         std::string txt = cv->as_string();
+        if (thinking_open_) {
+            events.push_back(ir::ContentBlockStop{thinking_index_});
+            thinking_open_ = false;
+        }
         if (!text_open_) {
             text_open_ = true;
             text_index_ = next_block_index_++;
@@ -823,6 +937,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
     flushed_ = true;
 
     std::vector<ir::Event> events;
+    if (thinking_open_) {
+        events.push_back(ir::ContentBlockStop{thinking_index_});
+        thinking_open_ = false;
+    }
     if (text_open_) {
         events.push_back(ir::ContentBlockStop{text_index_});
         text_open_ = false;
@@ -884,6 +1002,16 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             u.set("prompt_tokens", json::Value::integer(usage->input_tokens));
             u.set("completion_tokens", json::Value::integer(usage->output_tokens));
             u.set("total_tokens", json::Value::integer(usage->input_tokens + usage->output_tokens));
+            if (usage->input_tokens_details.has_value()) {
+                json::Value details = json::Value::object();
+                details.set("cached_tokens", json::Value::integer(usage->input_tokens_details->cached_tokens));
+                u.set("prompt_tokens_details", std::move(details));
+            }
+            if (usage->output_tokens_details.has_value()) {
+                json::Value details = json::Value::object();
+                details.set("reasoning_tokens", json::Value::integer(usage->output_tokens_details->reasoning_tokens));
+                u.set("completion_tokens_details", std::move(details));
+            }
             chunk.set("usage", std::move(u));
         }
         return chunk;
@@ -919,6 +1047,13 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
+        if (std::holds_alternative<ir::ThinkingBlock>(cbs->block)) {
+            ActiveBlock act;
+            act.kind = ActiveBlock::Kind::Thinking;
+            act.index = cbs->index;
+            active_ = std::move(act);
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
         if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
             if (tu->id.empty() || tu->name.empty()) {
                 return invalid_argument("chatcompletions: ToolUseBlock requires nonempty ID and name");
@@ -948,6 +1083,22 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             delta.set("content", json::Value::string(td->text));
             chunks.push_back(make_base_chunk(std::move(delta)));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (active_->kind == ActiveBlock::Kind::Thinking) {
+            if (const auto* td = std::get_if<ir::ThinkingDelta>(&cbd->delta)) {
+                json::Value delta = json::Value::object();
+                delta.set("reasoning_content", json::Value::string(td->text));
+                chunks.push_back(make_base_chunk(std::move(delta)));
+                return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+            }
+            if (std::holds_alternative<ir::SignatureDelta>(cbd->delta)) {
+                losses.push_back(make_cc_loss(
+                    "events[" + std::to_string(cbd->index) + "].delta.signature",
+                    "signature", ir::LOSS_UNMAPPED_FIELD,
+                    "Chat Completions carries no signature delta"));
+                return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+            }
+            return invalid_argument("chatcompletions: ThinkingBlock received non-thinking delta");
         }
         if (active_->kind == ActiveBlock::Kind::Tool) {
             const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);

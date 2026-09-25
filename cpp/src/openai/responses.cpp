@@ -182,6 +182,29 @@ std::pair<std::string, std::vector<ir::Loss>> decode_status(
     return {std::string(ir::STOP_OTHER), losses};
 }
 
+std::vector<ir::Block> decode_reasoning_summary(
+    const json::Value& item, std::size_t input_index, std::vector<ir::Loss>& losses) {
+    std::vector<ir::Block> blocks;
+    const auto* summary = item.find("summary");
+    if (!summary || !summary->is_array()) return blocks;
+    for (std::size_t i = 0; i < summary->as_array().size(); ++i) {
+        const auto& part = summary->as_array()[i];
+        const auto* type = part.find("type");
+        const std::string kind = type && type->is_string() ? type->as_string() : "";
+        if (kind == "output_text" || kind == "summary_text") {
+            const auto* text = part.find("text");
+            blocks.push_back(ir::ThinkingBlock{
+                text && text->is_string() ? text->as_string() : "", std::nullopt});
+        } else {
+            losses.push_back(make_resp_loss(
+                "input[" + std::to_string(input_index) + "].summary[" + std::to_string(i) + "]",
+                "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Responses reasoning summary type \"" + kind + "\" has no IR equivalent"));
+        }
+    }
+    return blocks;
+}
+
 }  // namespace
 
 StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
@@ -202,10 +225,6 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
             losses.push_back(make_resp_loss("text.format", "format", ir::LOSS_UNMAPPED_FIELD,
                                             "Responses text output format has no IR equivalent in v1."));
         }
-    }
-    if (wire.find("reasoning") != nullptr) {
-        losses.push_back(make_resp_loss("reasoning", "reasoning", ir::LOSS_UNMAPPED_FIELD,
-                                        "Responses reasoning effort configuration has no IR equivalent in v1."));
     }
     if (wire.find("parallel_tool_calls") != nullptr) {
         losses.push_back(make_resp_loss("parallel_tool_calls", "parallel_tool_calls", ir::LOSS_UNMAPPED_FIELD,
@@ -299,6 +318,13 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
                         const auto& cur = items[index];
                         const auto* ct = cur.find("type");
                         std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
+                        if (ckind == "reasoning") {
+                            auto blocks = decode_reasoning_summary(cur, index, losses);
+                            text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
+                                               std::make_move_iterator(blocks.end()));
+                            ++index;
+                            continue;
+                        }
                         if (ckind == "function_call") {
                             ir::ToolUseBlock tu;
                             if (const auto* idv = cur.find("call_id"); idv && idv->is_string()) tu.id = idv->as_string();
@@ -331,14 +357,21 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
                 } else {
                     return invalid_argument("responses: input[" + std::to_string(index) + "]: unknown role \"" + role + "\"");
                 }
-            } else if (kind == "function_call") {
-                // Standalone function call starting an assistant run
+            } else if (kind == "function_call" || kind == "reasoning") {
+                // Standalone reasoning/function_call items start an assistant run
                 std::vector<ir::Block> text_blocks;
                 std::vector<ir::Block> call_blocks;
                 while (index < items.size()) {
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
+                    if (ckind == "reasoning") {
+                        auto blocks = decode_reasoning_summary(cur, index, losses);
+                        text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
+                                           std::make_move_iterator(blocks.end()));
+                        ++index;
+                        continue;
+                    }
                     if (ckind == "function_call") {
                         ir::ToolUseBlock tu;
                         if (const auto* idv = cur.find("call_id"); idv && idv->is_string()) tu.id = idv->as_string();
@@ -412,6 +445,44 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
     if (const auto* mo = wire.find("max_output_tokens"); mo && mo->is_int()) {
         params.max_tokens = mo->as_int();
         has_params = true;
+    }
+    if (const auto* reasoning = wire.find("reasoning"); reasoning && !reasoning->is_null()) {
+        std::string effort;
+        if (reasoning->is_string()) {
+            effort = reasoning->as_string();
+        } else if (reasoning->is_object()) {
+            if (reasoning->find("summary") != nullptr) {
+                losses.push_back(make_resp_loss(
+                    "reasoning.summary", "summary", ir::LOSS_UNMAPPED_FIELD,
+                    "Responses reasoning summary preference has no IR equivalent"));
+            }
+            for (const auto& [key, value] : reasoning->as_object()) {
+                if (key == "effort" || key == "summary") continue;
+                (void)value;
+                losses.push_back(make_resp_loss(
+                    "reasoning." + key, key, ir::LOSS_UNMAPPED_FIELD,
+                    "Responses reasoning property has no IR equivalent"));
+            }
+            if (const auto* effort_value = reasoning->find("effort"); effort_value && !effort_value->is_null()) {
+                if (!effort_value->is_string()) {
+                    return invalid_argument("responses: reasoning.effort must be a string");
+                }
+                effort = effort_value->as_string();
+            }
+        } else {
+            return invalid_argument("responses: reasoning must be an object or string");
+        }
+        if (!effort.empty()) {
+            if (effort == ir::REASONING_EFFORT_MINIMAL || effort == ir::REASONING_EFFORT_LOW ||
+                effort == ir::REASONING_EFFORT_MEDIUM || effort == ir::REASONING_EFFORT_HIGH) {
+                params.reasoning_effort = effort;
+                has_params = true;
+            } else {
+                losses.push_back(make_resp_loss(
+                    "reasoning.effort", "effort", ir::LOSS_UNMAPPED_VALUE,
+                    "unknown reasoning effort value \"" + effort + "\""));
+            }
+        }
     }
     if (has_params) req.params = std::move(params);
 
@@ -555,13 +626,27 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 items.push_back(std::move(mi));
             }
         } else {
-            // Assistant turn: text parts then function_call items
+            // Assistant turn: reasoning summary, text message, then function_call items
             std::string a_txt;
             bool has_text = false;
+            json::Value reasoning_summary = json::Value::array();
             std::vector<json::Value> fc_items;
 
-            for (const auto& b : m.content) {
-                if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
+            for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
+                const auto& b = m.content[bi];
+                if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+                    json::Value part = json::Value::object();
+                    part.set("type", json::Value::string("output_text"));
+                    part.set("text", json::Value::string(thinking->thinking));
+                    part.set("annotations", json::Value::array());
+                    reasoning_summary.push_back(std::move(part));
+                    if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].signature",
+                            "signature", ir::LOSS_UNMAPPED_FIELD,
+                            "Responses request reasoning items carry no provider signature"));
+                    }
+                } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     a_txt += tb->text;
                     has_text = true;
                 } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
@@ -573,7 +658,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     fc_items.push_back(std::move(fc));
                 }
             }
-            if (has_text || fc_items.empty()) {
+            const bool has_reasoning = !reasoning_summary.as_array().empty();
+            if (has_reasoning) {
+                json::Value reasoning = json::Value::object();
+                reasoning.set("type", json::Value::string("reasoning"));
+                reasoning.set("summary", std::move(reasoning_summary));
+                items.push_back(std::move(reasoning));
+            }
+            if (has_text || (!has_reasoning && fc_items.empty())) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", json::Value::string(std::move(a_txt)));
@@ -601,6 +693,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         if (p.temperature.has_value()) out.set("temperature", json::Value::real(*p.temperature));
         if (p.top_p.has_value()) out.set("top_p", json::Value::real(*p.top_p));
         if (p.max_tokens.has_value()) out.set("max_output_tokens", json::Value::integer(*p.max_tokens));
+        if (p.reasoning_effort.has_value()) {
+            json::Value reasoning = json::Value::object();
+            reasoning.set("effort", json::Value::string(*p.reasoning_effort));
+            out.set("reasoning", std::move(reasoning));
+        }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(
                 "params.stop_sequences", "stop_sequences", ir::LOSS_UNMAPPED_FIELD,
@@ -653,6 +750,36 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
                         }
                     }
                 }
+            } else if (kind == ITEM_TYPE_REASONING) {
+                const auto* summary = item.find("summary");
+                if (!summary || !summary->is_array() || summary->as_array().empty()) {
+                    losses.push_back(make_resp_loss(
+                        item_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Responses reasoning output item with empty summary carries no convertible content"));
+                } else {
+                    for (std::size_t si = 0; si < summary->as_array().size(); ++si) {
+                        const auto& part = summary->as_array()[si];
+                        const auto* pt = part.find("type");
+                        const std::string pkind = pt && pt->is_string() ? pt->as_string() : "";
+                        if (pkind == "output_text") {
+                            const auto* text = part.find("text");
+                            resp.content.push_back(ir::ThinkingBlock{
+                                text && text->is_string() ? text->as_string() : "", std::nullopt});
+                        } else {
+                            losses.push_back(make_resp_loss(
+                                item_path + ".summary[" + std::to_string(si) + "]", "type",
+                                ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "Responses reasoning summary type \"" + pkind + "\" has no IR equivalent"));
+                        }
+                    }
+                }
+                if (const auto* encrypted = item.find("encrypted_content");
+                    encrypted && encrypted->is_string() && !encrypted->as_string().empty()) {
+                    losses.push_back(make_resp_loss(
+                        item_path + ".encrypted_content", "encrypted_content",
+                        ir::LOSS_UNMAPPED_FIELD,
+                        "Responses reasoning encrypted_content has no IR equivalent in v2."));
+                }
             } else if (kind == "function_call") {
                 ir::ToolUseBlock tu;
                 if (const auto* cid = item.find("call_id"); cid && cid->is_string()) tu.id = cid->as_string();
@@ -675,6 +802,16 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
     if (const auto* u = wire.find("usage"); u && u->is_object()) {
         if (const auto* in = u->find("input_tokens"); in && in->is_int()) resp.usage.input_tokens = in->as_int();
         if (const auto* out = u->find("output_tokens"); out && out->is_int()) resp.usage.output_tokens = out->as_int();
+        if (const auto* details = u->find("input_token_details"); details && details->is_object()) {
+            if (const auto* cached = details->find("cached_tokens"); cached && cached->is_int()) {
+                resp.usage.input_tokens_details = ir::InputTokensDetails{cached->as_int()};
+            }
+        }
+        if (const auto* details = u->find("output_token_details"); details && details->is_object()) {
+            if (const auto* reasoning = details->find("reasoning_tokens"); reasoning && reasoning->is_int()) {
+                resp.usage.output_tokens_details = ir::OutputTokensDetails{reasoning->as_int()};
+            }
+        }
     }
 
     return Conversion<ir::Response>{std::move(resp), std::move(losses)};
@@ -696,6 +833,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
     std::string text;
     bool has_text = false;
+    json::Value reasoning_parts = json::Value::array();
     std::vector<json::Value> calls;
 
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
@@ -703,6 +841,18 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
             has_text = true;
+        } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+            json::Value part = json::Value::object();
+            part.set("type", json::Value::string("output_text"));
+            part.set("text", json::Value::string(thinking->thinking));
+            part.set("annotations", json::Value::array());
+            reasoning_parts.push_back(std::move(part));
+            if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                losses.push_back(make_resp_loss(
+                    "content[" + std::to_string(i) + "].signature", "signature",
+                    ir::LOSS_UNMAPPED_FIELD,
+                    "Responses reasoning output items carry no provider signature"));
+            }
         } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
             json::Value fc = json::Value::object();
             fc.set("type", json::Value::string("function_call"));
@@ -720,6 +870,13 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     }
 
     json::Value output_arr = json::Value::array();
+    if (!reasoning_parts.as_array().empty()) {
+        json::Value reasoning = json::Value::object();
+        reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
+        reasoning.set("id", json::Value::string("rs_abc123"));
+        reasoning.set("summary", std::move(reasoning_parts));
+        output_arr.push_back(std::move(reasoning));
+    }
     if (has_text || resp.content.empty()) {
         json::Value msg = json::Value::object();
         msg.set("type", json::Value::string("message"));
@@ -765,6 +922,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     usage.set("input_tokens", json::Value::integer(resp.usage.input_tokens));
     usage.set("output_tokens", json::Value::integer(resp.usage.output_tokens));
     usage.set("total_tokens", json::Value::integer(resp.usage.input_tokens + resp.usage.output_tokens));
+    if (resp.usage.input_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("cached_tokens", json::Value::integer(resp.usage.input_tokens_details->cached_tokens));
+        usage.set("input_token_details", std::move(details));
+    }
+    if (resp.usage.output_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("reasoning_tokens", json::Value::integer(resp.usage.output_tokens_details->reasoning_tokens));
+        usage.set("output_token_details", std::move(details));
+    }
     out.set("usage", std::move(usage));
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
@@ -879,6 +1046,9 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         if (const auto* rv = item->find("role"); rv && rv->is_string()) role = rv->as_string();
 
         if (ikind == "message" && role == "assistant") {
+            return events;
+        }
+        if (ikind == ITEM_TYPE_REASONING) {
             return events;
         }
         if (ikind == "function_call") {
@@ -1036,6 +1206,107 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         return events;
     }
 
+    if (type == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED) {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, type));
+        if (block_open_ || skipped_part_) {
+            return invalid_argument("responses: reasoning_summary_part.added with a part still open");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (content_index != next_content_index_) {
+            return invalid_argument("responses: reasoning_summary_part.added content_index " +
+                                    std::to_string(content_index) + ", want " +
+                                    std::to_string(next_content_index_));
+        }
+        next_content_index_++;
+        content_index_ = content_index;
+        const auto* part = chunk.find("part");
+        if (!part || !part->is_object()) {
+            return invalid_argument("responses: reasoning_summary_part.added without part");
+        }
+        if (skipped_item_) {
+            skipped_part_ = true;
+            return events;
+        }
+        std::string part_type;
+        if (const auto* pt = part->find("type"); pt && pt->is_string()) part_type = pt->as_string();
+        if (part_type != "output_text") {
+            skipped_part_ = true;
+            losses_.push_back(make_resp_loss(
+                "output[" + std::to_string(output_index_) + "].summary[" +
+                    std::to_string(content_index) + "]",
+                "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Responses reasoning summary type \"" + part_type + "\" is not decoded in the stream profile"));
+            return events;
+        }
+        block_open_ = true;
+        block_index_ = next_block_index_++;
+        text_done_ = false;
+        events.push_back(ir::ContentBlockStart{
+            block_index_, ir::ThinkingBlock{"", std::nullopt}});
+        return events;
+    }
+
+    if (type == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA) {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, type));
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: reasoning_summary_text.delta content_index does not match skipped part");
+            }
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: reasoning_summary_text.delta does not match open content part");
+        }
+        if (text_done_) return invalid_argument("responses: reasoning_summary_text.delta after text.done");
+        std::string delta;
+        if (const auto* d = chunk.find("delta"); d && d->is_string()) delta = d->as_string();
+        events.push_back(ir::ContentBlockDelta{block_index_, ir::ThinkingDelta{std::move(delta)}});
+        return events;
+    }
+
+    if (type == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE) {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, type));
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: reasoning_summary_text.done content_index does not match skipped part");
+            }
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: reasoning_summary_text.done does not match open content part");
+        }
+        if (text_done_) return invalid_argument("responses: duplicate reasoning_summary_text.done");
+        text_done_ = true;
+        return events;
+    }
+
+    if (type == EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE) {
+        OXA_RETURN_IF_ERROR(require_active_item(chunk, type));
+        if (!chunk.find("part")) {
+            return invalid_argument("responses: reasoning_summary_part.done without part");
+        }
+        std::int64_t content_index = -1;
+        if (const auto* ci = chunk.find("content_index"); ci && ci->is_int()) content_index = ci->as_int();
+        if (skipped_item_ || skipped_part_) {
+            if (content_index != content_index_) {
+                return invalid_argument("responses: reasoning_summary_part.done content_index does not match skipped part");
+            }
+            skipped_part_ = false;
+            return events;
+        }
+        if (!block_open_ || content_index != content_index_) {
+            return invalid_argument("responses: reasoning_summary_part.done does not match open content part");
+        }
+        block_open_ = false;
+        events.push_back(ir::ContentBlockStop{block_index_});
+        return events;
+    }
+
     if (type == "response.content_part.done") {
         OXA_RETURN_IF_ERROR(require_active_item(chunk, "response.content_part.done"));
         if (function_call_.has_value()) {
@@ -1131,6 +1402,16 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         if (const auto* uv = resp->find("usage"); uv && uv->is_object()) {
             if (const auto* in = uv->find("input_tokens"); in && in->is_int()) usage.input_tokens = in->as_int();
             if (const auto* out = uv->find("output_tokens"); out && out->is_int()) usage.output_tokens = out->as_int();
+            if (const auto* details = uv->find("input_token_details"); details && details->is_object()) {
+                if (const auto* cached = details->find("cached_tokens"); cached && cached->is_int()) {
+                    usage.input_tokens_details = ir::InputTokensDetails{cached->as_int()};
+                }
+            }
+            if (const auto* details = uv->find("output_token_details"); details && details->is_object()) {
+                if (const auto* reasoning = details->find("reasoning_tokens"); reasoning && reasoning->is_int()) {
+                    usage.output_tokens_details = ir::OutputTokensDetails{reasoning->as_int()};
+                }
+            }
         }
 
         events.push_back(ir::MessageDelta{stop_reason, std::nullopt, usage});
@@ -1215,6 +1496,25 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_mess
     return {std::move(item), std::move(event)};
 }
 
+std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_reasoning_item() {
+    std::string item_id = stream_generated_item_id("rs", next_reasoning_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item;
+    item.kind = OutputItemKind::Reasoning;
+    item.id = item_id;
+    item.output_index = output_index;
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value reasoning = json::Value::object();
+    reasoning.set("id", json::Value::string(item_id));
+    reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
+    reasoning.set("status", json::Value::string("in_progress"));
+    event.set("item", std::move(reasoning));
+    return {std::move(item), std::move(event)};
+}
+
 std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_function_call_item(
     std::string_view call_id, std::string_view name) {
     std::string item_id = stream_generated_item_id("fc", next_function_item_++);
@@ -1238,6 +1538,25 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_func
     event.set("item", std::move(i));
 
     return {std::move(item), std::move(event)};
+}
+
+json::Value StreamEncoder::close_reasoning_item() {
+    auto item = std::move(*active_item_);
+    active_item_ = std::nullopt;
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(item.id));
+    completed.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
+    completed.set("status", json::Value::string("completed"));
+    json::Value summary = json::Value::array();
+    for (auto& part : item.content) summary.push_back(std::move(part));
+    completed.set("summary", std::move(summary));
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.done"));
+    event.set("output_index", json::Value::integer(item.output_index));
+    event.set("item", completed);
+    completed_.push_back(std::move(completed));
+    return event;
 }
 
 json::Value StreamEncoder::close_message_item() {
@@ -1267,14 +1586,19 @@ json::Value StreamEncoder::close_message_item() {
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_text_block(
     std::int64_t index, const ir::TextBlock& block) {
     std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Reasoning) {
+            out.push_back(close_reasoning_item());
+        } else if (active_item_->kind != OutputItemKind::Message) {
+            return invalid_argument("responses: TextBlock cannot open before the active function_call item completes");
+        }
+    }
     if (!active_item_.has_value()) {
         auto [item, added] = open_message_item();
         active_item_ = std::move(item);
         out.push_back(std::move(added));
     }
-    if (active_item_->kind != OutputItemKind::Message) {
-        return invalid_argument("responses: TextBlock cannot open before the active function_call item completes");
-    }
+
     std::int64_t content_index = active_item_->next_content_index++;
     json::Value part = json::Value::object();
     part.set("type", json::Value::string("output_text"));
@@ -1300,6 +1624,46 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
 }
 
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_thinking_block(
+    std::int64_t index, const ir::ThinkingBlock& block) {
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) {
+            out.push_back(close_message_item());
+        } else if (active_item_->kind != OutputItemKind::Reasoning) {
+            return invalid_argument("responses: ThinkingBlock cannot open before the active function_call item completes");
+        }
+    }
+    if (!active_item_.has_value()) {
+        auto [item, added] = open_reasoning_item();
+        active_item_ = std::move(item);
+        out.push_back(std::move(added));
+    }
+    std::int64_t content_index = active_item_->next_content_index++;
+    json::Value part = json::Value::object();
+    part.set("type", json::Value::string(std::string(PART_TYPE_OUTPUT_TEXT)));
+    part.set("text", json::Value::string(block.thinking));
+    part.set("annotations", json::Value::array());
+    active_item_->content.push_back(part);
+
+    StreamEncodeBlock encoded;
+    encoded.index = index;
+    encoded.kind = OutputItemKind::Reasoning;
+    encoded.content_index = content_index;
+    encoded.text = block.thinking;
+    encoded.signature = block.signature.value_or("");
+    active_block_ = std::move(encoded);
+
+    json::Value part_added = json::Value::object();
+    part_added.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED)));
+    part_added.set("item_id", json::Value::string(active_item_->id));
+    part_added.set("output_index", json::Value::integer(active_item_->output_index));
+    part_added.set("content_index", json::Value::integer(content_index));
+    part_added.set("part", std::move(part));
+    out.push_back(std::move(part_added));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_function_call_block(
     std::int64_t index, const ir::ToolUseBlock& block) {
     if (block.id.empty() || block.name.empty()) {
@@ -1307,10 +1671,13 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     }
     std::vector<json::Value> out;
     if (active_item_.has_value()) {
-        if (active_item_->kind != OutputItemKind::Message) {
+        if (active_item_->kind == OutputItemKind::Message) {
+            out.push_back(close_message_item());
+        } else if (active_item_->kind == OutputItemKind::Reasoning) {
+            out.push_back(close_reasoning_item());
+        } else {
             return invalid_argument("responses: ToolUseBlock cannot open before the active function_call item completes");
         }
-        out.push_back(close_message_item());
     }
     auto [item, added] = open_function_call_item(block.id, block.name);
     active_item_ = std::move(item);
@@ -1359,6 +1726,32 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     out.push_back(std::move(part_done));
 
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_thinking_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::Reasoning) {
+        return invalid_argument("responses: thinking block without an active reasoning item");
+    }
+    auto block = std::move(*active_block_);
+    active_block_ = std::nullopt;
+    const std::size_t content_index = static_cast<std::size_t>(block.content_index);
+    active_item_->content[content_index].set("text", json::Value::string(block.text));
+
+    json::Value part_done = json::Value::object();
+    part_done.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE)));
+    part_done.set("item_id", json::Value::string(active_item_->id));
+    part_done.set("output_index", json::Value::integer(active_item_->output_index));
+    part_done.set("content_index", json::Value::integer(block.content_index));
+    part_done.set("part", active_item_->content[content_index]);
+
+    std::vector<ir::Loss> losses;
+    if (!block.signature.empty() && !block.signature_seen) {
+        losses.push_back(make_resp_loss(
+            "events[" + std::to_string(block.index) + "].block.signature", "signature",
+            ir::LOSS_UNMAPPED_FIELD,
+            "Responses carries no signature in reasoning summary"));
+    }
+    return std::make_pair(std::vector<json::Value>{std::move(part_done)}, std::move(losses));
 }
 
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_function_call_block() {
@@ -1430,6 +1823,16 @@ StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> StreamEncoder::terminal(
     usage.set("input_tokens", json::Value::integer(delta.usage.input_tokens));
     usage.set("output_tokens", json::Value::integer(delta.usage.output_tokens));
     usage.set("total_tokens", json::Value::integer(delta.usage.input_tokens + delta.usage.output_tokens));
+    if (delta.usage.input_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("cached_tokens", json::Value::integer(delta.usage.input_tokens_details->cached_tokens));
+        usage.set("input_token_details", std::move(details));
+    }
+    if (delta.usage.output_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("reasoning_tokens", json::Value::integer(delta.usage.output_tokens_details->reasoning_tokens));
+        usage.set("output_token_details", std::move(details));
+    }
     resp.set("usage", std::move(usage));
 
     std::vector<ir::Loss> losses;
@@ -1504,6 +1907,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_thinking_block(cbs->index, *thinking));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
             OXA_ASSIGN_OR_RETURN(auto res, start_function_call_block(cbs->index, *tu));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
@@ -1528,6 +1935,26 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             chunk.set("delta", json::Value::string(td->text));
             return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
         }
+        if (active_block_->kind == OutputItemKind::Reasoning) {
+            if (const auto* thinking = std::get_if<ir::ThinkingDelta>(&cbd->delta)) {
+                active_block_->text += thinking->text;
+                json::Value chunk = json::Value::object();
+                chunk.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA)));
+                chunk.set("item_id", json::Value::string(active_item_->id));
+                chunk.set("output_index", json::Value::integer(active_item_->output_index));
+                chunk.set("content_index", json::Value::integer(active_block_->content_index));
+                chunk.set("delta", json::Value::string(thinking->text));
+                return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+            }
+            if (std::holds_alternative<ir::SignatureDelta>(cbd->delta)) {
+                active_block_->signature_seen = true;
+                return Conversion<std::vector<json::Value>>{{}, {make_resp_loss(
+                    "events[" + std::to_string(cbd->index) + "].delta.signature", "signature",
+                    ir::LOSS_UNMAPPED_FIELD,
+                    "Responses carries no signature delta in streaming reasoning")}};
+            }
+            return invalid_argument("responses: ThinkingBlock received non-thinking delta");
+        }
         if (active_block_->kind == OutputItemKind::FunctionCall) {
             const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
             if (!ij) return invalid_argument("responses: ToolUseBlock received non-input-json delta");
@@ -1551,6 +1978,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, stop_text_block());
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (active_block_->kind == OutputItemKind::Reasoning) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_thinking_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         OXA_ASSIGN_OR_RETURN(auto res, stop_function_call_block());
         return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
     }
@@ -1561,10 +1992,13 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         std::vector<json::Value> out;
         if (active_item_.has_value()) {
-            if (active_item_->kind != OutputItemKind::Message) {
+            if (active_item_->kind == OutputItemKind::Message) {
+                out.push_back(close_message_item());
+            } else if (active_item_->kind == OutputItemKind::Reasoning) {
+                out.push_back(close_reasoning_item());
+            } else {
                 return invalid_argument("responses: MessageDelta with an uncompleted function_call item");
             }
-            out.push_back(close_message_item());
         }
         OXA_ASSIGN_OR_RETURN(auto res, terminal(*md));
         delta_ = true;

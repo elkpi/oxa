@@ -91,7 +91,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 3);
+        CHECK(r->executed == 5);
         std::printf("test_stream (chatcompletions): all %zu vectors passed\n", r->executed);
     }
 
@@ -106,7 +106,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 4);
+        CHECK(r->executed == 6);
         std::printf("test_stream (anthropic): all %zu vectors passed\n", r->executed);
     }
 
@@ -121,19 +121,20 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 5);
+        CHECK(r->executed == 7);
         std::printf("test_stream (responses): all %zu vectors passed\n", r->executed);
     }
 
     // 4. Unit tests for stream decoder/encoder edge cases & grammar checks
     {
-        // Anthropic StreamDecoder unknown block skipping & loss
+        // Anthropic StreamDecoder maps the M9 thinking/signature lifecycle.
         {
             oxa::anthropic::messages::StreamDecoder decoder;
             const char* chunks[] = {
                 R"({"type":"message_start","message":{"id":"m","model":"claude","usage":{"input_tokens":1,"output_tokens":0}}})",
                 R"({"type":"content_block_start","index":0,"content_block":{"type":"thinking"}})",
                 R"({"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hmm"}})",
+                R"({"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}})",
                 R"({"type":"content_block_stop","index":0})",
                 R"({"type":"content_block_start","index":1,"content_block":{"type":"text","text":"hello"}})",
                 R"({"type":"content_block_stop","index":1})",
@@ -148,14 +149,16 @@ int main() {
                 CHECK(evs.ok());
                 all_events.insert(all_events.end(), evs->begin(), evs->end());
             }
-            // Should have skipped thinking, emitted text at IR index 0, and recorded 1 loss
-            CHECK(decoder.losses().size() == 1);
-            CHECK(decoder.losses()[0].reason == oxa::ir::LOSS_UNSUPPORTED_SEMANTIC);
-            // 4 events: MessageStart, ContentBlockStart(index 0, text), ContentBlockStop(index 0), MessageDelta, MessageDone
-            CHECK(all_events.size() == 5);
-            CHECK(std::holds_alternative<oxa::ir::MessageStart>(all_events[0]));
+            CHECK(decoder.losses().empty());
+            CHECK(all_events.size() == 9);
             CHECK(std::holds_alternative<oxa::ir::ContentBlockStart>(all_events[1]));
-            CHECK(std::get<oxa::ir::ContentBlockStart>(all_events[1]).index == 0);
+            CHECK(std::holds_alternative<oxa::ir::ThinkingBlock>(
+                std::get<oxa::ir::ContentBlockStart>(all_events[1]).block));
+            CHECK(std::holds_alternative<oxa::ir::ThinkingDelta>(
+                std::get<oxa::ir::ContentBlockDelta>(all_events[2]).delta));
+            CHECK(std::holds_alternative<oxa::ir::SignatureDelta>(
+                std::get<oxa::ir::ContentBlockDelta>(all_events[3]).delta));
+            CHECK(std::get<oxa::ir::ContentBlockStart>(all_events[5]).index == 1);
         }
 
         // Anthropic StreamDecoder empty {} tool input fallback without fragments
@@ -202,6 +205,6 @@ int main() {
         }
     }
 
-    std::puts("test_stream: all 8 stream vectors passed");
+    std::puts("test_stream: all 18 stream vectors passed");
     return 0;
 }

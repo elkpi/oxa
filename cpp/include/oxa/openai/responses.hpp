@@ -27,6 +27,7 @@ inline constexpr std::string_view TOOL_CHOICE_REQUIRED = "required";
 inline constexpr std::string_view ITEM_TYPE_MESSAGE = "message";
 inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL = "function_call";
 inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL_OUTPUT = "function_call_output";
+inline constexpr std::string_view ITEM_TYPE_REASONING = "reasoning";
 
 inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
 inline constexpr std::string_view PART_TYPE_OUTPUT_TEXT = "output_text";
@@ -50,6 +51,10 @@ inline constexpr std::string_view EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED = "resp
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_CONTENT_PART_DONE = "response.content_part.done";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA = "response.output_text.delta";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE = "response.output_text.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED = "response.reasoning_summary_part.added";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE = "response.reasoning_summary_part.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA = "response.reasoning_summary_text.delta";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE = "response.reasoning_summary_text.done";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA =
     "response.function_call_arguments.delta";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE =
@@ -137,7 +142,7 @@ public:
     StatusOr<Conversion<std::vector<json::Value>>> apply(const ir::Event& event);
 
 private:
-    enum class OutputItemKind { Message, FunctionCall };
+    enum class OutputItemKind { Message, Reasoning, FunctionCall };
 
     struct StreamOutputItem {
         OutputItemKind kind;
@@ -156,6 +161,8 @@ private:
         std::string text;
         std::string tool_input;
         std::vector<std::string> fragments;
+        std::string signature;
+        bool signature_seen = false;
     };
 
     Options opts_;
@@ -169,16 +176,21 @@ private:
     std::int64_t next_output_index_ = 0;
     std::int64_t next_message_item_ = 0;
     std::int64_t next_function_item_ = 0;
+    std::int64_t next_reasoning_item_ = 0;
     std::optional<StreamOutputItem> active_item_;
     std::optional<StreamEncodeBlock> active_block_;
     std::vector<json::Value> completed_;
 
     std::pair<StreamOutputItem, json::Value> open_message_item();
+    std::pair<StreamOutputItem, json::Value> open_reasoning_item();
     std::pair<StreamOutputItem, json::Value> open_function_call_item(std::string_view call_id, std::string_view name);
     json::Value close_message_item();
+    json::Value close_reasoning_item();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_text_block(std::int64_t index, const ir::TextBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_function_call_block(std::int64_t index, const ir::ToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_text_block();
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_thinking_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_function_call_block();
     StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> terminal(const ir::MessageDelta& delta);
 };

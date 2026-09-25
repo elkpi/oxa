@@ -22,12 +22,19 @@ namespace oxa::ir {
 
 // ---- constants (spec/01, spec/02) ----------------------------------------
 
-inline constexpr std::string_view SPEC_VERSION = "0.1.0";
+inline constexpr std::string_view SPEC_VERSION = "0.2.0";
+inline constexpr std::string_view LEGACY_SPEC_VERSION = "0.1.0";
+
+inline constexpr std::string_view REASONING_EFFORT_MINIMAL = "minimal";
+inline constexpr std::string_view REASONING_EFFORT_LOW = "low";
+inline constexpr std::string_view REASONING_EFFORT_MEDIUM = "medium";
+inline constexpr std::string_view REASONING_EFFORT_HIGH = "high";
 
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
+inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
@@ -53,6 +60,8 @@ inline constexpr std::string_view EVENT_TYPE_MESSAGE_DONE = "message_done";
 
 inline constexpr std::string_view DELTA_TYPE_TEXT_DELTA = "text_delta";
 inline constexpr std::string_view DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta";
+inline constexpr std::string_view DELTA_TYPE_THINKING_DELTA = "thinking_delta";
+inline constexpr std::string_view DELTA_TYPE_SIGNATURE_DELTA = "signature_delta";
 
 inline constexpr std::string_view LOSS_UNMAPPED_FIELD = "unmapped-field";
 inline constexpr std::string_view LOSS_UNMAPPED_VALUE = "unmapped-value";
@@ -63,6 +72,11 @@ inline constexpr std::string_view LOSS_DEGRADED = "degraded";
 
 struct TextBlock {
     std::string text;
+};
+
+struct ThinkingBlock {
+    std::string thinking;
+    std::optional<std::string> signature;
 };
 
 struct ImageBlock {
@@ -85,7 +99,7 @@ struct ToolResultBlock {
     bool is_error = false;
 };
 
-using Block = std::variant<TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock>;
+using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock>;
 
 struct BlockHolder {
     Block block;
@@ -118,6 +132,7 @@ struct Params {
     std::optional<double> top_p;
     std::optional<std::int64_t> max_tokens;
     std::optional<std::vector<std::string>> stop_sequences;
+    std::optional<std::string> reasoning_effort;
 };
 
 struct Request {
@@ -132,9 +147,34 @@ struct Request {
 
 // ---- response (spec/01 §4) -------------------------------------------------
 
+struct InputTokensDetails {
+    std::int64_t cached_tokens = 0;
+};
+
+struct OutputTokensDetails {
+    std::int64_t reasoning_tokens = 0;
+};
+
 struct Usage {
     std::int64_t input_tokens = 0;
     std::int64_t output_tokens = 0;
+    std::optional<std::int64_t> cache_read_input_tokens;
+    std::optional<std::int64_t> cache_creation_input_tokens;
+    std::optional<InputTokensDetails> input_tokens_details;
+    std::optional<OutputTokensDetails> output_tokens_details;
+
+    Usage() = default;
+    Usage(std::int64_t input, std::int64_t output,
+          std::optional<std::int64_t> cache_read = std::nullopt,
+          std::optional<std::int64_t> cache_creation = std::nullopt,
+          std::optional<InputTokensDetails> input_details = std::nullopt,
+          std::optional<OutputTokensDetails> output_details = std::nullopt)
+        : input_tokens(input),
+          output_tokens(output),
+          cache_read_input_tokens(cache_read),
+          cache_creation_input_tokens(cache_creation),
+          input_tokens_details(input_details),
+          output_tokens_details(output_details) {}
 };
 
 struct Response {
@@ -158,7 +198,15 @@ struct InputJsonDelta {
     std::string partial_json;
 };
 
-using Delta = std::variant<TextDelta, InputJsonDelta>;
+struct ThinkingDelta {
+    std::string text;
+};
+
+struct SignatureDelta {
+    std::string signature;
+};
+
+using Delta = std::variant<TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta>;
 
 struct MessageStart {
     std::string id;

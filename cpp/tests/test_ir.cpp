@@ -71,13 +71,17 @@ void codec_tests() {
     CHECK(req_parsed.ok());
     auto req_res = load_request(*req_parsed);
     CHECK(req_res.ok());
-    CHECK(oxa::json::structurally_equal(*req_parsed, dump_request(*req_res)));
+    auto req_expected = *req_parsed;
+    req_expected.set("specVersion", Value::string("0.2.0"));
+    CHECK(oxa::json::structurally_equal(req_expected, dump_request(*req_res)));
 
     auto resp_parsed = oxa::json::parse(kSpecResponse);
     CHECK(resp_parsed.ok());
     auto resp_res = load_response(*resp_parsed);
     CHECK(resp_res.ok());
-    CHECK(oxa::json::structurally_equal(*resp_parsed, dump_response(*resp_res)));
+    auto response_expected = *resp_parsed;
+    response_expected.set("specVersion", Value::string("0.2.0"));
+    CHECK(oxa::json::structurally_equal(response_expected, dump_response(*resp_res)));
 
     auto events_parsed = oxa::json::parse(kSpecEventStream);
     CHECK(events_parsed.ok());
@@ -85,7 +89,9 @@ void codec_tests() {
     CHECK(events_res.ok());
     CHECK(events_res->size() == 7);
     CHECK(std::holds_alternative<MessageStart>((*events_res)[0]));
-    CHECK(oxa::json::structurally_equal(*events_parsed, dump_event_stream(*events_res)));
+    auto events_expected = *events_parsed;
+    events_expected.set("specVersion", Value::string("0.2.0"));
+    CHECK(oxa::json::structurally_equal(events_expected, dump_event_stream(*events_res)));
 
     std::string bad = std::string(kSpecResponse);
     bad.replace(bad.find("0.1.0"), 5, "9.9.9");
@@ -94,6 +100,61 @@ void codec_tests() {
     auto bad_res = load_response(*bad_parsed);
     CHECK(!bad_res.ok());
     CHECK(bad_res.code() == oxa::StatusCode::kInvalidArgument);
+
+    // Spec 2.0 documents dual-read the 0.1.0 contract and emit 0.2.0.
+    {
+        auto request_v2 = oxa::json::parse(R"({
+            "specVersion":"0.2.0",
+            "model":"m",
+            "messages":[{"role":"assistant","content":[{"type":"thinking","thinking":"reason","signature":"opaque"}]}],
+            "params":{"reasoning_effort":"high"}
+        })");
+        CHECK(request_v2.ok());
+        auto request = load_request(*request_v2);
+        CHECK_MSG(request.ok(), std::string(request.status().message()));
+        if (request.ok()) {
+            auto encoded = dump_request(*request);
+            CHECK(encoded.find("specVersion")->as_string() == "0.2.0");
+            CHECK(oxa::json::structurally_equal(*request_v2, encoded));
+        }
+
+        auto response_v2 = oxa::json::parse(R"({
+            "specVersion":"0.2.0",
+            "id":"r",
+            "model":"m",
+            "content":[],
+            "stop_reason":"end_turn",
+            "usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":0,
+                "input_tokens_details":{"cached_tokens":0},
+                "output_tokens_details":{"reasoning_tokens":1}}
+        })");
+        CHECK(response_v2.ok());
+        auto response = load_response(*response_v2);
+        CHECK_MSG(response.ok(), std::string(response.status().message()));
+        if (response.ok()) {
+            auto encoded = dump_response(*response);
+            CHECK(oxa::json::structurally_equal(*response_v2, encoded));
+        }
+
+        auto stream_v2 = oxa::json::parse(R"({
+            "specVersion":"0.2.0",
+            "events":[
+                {"type":"message_start","id":"m","model":"model"},
+                {"type":"content_block_start","index":0,"block":{"type":"thinking","thinking":""}},
+                {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","text":"reason"}},
+                {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"opaque"}},
+                {"type":"content_block_stop","index":0},
+                {"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":2}},
+                {"type":"message_done"}
+            ]
+        })");
+        CHECK(stream_v2.ok());
+        auto events = load_event_stream(*stream_v2);
+        CHECK_MSG(events.ok(), std::string(events.status().message()));
+        if (events.ok()) {
+            CHECK(oxa::json::structurally_equal(*stream_v2, dump_event_stream(*events)));
+        }
+    }
 
     // Block discriminant shapes are pinned.
     {
@@ -218,6 +279,27 @@ void assert_rejects(std::vector<Event> events, std::size_t event_index, const ch
 void checker_tests() {
     CHECK(validate_event_stream({start(), text_start(0), text_delta(0, "hello"), block_stop(0),
                                  msg_delta(std::string(STOP_END_TURN)), done()}).ok());
+
+    CHECK(validate_event_stream({
+              start(),
+              ContentBlockStart{0, ThinkingBlock{"", std::nullopt}},
+              ContentBlockDelta{0, ThinkingDelta{"reason"}},
+              ContentBlockDelta{0, SignatureDelta{"opaque"}},
+              block_stop(0),
+              msg_delta(std::string(STOP_END_TURN)),
+              done(),
+          })
+              .ok());
+    assert_rejects({start(), ContentBlockStart{0, ThinkingBlock{"", std::nullopt}},
+                    ContentBlockDelta{0, SignatureDelta{"opaque"}},
+                    ContentBlockDelta{0, ThinkingDelta{"late"}}, block_stop(0),
+                    msg_delta(std::string(STOP_END_TURN)), done()},
+                   3, "thinking delta after signature_delta");
+    assert_rejects({start(), ContentBlockStart{0, ThinkingBlock{"", std::nullopt}},
+                    ContentBlockDelta{0, SignatureDelta{"one"}},
+                    ContentBlockDelta{0, SignatureDelta{"two"}}, block_stop(0),
+                    msg_delta(std::string(STOP_END_TURN)), done()},
+                   3, "multiple signatures");
 
     CHECK(validate_event_stream({start(), text_start(0), text_delta(0, "hello"), block_stop(0),
                                  tool_start(1, "{\"x\":1"), input_delta(1, ""),

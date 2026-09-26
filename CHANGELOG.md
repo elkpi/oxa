@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Python (Wave 4): Spec 2.0 reasoning content and usage granularity support.
+  - Implemented `ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` across all spokes and IR codec/checker.
+  - Added request `reasoning_effort` mapping and dual-read support for IR specVersion `0.1.0` and `0.2.0`.
+  - Added granular usage accounting (`cache_read_input_tokens`, `cache_creation_input_tokens`, `input_tokens_details`, `output_tokens_details`).
+  - Implemented M9 streaming reasoning and signature lifecycle events across Chat Completions, Responses, and Anthropic Messages spokes.
+  - Verified against all 154 golden vectors.
+- C++ (Wave 5): Spec 2.0 reasoning content and usage granularity support under C++20 with `-fno-exceptions`.
+  - Implemented `ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` across all spokes and IR codec/checker.
+  - Added request `reasoning_effort` mapping, dual-read `specVersion` support, and granular usage details.
+  - Implemented M9 streaming reasoning deltas and lifecycle closures across Chat Completions, Responses, and Anthropic Messages spokes.
+  - Verified against all 154 golden vectors across standard and `-fno-exceptions` builds.
+- Multi-language convergence: all five implementations (Go, TypeScript, Rust, Python, and C++) now validate the full 154 Spec 2.0 golden vector suite.
+
 ## [v1.0.1] - 2026-09-17
 
 ### Added

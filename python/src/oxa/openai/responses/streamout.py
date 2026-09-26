@@ -6,7 +6,13 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from oxa.ir import (
+    LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
+    STOP_END_TURN,
+    STOP_MAX_TOKENS,
+    STOP_REFUSAL,
+    STOP_STOP_SEQUENCE,
+    STOP_TOOL_USE,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -16,13 +22,11 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
-    STOP_END_TURN,
-    STOP_MAX_TOKENS,
-    STOP_REFUSAL,
-    STOP_STOP_SEQUENCE,
-    STOP_TOOL_USE,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -40,9 +44,13 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
     EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
     EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING,
     OBJECT_RESPONSE,
     PART_TYPE_OUTPUT_TEXT,
     ROLE_ASSISTANT,
@@ -56,7 +64,7 @@ from oxa.openai.responses.normalize import loss
 
 @dataclass(slots=True)
 class _StreamOutputItem:
-    kind: str  # "message" or "function_call"
+    kind: str  # "message", "reasoning", or "function_call"
     id: str
     output_index: int
     content: list[dict[str, Any]] = field(default_factory=list)
@@ -73,6 +81,8 @@ class _StreamEncodeBlock:
     text: str = ""
     tool_input: str = ""
     fragments: list[str] = field(default_factory=list)
+    signature: str = ""
+    signature_seen: bool = False
 
 
 def _stream_generated_item_id(prefix: str, ordinal: int) -> str:
@@ -93,6 +103,7 @@ class StreamEncoder:
         "_next_output_index",
         "_next_message_item",
         "_next_function_item",
+        "_next_reasoning_item",
         "_active_item",
         "_active_block",
         "_completed",
@@ -109,6 +120,7 @@ class StreamEncoder:
         self._next_output_index = 0
         self._next_message_item = 0
         self._next_function_item = 0
+        self._next_reasoning_item = 0
         self._active_item: _StreamOutputItem | None = None
         self._active_block: _StreamEncodeBlock | None = None
         self._completed: list[dict[str, Any]] = []
@@ -147,6 +159,8 @@ class StreamEncoder:
             self._next_block_index += 1
             if isinstance(ev.block, TextBlock):
                 return self._start_text_block(ev.index, ev.block.text)
+            if isinstance(ev.block, ThinkingBlock):
+                return self._start_thinking_block(ev.index, ev.block)
             if isinstance(ev.block, ToolUseBlock):
                 return self._start_function_call_block(
                     ev.index, ev.block.id, ev.block.name, ev.block.input
@@ -173,6 +187,30 @@ class StreamEncoder:
                     }
                 ], []
 
+            if self._active_block.kind == "reasoning":
+                if isinstance(ev.delta, ThinkingDelta):
+                    self._active_block.text += ev.delta.text
+                    return [
+                        {
+                            "type": EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
+                            "item_id": active_item.id,
+                            "output_index": active_item.output_index,
+                            "content_index": self._active_block.content_index,
+                            "delta": ev.delta.text,
+                        }
+                    ], []
+                if isinstance(ev.delta, SignatureDelta):
+                    self._active_block.signature_seen = True
+                    return [], [
+                        loss(
+                            f"events[{ev.index}].delta.signature",
+                            "signature",
+                            LOSS_UNMAPPED_FIELD,
+                            "Responses carries no signature delta in streaming reasoning",
+                        )
+                    ]
+                raise ValueError("responses: ThinkingBlock received non-thinking delta")
+
             if self._active_block.kind == "function_call":
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("responses: ToolUseBlock received non-input-json delta")
@@ -191,6 +229,8 @@ class StreamEncoder:
                 raise ValueError("responses: ContentBlockStop out of grammar order")
             if self._active_block.kind == "message":
                 return self._stop_text_block()
+            if self._active_block.kind == "reasoning":
+                return self._stop_thinking_block()
             return self._stop_function_call_block()
 
         if isinstance(ev, MessageDelta):
@@ -198,11 +238,14 @@ class StreamEncoder:
                 raise ValueError("responses: MessageDelta out of grammar order")
             out: list[dict[str, Any]] = []
             if self._active_item is not None:
-                if self._active_item.kind != "message":
+                if self._active_item.kind == "message":
+                    out.append(self._close_message_item())
+                elif self._active_item.kind == "reasoning":
+                    out.append(self._close_reasoning_item())
+                else:
                     raise ValueError(
                         "responses: MessageDelta with an uncompleted function_call item"
                     )
-                out.append(self._close_message_item())
 
             terminal, losses = self._terminal(ev)
             resp = terminal.get("response")
@@ -226,6 +269,13 @@ class StreamEncoder:
         text: str,
     ) -> tuple[list[dict[str, Any]], list[Loss]]:
         out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind == "reasoning":
+                out.append(self._close_reasoning_item())
+            elif self._active_item.kind != "message":
+                raise ValueError(
+                    "responses: TextBlock cannot open before the active function_call item completes"
+                )
         if self._active_item is None:
             item, added = self._open_message_item()
             self._active_item = item
@@ -233,10 +283,6 @@ class StreamEncoder:
 
         active = self._active_item
         assert active is not None
-        if active.kind != "message":
-            raise ValueError(
-                "responses: TextBlock cannot open before the active function_call item completes"
-            )
 
         content_index = active.next_content_index
         active.next_content_index += 1
@@ -263,6 +309,52 @@ class StreamEncoder:
         )
         return out, []
 
+    def _start_thinking_block(
+        self,
+        index: int,
+        block: ThinkingBlock,
+    ) -> tuple[list[dict[str, Any]], list[Loss]]:
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind == "message":
+                out.append(self._close_message_item())
+            elif self._active_item.kind != "reasoning":
+                raise ValueError(
+                    "responses: ThinkingBlock cannot open before the active function_call item completes"
+                )
+        if self._active_item is None:
+            item, added = self._open_reasoning_item()
+            self._active_item = item
+            out.append(added)
+
+        active = self._active_item
+        assert active is not None
+        content_index = active.next_content_index
+        active.next_content_index += 1
+        part = {
+            "type": PART_TYPE_OUTPUT_TEXT,
+            "text": block.thinking,
+            "annotations": [],
+        }
+        active.content.append(dict(part))
+        self._active_block = _StreamEncodeBlock(
+            index=index,
+            kind="reasoning",
+            content_index=content_index,
+            text=block.thinking,
+            signature=block.signature or "",
+        )
+        out.append(
+            {
+                "type": EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+                "item_id": active.id,
+                "output_index": active.output_index,
+                "content_index": content_index,
+                "part": dict(part),
+            }
+        )
+        return out, []
+
     def _start_function_call_block(
         self,
         index: int,
@@ -274,11 +366,16 @@ class StreamEncoder:
             raise ValueError("responses: ToolUseBlock requires nonempty ID and name")
         out: list[dict[str, Any]] = []
         if self._active_item is not None:
-            if self._active_item.kind != "message":
+            if self._active_item.kind in ("message", "reasoning"):
+                out.append(
+                    self._close_message_item()
+                    if self._active_item.kind == "message"
+                    else self._close_reasoning_item()
+                )
+            else:
                 raise ValueError(
                     "responses: ToolUseBlock cannot open before the active function_call item completes"
                 )
-            out.append(self._close_message_item())
 
         item, added = self._open_function_call_item(tool_id, name)
         self._active_item = item
@@ -324,6 +421,34 @@ class StreamEncoder:
                 "part": part,
             },
         ], []
+
+    def _stop_thinking_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
+        if self._active_item is None or self._active_item.kind != "reasoning":
+            raise ValueError("responses: thinking block without an active reasoning item")
+        assert self._active_block is not None
+        block = self._active_block
+        self._active_item.content[block.content_index]["text"] = block.text
+        part = dict(self._active_item.content[block.content_index])
+        losses: list[Loss] = []
+        if block.signature and not block.signature_seen:
+            losses.append(
+                loss(
+                    f"events[{block.index}].block.signature",
+                    "signature",
+                    LOSS_UNMAPPED_FIELD,
+                    "Responses carries no signature in reasoning summary",
+                )
+            )
+        self._active_block = None
+        return [
+            {
+                "type": EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
+                "item_id": self._active_item.id,
+                "output_index": self._active_item.output_index,
+                "content_index": block.content_index,
+                "part": part,
+            }
+        ], losses
 
     def _stop_function_call_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
         if self._active_item is None or self._active_item.kind != "function_call":
@@ -401,7 +526,9 @@ class StreamEncoder:
         }
         return item, event
 
-    def _open_function_call_item(self, call_id: str, name: str) -> tuple[_StreamOutputItem, dict[str, Any]]:
+    def _open_function_call_item(
+        self, call_id: str, name: str
+    ) -> tuple[_StreamOutputItem, dict[str, Any]]:
         item_id = _stream_generated_item_id("fc", self._next_function_item)
         self._next_function_item += 1
         output_index = self._next_output_index
@@ -426,6 +553,45 @@ class StreamEncoder:
         }
         return item, event
 
+    def _open_reasoning_item(self) -> tuple[_StreamOutputItem, dict[str, Any]]:
+        item_id = _stream_generated_item_id("rs", self._next_reasoning_item)
+        self._next_reasoning_item += 1
+        output_index = self._next_output_index
+        self._next_output_index += 1
+        item = _StreamOutputItem(
+            kind="reasoning",
+            id=item_id,
+            output_index=output_index,
+        )
+        event = {
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": ITEM_TYPE_REASONING,
+                "status": STATUS_IN_PROGRESS,
+            },
+        }
+        return item, event
+
+    def _close_reasoning_item(self) -> dict[str, Any]:
+        item = self._active_item
+        assert item is not None
+        self._active_item = None
+        completed: dict[str, Any] = {
+            "id": item.id,
+            "type": ITEM_TYPE_REASONING,
+            "status": STATUS_COMPLETED,
+            "summary": item.content,
+        }
+        event = {
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+            "output_index": item.output_index,
+            "item": completed,
+        }
+        self._completed.append(completed)
+        return event
+
     def _close_message_item(self) -> dict[str, Any]:
         item = self._active_item
         assert item is not None
@@ -446,16 +612,25 @@ class StreamEncoder:
         return event
 
     def _terminal(self, delta: MessageDelta) -> tuple[dict[str, Any], list[Loss]]:
+        usage: dict[str, Any] = {
+            "input_tokens": delta.usage.input_tokens,
+            "output_tokens": delta.usage.output_tokens,
+            "total_tokens": delta.usage.input_tokens + delta.usage.output_tokens,
+        }
+        if delta.usage.input_tokens_details is not None:
+            usage["input_token_details"] = {
+                "cached_tokens": delta.usage.input_tokens_details.cached_tokens
+            }
+        if delta.usage.output_tokens_details is not None:
+            usage["output_token_details"] = {
+                "reasoning_tokens": delta.usage.output_tokens_details.reasoning_tokens
+            }
         resp: dict[str, Any] = {
             "id": self._id,
             "object": OBJECT_RESPONSE,
             "model": self._model,
             "output": [],
-            "usage": {
-                "input_tokens": delta.usage.input_tokens,
-                "output_tokens": delta.usage.output_tokens,
-                "total_tokens": delta.usage.input_tokens + delta.usage.output_tokens,
-            },
+            "usage": usage,
         }
 
         if delta.stop_reason in (STOP_END_TURN, STOP_TOOL_USE):

@@ -33,10 +33,20 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
 
         const auto* t = item.find("type");
         std::string kind = t && t->is_string() ? t->as_string() : "";
-        if (kind == "text") {
+        if (kind == BLOCK_TYPE_TEXT) {
             const auto* txt = item.find("text");
             std::string text = txt && txt->is_string() ? txt->as_string() : "";
             blocks.push_back(ir::TextBlock{std::move(text)});
+        } else if (kind == BLOCK_TYPE_THINKING) {
+            const auto* thinking_value = item.find("thinking");
+            std::string thinking = thinking_value && thinking_value->is_string()
+                                       ? thinking_value->as_string()
+                                       : "";
+            ir::ThinkingBlock block{std::move(thinking), std::nullopt};
+            if (const auto* signature = item.find("signature"); signature && signature->is_string()) {
+                block.signature = signature->as_string();
+            }
+            blocks.push_back(std::move(block));
         } else if (kind == "image") {
             const auto* src = item.find("source");
             if (!src || !src->is_object()) {
@@ -259,6 +269,23 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
         }
         if (!stops.empty()) params.stop_sequences = std::move(stops);
     }
+    if (const auto* thinking = wire.find("thinking"); thinking && thinking->is_object()) {
+        const auto* type = thinking->find("type");
+        const auto* budget = thinking->find("budget_tokens");
+        if (type && type->is_string() && type->as_string() == "enabled" && budget && budget->is_int()) {
+            const std::int64_t value = budget->as_int();
+            if (value <= 2048) {
+                params.reasoning_effort = std::string(ir::REASONING_EFFORT_LOW);
+            } else if (value <= 8192) {
+                params.reasoning_effort = std::string(ir::REASONING_EFFORT_MEDIUM);
+            } else {
+                params.reasoning_effort = std::string(ir::REASONING_EFFORT_HIGH);
+            }
+            losses.push_back(make_ant_loss(
+                "thinking.budget_tokens", "budget_tokens", ir::LOSS_DEGRADED,
+                "budget approximated"));
+        }
+    }
     req.params = std::move(params);
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
@@ -351,6 +378,19 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     bw.set("type", json::Value::string("text"));
                     bw.set("text", json::Value::string(tb->text));
                     content_arr.push_back(std::move(bw));
+                } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("thinking"));
+                    bw.set("thinking", json::Value::string(thinking->thinking));
+                    if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                        bw.set("signature", json::Value::string(*thinking->signature));
+                    } else {
+                        losses.push_back(make_ant_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "signature", ir::LOSS_DEGRADED,
+                            "unsigned thinking block; Anthropic may reject on replay"));
+                    }
+                    content_arr.push_back(std::move(bw));
                 } else if (const auto* img = std::get_if<ir::ImageBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("image"));
@@ -420,6 +460,19 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
             out.set("stop_sequences", std::move(stops));
         }
+        if (p.reasoning_effort.has_value()) {
+            std::int64_t budget = 2048;
+            if (*p.reasoning_effort == ir::REASONING_EFFORT_MINIMAL) budget = 1024;
+            else if (*p.reasoning_effort == ir::REASONING_EFFORT_MEDIUM) budget = 8192;
+            else if (*p.reasoning_effort == ir::REASONING_EFFORT_HIGH) budget = 16384;
+            json::Value thinking = json::Value::object();
+            thinking.set("type", json::Value::string("enabled"));
+            thinking.set("budget_tokens", json::Value::integer(budget));
+            out.set("thinking", std::move(thinking));
+            losses.push_back(make_ant_loss(
+                "params.reasoning_effort", "reasoning_effort", ir::LOSS_DEGRADED,
+                "budget approximated"));
+        }
     }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
@@ -455,6 +508,12 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
     if (const auto* u = wire.find("usage"); u && u->is_object()) {
         if (const auto* in = u->find("input_tokens"); in && in->is_int()) resp.usage.input_tokens = in->as_int();
         if (const auto* out = u->find("output_tokens"); out && out->is_int()) resp.usage.output_tokens = out->as_int();
+        if (const auto* cache = u->find("cache_read_input_tokens"); cache && cache->is_int()) {
+            resp.usage.cache_read_input_tokens = cache->as_int();
+        }
+        if (const auto* cache = u->find("cache_creation_input_tokens"); cache && cache->is_int()) {
+            resp.usage.cache_creation_input_tokens = cache->as_int();
+        }
     }
 
     return Conversion<ir::Response>{std::move(resp), std::move(losses)};
@@ -483,6 +542,18 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             bw.set("type", json::Value::string("text"));
             bw.set("text", json::Value::string(tb->text));
             content_arr.push_back(std::move(bw));
+        } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
+            json::Value bw = json::Value::object();
+            bw.set("type", json::Value::string("thinking"));
+            bw.set("thinking", json::Value::string(thinking->thinking));
+            if (thinking->signature.has_value() && !thinking->signature->empty()) {
+                bw.set("signature", json::Value::string(*thinking->signature));
+            } else {
+                losses.push_back(make_ant_loss(
+                    "content[" + std::to_string(i) + "]", "signature", ir::LOSS_DEGRADED,
+                    "unsigned thinking block; Anthropic may reject on replay"));
+            }
+            content_arr.push_back(std::move(bw));
         } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
             json::Value bw = json::Value::object();
             bw.set("type", json::Value::string("tool_use"));
@@ -508,6 +579,12 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     json::Value usage = json::Value::object();
     usage.set("input_tokens", json::Value::integer(resp.usage.input_tokens));
     usage.set("output_tokens", json::Value::integer(resp.usage.output_tokens));
+    if (resp.usage.cache_read_input_tokens.has_value()) {
+        usage.set("cache_read_input_tokens", json::Value::integer(*resp.usage.cache_read_input_tokens));
+    }
+    if (resp.usage.cache_creation_input_tokens.has_value()) {
+        usage.set("cache_creation_input_tokens", json::Value::integer(*resp.usage.cache_creation_input_tokens));
+    }
     out.set("usage", std::move(usage));
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
@@ -536,6 +613,12 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         if (const auto* uv = msg->find("usage"); uv && uv->is_object()) {
             if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
             if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
+            if (const auto* cache = uv->find("cache_read_input_tokens"); cache && cache->is_int()) {
+                usage_.cache_read_input_tokens = cache->as_int();
+            }
+            if (const auto* cache = uv->find("cache_creation_input_tokens"); cache && cache->is_int()) {
+                usage_.cache_creation_input_tokens = cache->as_int();
+            }
         }
         events.push_back(ir::MessageStart{id_, model_});
         return events;
@@ -575,6 +658,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
 
             block_open_ = true;
             open_tool_ = true;
+            open_thinking_ = false;
             open_index_ = idx;
             open_ir_index_ = next_ir_index_++;
             tool_id_ = std::move(id);
@@ -592,9 +676,30 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             return events;
         }
 
+        if (btype == BLOCK_TYPE_THINKING) {
+            block_open_ = true;
+            open_tool_ = false;
+            open_thinking_ = true;
+            thinking_signature_seen_ = false;
+            open_index_ = idx;
+            open_ir_index_ = next_ir_index_++;
+            std::string thinking;
+            if (const auto* text = cb->find("thinking"); text && text->is_string()) {
+                thinking = text->as_string();
+            }
+            std::optional<std::string> signature;
+            if (const auto* sig = cb->find("signature"); sig && sig->is_string()) {
+                signature = sig->as_string();
+            }
+            events.push_back(ir::ContentBlockStart{
+                open_ir_index_, ir::ThinkingBlock{std::move(thinking), std::move(signature)}});
+            return events;
+        }
+
         if (btype == "text") {
             block_open_ = true;
             open_tool_ = false;
+            open_thinking_ = false;
             open_index_ = idx;
             open_ir_index_ = next_ir_index_++;
             std::string text;
@@ -638,6 +743,31 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
                 tool_parts_.push_back(std::move(part));
                 return events;
             }
+        } else if (open_thinking_) {
+            if (dtype == DELTA_TYPE_THINKING_DELTA) {
+                if (thinking_signature_seen_) {
+                    return invalid_argument("anthropic: thinking_delta after signature_delta");
+                }
+                const auto* text = d->find("thinking");
+                std::string fragment = text && text->is_string() ? text->as_string() : "";
+                events.push_back(ir::ContentBlockDelta{
+                    open_ir_index_, ir::ThinkingDelta{std::move(fragment)}});
+                return events;
+            }
+            if (dtype == DELTA_TYPE_SIGNATURE_DELTA) {
+                if (thinking_signature_seen_) {
+                    return invalid_argument("anthropic: duplicate signature_delta");
+                }
+                const auto* sig = d->find("signature");
+                if (!sig || !sig->is_string()) {
+                    return invalid_argument("anthropic: signature_delta without signature");
+                }
+                thinking_signature_seen_ = true;
+                events.push_back(ir::ContentBlockDelta{
+                    open_ir_index_, ir::SignatureDelta{sig->as_string()}});
+                return events;
+            }
+            return invalid_argument("anthropic: unsupported delta on thinking block");
         } else {
             if (dtype == "text_delta") {
                 const auto* txt = d->find("text");
@@ -647,6 +777,9 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
             }
             if (dtype == "input_json_delta") {
                 return invalid_argument("anthropic: input_json_delta on non-tool block");
+            }
+            if (dtype == DELTA_TYPE_THINKING_DELTA || dtype == DELTA_TYPE_SIGNATURE_DELTA) {
+                return invalid_argument("anthropic: thinking delta on non-thinking block");
             }
         }
 
@@ -698,6 +831,8 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         } else {
             events.push_back(ir::ContentBlockStop{open_ir_index_});
         }
+        open_thinking_ = false;
+        thinking_signature_seen_ = false;
         block_open_ = false;
         return events;
     }
@@ -714,6 +849,12 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         if (const auto* uv = chunk.find("usage"); uv && uv->is_object()) {
             if (const auto* it = uv->find("input_tokens"); it && it->is_int()) usage_.input_tokens = it->as_int();
             if (const auto* ot = uv->find("output_tokens"); ot && ot->is_int()) usage_.output_tokens = ot->as_int();
+            if (const auto* cache = uv->find("cache_read_input_tokens"); cache && cache->is_int()) {
+                usage_.cache_read_input_tokens = cache->as_int();
+            }
+            if (const auto* cache = uv->find("cache_creation_input_tokens"); cache && cache->is_int()) {
+                usage_.cache_creation_input_tokens = cache->as_int();
+            }
         }
         delta_seen_ = true;
         return events;
@@ -800,16 +941,26 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             if (tu->id.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use id is required");
             if (tu->name.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use name is required");
             open_tool_ = true;
+            open_thinking_ = false;
             tool_input_ = tu->input;
             tool_parts_.clear();
             cb.set("type", json::Value::string("tool_use"));
             cb.set("id", json::Value::string(tu->id));
             cb.set("name", json::Value::string(tu->name));
             cb.set("input", json::Value::object());
+        } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
+            open_tool_ = false;
+            open_thinking_ = true;
+            thinking_input_ = thinking->thinking;
+            thinking_signature_ = thinking->signature;
+            thinking_parts_.clear();
+            signature_seen_ = false;
+            cb.set("type", json::Value::string(std::string(BLOCK_TYPE_THINKING)));
         } else if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
             open_tool_ = false;
+            open_thinking_ = false;
             cb.set("type", json::Value::string("text"));
-            cb.set("text", json::Value::string(tb->text));
+            if (!tb->text.empty()) cb.set("text", json::Value::string(tb->text));
         } else {
             return invalid_argument("anthropic: ContentBlockStart carries an unsupported block");
         }
@@ -832,6 +983,22 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             tool_parts_.push_back(ij->partial_json);
             delta.set("type", json::Value::string("input_json_delta"));
             delta.set("partial_json", json::Value::string(ij->partial_json));
+        } else if (open_thinking_) {
+            if (const auto* thinking = std::get_if<ir::ThinkingDelta>(&cbd->delta)) {
+                if (signature_seen_) {
+                    return invalid_argument("anthropic: thinking_delta after signature_delta");
+                }
+                thinking_parts_.push_back(thinking->text);
+                delta.set("type", json::Value::string(std::string(DELTA_TYPE_THINKING_DELTA)));
+                delta.set("thinking", json::Value::string(thinking->text));
+            } else if (const auto* signature = std::get_if<ir::SignatureDelta>(&cbd->delta)) {
+                if (signature_seen_) return invalid_argument("anthropic: duplicate signature_delta");
+                signature_seen_ = true;
+                delta.set("type", json::Value::string(std::string(DELTA_TYPE_SIGNATURE_DELTA)));
+                delta.set("signature", json::Value::string(signature->signature));
+            } else {
+                return invalid_argument("anthropic: ThinkingBlock received non-thinking delta");
+            }
         } else {
             const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
             if (!td) return invalid_argument("anthropic: TextBlock received non-text delta");
@@ -846,6 +1013,33 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
         if (!block_open_ || cst->index != open_index_) {
             return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (open_thinking_) {
+            if (thinking_parts_.empty() && !thinking_input_.empty()) {
+                json::Value d_chunk = json::Value::object();
+                d_chunk.set("type", json::Value::string("content_block_delta"));
+                d_chunk.set("index", json::Value::integer(cst->index));
+                json::Value delta = json::Value::object();
+                delta.set("type", json::Value::string(std::string(DELTA_TYPE_THINKING_DELTA)));
+                delta.set("thinking", json::Value::string(thinking_input_));
+                d_chunk.set("delta", std::move(delta));
+                chunks.push_back(std::move(d_chunk));
+            }
+            if (!signature_seen_ && thinking_signature_.has_value() && !thinking_signature_->empty()) {
+                json::Value d_chunk = json::Value::object();
+                d_chunk.set("type", json::Value::string("content_block_delta"));
+                d_chunk.set("index", json::Value::integer(cst->index));
+                json::Value delta = json::Value::object();
+                delta.set("type", json::Value::string(std::string(DELTA_TYPE_SIGNATURE_DELTA)));
+                delta.set("signature", json::Value::string(*thinking_signature_));
+                d_chunk.set("delta", std::move(delta));
+                chunks.push_back(std::move(d_chunk));
+            }
+            open_thinking_ = false;
+            thinking_input_.clear();
+            thinking_signature_.reset();
+            thinking_parts_.clear();
+            signature_seen_ = false;
         }
         if (open_tool_) {
             if (tool_parts_.empty()) {
@@ -893,6 +1087,12 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         json::Value usage = json::Value::object();
         usage.set("input_tokens", json::Value::integer(md->usage.input_tokens));
         usage.set("output_tokens", json::Value::integer(md->usage.output_tokens));
+        if (md->usage.cache_read_input_tokens.has_value()) {
+            usage.set("cache_read_input_tokens", json::Value::integer(*md->usage.cache_read_input_tokens));
+        }
+        if (md->usage.cache_creation_input_tokens.has_value()) {
+            usage.set("cache_creation_input_tokens", json::Value::integer(*md->usage.cache_creation_input_tokens));
+        }
         chunk.set("usage", std::move(usage));
         chunks.push_back(std::move(chunk));
         return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};

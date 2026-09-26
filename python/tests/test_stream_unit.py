@@ -4,30 +4,21 @@ import unittest
 
 from oxa.anthropic.messages import (
     StreamDecoder as AnthropicStreamDecoder,
-    StreamEncoder as AnthropicStreamEncoder,
 )
 from oxa.ir import (
-    ContentBlockDelta,
-    ContentBlockStart,
-    ContentBlockStop,
-    EventStream,
-    InputJsonDelta,
+    STOP_END_TURN,
     MessageDelta,
     MessageDone,
     MessageStart,
-    STOP_END_TURN,
-    STOP_TOOL_USE,
-    TextBlock,
-    TextDelta,
-    ToolUseBlock,
     Usage,
 )
 from oxa.openai.chatcompletions import (
     StreamDecoder as ChatCompletionsStreamDecoder,
-    StreamEncoder as ChatCompletionsStreamEncoder,
 )
 from oxa.openai.responses import (
     StreamDecoder as ResponsesStreamDecoder,
+)
+from oxa.openai.responses import (
     StreamEncoder as ResponsesStreamEncoder,
 )
 
@@ -50,9 +41,21 @@ class StreamUnitTests(unittest.TestCase):
     def test_anthropic_decoder_feed_after_stop_is_error(self) -> None:
         dec = AnthropicStreamDecoder()
         dec.feed({"type": "message_start", "message": {"id": "m1", "model": "m"}})
-        dec.feed({"type": "content_block_start", "index": 0, "content_block": {"type": "text", "text": ""}})
+        dec.feed(
+            {
+                "type": "content_block_start",
+                "index": 0,
+                "content_block": {"type": "text", "text": ""},
+            }
+        )
         dec.feed({"type": "content_block_stop", "index": 0})
-        dec.feed({"type": "message_delta", "delta": {"stop_reason": "end_turn"}, "usage": {"output_tokens": 1}})
+        dec.feed(
+            {
+                "type": "message_delta",
+                "delta": {"stop_reason": "end_turn"},
+                "usage": {"output_tokens": 1},
+            }
+        )
         dec.feed({"type": "message_stop"})
         with self.assertRaises(ValueError) as cm:
             dec.feed({"type": "message_stop"})
@@ -149,7 +152,13 @@ class StreamUnitTests(unittest.TestCase):
     def test_responses_decoder_unstarted_event_is_error(self) -> None:
         dec = ResponsesStreamDecoder()
         with self.assertRaises(ValueError) as cm:
-            dec.feed({"type": "response.output_item.added", "output_index": 0, "item": {"type": "message"}})
+            dec.feed(
+                {
+                    "type": "response.output_item.added",
+                    "output_index": 0,
+                    "item": {"type": "message"},
+                }
+            )
         self.assertIn("before response.created", str(cm.exception))
 
     def test_responses_encoder_apply_after_termination_is_error(self) -> None:

@@ -18,7 +18,6 @@ from oxa.ir import (
 )
 from oxa.openai.responses import (
     decode_request,
-    decode_response,
     encode_request,
     encode_response,
 )

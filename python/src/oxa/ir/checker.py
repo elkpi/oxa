@@ -20,8 +20,11 @@ from oxa.ir.types import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
 )
 
@@ -51,6 +54,11 @@ class _OpenTool:
     fragment_count: int
 
 
+@dataclass(slots=True)
+class _OpenThinking:
+    signature_seen: bool = False
+
+
 def validate_event_stream(stream: EventStream) -> None:
     """Validates a decoder-produced stream (strict).
 
@@ -71,8 +79,8 @@ def validate_event_stream_for_encoder(stream: EventStream) -> None:
 def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
     phase = _Phase.NEED_START
     next_index = 0
-    # Currently open block: (index, "text" | _OpenTool)
-    open_block: tuple[int, str | _OpenTool] | None = None
+    # Currently open block: (index, "text" | _OpenThinking | _OpenTool)
+    open_block: tuple[int, str | _OpenThinking | _OpenTool] | None = None
 
     for i, event in enumerate(stream.events):
         if isinstance(event, MessageStart):
@@ -97,6 +105,8 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
 
             if isinstance(event.block, TextBlock):
                 open_block = (event.index, "text")
+            elif isinstance(event.block, ThinkingBlock):
+                open_block = (event.index, _OpenThinking())
             elif isinstance(event.block, ToolUseBlock):
                 open_block = (
                     event.index,
@@ -110,7 +120,7 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                 block_kind = getattr(event.block, "type", type(event.block).__name__)
                 raise Violation(
                     i,
-                    f"content_block_start carries {block_kind} block; streams carry text and tool_use only",
+                    f"content_block_start carries {block_kind} block; streams carry text, thinking, and tool_use",
                 )
 
         elif isinstance(event, ContentBlockDelta):
@@ -124,6 +134,19 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                 )
             if kind == "text":
                 if not isinstance(event.delta, TextDelta):
+                    raise Violation(
+                        i,
+                        f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind",
+                    )
+            elif isinstance(kind, _OpenThinking):
+                if isinstance(event.delta, ThinkingDelta):
+                    if kind.signature_seen:
+                        raise Violation(i, "thinking delta after signature_delta")
+                elif isinstance(event.delta, SignatureDelta):
+                    if kind.signature_seen:
+                        raise Violation(i, "multiple signatures in thinking block")
+                    kind.signature_seen = True
+                else:
                     raise Violation(
                         i,
                         f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind",

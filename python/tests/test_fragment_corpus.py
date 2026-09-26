@@ -7,7 +7,6 @@ from oxa.anthropic.messages import StreamDecoder as AnthropicStreamDecoder
 from oxa.ir import (
     ContentBlockDelta,
     ContentBlockStart,
-    ContentBlockStop,
     EventStream,
     InputJsonDelta,
     MessageDone,

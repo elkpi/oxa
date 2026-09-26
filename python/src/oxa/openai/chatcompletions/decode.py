@@ -2,29 +2,38 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 from oxa.ir import (
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
-    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
-    ROLE_USER as IR_ROLE_USER,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_OTHER,
     STOP_REFUSAL,
     STOP_TOOL_USE,
-    Block,
+    InputTokensDetails,
     Loss,
-    Message as IrMessage,
+    OutputTokensDetails,
     Params,
+    ReasoningEffort,
     Request,
     Response,
     SystemBlock,
     TextBlock,
+    ThinkingBlock,
     Tool,
     Usage,
+)
+from oxa.ir import (
+    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
+)
+from oxa.ir import (
+    ROLE_USER as IR_ROLE_USER,
+)
+from oxa.ir import (
+    Message as IrMessage,
 )
 from oxa.modelmap import Table
 from oxa.openai.chatcompletions.constants import (
@@ -57,7 +66,10 @@ def decode_request(
     losses: list[Loss] = []
 
     unmapped_fields = [
-        ("parallel_tool_calls", "Chat Completions parallel tool calls have no IR equivalent in v1."),
+        (
+            "parallel_tool_calls",
+            "Chat Completions parallel tool calls have no IR equivalent in v1.",
+        ),
         ("functions", "legacy Chat Completions functions have no IR equivalent in v1."),
         ("function_call", "legacy Chat Completions function_call has no IR equivalent in v1."),
         ("response_format", "Chat Completions response_format has no IR equivalent in v1."),
@@ -119,6 +131,13 @@ def decode_request(
         content_path = f"messages[{index}].content"
         content, content_losses = decode_content(msg.get("content"), content_path)
         losses.extend(content_losses)
+        if role == ROLE_ASSISTANT and msg.get("reasoning_content") is not None:
+            reasoning_content = msg["reasoning_content"]
+            if not isinstance(reasoning_content, str):
+                raise ValueError(
+                    f"chatcompletions: messages[{index}].reasoning_content must be a string"
+                )
+            content.insert(0, ThinkingBlock(thinking=reasoning_content))
 
         if role != ROLE_SYSTEM and not content:
             content = [TextBlock(text="")]
@@ -135,7 +154,7 @@ def decode_request(
                 calls_path = f"messages[{index}].tool_calls"
                 tool_blocks, tool_losses = decode_tool_calls(tool_calls, calls_path)
                 if msg.get("content") is None and tool_blocks:
-                    content.clear()
+                    content = [block for block in content if isinstance(block, ThinkingBlock)]
                 content.extend(tool_blocks)
                 losses.extend(tool_losses)
             messages.append(IrMessage(role=IR_ROLE_ASSISTANT, content=content))
@@ -163,6 +182,7 @@ def decode_request(
     elif isinstance(stop, list):
         stop_sequences = [s for s in stop if s] if stop else None
 
+    reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
     max_tokens = wire.get("max_tokens")
     if max_tokens is None:
         max_tokens = wire.get("max_completion_tokens")
@@ -173,12 +193,14 @@ def decode_request(
         or wire.get("top_p") is not None
         or max_tokens is not None
         or stop_sequences is not None
+        or reasoning_effort is not None
     ):
         params = Params(
             temperature=wire.get("temperature"),
             top_p=wire.get("top_p"),
             max_tokens=max_tokens,
             stop_sequences=stop_sequences,
+            reasoning_effort=reasoning_effort,
         )
 
     return (
@@ -194,6 +216,22 @@ def decode_request(
     )
 
 
+def decode_reasoning_effort(value: Any, losses: list[Loss]) -> ReasoningEffort | None:
+    if value is None:
+        return None
+    if value in ("minimal", "low", "medium", "high"):
+        return cast(ReasoningEffort, value)
+    losses.append(
+        loss(
+            "reasoning_effort",
+            "reasoning_effort",
+            LOSS_UNMAPPED_VALUE,
+            f"Chat Completions reasoning_effort {value!r} has no IR equivalent",
+        )
+    )
+    return None
+
+
 def decode_response(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -207,12 +245,17 @@ def decode_response(
     choice = choices[0]
     msg = choice.get("message", {})
     content, losses = decode_content(msg.get("content"), "choices[0].message.content")
+    if msg.get("reasoning_content") is not None:
+        reasoning_content = msg["reasoning_content"]
+        if not isinstance(reasoning_content, str):
+            raise ValueError("chatcompletions: reasoning_content must be a string")
+        content.insert(0, ThinkingBlock(thinking=reasoning_content))
 
     tool_calls = msg.get("tool_calls")
     if tool_calls is not None:
         tool_blocks, tool_losses = decode_tool_calls(tool_calls, "choices[0].message.tool_calls")
         if msg.get("content") is None and tool_blocks:
-            content.clear()
+            content = [block for block in content if isinstance(block, ThinkingBlock)]
         content.extend(tool_blocks)
         losses.extend(tool_losses)
 
@@ -225,9 +268,22 @@ def decode_response(
         model = table.map(model)
 
     usage_raw = wire.get("usage", {})
+    prompt_details = usage_raw.get("prompt_tokens_details")
+    completion_details = usage_raw.get("completion_tokens_details")
     usage = Usage(
         input_tokens=int(usage_raw.get("prompt_tokens", 0)),
         output_tokens=int(usage_raw.get("completion_tokens", 0)),
+        input_tokens_details=(
+            InputTokensDetails(cached_tokens=int(prompt_details["cached_tokens"]))
+            if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens") is not None
+            else None
+        ),
+        output_tokens_details=(
+            OutputTokensDetails(reasoning_tokens=int(completion_details["reasoning_tokens"]))
+            if isinstance(completion_details, dict)
+            and completion_details.get("reasoning_tokens") is not None
+            else None
+        ),
     )
 
     return (

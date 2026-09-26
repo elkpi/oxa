@@ -7,9 +7,12 @@ from typing import Any
 
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -21,7 +24,7 @@ from oxa.anthropic.messages.decode import decode_stop_reason
 from oxa.anthropic.messages.normalize import extract_tool_input_raw, loss
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
-    Block,
+    STOP_END_TURN,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -31,9 +34,11 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
-    STOP_END_TURN,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
     Usage,
 )
@@ -53,6 +58,8 @@ class StreamDecoder:
         "_open_ir_index",
         "_block_open",
         "_open_tool",
+        "_open_thinking",
+        "_thinking_signature_seen",
         "_tool_id",
         "_tool_name",
         "_tool_input",
@@ -77,6 +84,8 @@ class StreamDecoder:
         self._open_ir_index = 0
         self._block_open = False
         self._open_tool = False
+        self._open_thinking = False
+        self._thinking_signature_seen = False
         self._tool_id = ""
         self._tool_name = ""
         self._tool_input = ""
@@ -165,7 +174,9 @@ class StreamDecoder:
                 if raw_slice is not None:
                     self._tool_input = raw_slice
                 elif isinstance(raw_input, dict):
-                    self._tool_input = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
+                    self._tool_input = json.dumps(
+                        raw_input, separators=(",", ":"), ensure_ascii=False
+                    )
                 elif raw_input is not None:
                     self._tool_input = str(raw_input)
                 else:
@@ -173,6 +184,25 @@ class StreamDecoder:
 
                 self._tool_parts.clear()
                 return []
+
+            if b_kind == BLOCK_TYPE_THINKING:
+                self._next_index += 1
+                self._block_open = True
+                self._open_tool = False
+                self._open_thinking = True
+                self._thinking_signature_seen = False
+                self._open_index = index
+                self._open_ir_index = self._next_ir_index
+                self._next_ir_index += 1
+                return [
+                    ContentBlockStart(
+                        index=self._open_ir_index,
+                        block=ThinkingBlock(
+                            thinking=block.get("thinking", ""),
+                            signature=block.get("signature"),
+                        ),
+                    )
+                ]
 
             if b_kind != BLOCK_TYPE_TEXT:
                 self._next_index += 1
@@ -191,10 +221,15 @@ class StreamDecoder:
             self._next_index += 1
             self._block_open = True
             self._open_tool = False
+            self._open_thinking = False
             self._open_index = index
             self._open_ir_index = self._next_ir_index
             self._next_ir_index += 1
-            return [ContentBlockStart(index=self._open_ir_index, block=TextBlock(text=block.get("text", "")))]
+            return [
+                ContentBlockStart(
+                    index=self._open_ir_index, block=TextBlock(text=block.get("text", ""))
+                )
+            ]
 
         if kind == EVENT_TYPE_CONTENT_BLOCK_DELTA:
             if not self._started:
@@ -217,11 +252,38 @@ class StreamDecoder:
                 if d_kind == DELTA_TYPE_INPUT_JSON_DELTA:
                     self._tool_parts.append(delta.get("partial_json", ""))
                     return []
+            elif self._open_thinking:
+                if d_kind == DELTA_TYPE_THINKING_DELTA:
+                    if self._thinking_signature_seen:
+                        raise ValueError("anthropic: thinking_delta after signature_delta")
+                    return [
+                        ContentBlockDelta(
+                            index=self._open_ir_index,
+                            delta=ThinkingDelta(text=delta.get("thinking", "")),
+                        )
+                    ]
+                if d_kind == DELTA_TYPE_SIGNATURE_DELTA:
+                    if self._thinking_signature_seen:
+                        raise ValueError("anthropic: duplicate signature_delta")
+                    self._thinking_signature_seen = True
+                    return [
+                        ContentBlockDelta(
+                            index=self._open_ir_index,
+                            delta=SignatureDelta(signature=delta.get("signature", "")),
+                        )
+                    ]
+                raise ValueError(f"anthropic: delta {d_kind!r} on thinking block")
             else:
                 if d_kind == DELTA_TYPE_TEXT_DELTA:
-                    return [ContentBlockDelta(index=self._open_ir_index, delta=TextDelta(text=delta.get("text", "")))]
+                    return [
+                        ContentBlockDelta(
+                            index=self._open_ir_index, delta=TextDelta(text=delta.get("text", ""))
+                        )
+                    ]
                 if d_kind == DELTA_TYPE_INPUT_JSON_DELTA:
                     raise ValueError("anthropic: input_json_delta on non-tool block")
+                if d_kind in (DELTA_TYPE_THINKING_DELTA, DELTA_TYPE_SIGNATURE_DELTA):
+                    raise ValueError("anthropic: thinking delta on non-thinking block")
 
             self._losses.append(
                 loss(
@@ -250,7 +312,9 @@ class StreamDecoder:
                 if self._tool_parts:
                     full_input = "".join(self._tool_parts)
                     deltas = [
-                        ContentBlockDelta(index=self._open_ir_index, delta=InputJsonDelta(partial_json=part))
+                        ContentBlockDelta(
+                            index=self._open_ir_index, delta=InputJsonDelta(partial_json=part)
+                        )
                         for part in self._tool_parts
                     ]
                 else:
@@ -258,10 +322,12 @@ class StreamDecoder:
                         raise ValueError("anthropic: tool_use input is required")
                     full_input = self._tool_input
                     deltas = [
-                        ContentBlockDelta(index=self._open_ir_index, delta=InputJsonDelta(partial_json=full_input))
+                        ContentBlockDelta(
+                            index=self._open_ir_index, delta=InputJsonDelta(partial_json=full_input)
+                        )
                     ]
 
-                events = [
+                events: list[Event] = [
                     ContentBlockStart(
                         index=self._open_ir_index,
                         block=ToolUseBlock(
@@ -282,6 +348,8 @@ class StreamDecoder:
                 return events
 
             self._block_open = False
+            self._open_thinking = False
+            self._thinking_signature_seen = False
             return [ContentBlockStop(index=self._open_ir_index)]
 
         if kind == EVENT_TYPE_MESSAGE_DELTA:
@@ -304,6 +372,16 @@ class StreamDecoder:
                 self._usage = Usage(
                     input_tokens=int(usage_raw.get("input_tokens", 0)),
                     output_tokens=int(usage_raw.get("output_tokens", 0)),
+                    cache_read_input_tokens=(
+                        int(usage_raw["cache_read_input_tokens"])
+                        if usage_raw.get("cache_read_input_tokens") is not None
+                        else None
+                    ),
+                    cache_creation_input_tokens=(
+                        int(usage_raw["cache_creation_input_tokens"])
+                        if usage_raw.get("cache_creation_input_tokens") is not None
+                        else None
+                    ),
                 )
             self._delta_seen = True
             return []

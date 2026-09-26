@@ -61,8 +61,10 @@ StatusOr<std::reference_wrapper<const json::Value>> require_array(
 
 Status check_spec_version(const json::Value& v) {
     const json::Value* sv = v.find("specVersion");
-    if (sv == nullptr || !sv->is_string() || sv->as_string() != SPEC_VERSION) {
-        return invalid_argument("unsupported specVersion, want \"" + std::string(SPEC_VERSION) + "\"");
+    if (sv == nullptr || !sv->is_string() ||
+        (sv->as_string() != SPEC_VERSION && sv->as_string() != LEGACY_SPEC_VERSION)) {
+        return invalid_argument(
+            "unsupported specVersion, want \"0.1.0\" or \"" + std::string(SPEC_VERSION) + "\"");
     }
     return ok_status();
 }
@@ -81,6 +83,12 @@ json::Value dump_block(const Block& b) {
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
         out.set("text", json::Value::string(t->text));
+        return out;
+    }
+    if (const auto* t = std::get_if<ThinkingBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_THINKING)));
+        out.set("thinking", json::Value::string(t->thinking));
+        if (t->signature.has_value()) out.set("signature", json::Value::string(*t->signature));
         return out;
     }
     if (const auto* img = std::get_if<ImageBlock>(&b)) {
@@ -121,6 +129,15 @@ StatusOr<Block> load_block(const json::Value& v) {
     if (kind == BLOCK_TYPE_TEXT) {
         OXA_ASSIGN_OR_RETURN(std::string txt, require_string(v, "text", "text block"));
         return Block(TextBlock{std::move(txt)});
+    }
+    if (kind == BLOCK_TYPE_THINKING) {
+        OXA_ASSIGN_OR_RETURN(std::string thinking, require_string(v, "thinking", "thinking block"));
+        ThinkingBlock block{std::move(thinking), std::nullopt};
+        if (has(v, "signature")) {
+            OXA_ASSIGN_OR_RETURN(std::string signature, require_string(v, "signature", "thinking block"));
+            block.signature = std::move(signature);
+        }
+        return Block(std::move(block));
     }
     if (kind == BLOCK_TYPE_IMAGE) {
         ImageBlock img;
@@ -229,6 +246,9 @@ json::Value dump_request(const Request& r) {
                 stops.push_back(json::Value::string(s));
             }
             p.set("stop_sequences", std::move(stops));
+        }
+        if (r.params->reasoning_effort.has_value()) {
+            p.set("reasoning_effort", json::Value::string(*r.params->reasoning_effort));
         }
         if (!p.as_object().empty()) out.set("params", std::move(p));
     }
@@ -343,6 +363,15 @@ StatusOr<Request> load_request(const json::Value& v) {
             }
             p.stop_sequences = std::move(stops);
         }
+        if ((f = params->find("reasoning_effort")) != nullptr) {
+            if (!f->is_string()) return invalid_argument("params reasoning_effort must be a string");
+            const std::string effort = f->as_string();
+            if (effort != REASONING_EFFORT_MINIMAL && effort != REASONING_EFFORT_LOW &&
+                effort != REASONING_EFFORT_MEDIUM && effort != REASONING_EFFORT_HIGH) {
+                return invalid_argument("invalid params reasoning_effort: " + effort);
+            }
+            p.reasoning_effort = effort;
+        }
         r.params = std::move(p);
     }
 
@@ -370,13 +399,53 @@ StatusOr<Usage> load_usage(const json::Value& v) {
     if (in_tokens < 0 || out_tokens < 0) {
         return invalid_argument("usage tokens must be non-negative");
     }
-    return Usage{in_tokens, out_tokens};
+    Usage usage{in_tokens, out_tokens};
+    for (const auto& [key, target] : {
+             std::pair<std::string_view, std::optional<std::int64_t>*>(
+                 "cache_read_input_tokens", &usage.cache_read_input_tokens),
+             {"cache_creation_input_tokens", &usage.cache_creation_input_tokens},
+         }) {
+        if (has(f.get(), key)) {
+            OXA_ASSIGN_OR_RETURN(std::int64_t value, require_int(f.get(), key, "usage"));
+            if (value < 0) return invalid_argument("usage tokens must be non-negative");
+            *target = value;
+        }
+    }
+    if (has(f.get(), "input_tokens_details")) {
+        OXA_ASSIGN_OR_RETURN(auto detail, require_object(f.get(), "input_tokens_details", "usage"));
+        OXA_ASSIGN_OR_RETURN(std::int64_t cached, require_int(detail.get(), "cached_tokens", "input_tokens_details"));
+        if (cached < 0) return invalid_argument("usage tokens must be non-negative");
+        usage.input_tokens_details = InputTokensDetails{cached};
+    }
+    if (has(f.get(), "output_tokens_details")) {
+        OXA_ASSIGN_OR_RETURN(auto detail, require_object(f.get(), "output_tokens_details", "usage"));
+        OXA_ASSIGN_OR_RETURN(std::int64_t reasoning, require_int(detail.get(), "reasoning_tokens", "output_tokens_details"));
+        if (reasoning < 0) return invalid_argument("usage tokens must be non-negative");
+        usage.output_tokens_details = OutputTokensDetails{reasoning};
+    }
+    return usage;
 }
 
 json::Value dump_usage(const Usage& u) {
     json::Value out = json::Value::object();
     out.set("input_tokens", json::Value::integer(u.input_tokens));
     out.set("output_tokens", json::Value::integer(u.output_tokens));
+    if (u.cache_read_input_tokens.has_value()) {
+        out.set("cache_read_input_tokens", json::Value::integer(*u.cache_read_input_tokens));
+    }
+    if (u.cache_creation_input_tokens.has_value()) {
+        out.set("cache_creation_input_tokens", json::Value::integer(*u.cache_creation_input_tokens));
+    }
+    if (u.input_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("cached_tokens", json::Value::integer(u.input_tokens_details->cached_tokens));
+        out.set("input_tokens_details", std::move(details));
+    }
+    if (u.output_tokens_details.has_value()) {
+        json::Value details = json::Value::object();
+        details.set("reasoning_tokens", json::Value::integer(u.output_tokens_details->reasoning_tokens));
+        out.set("output_tokens_details", std::move(details));
+    }
     return out;
 }
 
@@ -446,10 +515,16 @@ json::Value dump_event(const Event& e) {
         if (const auto* td = std::get_if<TextDelta>(&cbd->delta)) {
             d.set("type", json::Value::string(std::string(DELTA_TYPE_TEXT_DELTA)));
             d.set("text", json::Value::string(td->text));
-        } else {
-            const auto& ij = std::get<InputJsonDelta>(cbd->delta);
+        } else if (const auto* ij = std::get_if<InputJsonDelta>(&cbd->delta)) {
             d.set("type", json::Value::string(std::string(DELTA_TYPE_INPUT_JSON_DELTA)));
-            d.set("partial_json", json::Value::string(ij.partial_json));
+            d.set("partial_json", json::Value::string(ij->partial_json));
+        } else if (const auto* thinking = std::get_if<ThinkingDelta>(&cbd->delta)) {
+            d.set("type", json::Value::string(std::string(DELTA_TYPE_THINKING_DELTA)));
+            d.set("text", json::Value::string(thinking->text));
+        } else {
+            const auto& signature = std::get<SignatureDelta>(cbd->delta);
+            d.set("type", json::Value::string(std::string(DELTA_TYPE_SIGNATURE_DELTA)));
+            d.set("signature", json::Value::string(signature.signature));
         }
         out.set("delta", std::move(d));
         return out;
@@ -499,6 +574,12 @@ StatusOr<Event> load_event(const json::Value& v) {
         } else if (dkind == DELTA_TYPE_INPUT_JSON_DELTA) {
             OXA_ASSIGN_OR_RETURN(std::string pj, require_string(d, "partial_json", "input_json_delta"));
             delta = InputJsonDelta{std::move(pj)};
+        } else if (dkind == DELTA_TYPE_THINKING_DELTA) {
+            OXA_ASSIGN_OR_RETURN(std::string text, require_string(d, "text", "thinking_delta"));
+            delta = ThinkingDelta{std::move(text)};
+        } else if (dkind == DELTA_TYPE_SIGNATURE_DELTA) {
+            OXA_ASSIGN_OR_RETURN(std::string signature, require_string(d, "signature", "signature_delta"));
+            delta = SignatureDelta{std::move(signature)};
         } else {
             return invalid_argument("unknown delta discriminant: " + dkind);
         }
@@ -599,6 +680,8 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
     bool open = false;
     std::int64_t open_index = 0;
     bool open_is_tool = false;
+    bool open_is_thinking = false;
+    bool signature_seen = false;
     OpenTool tool;
 
     for (std::size_t i = 0; i < events.size(); ++i) {
@@ -631,14 +714,20 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
             if (const auto* tb = std::get_if<TextBlock>(&cbs->block)) {
                 (void)tb;
                 open_is_tool = false;
+                open_is_thinking = false;
+            } else if (std::holds_alternative<ThinkingBlock>(cbs->block)) {
+                open_is_tool = false;
+                open_is_thinking = true;
+                signature_seen = false;
             } else if (const auto* tu = std::get_if<ToolUseBlock>(&cbs->block)) {
                 open_is_tool = true;
+                open_is_thinking = false;
                 tool = OpenTool{tu->input, "", 0};
             } else {
                 return invalid_argument(
                     "event " + std::to_string(i) +
                     ": content_block_start carries an unsupported block; streams carry "
-                    "text and tool_use only");
+                    "text, thinking, and tool_use only");
             }
         } else if (const auto* cbd = std::get_if<ContentBlockDelta>(&e)) {
             if (!open) {
@@ -659,6 +748,23 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                     return invalid_argument(
                         "event " + std::to_string(i) +
                         ": delta type text_delta does not match the open block kind");
+                }
+            } else if (open_is_thinking) {
+                if (std::holds_alternative<ThinkingDelta>(cbd->delta)) {
+                    if (signature_seen) {
+                        return invalid_argument("event " + std::to_string(i) +
+                                                ": thinking delta after signature_delta");
+                    }
+                } else if (std::holds_alternative<SignatureDelta>(cbd->delta)) {
+                    if (signature_seen) {
+                        return invalid_argument("event " + std::to_string(i) +
+                                                ": multiple signatures in thinking block");
+                    }
+                    signature_seen = true;
+                } else {
+                    return invalid_argument(
+                        "event " + std::to_string(i) +
+                        ": delta type does not match the open thinking block kind");
                 }
             } else {
                 if (!std::holds_alternative<TextDelta>(cbd->delta)) {

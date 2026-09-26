@@ -8,6 +8,7 @@ from typing import Any
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     ROLE_ASSISTANT,
@@ -31,8 +32,6 @@ from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
-    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
-    ROLE_USER as IR_ROLE_USER,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
@@ -44,8 +43,12 @@ from oxa.ir import (
     Request,
     Response,
     TextBlock,
+    ThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+)
+from oxa.ir import (
+    ROLE_USER as IR_ROLE_USER,
 )
 from oxa.modelmap import Table
 
@@ -108,9 +111,7 @@ def encode_request(
 
     for index, message in enumerate(req.messages):
         role = ROLE_USER if message.role == IR_ROLE_USER else ROLE_ASSISTANT
-        blocks_wire, b_losses = encode_request_blocks(
-            message.content, f"messages[{index}].content"
-        )
+        blocks_wire, b_losses = encode_request_blocks(message.content, f"messages[{index}].content")
         losses.extend(b_losses)
 
         if shorthand:
@@ -148,6 +149,25 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.stop_sequences:
             out["stop_sequences"] = req.params.stop_sequences
+        if req.params.reasoning_effort is not None:
+            budgets = {
+                "minimal": 1024,
+                "low": 2048,
+                "medium": 8192,
+                "high": 16384,
+            }
+            out["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": budgets[req.params.reasoning_effort],
+            }
+            losses.append(
+                loss(
+                    "params.reasoning_effort",
+                    "reasoning_effort",
+                    LOSS_DEGRADED,
+                    "budget approximated",
+                )
+            )
 
     return out, losses
 
@@ -172,6 +192,23 @@ def encode_request_block(
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     if isinstance(block, TextBlock):
         return {"type": BLOCK_TYPE_TEXT, "text": block.text}, [], True
+
+    if isinstance(block, ThinkingBlock):
+        signature = block.signature if block.signature else None
+        losses = []
+        if signature is None:
+            losses.append(
+                loss(
+                    path,
+                    "signature",
+                    LOSS_DEGRADED,
+                    "unsigned thinking block; Anthropic may reject on replay",
+                )
+            )
+        encoded = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
+        if signature is not None:
+            encoded["signature"] = signature
+        return encoded, losses, True
 
     if isinstance(block, ImageBlock):
         return encode_image_block(block.media_type, block.data, block.url, path)
@@ -225,14 +262,28 @@ def encode_image_block(
     if has_data == has_url:
         return (
             None,
-            [loss(path, "image", LOSS_UNSUPPORTED_SEMANTIC, "image must contain exactly one of data or url")],
+            [
+                loss(
+                    path,
+                    "image",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "image must contain exactly one of data or url",
+                )
+            ],
             False,
         )
     if has_data:
         if not media_type:
             return (
                 None,
-                [loss(path, "image", LOSS_UNSUPPORTED_SEMANTIC, "base64 image data requires media_type")],
+                [
+                    loss(
+                        path,
+                        "image",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "base64 image data requires media_type",
+                    )
+                ],
                 False,
             )
         return (
@@ -317,16 +368,22 @@ def encode_response(
     if table is not None:
         model = table.map(model)
 
+    usage: dict[str, Any] = {
+        "input_tokens": resp.usage.input_tokens,
+        "output_tokens": resp.usage.output_tokens,
+    }
+    if resp.usage.cache_read_input_tokens is not None:
+        usage["cache_read_input_tokens"] = resp.usage.cache_read_input_tokens
+    if resp.usage.cache_creation_input_tokens is not None:
+        usage["cache_creation_input_tokens"] = resp.usage.cache_creation_input_tokens
+
     out: dict[str, Any] = {
         "id": resp.id,
         "type": TYPE_MESSAGE,
         "role": ROLE_ASSISTANT,
         "model": model,
         "content": [],
-        "usage": {
-            "input_tokens": resp.usage.input_tokens,
-            "output_tokens": resp.usage.output_tokens,
-        },
+        "usage": usage,
     }
 
     losses: list[Loss] = []
@@ -350,6 +407,22 @@ def encode_response_block(
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     if isinstance(block, TextBlock):
         return {"type": BLOCK_TYPE_TEXT, "text": block.text}, [], True
+    if isinstance(block, ThinkingBlock):
+        signature = block.signature if block.signature else None
+        losses = []
+        if signature is None:
+            losses.append(
+                loss(
+                    path,
+                    "signature",
+                    LOSS_DEGRADED,
+                    "unsigned thinking block; Anthropic may reject on replay",
+                )
+            )
+        encoded = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
+        if signature is not None:
+            encoded["signature"] = signature
+        return encoded, losses, True
     if isinstance(block, ImageBlock):
         return encode_image_block(block.media_type, block.data, block.url, path)
     if isinstance(block, ToolUseBlock):

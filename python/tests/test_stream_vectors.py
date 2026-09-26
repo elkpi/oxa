@@ -4,14 +4,20 @@ import unittest
 
 from oxa.anthropic.messages import (
     StreamDecoder as AnthropicStreamDecoder,
+)
+from oxa.anthropic.messages import (
     StreamEncoder as AnthropicStreamEncoder,
 )
 from oxa.openai.chatcompletions import (
     StreamDecoder as ChatCompletionsStreamDecoder,
+)
+from oxa.openai.chatcompletions import (
     StreamEncoder as ChatCompletionsStreamEncoder,
 )
 from oxa.openai.responses import (
     StreamDecoder as ResponsesStreamDecoder,
+)
+from oxa.openai.responses import (
     StreamEncoder as ResponsesStreamEncoder,
 )
 from oxa.vectest import (
@@ -57,7 +63,7 @@ class StreamVectorsTest(unittest.TestCase):
                         encoder_factory=enc_factory,
                     )
 
-        self.assertEqual(total_vectors, 12, "expected 12 total stream vectors across all faces")
+        self.assertEqual(total_vectors, 18, "expected 18 total stream vectors across all faces")
 
 
 if __name__ == "__main__":

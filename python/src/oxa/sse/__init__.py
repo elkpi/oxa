@@ -7,9 +7,10 @@ SSE frames as opaque bytes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 import io
-from typing import BinaryIO, Iterable, Iterator
+from collections.abc import Iterable, Iterator
+from dataclasses import dataclass
+from typing import BinaryIO, cast
 
 
 @dataclass(slots=True)
@@ -25,7 +26,7 @@ def decode_frames(stream: bytes | BinaryIO | Iterable[bytes]) -> Iterator[Frame]
     if isinstance(stream, bytes):
         reader: BinaryIO = io.BytesIO(stream)
     elif hasattr(stream, "read"):
-        reader = stream
+        reader = cast(BinaryIO, stream)
     else:
         # iterable of bytes
         chunks: list[bytes] = list(stream)

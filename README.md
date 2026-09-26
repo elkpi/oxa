@@ -7,8 +7,8 @@ in-process libraries.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Status: v1.0.1 released.** The specification and golden vectors are shared
-across five implementations. Go, TypeScript, and Rust validate all 154 Spec 2.0
-vectors; Python and C++ remain on the 130-vector baseline pending Waves 4–5.
+across five implementations. All five languages (Go, TypeScript, Rust, Python,
+and C++) validate all 154 Spec 2.0 vectors.
 
 ## What is oxa?
 
@@ -76,9 +76,8 @@ cpp/       C++ implementation (v1.0.1)
 
 ## Current capabilities
 
-The Go, TypeScript, and Rust Spec 2.0 implementations convert between each
-protocol face and a shared intermediate representation (IR). Python and C++
-remain on the Spec 1.0 baseline until their Waves 4 and 5 are complete.
+The Go, TypeScript, Rust, Python, and C++ Spec 2.0 implementations convert
+between each protocol face and a shared intermediate representation (IR).
 
 | Conversion              | Nonstream                                             | Streaming                                                   |
 | ----------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |

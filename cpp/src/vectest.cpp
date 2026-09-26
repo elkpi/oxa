@@ -104,9 +104,7 @@ StatusOr<std::vector<Vector>> load_vectors_from_dir(const std::filesystem::path&
     out.reserve(files.size());
     for (const auto& f : files) {
         OXA_ASSIGN_OR_RETURN(Vector vec, parse_vector_file(f));
-        if (vec.spec_version.empty() || vec.spec_version == "0.1.0") {
-            out.push_back(std::move(vec));
-        }
+        out.push_back(std::move(vec));
     }
     return out;
 }
@@ -143,6 +141,13 @@ Status compare_json_impl(const json::Value& exp, const json::Value& act, const s
             auto it = ao.find(k);
             if (it == ao.end()) {
                 return invalid_argument(path + "." + k + ": missing in actual");
+            }
+            if (k == "specVersion" && v.is_string() && it->second.is_string()) {
+                const auto& expected_version = v.as_string();
+                const auto& actual_version = it->second.as_string();
+                const bool expected_supported = expected_version == "0.1.0" || expected_version == "0.2.0";
+                const bool actual_supported = actual_version == "0.1.0" || actual_version == "0.2.0";
+                if (expected_supported && actual_supported) continue;
             }
             OXA_RETURN_IF_ERROR(compare_json_impl(v, it->second, path + "." + k));
         }

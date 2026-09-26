@@ -69,6 +69,8 @@ private:
     Options opts_;
     std::vector<ir::Loss> losses_;
     bool started_ = false;
+    bool thinking_open_ = false;
+    std::int64_t thinking_index_ = 0;
     std::string id_;
     std::string model_;
     std::int64_t text_index_ = -1;
@@ -106,7 +108,7 @@ private:
     std::size_t next_native_tool_ = 0;
 
     struct ActiveBlock {
-        enum class Kind { Text, Tool } kind;
+        enum class Kind { Text, Thinking, Tool } kind;
         std::int64_t index = 0;
         std::string tool_id;
         std::string tool_name;

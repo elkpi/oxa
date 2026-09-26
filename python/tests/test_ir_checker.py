@@ -3,6 +3,9 @@
 import unittest
 
 from oxa.ir import (
+    STOP_END_TURN,
+    STOP_STOP_SEQUENCE,
+    STOP_TOOL_USE,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -12,14 +15,13 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
-    STOP_END_TURN,
-    STOP_STOP_SEQUENCE,
-    STOP_TOOL_USE,
     TextBlock,
     TextDelta,
     ToolUseBlock,
     Usage,
     Violation,
+    load_block,
+    load_delta,
     validate_event_stream,
     validate_event_stream_for_encoder,
 )
@@ -87,6 +89,75 @@ class CheckerTest(unittest.TestCase):
             done(),
         ]
         validate_event_stream(EventStream(events=events))
+
+    def test_accepts_m9_thinking_deltas_then_one_signature_delta(self) -> None:
+        events = [
+            start(),
+            ContentBlockStart(
+                index=0,
+                block=load_block({"type": "thinking", "thinking": ""}),
+            ),
+            ContentBlockDelta(
+                index=0,
+                delta=load_delta({"type": "thinking_delta", "text": "reason"}),
+            ),
+            ContentBlockDelta(
+                index=0,
+                delta=load_delta({"type": "signature_delta", "signature": "opaque"}),
+            ),
+            block_stop(0),
+            message_delta(),
+            done(),
+        ]
+        validate_event_stream(EventStream(events=events))
+
+    def test_rejects_thinking_delta_after_signature_delta(self) -> None:
+        self.assert_rejects(
+            [
+                start(),
+                ContentBlockStart(
+                    index=0,
+                    block=load_block({"type": "thinking", "thinking": ""}),
+                ),
+                ContentBlockDelta(
+                    index=0,
+                    delta=load_delta({"type": "signature_delta", "signature": "opaque"}),
+                ),
+                ContentBlockDelta(
+                    index=0,
+                    delta=load_delta({"type": "thinking_delta", "text": "late"}),
+                ),
+                block_stop(0),
+                message_delta(),
+                done(),
+            ],
+            3,
+            "thinking delta after signature_delta",
+        )
+
+    def test_rejects_duplicate_signature_deltas(self) -> None:
+        self.assert_rejects(
+            [
+                start(),
+                ContentBlockStart(
+                    index=0,
+                    block=load_block({"type": "thinking", "thinking": ""}),
+                ),
+                ContentBlockDelta(
+                    index=0,
+                    delta=load_delta({"type": "signature_delta", "signature": "one"}),
+                ),
+                ContentBlockDelta(
+                    index=0,
+                    delta=load_delta({"type": "signature_delta", "signature": "two"}),
+                ),
+                block_stop(0),
+                message_delta(),
+                done(),
+            ],
+            3,
+            "multiple signatures",
+        )
 
     def test_accepts_valid_text_and_tool_stream(self) -> None:
         events = [

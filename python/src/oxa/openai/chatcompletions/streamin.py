@@ -7,18 +7,21 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
-    Block,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
     Event,
     InputJsonDelta,
+    InputTokensDetails,
     Loss,
     MessageDelta,
     MessageDone,
     MessageStart,
+    OutputTokensDetails,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
     Usage,
 )
@@ -44,6 +47,8 @@ class StreamDecoder:
         "_table",
         "_losses",
         "_started",
+        "_thinking_open",
+        "_thinking_index",
         "_text_open",
         "_text_index",
         "_next_ir_index",
@@ -60,6 +65,8 @@ class StreamDecoder:
         self._table = table
         self._losses: list[Loss] = []
         self._started = False
+        self._thinking_open = False
+        self._thinking_index = 0
         self._text_open = False
         self._text_index = 0
         self._next_ir_index = 0
@@ -81,9 +88,25 @@ class StreamDecoder:
 
         usage_raw = chunk.get("usage")
         if isinstance(usage_raw, dict):
+            prompt_details = usage_raw.get("prompt_tokens_details")
+            completion_details = usage_raw.get("completion_tokens_details")
             self._usage = Usage(
                 input_tokens=int(usage_raw.get("prompt_tokens", 0)),
                 output_tokens=int(usage_raw.get("completion_tokens", 0)),
+                input_tokens_details=(
+                    InputTokensDetails(cached_tokens=int(prompt_details["cached_tokens"]))
+                    if isinstance(prompt_details, dict)
+                    and prompt_details.get("cached_tokens") is not None
+                    else None
+                ),
+                output_tokens_details=(
+                    OutputTokensDetails(
+                        reasoning_tokens=int(completion_details["reasoning_tokens"])
+                    )
+                    if isinstance(completion_details, dict)
+                    and completion_details.get("reasoning_tokens") is not None
+                    else None
+                ),
             )
 
         choices = chunk.get("choices")
@@ -109,8 +132,35 @@ class StreamDecoder:
         if "tool_calls" in delta and delta["tool_calls"] is not None:
             self._record_tool_calls(delta["tool_calls"])
 
+        reasoning_content = delta.get("reasoning_content")
+        if reasoning_content is not None:
+            if not isinstance(reasoning_content, str):
+                raise ValueError("chatcompletions: delta.reasoning_content must be a string")
+            if self._text_open:
+                events.append(ContentBlockStop(index=self._text_index))
+                self._text_open = False
+            if not self._thinking_open:
+                self._thinking_open = True
+                self._thinking_index = self._next_ir_index
+                self._next_ir_index += 1
+                events.append(
+                    ContentBlockStart(
+                        index=self._thinking_index,
+                        block=ThinkingBlock(thinking=""),
+                    )
+                )
+            events.append(
+                ContentBlockDelta(
+                    index=self._thinking_index,
+                    delta=ThinkingDelta(text=reasoning_content),
+                )
+            )
+
         content = delta.get("content")
         if content is not None:
+            if self._thinking_open:
+                events.append(ContentBlockStop(index=self._thinking_index))
+                self._thinking_open = False
             if not self._text_open:
                 self._text_open = True
                 self._text_index = self._next_ir_index
@@ -180,6 +230,9 @@ class StreamDecoder:
         self._flushed = True
 
         events: list[Event] = []
+        if self._thinking_open:
+            events.append(ContentBlockStop(index=self._thinking_index))
+            self._thinking_open = False
         if self._text_open:
             events.append(ContentBlockStop(index=self._text_index))
             self._text_open = False
@@ -188,9 +241,7 @@ class StreamDecoder:
             if call.skipped:
                 continue
             if not call.id:
-                raise ValueError(
-                    f"chatcompletions: tool_calls[{call.index}] is missing final ID"
-                )
+                raise ValueError(f"chatcompletions: tool_calls[{call.index}] is missing final ID")
             if not call.name:
                 raise ValueError(
                     f"chatcompletions: tool_calls[{call.index}] is missing final function name"

@@ -23,8 +23,8 @@ structures and oxa's shared Intermediate Representation (IR).
 - **Opaque tool inputs (INV-1)**: Tool call arguments and streaming delta
   fragments remain unparsed raw JSON text.
 - **Shared Golden Vectors**: Conforms to the exact same shared `vectors/` golden
-  suite (34 Chat Completions + 30 Anthropic + 41 Responses + 12 cross-protocol
-  + 8 stream = 125 golden vectors) as Go, Rust, and Python.
+  suite (40 Chat Completions + 36 Anthropic + 45 Responses + 15 cross-protocol
+  + 18 stream = 154 golden vectors) as Go, TypeScript, Rust, and Python.
 
 ## Building and Testing
 

@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT as AN_ROLE_ASSISTANT,
+)
+from oxa.anthropic.messages.constants import (
     ROLE_USER as AN_ROLE_USER,
+)
+from oxa.anthropic.messages.constants import (
     STOP_REASON_END_TURN,
     STOP_REASON_MAX_TOKENS,
     STOP_REASON_REFUSAL,
@@ -23,6 +26,7 @@ from oxa.anthropic.messages.normalize import (
     require_json_object,
 )
 from oxa.ir import (
+    LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     ROLE_ASSISTANT,
@@ -35,12 +39,15 @@ from oxa.ir import (
     STOP_TOOL_USE,
     Block,
     Loss,
-    Message as IrMessage,
     Params,
+    ReasoningEffort,
     Request,
     Response,
     Tool,
     Usage,
+)
+from oxa.ir import (
+    Message as IrMessage,
 )
 from oxa.modelmap import Table
 
@@ -114,11 +121,31 @@ def decode_request(
     stop = wire.get("stop_sequences")
     stop_sequences = [s for s in stop if s] if isinstance(stop, list) and stop else None
 
+    reasoning_effort: ReasoningEffort | None = None
+    thinking_config = wire.get("thinking")
+    if isinstance(thinking_config, dict) and thinking_config.get("type") == "enabled":
+        budget = int(thinking_config.get("budget_tokens", 0))
+        if budget <= 2048:
+            reasoning_effort = "low"
+        elif budget <= 8192:
+            reasoning_effort = "medium"
+        else:
+            reasoning_effort = "high"
+        losses.append(
+            loss(
+                "thinking.budget_tokens",
+                "budget_tokens",
+                LOSS_DEGRADED,
+                "budget approximated",
+            )
+        )
+
     params = Params(
         temperature=wire.get("temperature"),
         top_p=wire.get("top_p"),
         max_tokens=max_tokens,
         stop_sequences=stop_sequences,
+        reasoning_effort=reasoning_effort,
     )
 
     return (
@@ -162,6 +189,16 @@ def decode_response(
     usage = Usage(
         input_tokens=int(usage_raw.get("input_tokens", 0)),
         output_tokens=int(usage_raw.get("output_tokens", 0)),
+        cache_read_input_tokens=(
+            int(usage_raw["cache_read_input_tokens"])
+            if usage_raw.get("cache_read_input_tokens") is not None
+            else None
+        ),
+        cache_creation_input_tokens=(
+            int(usage_raw["cache_creation_input_tokens"])
+            if usage_raw.get("cache_creation_input_tokens") is not None
+            else None
+        ),
     )
 
     stop_seq = wire.get("stop_sequence")

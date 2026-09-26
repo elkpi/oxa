@@ -8,6 +8,7 @@ from typing import Any
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     SOURCE_TYPE_BASE64,
@@ -29,6 +30,7 @@ from oxa.ir import (
     Loss,
     SystemBlock,
     TextBlock,
+    ThinkingBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -148,9 +150,26 @@ def decode_block(
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
     losses: list[Loss] = []
+    block: Block
 
     if kind == BLOCK_TYPE_TEXT:
         block = TextBlock(text=wire.get("text", ""))
+        if wire.get("cache_control") is not None:
+            losses.append(
+                loss(
+                    f"{path}.cache_control",
+                    "cache_control",
+                    LOSS_UNMAPPED_FIELD,
+                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
+                )
+            )
+        return [block], losses, True
+
+    if kind == BLOCK_TYPE_THINKING:
+        block = ThinkingBlock(
+            thinking=wire.get("thinking", ""),
+            signature=wire.get("signature"),
+        )
         if wire.get("cache_control") is not None:
             losses.append(
                 loss(
@@ -219,6 +238,7 @@ def decode_block(
         if not tool_use_id:
             raise ValueError(f"anthropic: {path}.tool_use_id is required")
         inner_content = wire.get("content", [])
+        content_blocks: list[Block]
         if isinstance(inner_content, str):
             content_blocks = [TextBlock(text=inner_content)]
         else:

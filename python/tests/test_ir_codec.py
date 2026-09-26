@@ -6,12 +6,9 @@ from typing import Any
 
 from oxa.ir import (
     CodecError,
-    EventStream,
     ImageBlock,
     Loss,
     MessageStart,
-    Request,
-    Response,
     TextBlock,
     ToolResultBlock,
     ToolUseBlock,
@@ -86,20 +83,26 @@ SPEC_EVENT_STREAM = """{
 
 
 class CodecTest(unittest.TestCase):
-    def test_spec01_request_round_trips(self) -> None:
+    def test_legacy_request_reads_and_emits_spec2(self) -> None:
         req = load_request(SPEC_REQUEST)
         out = dump_request(req)
-        self.assertEqual(out, json.loads(SPEC_REQUEST))
+        expected = json.loads(SPEC_REQUEST)
+        expected["specVersion"] = "0.2.0"
+        self.assertEqual(out, expected)
 
-    def test_spec01_response_round_trips(self) -> None:
+    def test_legacy_response_reads_and_emits_spec2(self) -> None:
         resp = load_response(SPEC_RESPONSE)
         out = dump_response(resp)
-        self.assertEqual(out, json.loads(SPEC_RESPONSE))
+        expected = json.loads(SPEC_RESPONSE)
+        expected["specVersion"] = "0.2.0"
+        self.assertEqual(out, expected)
 
-    def test_spec01_event_stream_round_trips(self) -> None:
+    def test_legacy_event_stream_reads_and_emits_spec2(self) -> None:
         stream = load_event_stream(SPEC_EVENT_STREAM)
         out = dump_event_stream(stream)
-        self.assertEqual(out, json.loads(SPEC_EVENT_STREAM))
+        expected = json.loads(SPEC_EVENT_STREAM)
+        expected["specVersion"] = "0.2.0"
+        self.assertEqual(out, expected)
         self.assertEqual(len(stream.events), 7)
         self.assertIsInstance(stream.events[0], MessageStart)
 
@@ -107,6 +110,98 @@ class CodecTest(unittest.TestCase):
         bad = SPEC_RESPONSE.replace('"0.1.0"', '"9.9.9"')
         with self.assertRaises(CodecError):
             load_response(bad)
+
+    def test_spec2_thinking_block_and_delta_shapes_round_trip(self) -> None:
+        block_data = {
+            "type": "thinking",
+            "thinking": "consider",
+            "signature": "opaque-token",
+        }
+        self.assertEqual(dump_block(load_block(block_data)), block_data)
+
+        thinking_delta = {"type": "thinking_delta", "text": "part"}
+        signature_delta = {"type": "signature_delta", "signature": "opaque-token"}
+        from oxa.ir import dump_delta, load_delta
+
+        self.assertEqual(dump_delta(load_delta(thinking_delta)), thinking_delta)
+        self.assertEqual(dump_delta(load_delta(signature_delta)), signature_delta)
+
+    def test_dual_reads_legacy_documents_and_emits_spec2(self) -> None:
+        legacy = json.loads(SPEC_REQUEST)
+        legacy["messages"][1]["content"].insert(
+            0,
+            {"type": "thinking", "thinking": "reason", "signature": "sig"},
+        )
+        legacy["params"]["reasoning_effort"] = "high"
+
+        request = load_request(legacy)
+        encoded = dump_request(request)
+
+        self.assertEqual(encoded["specVersion"], "0.2.0")
+        self.assertEqual(encoded["messages"][1]["content"][0]["type"], "thinking")
+        self.assertEqual(encoded["params"]["reasoning_effort"], "high")
+
+    def test_spec2_usage_details_preserve_absence_and_zero(self) -> None:
+        raw = {
+            "specVersion": "0.2.0",
+            "id": "r",
+            "model": "m",
+            "content": [],
+            "stop_reason": "end_turn",
+            "usage": {
+                "input_tokens": 4,
+                "output_tokens": 2,
+                "cache_read_input_tokens": 0,
+                "input_tokens_details": {"cached_tokens": 0},
+                "output_tokens_details": {"reasoning_tokens": 3},
+            },
+        }
+        response = load_response(raw)
+        encoded = dump_response(response)
+        self.assertEqual(encoded["specVersion"], "0.2.0")
+        self.assertEqual(encoded["usage"]["cache_read_input_tokens"], 0)
+        self.assertEqual(encoded["usage"]["input_tokens_details"], {"cached_tokens": 0})
+        self.assertEqual(encoded["usage"]["output_tokens_details"], {"reasoning_tokens": 3})
+
+        legacy = load_response(SPEC_RESPONSE)
+        self.assertIsNone(legacy.usage.cache_read_input_tokens)
+        self.assertIsNone(legacy.usage.input_tokens_details)
+        self.assertIsNone(legacy.usage.output_tokens_details)
+
+    def test_spec2_m9_event_stream_round_trips_signature_order(self) -> None:
+        raw = {
+            "specVersion": "0.2.0",
+            "events": [
+                {"type": "message_start", "id": "m", "model": "model"},
+                {
+                    "type": "content_block_start",
+                    "index": 0,
+                    "block": {"type": "thinking", "thinking": ""},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "thinking_delta", "text": "reason"},
+                },
+                {
+                    "type": "content_block_delta",
+                    "index": 0,
+                    "delta": {"type": "signature_delta", "signature": "sig"},
+                },
+                {"type": "content_block_stop", "index": 0},
+                {
+                    "type": "message_delta",
+                    "stop_reason": "end_turn",
+                    "usage": {
+                        "input_tokens": 1,
+                        "output_tokens": 2,
+                        "output_tokens_details": {"reasoning_tokens": 1},
+                    },
+                },
+                {"type": "message_done"},
+            ],
+        }
+        self.assertEqual(dump_event_stream(load_event_stream(raw)), raw)
 
     def test_block_discriminant_shapes_are_pinned(self) -> None:
         cases: list[tuple[dict[str, Any], type]] = [

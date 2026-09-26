@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 31);
+    CHECK(rep_res->executed == 36);
     std::printf("test_anthropic: all %zu vectors passed\n", rep_res->executed);
     return 0;
 }

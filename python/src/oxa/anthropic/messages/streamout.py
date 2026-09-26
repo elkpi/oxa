@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -30,8 +32,11 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    SignatureDelta,
     TextBlock,
     TextDelta,
+    ThinkingBlock,
+    ThinkingDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -47,6 +52,11 @@ class StreamEncoder:
         "_started",
         "_open_index",
         "_open_tool",
+        "_open_thinking",
+        "_thinking_input",
+        "_thinking_signature",
+        "_thinking_parts",
+        "_signature_seen",
         "_tool_input",
         "_tool_parts",
         "_delta_seen",
@@ -60,6 +70,11 @@ class StreamEncoder:
         self._started = False
         self._open_index = -1
         self._open_tool = False
+        self._open_thinking = False
+        self._thinking_input = ""
+        self._thinking_signature: str | None = None
+        self._thinking_parts: list[str] = []
+        self._signature_seen = False
         self._tool_input = ""
         self._tool_parts: list[str] = []
         self._delta_seen = False
@@ -98,14 +113,30 @@ class StreamEncoder:
             if isinstance(ev.block, TextBlock):
                 self._open_index = ev.index
                 self._open_tool = False
+                content_block = {"type": BLOCK_TYPE_TEXT}
+                if ev.block.text:
+                    content_block["text"] = ev.block.text
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
                         "index": ev.index,
-                        "content_block": {
-                            "type": BLOCK_TYPE_TEXT,
-                            "text": ev.block.text,
-                        },
+                        "content_block": content_block,
+                    }
+                ], []
+
+            if isinstance(ev.block, ThinkingBlock):
+                self._open_index = ev.index
+                self._open_tool = False
+                self._open_thinking = True
+                self._thinking_input = ev.block.thinking
+                self._thinking_signature = ev.block.signature
+                self._thinking_parts.clear()
+                self._signature_seen = False
+                return [
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_START,
+                        "index": ev.index,
+                        "content_block": {"type": BLOCK_TYPE_THINKING},
                     }
                 ], []
 
@@ -150,6 +181,37 @@ class StreamEncoder:
                     }
                 ], []
 
+            if self._open_thinking:
+                if isinstance(ev.delta, ThinkingDelta):
+                    if self._signature_seen:
+                        raise ValueError("anthropic: thinking_delta after signature_delta")
+                    self._thinking_parts.append(ev.delta.text)
+                    return [
+                        {
+                            "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                            "index": ev.index,
+                            "delta": {
+                                "type": DELTA_TYPE_THINKING_DELTA,
+                                "thinking": ev.delta.text,
+                            },
+                        }
+                    ], []
+                if isinstance(ev.delta, SignatureDelta):
+                    if self._signature_seen:
+                        raise ValueError("anthropic: duplicate signature_delta")
+                    self._signature_seen = True
+                    return [
+                        {
+                            "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                            "index": ev.index,
+                            "delta": {
+                                "type": DELTA_TYPE_SIGNATURE_DELTA,
+                                "signature": ev.delta.signature,
+                            },
+                        }
+                    ], []
+                raise ValueError("anthropic: ThinkingBlock received non-thinking delta")
+
             if not isinstance(ev.delta, TextDelta):
                 raise ValueError("anthropic: TextBlock received non-text delta")
             return [
@@ -168,6 +230,35 @@ class StreamEncoder:
                 raise ValueError("anthropic: ContentBlockStop out of grammar order")
 
             events: list[dict[str, Any]] = []
+            if self._open_thinking:
+                if not self._thinking_parts and self._thinking_input:
+                    events.append(
+                        {
+                            "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                            "index": ev.index,
+                            "delta": {
+                                "type": DELTA_TYPE_THINKING_DELTA,
+                                "thinking": self._thinking_input,
+                            },
+                        }
+                    )
+                if not self._signature_seen and self._thinking_signature:
+                    events.append(
+                        {
+                            "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                            "index": ev.index,
+                            "delta": {
+                                "type": DELTA_TYPE_SIGNATURE_DELTA,
+                                "signature": self._thinking_signature,
+                            },
+                        }
+                    )
+                self._open_thinking = False
+                self._thinking_input = ""
+                self._thinking_signature = None
+                self._thinking_parts.clear()
+                self._signature_seen = False
+
             if self._open_tool:
                 if not self._tool_parts:
                     events.append(
@@ -206,14 +297,19 @@ class StreamEncoder:
             delta_dict: dict[str, Any] = {"stop_reason": reason}
             if seq is not None:
                 delta_dict["stop_sequence"] = seq
+            usage = {
+                "input_tokens": ev.usage.input_tokens,
+                "output_tokens": ev.usage.output_tokens,
+            }
+            if ev.usage.cache_read_input_tokens is not None:
+                usage["cache_read_input_tokens"] = ev.usage.cache_read_input_tokens
+            if ev.usage.cache_creation_input_tokens is not None:
+                usage["cache_creation_input_tokens"] = ev.usage.cache_creation_input_tokens
             return [
                 {
                     "type": EVENT_TYPE_MESSAGE_DELTA,
                     "delta": delta_dict,
-                    "usage": {
-                        "input_tokens": ev.usage.input_tokens,
-                        "output_tokens": ev.usage.output_tokens,
-                    },
+                    "usage": usage,
                 }
             ], []
 

@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 34);
+    CHECK(rep_res->executed == 40);
     std::printf("test_chatcompletions: all %zu vectors passed\n", rep_res->executed);
     return 0;
 }

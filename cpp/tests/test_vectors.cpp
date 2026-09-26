@@ -56,6 +56,18 @@ public:
 };
 
 int main() {
+    // During the Spec 2.0 rollout, baseline 0.1.0 vectors compare against
+    // converters that correctly emit the current 0.2.0 IR contract.
+    {
+        auto expected = oxa::json::parse(R"({"specVersion":"0.1.0"})");
+        auto actual = oxa::json::parse(R"({"specVersion":"0.2.0"})");
+        CHECK(expected.ok() && actual.ok());
+        CHECK(oxa::vectest::compare_json(*expected, *actual).ok());
+        auto unsupported = oxa::json::parse(R"({"specVersion":"0.3.0"})");
+        CHECK(unsupported.ok());
+        CHECK(!oxa::vectest::compare_json(*actual, *unsupported).ok());
+    }
+
     ChatCompletionsConverter cc;
     AnthropicConverter ant;
     ResponsesConverter resp;
@@ -64,24 +76,39 @@ int main() {
     {
         auto r = oxa::vectest::run_nonstream(cc);
         CHECK_MSG(r.ok(), r.status().to_string());
+        if (!r->failures.empty()) {
+            for (const auto& f : r->failures) {
+                std::fprintf(stderr, "CC FAIL: %s: %s\n", f.vector_name.c_str(), f.message.c_str());
+            }
+        }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 34);
+        CHECK(r->executed == 40);
     }
 
     // 2. Anthropic nonstream
     {
         auto r = oxa::vectest::run_nonstream(ant);
         CHECK_MSG(r.ok(), r.status().to_string());
+        if (!r->failures.empty()) {
+            for (const auto& f : r->failures) {
+                std::fprintf(stderr, "ANT FAIL: %s: %s\n", f.vector_name.c_str(), f.message.c_str());
+            }
+        }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 31);
+        CHECK(r->executed == 36);
     }
 
     // 3. Responses nonstream
     {
         auto r = oxa::vectest::run_nonstream(resp);
         CHECK_MSG(r.ok(), r.status().to_string());
+        if (!r->failures.empty()) {
+            for (const auto& f : r->failures) {
+                std::fprintf(stderr, "RESP FAIL: %s: %s\n", f.vector_name.c_str(), f.message.c_str());
+            }
+        }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 41);
+        CHECK(r->executed == 45);
     }
 
     // 4. Cross-protocol nonstream
@@ -95,10 +122,10 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 12);
+        CHECK(r->executed == 15);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 
-    std::puts("test_vectors: all 117 nonstream vectors passed");
+    std::puts("test_vectors: all 136 nonstream vectors passed");
     return 0;
 }

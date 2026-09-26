@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Union
+from typing import Any
 
 from oxa.ir.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
+    DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
+    DELTA_TYPE_THINKING_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
     EVENT_TYPE_MESSAGE_DELTA,
     EVENT_TYPE_MESSAGE_DONE,
     EVENT_TYPE_MESSAGE_START,
+    ReasoningEffort,
 )
 
 # ---- Blocks ----------------------------------------------------------------
@@ -29,6 +33,15 @@ class TextBlock:
 
     text: str
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ThinkingBlock:
+    """Reasoning content with an optional opaque provider signature (spec/01 §3.4)."""
+
+    thinking: str
+    signature: str | None = None
+    type: str = field(default=BLOCK_TYPE_THINKING, init=False)
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,7 +81,7 @@ class ToolResultBlock:
     type: str = field(default=BLOCK_TYPE_TOOL_RESULT, init=False)
 
 
-Block = Union[TextBlock, ImageBlock, ToolUseBlock, ToolResultBlock]
+Block = TextBlock | ThinkingBlock | ImageBlock | ToolUseBlock | ToolResultBlock
 SystemBlock = TextBlock
 
 # ---- Request Components ---------------------------------------------------
@@ -116,6 +129,7 @@ class Params:
     top_p: float | None = None
     max_tokens: int | None = None
     stop_sequences: list[str] | None = None
+    reasoning_effort: ReasoningEffort | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,11 +149,29 @@ class Request:
 
 
 @dataclass(frozen=True, slots=True)
+class InputTokensDetails:
+    """Optional cached-input token breakdown (spec/01 §4.2)."""
+
+    cached_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
+class OutputTokensDetails:
+    """Optional reasoning-output token breakdown (spec/01 §4.2)."""
+
+    reasoning_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class Usage:
-    """Token counts (spec/01 §4.2)."""
+    """Token totals and optional provider-specific details (spec/01 §4.2)."""
 
     input_tokens: int = 0
     output_tokens: int = 0
+    cache_read_input_tokens: int | None = None
+    cache_creation_input_tokens: int | None = None
+    input_tokens_details: InputTokensDetails | None = None
+    output_tokens_details: OutputTokensDetails | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +208,23 @@ class InputJsonDelta:
     type: str = field(default=DELTA_TYPE_INPUT_JSON_DELTA, init=False)
 
 
-Delta = Union[TextDelta, InputJsonDelta]
+@dataclass(frozen=True, slots=True)
+class ThinkingDelta:
+    """A reasoning-text fragment (spec/01 §5.2)."""
+
+    text: str
+    type: str = field(default=DELTA_TYPE_THINKING_DELTA, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class SignatureDelta:
+    """An opaque provider signature fragment (spec/01 §5.2)."""
+
+    signature: str
+    type: str = field(default=DELTA_TYPE_SIGNATURE_DELTA, init=False)
+
+
+Delta = TextDelta | InputJsonDelta | ThinkingDelta | SignatureDelta
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,14 +279,14 @@ class MessageDone:
     type: str = field(default=EVENT_TYPE_MESSAGE_DONE, init=False)
 
 
-Event = Union[
-    MessageStart,
-    ContentBlockStart,
-    ContentBlockDelta,
-    ContentBlockStop,
-    MessageDelta,
-    MessageDone,
-]
+Event = (
+    MessageStart
+    | ContentBlockStart
+    | ContentBlockDelta
+    | ContentBlockStop
+    | MessageDelta
+    | MessageDone
+)
 
 
 @dataclass(frozen=True, slots=True)

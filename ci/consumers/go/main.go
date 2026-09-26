@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/elkpi/oxa/go/ir"
-	"github.com/elkpi/oxa/go/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 )
 
 func stringPtr(value string) *string { return &value }

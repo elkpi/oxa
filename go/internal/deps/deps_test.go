@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-const modulePath = "github.com/elkpi/oxa/go"
+const modulePath = "github.com/elkpi/oxa/go/v2"
 
 // spokePackages lists the face converter packages that exist today. The
 // Responses spoke joins when it lands (spec/00).

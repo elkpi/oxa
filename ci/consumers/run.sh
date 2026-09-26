@@ -3,10 +3,10 @@ set -euo pipefail
 
 ROOT=${OXA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 ROOT=$(cd "$ROOT" && pwd)
-VERSION=${OXA_VERSION:-1.0.1}
+VERSION=${OXA_VERSION:-2.0.0}
 CONSUMER_ONLY=${CONSUMER_ONLY:-all}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/oxa-consumers.XXXXXX")
-trap 'rm -rf "$TMP"' EXIT
+trap 'chmod -R +w "$TMP" 2>/dev/null || true; rm -rf "$TMP"' EXIT
 
 if [[ ! -f "$ROOT/go/go.mod" || ! -f "$ROOT/rust/Cargo.toml" || ! -f "$ROOT/python/pyproject.toml" || ! -f "$ROOT/cpp/CMakeLists.txt" ]]; then
     echo "consumer smoke: repository root is missing a language package" >&2
@@ -21,7 +21,7 @@ run_go_consumer() {
     command -v go >/dev/null
     local proxy="$TMP/go-proxy"
     local consumer="$TMP/go-consumer"
-    mkdir -p "$proxy/github.com/elkpi/oxa/go/@v" "$consumer"
+    mkdir -p "$proxy/github.com/elkpi/oxa/go/v2/@v" "$consumer"
     python3 - "$ROOT" "$proxy" "$VERSION" <<'PY'
 import json
 import pathlib
@@ -34,16 +34,16 @@ proxy = pathlib.Path(sys.argv[2])
 version = sys.argv[3]
 if not version.startswith("v"):
     version = "v" + version
-module = "github.com/elkpi/oxa/go"
+module = "github.com/elkpi/oxa/go/v2"
 files = subprocess.check_output(
     ["git", "-C", str(root), "ls-files", "go"], text=True
 ).splitlines()
 mod = (root / "go/go.mod").read_bytes()
-(proxy / "github.com/elkpi/oxa/go/@v" / f"{version}.mod").write_bytes(mod)
-(proxy / "github.com/elkpi/oxa/go/@v" / f"{version}.info").write_text(
+(proxy / "github.com/elkpi/oxa/go/v2/@v" / f"{version}.mod").write_bytes(mod)
+(proxy / "github.com/elkpi/oxa/go/v2/@v" / f"{version}.info").write_text(
     json.dumps({"Version": version, "Time": "2026-09-06T00:00:00Z"})
 )
-zip_path = proxy / "github.com/elkpi/oxa/go/@v" / f"{version}.zip"
+zip_path = proxy / "github.com/elkpi/oxa/go/v2/@v" / f"{version}.zip"
 with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
     prefix = f"{module}@{version}/"
     for file_name in files:
@@ -54,9 +54,9 @@ PY
     (
         cd "$consumer"
         go mod init oxa-consumer
-        GOPROXY="file://${proxy}|https://proxy.golang.org" GOSUMDB=off \
-            go get "github.com/elkpi/oxa/go@v${VERSION#v}"
-        GOPROXY="file://${proxy}|https://proxy.golang.org" GOSUMDB=off \
+        GOPROXY="file://${proxy}|https://proxy.golang.org" GOSUMDB=off GOPATH="$TMP/gopath" \
+            go get "github.com/elkpi/oxa/go/v2@v${VERSION#v}"
+        GOPROXY="file://${proxy}|https://proxy.golang.org" GOSUMDB=off GOPATH="$TMP/gopath" \
             go run .
     )
 }

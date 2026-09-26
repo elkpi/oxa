@@ -7,8 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/elkpi/oxa/go/ir"
-	"github.com/elkpi/oxa/go/modelmap"
+	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v2/modelmap"
 )
 
 func eventMessageStart(id, model string) *StreamEvent {

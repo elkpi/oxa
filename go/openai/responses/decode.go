@@ -3,7 +3,7 @@ package responses
 import (
 	"fmt"
 
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 func isValidReasoningEffort(effort string) bool {

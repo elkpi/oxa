@@ -6,10 +6,10 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/elkpi/oxa/go/anthropic/messages"
-	"github.com/elkpi/oxa/go/ir"
-	"github.com/elkpi/oxa/go/openai/chatcompletions"
-	"github.com/elkpi/oxa/go/openai/responses"
+	"github.com/elkpi/oxa/go/v2/anthropic/messages"
+	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v2/openai/responses"
 )
 
 // fakeCrossConverter is a programmable Converter for harness tests.

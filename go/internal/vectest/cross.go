@@ -3,7 +3,7 @@ package vectest
 import (
 	"testing"
 
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 // RunCross executes every nonstream cross-protocol vector whose source and

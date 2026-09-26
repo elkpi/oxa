@@ -1,6 +1,6 @@
 package responses
 
-import "github.com/elkpi/oxa/go/modelmap"
+import "github.com/elkpi/oxa/go/v2/modelmap"
 
 // options carries per-converter configuration. The package-level conversion
 // functions accept variadic Options; with none supplied the model table

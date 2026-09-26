@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/elkpi/oxa/go/anthropic/messages"
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/anthropic/messages"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 func ExampleDecodeRequest() {

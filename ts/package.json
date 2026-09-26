@@ -1,6 +1,6 @@
 {
   "name": "@elkpi/oxa",
-  "version": "1.0.1",
+  "version": "2.0.0",
   "description": "Pure in-process protocol conversion for OpenAI and Anthropic APIs.",
   "license": "Apache-2.0",
   "repository": {

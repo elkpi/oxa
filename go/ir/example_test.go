@@ -3,7 +3,7 @@ package ir_test
 import (
 	"fmt"
 
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 func ExampleRequest() {

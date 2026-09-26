@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 type fakeStreamConverter struct {

@@ -6,7 +6,7 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: v1.0.1 released.** The specification and golden vectors are shared
+**Status: v2.0.0 released.** The specification and golden vectors are shared
 across five implementations. All five languages (Go, TypeScript, Rust, Python,
 and C++) validate all 154 Spec 2.0 vectors.
 
@@ -55,23 +55,23 @@ without a corresponding vector update.
 
 | Language   | Directory | State             |
 | ---------- | --------- | ----------------- |
-| Go         | `go/`     | Usable (`v1.0.1`) |
-| TypeScript | `ts/`     | Usable (`v1.0.1`) |
-| Rust       | `rust/`   | Usable (`v1.0.1`) |
-| Python     | `python/` | Usable (`v1.0.1`) |
-| C++        | `cpp/`    | Usable (`v1.0.1`) |
+| Go         | `go/`     | Usable (`v2.0.0`) |
+| TypeScript | `ts/`     | Usable (`v2.0.0`) |
+| Rust       | `rust/`   | Usable (`v2.0.0`) |
+| Python     | `python/` | Usable (`v2.0.0`) |
+| C++        | `cpp/`    | Usable (`v2.0.0`) |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v1.0.1)
-ts/        TypeScript implementation (v1.0.1)
+go/        Go reference implementation (v2.0.0)
+ts/        TypeScript implementation (v2.0.0)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v1.0.1)
-python/    Python implementation (v1.0.1)
-cpp/       C++ implementation (v1.0.1)
+rust/      Rust implementation (v2.0.0)
+python/    Python implementation (v2.0.0)
+cpp/       C++ implementation (v2.0.0)
 ```
 
 ## Current capabilities
@@ -97,15 +97,15 @@ loss list describing what could not be carried
 Requires Go 1.23+. See [`go/README.md`](go/README.md) for package details.
 
 ```bash
-go get github.com/elkpi/oxa/go
+go get github.com/elkpi/oxa/go/v2
 ```
 
 Any face pair composes through the IR in two steps:
 
 ```go
 import (
-    messages "github.com/elkpi/oxa/go/anthropic/messages"
-    "github.com/elkpi/oxa/go/openai/chatcompletions"
+    messages "github.com/elkpi/oxa/go/v2/anthropic/messages"
+    "github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 )
 
 irReq, losses, err := chatcompletions.DecodeRequest(ccRequest)
@@ -129,7 +129,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `1.0.1`; its IR contract remains `specVersion: 0.1.0` and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `2.0.0`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

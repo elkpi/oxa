@@ -3,7 +3,7 @@ package messages
 import (
 	"fmt"
 
-	"github.com/elkpi/oxa/go/ir"
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 // defaultMaxTokens is applied when an IR request carries no Params.MaxTokens

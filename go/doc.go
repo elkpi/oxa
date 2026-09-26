@@ -20,13 +20,13 @@
 //
 // The oxa Go module is organized into the following packages:
 //
-//   - [github.com/elkpi/oxa/go/ir]: Owns the face-neutral intermediate representation, streaming event grammar, and loss types.
-//   - [github.com/elkpi/oxa/go/openai/chatcompletions]: Implements the OpenAI Chat Completions face (decoders, encoders, and streaming).
-//   - [github.com/elkpi/oxa/go/openai/responses]: Implements the OpenAI Responses API face.
-//   - [github.com/elkpi/oxa/go/anthropic/messages]: Implements the Anthropic Messages API face.
-//   - [github.com/elkpi/oxa/go/modelmap]: Implements optional, caller-supplied model name translation.
-//   - [github.com/elkpi/oxa/go/sse]: Standalone byte-level Server-Sent Events (SSE) framing adapter.
+//   - [github.com/elkpi/oxa/go/v2/ir]: Owns the face-neutral intermediate representation, streaming event grammar, and loss types.
+//   - [github.com/elkpi/oxa/go/v2/openai/chatcompletions]: Implements the OpenAI Chat Completions face (decoders, encoders, and streaming).
+//   - [github.com/elkpi/oxa/go/v2/openai/responses]: Implements the OpenAI Responses API face.
+//   - [github.com/elkpi/oxa/go/v2/anthropic/messages]: Implements the Anthropic Messages API face.
+//   - [github.com/elkpi/oxa/go/v2/modelmap]: Implements optional, caller-supplied model name translation.
+//   - [github.com/elkpi/oxa/go/v2/sse]: Standalone byte-level Server-Sent Events (SSE) framing adapter.
 package oxa
 
 // Version is the current release version of the oxa Go reference implementation.
-const Version = "1.0.1"
+const Version = "2.0.0"

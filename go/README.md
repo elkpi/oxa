@@ -1,6 +1,6 @@
 # oxa Go module
 
-Module path: `github.com/elkpi/oxa/go`.
+Module path: `github.com/elkpi/oxa/go/v2`.
 
 Go reference implementation of oxa pure protocol-conversion library.
 

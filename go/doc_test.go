@@ -5,14 +5,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/elkpi/oxa/go"
-	"github.com/elkpi/oxa/go/anthropic/messages"
-	"github.com/elkpi/oxa/go/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v2"
+	"github.com/elkpi/oxa/go/v2/anthropic/messages"
+	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 )
 
 func TestVersion(t *testing.T) {
-	if oxa.Version != "1.0.1" {
-		t.Errorf("oxa.Version = %q, want 1.0.1", oxa.Version)
+	if oxa.Version != "2.0.0" {
+		t.Errorf("oxa.Version = %q, want 2.0.0", oxa.Version)
 	}
 }
 

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/elkpi/oxa/go/ir"
-	"github.com/elkpi/oxa/go/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 )
 
 func ExampleDecodeRequest() {

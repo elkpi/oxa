@@ -70,7 +70,7 @@ for (const file of files) {
 const metadata = JSON.parse(
   readFileSync(path.join(packageRoot, "package.json"), "utf8"),
 );
-assert.equal(metadata.version, "1.0.1");
+assert.equal(metadata.version, "2.0.0");
 assert.equal(metadata.type, "module");
 assert.equal(metadata.main, "./dist/index.js");
 assert.equal(metadata.types, "./dist/index.d.ts");

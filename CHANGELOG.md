@@ -7,7 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v2.0.0] - 2026-09-26
+
 ### Added
+
+- **Spec 2.0.0 Coordinated Milestone Release**: Reasoning Content and Usage Granularity across all five reference implementations (Go, TypeScript, Rust, Python, C++), verified against all 154 golden vectors.
+  - IR contract version 0.2.0: first-class `ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` sealed variants. Dual-read compatibility accepting both `0.1.0` and `0.2.0`.
+  - Request reasoning effort: closed enum `minimal`, `low`, `medium`, `high` mapped across all faces.
+  - Granular usage: cache read/creation input tokens and token detail breakdowns (`input_tokens_details.cached_tokens`, `output_tokens_details.reasoning_tokens`), preserving absent vs. zero.
+  - M9 streaming profile (N-S-11): streaming reasoning deltas, opaque provider signature deltas, and lifecycle closures across OpenAI Chat Completions, OpenAI Responses, and Anthropic Messages spokes.
+  - Go (`github.com/elkpi/oxa/go/v2`): module path upgraded to `v2` with full semantic import versioning support.
+  - TypeScript (`@elkpi/oxa`): package updated to 2.0.0 with typed root and subpath exports.
+  - Rust (`elkpi-oxa`): workspace and 7 modular crates updated to 2.0.0.
+  - Python (`elkpi-oxa`): package updated to 2.0.0.
+  - C++ (`oxa`): CMake package updated to 2.0.0 with standard and `-fno-exceptions` support.
 
 - Python (Wave 4): Spec 2.0 reasoning content and usage granularity support.
   - Implemented `ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` across all spokes and IR codec/checker.
@@ -15,11 +28,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added granular usage accounting (`cache_read_input_tokens`, `cache_creation_input_tokens`, `input_tokens_details`, `output_tokens_details`).
   - Implemented M9 streaming reasoning and signature lifecycle events across Chat Completions, Responses, and Anthropic Messages spokes.
   - Verified against all 154 golden vectors.
+
 - C++ (Wave 5): Spec 2.0 reasoning content and usage granularity support under C++20 with `-fno-exceptions`.
   - Implemented `ThinkingBlock`, `ThinkingDelta`, and `SignatureDelta` across all spokes and IR codec/checker.
   - Added request `reasoning_effort` mapping, dual-read `specVersion` support, and granular usage details.
   - Implemented M9 streaming reasoning deltas and lifecycle closures across Chat Completions, Responses, and Anthropic Messages spokes.
   - Verified against all 154 golden vectors across standard and `-fno-exceptions` builds.
+
 - Multi-language convergence: all five implementations (Go, TypeScript, Rust, Python, and C++) now validate the full 154 Spec 2.0 golden vector suite.
 
 ## [v1.0.1] - 2026-09-17

@@ -1,9 +1,8 @@
 # oxa Rust implementation
 
-The Rust workspace package version remains **1.0.1** pending the coordinated
-Spec 2.0 release. Rust emits IR documents with `specVersion: 0.2.0` and accepts
-both `0.1.0` and `0.2.0`; implementation and IR contract versions are
-independent version axes.
+The Rust workspace package version is **2.0.0**. Rust emits IR documents
+with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
+and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
 oxa implementation — Rust gets no vector set of its own, and CI runs all 154

@@ -4,16 +4,16 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "1.0.1"
+version = "2.0.0"
 license = "Apache-2.0"
 repository = "https://github.com/elkpi/oxa"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value"] }
-oxa-ir = { version = "1.0.1", path = "crates/oxa-ir" }
-oxa-modelmap = { version = "1.0.1", path = "crates/oxa-modelmap" }
-oxa-chatcompletions = { version = "1.0.1", path = "crates/oxa-chatcompletions" }
-oxa-anthropic = { version = "1.0.1", path = "crates/oxa-anthropic" }
-oxa-responses = { version = "1.0.1", path = "crates/oxa-responses" }
-oxa-sse = { version = "1.0.1", path = "crates/oxa-sse" }
+oxa-ir = { version = "2.0.0", path = "crates/oxa-ir" }
+oxa-modelmap = { version = "2.0.0", path = "crates/oxa-modelmap" }
+oxa-chatcompletions = { version = "2.0.0", path = "crates/oxa-chatcompletions" }
+oxa-anthropic = { version = "2.0.0", path = "crates/oxa-anthropic" }
+oxa-responses = { version = "2.0.0", path = "crates/oxa-responses" }
+oxa-sse = { version = "2.0.0", path = "crates/oxa-sse" }

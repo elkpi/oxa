@@ -1,7 +1,7 @@
 # Spec 2.1 — Structured Outputs and Response Format (Design Document)
 
-Date: 2026-09-26  
-Status: APPROVED for planning.  
+Date: 2026-09-26
+Status: APPROVED for planning.
 
 ## 1. Problem Statement
 

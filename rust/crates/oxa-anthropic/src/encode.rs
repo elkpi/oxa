@@ -145,6 +145,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 "budget approximated",
             ));
         }
+        if params.response_format.is_some() {
+            losses.push(loss(
+                "params.response_format",
+                "response_format",
+                LossReason::UnmappedField,
+                "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
+            ));
+        }
     }
     Ok((out, losses))
 }

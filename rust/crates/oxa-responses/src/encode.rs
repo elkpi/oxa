@@ -2,7 +2,7 @@
 
 use oxa_ir::{
     Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    StopReason, Usage,
+    ResponseFormat, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -13,7 +13,7 @@ use crate::types::{
     ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input,
     InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire,
     PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response, STATUS_COMPLETED,
-    STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, ToolDef, UsageWire,
+    STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, TextParams, ToolDef, UsageWire,
 };
 
 /// Converts an IR request to a Responses wire request (IR → face). System
@@ -106,6 +106,40 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             };
             serde_json::json!({ "effort": effort })
         });
+        if let Some(rf) = &params.response_format {
+            let format_val = match rf {
+                ResponseFormat::Text => serde_json::json!({ "type": "text" }),
+                ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
+                ResponseFormat::JsonSchema {
+                    name,
+                    description,
+                    schema,
+                    strict,
+                } => {
+                    let mut obj = serde_json::Map::new();
+                    obj.insert(
+                        "type".to_string(),
+                        serde_json::Value::String("json_schema".to_string()),
+                    );
+                    obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
+                    if let Some(desc) = description {
+                        obj.insert(
+                            "description".to_string(),
+                            serde_json::Value::String(desc.clone()),
+                        );
+                    }
+                    obj.insert("schema".to_string(), schema.clone());
+                    if let Some(s) = strict {
+                        obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
+                    }
+                    serde_json::Value::Object(obj)
+                }
+            };
+            out.text = Some(TextParams {
+                verbosity: None,
+                format: Some(format_val),
+            });
+        }
         if params
             .stop_sequences
             .as_ref()

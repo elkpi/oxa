@@ -138,6 +138,7 @@ fn tool_choice_named_requires_a_name() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            response_format: None,
         }),
         metadata: None,
     };
@@ -217,6 +218,7 @@ fn single_text_message_renders_the_string_shorthand() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            response_format: None,
         }),
         metadata: None,
     };
@@ -281,6 +283,7 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            response_format: None,
         }),
         metadata: None,
     };
@@ -399,6 +402,7 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::Minimal),
+            response_format: None,
         }),
         metadata: None,
     };

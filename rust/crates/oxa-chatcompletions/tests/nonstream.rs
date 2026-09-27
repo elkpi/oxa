@@ -164,6 +164,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::High),
+            response_format: None,
         }),
         metadata: None,
     };

@@ -2,7 +2,7 @@
 
 use oxa_ir::{
     Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    StopReason, Usage,
+    ResponseFormat, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -154,8 +154,41 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
             .to_string()
         });
+        if let Some(rf) = &params.response_format {
+            out.response_format = Some(encode_response_format(rf));
+        }
     }
     Ok((out, losses))
+}
+
+fn encode_response_format(rf: &ResponseFormat) -> serde_json::Value {
+    match rf {
+        ResponseFormat::Text => serde_json::json!({ "type": "text" }),
+        ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
+        ResponseFormat::JsonSchema {
+            name,
+            description,
+            schema,
+            strict,
+        } => {
+            let mut inner = serde_json::Map::new();
+            inner.insert("name".to_string(), serde_json::Value::String(name.clone()));
+            if let Some(desc) = description {
+                inner.insert(
+                    "description".to_string(),
+                    serde_json::Value::String(desc.clone()),
+                );
+            }
+            inner.insert("schema".to_string(), schema.clone());
+            if let Some(s) = strict {
+                inner.insert("strict".to_string(), serde_json::Value::Bool(*s));
+            }
+            serde_json::json!({
+                "type": "json_schema",
+                "json_schema": serde_json::Value::Object(inner)
+            })
+        }
+    }
 }
 
 fn non_null(value: &serde_json::Value) -> Option<serde_json::Value> {

@@ -128,7 +128,10 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                             serde_json::Value::String(desc.clone()),
                         );
                     }
-                    obj.insert("schema".to_string(), schema.clone());
+                    obj.insert(
+                        "schema".to_string(),
+                        serde_json::Value::Object(schema.clone()),
+                    );
                     if let Some(s) = strict {
                         obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
                     }

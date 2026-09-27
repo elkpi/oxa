@@ -179,7 +179,10 @@ fn encode_response_format(rf: &ResponseFormat) -> serde_json::Value {
                     serde_json::Value::String(desc.clone()),
                 );
             }
-            inner.insert("schema".to_string(), schema.clone());
+            inner.insert(
+                "schema".to_string(),
+                serde_json::Value::Object(schema.clone()),
+            );
             if let Some(s) = strict {
                 inner.insert("strict".to_string(), serde_json::Value::Bool(*s));
             }

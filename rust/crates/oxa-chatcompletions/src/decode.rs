@@ -281,7 +281,7 @@ fn decode_response_format(
             Ok(Some(ResponseFormat::JsonSchema {
                 name: name.clone(),
                 description,
-                schema: schema.clone(),
+                schema: schema.as_object().cloned().unwrap_or_default(),
                 strict,
             }))
         }

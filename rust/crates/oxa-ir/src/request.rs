@@ -2,7 +2,7 @@
 //! with explicit `serde(rename)` so no rename-rule inference is involved.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// A conversation to be sent to a model, face-neutral (spec/01 §3.1).
@@ -210,7 +210,7 @@ pub enum ResponseFormat {
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
-        schema: serde_json::Value,
+        schema: Map<String, Value>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         strict: Option<bool>,
     },

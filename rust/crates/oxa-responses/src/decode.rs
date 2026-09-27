@@ -246,7 +246,15 @@ fn decode_text_format(
                 .get("description")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let strict = map.get("strict").and_then(|v| v.as_bool());
+            let strict = match map.get("strict") {
+                Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
+                Some(_) => {
+                    return Err(Error::new(
+                        "responses: text.format strict must be a boolean",
+                    ));
+                }
+                None => None,
+            };
             Ok(Some(ResponseFormat::JsonSchema {
                 name: name.clone(),
                 description,

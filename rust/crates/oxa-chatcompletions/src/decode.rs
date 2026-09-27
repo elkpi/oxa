@@ -264,7 +264,15 @@ fn decode_response_format(
                 .get("description")
                 .and_then(|v| v.as_str())
                 .map(|s| s.to_string());
-            let strict = schema_obj.get("strict").and_then(|v| v.as_bool());
+            let strict = match schema_obj.get("strict") {
+                Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
+                Some(_) => {
+                    return Err(Error::new(
+                        "chatcompletions: response_format.json_schema strict must be a boolean",
+                    ));
+                }
+                None => None,
+            };
             Ok(Some(ResponseFormat::JsonSchema {
                 name: name.clone(),
                 description,

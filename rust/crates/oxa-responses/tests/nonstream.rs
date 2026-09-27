@@ -94,6 +94,28 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
 }
 
 #[test]
+fn text_format_rejects_non_boolean_strict() {
+    let wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "input": "json",
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "result",
+                "schema": { "type": "object" },
+                "strict": "false"
+            }
+        }
+    }))
+    .expect("wire request deserializes");
+    let err = decode_request(&wire, &Config::default()).expect_err("strict must be boolean");
+    assert!(
+        err.to_string().contains("strict must be a boolean"),
+        "{err}"
+    );
+}
+
+#[test]
 fn decodes_request_reasoning_items_and_effort() {
     let wire = Request {
         model: "o3-mini".to_string(),

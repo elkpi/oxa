@@ -260,10 +260,15 @@ fn decode_response_format(
                     "chatcompletions: response_format.json_schema schema must be an object",
                 ));
             }
-            let description = schema_obj
-                .get("description")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+            let description = match schema_obj.get("description") {
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| Error::new("chatcompletions: response_format.json_schema description must be a string"))?
+                        .to_string(),
+                ),
+                None => None,
+            };
             let strict = match schema_obj.get("strict") {
                 Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
                 Some(_) => {

@@ -242,10 +242,17 @@ fn decode_text_format(
                     "responses: text.format schema must be an object",
                 ));
             }
-            let description = map
-                .get("description")
-                .and_then(|v| v.as_str())
-                .map(|s| s.to_string());
+            let description = match map.get("description") {
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| {
+                            Error::new("responses: text.format description must be a string")
+                        })?
+                        .to_string(),
+                ),
+                None => None,
+            };
             let strict = match map.get("strict") {
                 Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
                 Some(_) => {

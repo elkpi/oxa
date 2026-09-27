@@ -103,6 +103,27 @@ fn response_format_rejects_non_boolean_strict() {
 }
 
 #[test]
+fn response_format_rejects_non_string_description() {
+    let wire = wire_request(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "json" }],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "result",
+                "description": 17,
+                "schema": { "type": "object" }
+            }
+        }
+    }));
+    let err = decode_request(&wire, &Config::default()).expect_err("description must be string");
+    assert!(
+        err.to_string().contains("description must be a string"),
+        "{err}"
+    );
+}
+
+#[test]
 fn decodes_reasoning_content_and_effort() {
     let wire = wire_request(serde_json::json!({
         "model": "o3-mini",

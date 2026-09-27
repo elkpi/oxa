@@ -2,6 +2,7 @@ package ir
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -177,6 +178,26 @@ func TestResponseFormatCodec(t *testing.T) {
 	again := mustRequestDoc(t, back)
 	if string(doc) != string(again) {
 		t.Fatalf("response_format round-trip mismatch:\nfirst:  %s\nsecond: %s", doc, again)
+	}
+}
+
+func TestUnmarshalRequestRejectsMalformedResponseFormat(t *testing.T) {
+	cases := []struct {
+		name   string
+		format string
+	}{
+		{"missing name", `{"type":"json_schema","schema":{"type":"object"}}`},
+		{"missing schema", `{"type":"json_schema","name":"result"}`},
+		{"non-object schema", `{"type":"json_schema","name":"result","schema":null}`},
+		{"unknown type", `{"type":"yaml"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document := fmt.Sprintf(`{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"params":{"response_format":%s}}`, tc.format)
+			if _, err := UnmarshalRequest([]byte(document)); err == nil {
+				t.Fatalf("expected malformed response_format to be rejected: %s", tc.format)
+			}
+		})
 	}
 }
 

@@ -229,7 +229,7 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("responses: text.format of type json_schema requires schema")
 		}
 		var obj map[string]any
-		if err := json.Unmarshal(wire.Schema, &obj); err != nil {
+		if err := json.Unmarshal(wire.Schema, &obj); err != nil || obj == nil {
 			return nil, nil, fmt.Errorf("responses: text.format schema must be a JSON object")
 		}
 		return &ir.ResponseFormat{

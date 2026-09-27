@@ -208,11 +208,43 @@ type wireParams struct {
 	ResponseFormat  *wireResponseFormat `json:"response_format,omitempty"`
 }
 
+func validateWireResponseFormat(rf *wireResponseFormat) error {
+	if rf == nil {
+		return nil
+	}
+	switch rf.Type {
+	case "text", "json_object":
+		return nil
+	case "json_schema":
+		if rf.Name == "" {
+			return fmt.Errorf("params.response_format json_schema requires non-empty name")
+		}
+		if len(rf.Schema) == 0 {
+			return fmt.Errorf("params.response_format json_schema requires schema")
+		}
+		var schema map[string]json.RawMessage
+		if err := json.Unmarshal(rf.Schema, &schema); err != nil || schema == nil {
+			return fmt.Errorf("params.response_format json_schema schema must be an object")
+		}
+		return nil
+	default:
+		return fmt.Errorf("invalid params.response_format type %q", rf.Type)
+	}
+}
+
 // MarshalRequest renders a Request as a canonical IR document, stamping
 // specVersion.
 func MarshalRequest(req *Request) ([]byte, error) {
 	if req == nil {
 		return nil, fmt.Errorf("ir: nil request")
+	}
+	if req.Params.ResponseFormat != nil {
+		rf := req.Params.ResponseFormat
+		if err := validateWireResponseFormat(&wireResponseFormat{
+			Type: rf.Type, Name: rf.Name, Description: rf.Description, Schema: rf.Schema, Strict: rf.Strict,
+		}); err != nil {
+			return nil, err
+		}
 	}
 	system := make([]wireTextBlock, 0, len(req.System))
 	for _, s := range req.System {
@@ -274,6 +306,11 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 	}
 	if err := checkSpecVersion(w.SpecVersion); err != nil {
 		return nil, err
+	}
+	if w.Params != nil {
+		if err := validateWireResponseFormat(w.Params.ResponseFormat); err != nil {
+			return nil, err
+		}
 	}
 	req := &Request{Model: w.Model, Metadata: w.Metadata}
 	for _, s := range w.System {

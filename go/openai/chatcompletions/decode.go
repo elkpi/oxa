@@ -172,7 +172,7 @@ func decodeResponseFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("chatcompletions: response_format.json_schema requires schema")
 		}
 		var obj map[string]any
-		if err := json.Unmarshal(wire.JSONSchema.Schema, &obj); err != nil {
+		if err := json.Unmarshal(wire.JSONSchema.Schema, &obj); err != nil || obj == nil {
 			return nil, nil, fmt.Errorf("chatcompletions: response_format.json_schema schema must be a JSON object")
 		}
 		return &ir.ResponseFormat{

@@ -49,6 +49,21 @@ func TestTextFormat(t *testing.T) {
 	}
 }
 
+func TestTextFormatRejectsNullSchema(t *testing.T) {
+	wire := &Request{
+		Model: "gpt-4o",
+		Input: Input{Text: ptr("json")},
+		Text: &TextParams{Format: &TextFormatWire{
+			Type:   "json_schema",
+			Name:   "result",
+			Schema: json.RawMessage("null"),
+		}},
+	}
+	if _, _, err := DecodeRequest(wire); err == nil {
+		t.Fatal("expected null text.format.schema to be rejected")
+	}
+}
+
 func TestDecodeRequestInstructionsAndSystemOrdering(t *testing.T) {
 	wire := &Request{
 		Model:        "gpt-4o-mini",

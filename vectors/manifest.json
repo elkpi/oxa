@@ -680,7 +680,7 @@
         "response_format",
         "n-cc-13"
       ],
-      "sha256": "f450ef564ba8849688e4578babd8fe3a112811eb854385ac3bf441a8058dcc90"
+      "sha256": "69f792698707965dc086e130c1126542ce21790aa8926833f0707daa82a2a8b0"
     },
     {
       "name": "chatcompletions.nonstream.response-format-json-schema-request-to-ir",
@@ -691,7 +691,7 @@
         "response_format",
         "n-cc-13"
       ],
-      "sha256": "39e5ea41a874dbe85308e8288273b95a5d9342885fd45e092fe806adb7ba0000"
+      "sha256": "bd11315fb98d71a26cbd19280da3b038e5e78e4d7f5a09ace9bd2bb05ab0e893"
     },
     {
       "name": "chatcompletions.nonstream.specversion-010-from-ir",

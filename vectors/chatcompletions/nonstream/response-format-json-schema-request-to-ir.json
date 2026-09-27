@@ -22,7 +22,7 @@
           "required": ["name", "age"],
           "additionalProperties": false
         },
-        "strict": true
+        "strict": false
       }
     }
   },
@@ -46,7 +46,7 @@
           "required": ["name", "age"],
           "additionalProperties": false
         },
-        "strict": true
+        "strict": false
       }
     }
   },

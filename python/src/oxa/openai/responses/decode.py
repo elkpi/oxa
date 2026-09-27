@@ -295,11 +295,13 @@ def decode_text_format(value: Any, losses: list[Loss]) -> ResponseFormat | None:
             raise ValueError("responses: text.format of type json_schema requires schema object")
         desc = value.get("description")
         strict = value.get("strict")
+        if strict is not None and not isinstance(strict, bool):
+            raise ValueError("responses: text.format.strict must be a boolean")
         return ResponseFormatJsonSchema(
             name=name,
             schema=schema,
             description=str(desc) if desc is not None else None,
-            strict=bool(strict) if strict is not None else None,
+            strict=strict,
         )
     losses.append(
         loss(

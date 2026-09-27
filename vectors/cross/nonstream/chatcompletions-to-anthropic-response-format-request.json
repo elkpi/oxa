@@ -1,0 +1,28 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-anthropic-response-format-request",
+  "description": "Cross-protocol: Chat Completions request with response_format json_object converts to Anthropic with unmapped-field loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Extract data as JSON." }],
+    "max_tokens": 1024,
+    "response_format": { "type": "json_object" }
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Extract data as JSON." }],
+    "max_tokens": 1024
+  },
+  "expected_losses": [
+    {
+      "path": "params.response_format",
+      "field": "response_format",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": ["cross", "request", "params", "response_format", "loss"]
+}

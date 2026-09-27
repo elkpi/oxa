@@ -1,0 +1,51 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-responses-response-format-request",
+  "description": "Cross-protocol: Chat Completions request with response_format json_schema converts loss-free to Responses text.format through the IR.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Extract user info." }],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "user_info",
+        "description": "User profile schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    }
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "input": "Extract user info.",
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "user_info",
+        "description": "User profile schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["cross", "request", "params", "response_format"]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "responses.nonstream.text-format-json-schema-request-from-ir",
+  "description": "IR params.response_format json_schema renders as Responses text.format (N-R-14).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Extract user info." }] }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "user_info",
+        "description": "User profile schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    }
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "input": "Extract user info.",
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "user_info",
+        "description": "User profile schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "name": { "type": "string" }
+          },
+          "required": ["name"],
+          "additionalProperties": false
+        },
+        "strict": true
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["params", "request", "response_format", "n-r-14"]
+}

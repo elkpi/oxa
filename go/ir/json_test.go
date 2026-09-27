@@ -138,6 +138,48 @@ func TestRequestOmitsEmptyOptionals(t *testing.T) {
 	}
 }
 
+func TestResponseFormatCodec(t *testing.T) {
+	strictTrue := true
+	req := &Request{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "Extract user"}}},
+		},
+		Params: Params{
+			ResponseFormat: &ResponseFormat{
+				Type:        ResponseFormatJSONSchema,
+				Name:        "user_info",
+				Description: "User info schema",
+				Schema:      json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+				Strict:      &strictTrue,
+			},
+		},
+	}
+	doc := mustRequestDoc(t, req)
+	back, err := UnmarshalRequest(doc)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Params.ResponseFormat == nil {
+		t.Fatalf("expected response_format in params, got nil")
+	}
+	rf := back.Params.ResponseFormat
+	if rf.Type != ResponseFormatJSONSchema || rf.Name != "user_info" || rf.Description != "User info schema" {
+		t.Errorf("mismatched response_format fields: %+v", rf)
+	}
+	if string(rf.Schema) != string(req.Params.ResponseFormat.Schema) {
+		t.Errorf("schema mismatch: got %s, want %s", rf.Schema, req.Params.ResponseFormat.Schema)
+	}
+	if rf.Strict == nil || *rf.Strict != true {
+		t.Errorf("strict mismatch: got %v", rf.Strict)
+	}
+
+	again := mustRequestDoc(t, back)
+	if string(doc) != string(again) {
+		t.Fatalf("response_format round-trip mismatch:\nfirst:  %s\nsecond: %s", doc, again)
+	}
+}
+
 func TestResponseRoundTrip(t *testing.T) {
 	doc := mustResponseDoc(t, sampleResponse())
 	back, err := UnmarshalResponse(doc)

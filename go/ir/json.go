@@ -191,12 +191,21 @@ type wireToolChoice struct {
 	Name string `json:"name,omitempty"`
 }
 
+type wireResponseFormat struct {
+	Type        string          `json:"type"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
+	Strict      *bool           `json:"strict,omitempty"`
+}
+
 type wireParams struct {
-	Temperature     *float64 `json:"temperature,omitempty"`
-	TopP            *float64 `json:"top_p,omitempty"`
-	MaxTokens       *int64   `json:"max_tokens,omitempty"`
-	StopSequences   []string `json:"stop_sequences,omitempty"`
-	ReasoningEffort string   `json:"reasoning_effort,omitempty"`
+	Temperature     *float64            `json:"temperature,omitempty"`
+	TopP            *float64            `json:"top_p,omitempty"`
+	MaxTokens       *int64              `json:"max_tokens,omitempty"`
+	StopSequences   []string            `json:"stop_sequences,omitempty"`
+	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *wireResponseFormat `json:"response_format,omitempty"`
 }
 
 // MarshalRequest renders a Request as a canonical IR document, stamping
@@ -233,6 +242,15 @@ func MarshalRequest(req *Request) ([]byte, error) {
 			MaxTokens:       req.Params.MaxTokens,
 			StopSequences:   req.Params.StopSequences,
 			ReasoningEffort: req.Params.ReasoningEffort,
+		}
+		if req.Params.ResponseFormat != nil {
+			params.ResponseFormat = &wireResponseFormat{
+				Type:        req.Params.ResponseFormat.Type,
+				Name:        req.Params.ResponseFormat.Name,
+				Description: req.Params.ResponseFormat.Description,
+				Schema:      req.Params.ResponseFormat.Schema,
+				Strict:      req.Params.ResponseFormat.Strict,
+			}
 		}
 	}
 	return json.Marshal(wireRequest{
@@ -281,6 +299,15 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 			MaxTokens:       w.Params.MaxTokens,
 			StopSequences:   w.Params.StopSequences,
 			ReasoningEffort: w.Params.ReasoningEffort,
+		}
+		if w.Params.ResponseFormat != nil {
+			req.Params.ResponseFormat = &ResponseFormat{
+				Type:        w.Params.ResponseFormat.Type,
+				Name:        w.Params.ResponseFormat.Name,
+				Description: w.Params.ResponseFormat.Description,
+				Schema:      w.Params.ResponseFormat.Schema,
+				Strict:      w.Params.ResponseFormat.Strict,
+			}
 		}
 	}
 	return req, nil

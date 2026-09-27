@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT=${OXA_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}
 ROOT=$(cd "$ROOT" && pwd)
-VERSION=${OXA_VERSION:-2.0.0}
+VERSION=${OXA_VERSION:-2.1.0}
 CONSUMER_ONLY=${CONSUMER_ONLY:-all}
 TMP=$(mktemp -d "${TMPDIR:-/tmp}/oxa-consumers.XXXXXX")
 trap 'chmod -R +w "$TMP" 2>/dev/null || true; rm -rf "$TMP"' EXIT

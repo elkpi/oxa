@@ -54,37 +54,39 @@ without a corresponding vector update.
 
 ## Language matrix
 
-| Language   | Directory | State             |
-| ---------- | --------- | ----------------- |
-| Go         | `go/`     | Usable (`v2.0.0`) |
-| TypeScript | `ts/`     | Usable (`v2.0.0`) |
-| Rust       | `rust/`   | Usable (`v2.0.0`) |
-| Python     | `python/` | Usable (`v2.0.0`) |
-| C++        | `cpp/`    | Usable (`v2.0.0`) |
+| Language   | Directory | Source status                  |
+| ---------- | --------- | ------------------------------ |
+| Go         | `go/`     | v2.1.0 prepared; v2.0.0 public |
+| TypeScript | `ts/`     | v2.1.0 prepared; v2.0.0 public |
+| Rust       | `rust/`   | v2.1.0 prepared; v2.0.0 public |
+| Python     | `python/` | v2.1.0 prepared; v2.0.0 public |
+| C++        | `cpp/`    | v2.1.0 prepared; v2.0.0 public |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.0.0)
-ts/        TypeScript implementation (v2.0.0)
+go/        Go reference implementation (v2.1.0 prepared)
+ts/        TypeScript implementation (v2.1.0 prepared)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.0.0)
-python/    Python implementation (v2.0.0)
-cpp/       C++ implementation (v2.0.0)
+rust/      Rust implementation (v2.1.0 prepared)
+python/    Python implementation (v2.1.0 prepared)
+cpp/       C++ implementation (v2.1.0 prepared)
 ```
 
 ## Current capabilities
 
-The Go, TypeScript, Rust, Python, and C++ Spec 2.0 implementations convert
-between each protocol face and a shared intermediate representation (IR).
+The current source tree implements Spec 2.1.0 across Go, TypeScript, Rust,
+Python, and C++, converting each protocol face through a shared intermediate
+representation (IR). The coordinated v2.1.0 package release is prepared but
+not yet published.
 
-| Conversion              | Nonstream                                             | Streaming                                                   |
-| ----------------------- | ----------------------------------------------------- | ----------------------------------------------------------- |
-| Chat Completions ↔ IR   | requests and responses (reasoning + granular usage)   | text + thinking/signature events + `tool_calls` aggregation |
-| Responses ↔ IR          | requests and responses (reasoning + granular usage)   | text + thinking/signature events + function-call aggregation |
-| Anthropic Messages ↔ IR | requests and responses (thinking + granular usage)    | text + thinking/signature events + `input_json_delta` aggregation |
+| Conversion              | Nonstream                                                                  | Streaming                                                   |
+| ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Chat Completions ↔ IR   | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + `tool_calls` aggregation |
+| Responses ↔ IR          | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + function-call aggregation |
+| Anthropic Messages ↔ IR | requests and responses (thinking, usage; structured formats reported lost) | text + thinking/signature events + `input_json_delta` aggregation |
 | Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`)            |
 
 Semantic gaps are never silent: every conversion also returns an ordered
@@ -130,7 +132,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; library version `2.0.0`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.0.0` with `2.1.0` prepared in source; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

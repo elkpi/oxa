@@ -236,6 +236,40 @@ class CodecTest(unittest.TestCase):
         self.assertEqual(out["params"].get("max_tokens"), 0)
         self.assertNotIn("temperature", out["params"])
 
+    def test_response_format_rejects_non_boolean_strict(self) -> None:
+        raw = {
+            "specVersion": "0.2.0",
+            "model": "m",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+            "params": {
+                "response_format": {
+                    "type": "json_schema",
+                    "name": "result",
+                    "schema": {"type": "object"},
+                    "strict": "false",
+                }
+            },
+        }
+        with self.assertRaises(CodecError):
+            load_request(raw)
+
+    def test_response_format_rejects_non_string_description(self) -> None:
+        raw = {
+            "specVersion": "0.2.0",
+            "model": "m",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+            "params": {
+                "response_format": {
+                    "type": "json_schema",
+                    "name": "result",
+                    "description": 17,
+                    "schema": {"type": "object"},
+                }
+            },
+        }
+        with self.assertRaises(CodecError):
+            load_request(raw)
+
     def test_loss_round_trip(self) -> None:
         loss = Loss(
             path="messages[0].content[1]",

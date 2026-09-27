@@ -1,0 +1,28 @@
+{
+  "name": "chatcompletions.nonstream.response-format-json-object-request-from-ir",
+  "description": "IR params.response_format json_object renders as Chat Completions response_format (N-CC-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Extract data as JSON." }] }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_object"
+      }
+    }
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "messages": [{ "role": "user", "content": "Extract data as JSON." }],
+    "response_format": { "type": "json_object" }
+  },
+  "expected_losses": [],
+  "tags": ["params", "request", "response_format", "n-cc-13"]
+}

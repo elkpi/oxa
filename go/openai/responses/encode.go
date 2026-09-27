@@ -93,7 +93,35 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.Params.ReasoningEffort != "" {
 		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
 	}
+	if req.Params.ResponseFormat != nil {
+		if out.Text == nil {
+			out.Text = &TextParams{}
+		}
+		out.Text.Format = encodeTextFormat(req.Params.ResponseFormat)
+	}
 	return out, losses, nil
+}
+
+func encodeTextFormat(rf *ir.ResponseFormat) *TextFormatWire {
+	if rf == nil {
+		return nil
+	}
+	switch rf.Type {
+	case ir.ResponseFormatText:
+		return &TextFormatWire{Type: "text"}
+	case ir.ResponseFormatJSONObject:
+		return &TextFormatWire{Type: "json_object"}
+	case ir.ResponseFormatJSONSchema:
+		return &TextFormatWire{
+			Type:        "json_schema",
+			Name:        rf.Name,
+			Description: rf.Description,
+			Schema:      rf.Schema,
+			Strict:      rf.Strict,
+		}
+	default:
+		return &TextFormatWire{Type: rf.Type}
+	}
 }
 
 // encodeUserMessage renders one IR user message as input items: tool results

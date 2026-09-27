@@ -125,6 +125,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         max_tokens: Some(wire.max_tokens),
         stop_sequences: stop,
         reasoning_effort,
+        response_format: None,
     };
     req.params = Some(params);
     Ok((req, losses))

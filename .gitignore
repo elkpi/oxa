@@ -17,6 +17,7 @@ coverage.html
 .idea/
 .vscode/
 .worktrees/
+.superpowers/
 .DS_Store
 *.swp
 *.swo

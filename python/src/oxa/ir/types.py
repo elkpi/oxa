@@ -119,6 +119,36 @@ class ToolChoice:
 
 
 @dataclass(frozen=True, slots=True)
+class ResponseFormatText:
+    """Explicit unstructured text generation."""
+
+    type: str = field(default="text", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseFormatJsonObject:
+    """Unconstrained JSON object output (JSON mode)."""
+
+    type: str = field(default="json_object", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ResponseFormatJsonSchema:
+    """Constrained JSON schema output."""
+
+    name: str
+    schema: dict[str, Any]
+    description: str | None = None
+    strict: bool | None = None
+    type: str = field(default="json_schema", init=False)
+
+
+ResponseFormat = (
+    ResponseFormatText | ResponseFormatJsonObject | ResponseFormatJsonSchema
+)
+
+
+@dataclass(frozen=True, slots=True)
 class Params:
     """Sampling parameters (spec/01 §3.7).
 
@@ -130,6 +160,7 @@ class Params:
     max_tokens: int | None = None
     stop_sequences: list[str] | None = None
     reasoning_effort: ReasoningEffort | None = None
+    response_format: ResponseFormat | None = None
 
 
 @dataclass(frozen=True, slots=True)

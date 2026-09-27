@@ -10,6 +10,52 @@ ir::Loss make_resp_loss(std::string path, std::string field, std::string_view re
     return ir::make_loss(std::move(path), std::move(field), reason, std::move(detail));
 }
 
+StatusOr<std::optional<ir::ResponseFormat>> decode_text_format(
+    const json::Value& value, std::vector<ir::Loss>& losses) {
+    if (!value.is_object()) return invalid_argument("responses: text.format must be an object");
+    const auto* type = value.find("type");
+    if (type == nullptr || !type->is_string()) {
+        return invalid_argument("responses: text.format requires string type");
+    }
+    const auto& kind = type->as_string();
+    if (kind == "text") {
+        ir::ResponseFormat format;
+        format.type = "text";
+        return std::optional<ir::ResponseFormat>(std::move(format));
+    }
+    if (kind == "json_object") {
+        ir::ResponseFormat format;
+        format.type = "json_object";
+        return std::optional<ir::ResponseFormat>(std::move(format));
+    }
+    if (kind != "json_schema") {
+        losses.push_back(make_resp_loss("text.format.type", "type", ir::LOSS_UNMAPPED_VALUE,
+                                        "unknown text.format type \"" + kind + "\""));
+        return std::optional<ir::ResponseFormat>{};
+    }
+    const auto* name = value.find("name");
+    if (name == nullptr || !name->is_string() || name->as_string().empty()) {
+        return invalid_argument("responses: text.format json_schema requires non-empty name");
+    }
+    const auto* schema = value.find("schema");
+    if (schema == nullptr || !schema->is_object()) {
+        return invalid_argument("responses: text.format json_schema requires schema object");
+    }
+    ir::ResponseFormat format;
+    format.type = "json_schema";
+    format.name = name->as_string();
+    format.schema = *schema;
+    if (const auto* description = value.find("description"); description != nullptr) {
+        if (!description->is_string()) return invalid_argument("responses: text.format description must be a string");
+        format.description = description->as_string();
+    }
+    if (const auto* strict = value.find("strict"); strict != nullptr) {
+        if (!strict->is_bool()) return invalid_argument("responses: text.format strict must be a boolean");
+        format.strict = strict->as_bool();
+    }
+    return std::optional<ir::ResponseFormat>(std::move(format));
+}
+
 bool is_valid_https_url(std::string_view raw) {
     constexpr std::string_view kPrefix = "https://";
     if (!raw.starts_with(kPrefix)) return false;
@@ -220,10 +266,6 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
         if (txt->find("verbosity") != nullptr) {
             losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD,
                                             "Responses output verbosity has no IR equivalent in v1."));
-        }
-        if (txt->find("format") != nullptr) {
-            losses.push_back(make_resp_loss("text.format", "format", ir::LOSS_UNMAPPED_FIELD,
-                                            "Responses text output format has no IR equivalent in v1."));
         }
     }
     if (wire.find("parallel_tool_calls") != nullptr) {
@@ -484,6 +526,15 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
             }
         }
     }
+    if (const auto* text = wire.find("text"); text != nullptr && text->is_object()) {
+        if (const auto* format = text->find("format"); format != nullptr) {
+            OXA_ASSIGN_OR_RETURN(auto decoded_format, decode_text_format(*format, losses));
+            if (decoded_format.has_value()) {
+                params.response_format = std::move(*decoded_format);
+                has_params = true;
+            }
+        }
+    }
     if (has_params) req.params = std::move(params);
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
@@ -697,6 +748,22 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             json::Value reasoning = json::Value::object();
             reasoning.set("effort", json::Value::string(*p.reasoning_effort));
             out.set("reasoning", std::move(reasoning));
+        }
+        if (p.response_format.has_value()) {
+            const auto& rf = *p.response_format;
+            json::Value format = json::Value::object();
+            format.set("type", json::Value::string(rf.type));
+            if (rf.type == "json_schema") {
+                format.set("name", json::Value::string(rf.name));
+                if (rf.description.has_value()) {
+                    format.set("description", json::Value::string(*rf.description));
+                }
+                if (rf.schema.has_value()) format.set("schema", *rf.schema);
+                if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
+            }
+            json::Value text = json::Value::object();
+            text.set("format", std::move(format));
+            out.set("text", std::move(text));
         }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(

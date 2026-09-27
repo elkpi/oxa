@@ -25,8 +25,10 @@ type Request struct {
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"`
 
 	// The legacy functions/function_call shapes have no IR representation.
-	Functions      any `json:"functions,omitempty"`
-	FunctionCall   any `json:"function_call,omitempty"`
+	Functions    any `json:"functions,omitempty"`
+	FunctionCall any `json:"function_call,omitempty"`
+
+	// ResponseFormat specifies output formatting constraints (spec/10 s3).
 	ResponseFormat any `json:"response_format,omitempty"`
 
 	// Logprobs/TopLogprobs have no IR equivalent in v1 and are dropped with
@@ -37,6 +39,20 @@ type Request struct {
 	// Metadata has no Chat Completions request equivalent in v1; presence is
 	// dropped with an unmapped-field loss (vectors/README.md bucket 3).
 	Metadata any `json:"metadata,omitempty"`
+}
+
+// ResponseFormatWire is the wire shape for Chat Completions response_format.
+type ResponseFormatWire struct {
+	Type       string          `json:"type"`
+	JSONSchema *JSONSchemaWire `json:"json_schema,omitempty"`
+}
+
+// JSONSchemaWire is the nested configuration for response_format with type json_schema.
+type JSONSchemaWire struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
+	Strict      *bool           `json:"strict,omitempty"`
 }
 
 // ToolWire is one element of a wire tools array. The supported Chat

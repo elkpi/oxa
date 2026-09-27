@@ -473,6 +473,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 "params.reasoning_effort", "reasoning_effort", ir::LOSS_DEGRADED,
                 "budget approximated"));
         }
+        if (p.response_format.has_value()) {
+            losses.push_back(make_ant_loss(
+                "params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD,
+                "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."));
+        }
     }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};

@@ -2,7 +2,7 @@
 
 use oxa_ir::{
     Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
-    Request as IrRequest, Response as IrResponse, Role, StopReason, Usage,
+    Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -40,15 +40,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 .and_then(|text| text.verbosity.as_ref())
                 .is_some(),
             "Responses output verbosity has no IR equivalent in v1.",
-        ),
-        (
-            "text.format",
-            "format",
-            wire.text
-                .as_ref()
-                .and_then(|text| text.format.as_ref())
-                .is_some(),
-            "Responses text output format has no IR equivalent in v1.",
         ),
         (
             "parallel_tool_calls",
@@ -193,21 +184,101 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         ));
     }
     let reasoning_effort = decode_reasoning_effort(wire.reasoning.as_ref(), &mut losses)?;
+    let response_format = decode_text_format(
+        wire.text.as_ref().and_then(|text| text.format.as_ref()),
+        &mut losses,
+    )?;
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens: wire.max_output_tokens,
         stop_sequences: None,
         reasoning_effort,
+        response_format,
     };
     if params.temperature.is_some()
         || params.top_p.is_some()
         || params.max_tokens.is_some()
         || params.reasoning_effort.is_some()
+        || params.response_format.is_some()
     {
         request.params = Some(params);
     }
     Ok((request, losses))
+}
+
+fn decode_text_format(
+    value: Option<&serde_json::Value>,
+    losses: &mut Vec<Loss>,
+) -> Result<Option<ResponseFormat>, Error> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let serde_json::Value::Object(map) = value else {
+        return Err(Error::new("responses: text.format must be an object"));
+    };
+    let Some(serde_json::Value::String(type_str)) = map.get("type") else {
+        return Err(Error::new("responses: text.format requires string type"));
+    };
+    match type_str.as_str() {
+        "text" => Ok(Some(ResponseFormat::Text)),
+        "json_object" => Ok(Some(ResponseFormat::JsonObject)),
+        "json_schema" => {
+            let Some(serde_json::Value::String(name)) = map.get("name") else {
+                return Err(Error::new(
+                    "responses: text.format of type json_schema requires string name",
+                ));
+            };
+            if name.is_empty() {
+                return Err(Error::new("responses: text.format.name must not be empty"));
+            }
+            let Some(schema) = map.get("schema") else {
+                return Err(Error::new(
+                    "responses: text.format of type json_schema requires schema",
+                ));
+            };
+            if !schema.is_object() {
+                return Err(Error::new(
+                    "responses: text.format schema must be an object",
+                ));
+            }
+            let description = match map.get("description") {
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| {
+                            Error::new("responses: text.format description must be a string")
+                        })?
+                        .to_string(),
+                ),
+                None => None,
+            };
+            let strict = match map.get("strict") {
+                Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
+                Some(_) => {
+                    return Err(Error::new(
+                        "responses: text.format strict must be a boolean",
+                    ));
+                }
+                None => None,
+            };
+            Ok(Some(ResponseFormat::JsonSchema {
+                name: name.clone(),
+                description,
+                schema: schema.as_object().cloned().unwrap_or_default(),
+                strict,
+            }))
+        }
+        other => {
+            losses.push(loss(
+                "text.format.type",
+                "type",
+                LossReason::UnmappedValue,
+                format!("unknown text.format type {other:?}"),
+            ));
+            Ok(None)
+        }
+    }
 }
 
 fn decode_reasoning_effort(

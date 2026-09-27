@@ -46,6 +46,10 @@ from oxa.ir.types import (
     Params,
     Request,
     Response,
+    ResponseFormat,
+    ResponseFormatJsonObject,
+    ResponseFormatJsonSchema,
+    ResponseFormatText,
     SignatureDelta,
     TextBlock,
     TextDelta,
@@ -332,11 +336,60 @@ def dump_request(req: Request) -> dict[str, Any]:
             p_dict["stop_sequences"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             p_dict["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.response_format is not None:
+            p_dict["response_format"] = dump_response_format(req.params.response_format)
         if p_dict:
             out["params"] = p_dict
     if req.metadata:
         out["metadata"] = req.metadata
     return out
+
+
+def dump_response_format(rf: ResponseFormat) -> dict[str, Any]:
+    if isinstance(rf, ResponseFormatText):
+        return {"type": "text"}
+    if isinstance(rf, ResponseFormatJsonObject):
+        return {"type": "json_object"}
+    if isinstance(rf, ResponseFormatJsonSchema):
+        res: dict[str, Any] = {
+            "type": "json_schema",
+            "name": rf.name,
+            "schema": rf.schema,
+        }
+        if rf.description is not None:
+            res["description"] = rf.description
+        if rf.strict is not None:
+            res["strict"] = rf.strict
+        return res
+    raise CodecError(f"unknown response format type: {type(rf)}")
+
+
+def load_response_format(data: dict[str, Any]) -> ResponseFormat:
+    kind = data.get("type")
+    if kind == "text":
+        return ResponseFormatText()
+    if kind == "json_object":
+        return ResponseFormatJsonObject()
+    if kind == "json_schema":
+        name = data.get("name")
+        if not name or not isinstance(name, str):
+            raise CodecError("response_format.json_schema requires non-empty name")
+        schema = data.get("schema")
+        if not isinstance(schema, dict):
+            raise CodecError("response_format.json_schema requires schema object")
+        desc = data.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise CodecError("response_format.json_schema description must be a string")
+        strict = data.get("strict")
+        if strict is not None and not isinstance(strict, bool):
+            raise CodecError("response_format.json_schema strict must be a boolean")
+        return ResponseFormatJsonSchema(
+            name=name,
+            schema=schema,
+            description=desc,
+            strict=strict,
+        )
+    raise CodecError(f"unknown response_format discriminant: {kind}")
 
 
 def load_request(data: dict[str, Any] | str) -> Request:
@@ -386,12 +439,15 @@ def load_request(data: dict[str, Any] | str) -> Request:
         effort = p.get("reasoning_effort")
         if effort is not None and effort not in ("minimal", "low", "medium", "high"):
             raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
+        rf_data = p.get("response_format")
+        response_format = load_response_format(rf_data) if rf_data is not None else None
         params = Params(
             temperature=p.get("temperature"),
             top_p=p.get("top_p"),
             max_tokens=p.get("max_tokens"),
             stop_sequences=p.get("stop_sequences"),
             reasoning_effort=effort,
+            response_format=response_format,
         )
 
     metadata = raw.get("metadata")

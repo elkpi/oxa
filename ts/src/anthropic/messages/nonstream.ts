@@ -221,6 +221,11 @@ export function encodeRequest(
       loss("params.reasoning_effort", "reasoning_effort", "degraded"),
     );
   }
+  if (request.params?.response_format !== undefined) {
+    losses.push(
+      loss("params.response_format", "response_format", "unmapped-field"),
+    );
+  }
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     request.messages.length === 1 &&

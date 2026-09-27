@@ -2,6 +2,7 @@ package ir
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -135,6 +136,68 @@ func TestRequestOmitsEmptyOptionals(t *testing.T) {
 		if strings.Contains(string(doc), `"`+unwanted+`"`) {
 			t.Fatalf("minimal request must omit %q: %s", unwanted, doc)
 		}
+	}
+}
+
+func TestResponseFormatCodec(t *testing.T) {
+	strictTrue := true
+	req := &Request{
+		Model: "gpt-4o",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "Extract user"}}},
+		},
+		Params: Params{
+			ResponseFormat: &ResponseFormat{
+				Type:        ResponseFormatJSONSchema,
+				Name:        "user_info",
+				Description: "User info schema",
+				Schema:      json.RawMessage(`{"type":"object","properties":{"name":{"type":"string"}},"required":["name"]}`),
+				Strict:      &strictTrue,
+			},
+		},
+	}
+	doc := mustRequestDoc(t, req)
+	back, err := UnmarshalRequest(doc)
+	if err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if back.Params.ResponseFormat == nil {
+		t.Fatalf("expected response_format in params, got nil")
+	}
+	rf := back.Params.ResponseFormat
+	if rf.Type != ResponseFormatJSONSchema || rf.Name != "user_info" || rf.Description != "User info schema" {
+		t.Errorf("mismatched response_format fields: %+v", rf)
+	}
+	if string(rf.Schema) != string(req.Params.ResponseFormat.Schema) {
+		t.Errorf("schema mismatch: got %s, want %s", rf.Schema, req.Params.ResponseFormat.Schema)
+	}
+	if rf.Strict == nil || *rf.Strict != true {
+		t.Errorf("strict mismatch: got %v", rf.Strict)
+	}
+
+	again := mustRequestDoc(t, back)
+	if string(doc) != string(again) {
+		t.Fatalf("response_format round-trip mismatch:\nfirst:  %s\nsecond: %s", doc, again)
+	}
+}
+
+func TestUnmarshalRequestRejectsMalformedResponseFormat(t *testing.T) {
+	cases := []struct {
+		name   string
+		format string
+	}{
+		{"missing name", `{"type":"json_schema","schema":{"type":"object"}}`},
+		{"missing schema", `{"type":"json_schema","name":"result"}`},
+		{"non-object schema", `{"type":"json_schema","name":"result","schema":null}`},
+		{"unknown type", `{"type":"yaml"}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			document := fmt.Sprintf(`{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"params":{"response_format":%s}}`, tc.format)
+			if _, err := UnmarshalRequest([]byte(document)); err == nil {
+				t.Fatalf("expected malformed response_format to be rejected: %s", tc.format)
+			}
+		})
 	}
 }
 

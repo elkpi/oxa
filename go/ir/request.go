@@ -60,7 +60,8 @@ type Params struct {
 	TopP            *float64
 	MaxTokens       *int64
 	StopSequences   []string
-	ReasoningEffort string // minimal | low | medium | high (since 2.0)
+	ReasoningEffort string          // minimal | low | medium | high (since 2.0)
+	ResponseFormat  *ResponseFormat // structured output formatting preference (since 2.1)
 }
 
 const (
@@ -70,8 +71,23 @@ const (
 	ReasoningEffortHigh    = "high"
 )
 
+// ResponseFormat specifies output formatting constraints (spec/01 s3.7.1).
+type ResponseFormat struct {
+	Type        string          // text | json_object | json_schema
+	Name        string          // required iff Type is json_schema
+	Description string          // optional
+	Schema      json.RawMessage // verbatim JSON Schema bytes (INV-1)
+	Strict      *bool           // optional
+}
+
+const (
+	ResponseFormatText       = "text"
+	ResponseFormatJSONObject = "json_object"
+	ResponseFormatJSONSchema = "json_schema"
+)
+
 // set reports whether any parameter carries a value; the canonical codec
 // omits the whole params object when it does not.
 func (p Params) set() bool {
-	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != ""
+	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != "" || p.ResponseFormat != nil
 }

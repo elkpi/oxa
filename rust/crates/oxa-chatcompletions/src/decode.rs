@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use oxa_ir::{
     Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
-    Request as IrRequest, Response as IrResponse, Role, StopReason, Usage,
+    Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -39,11 +39,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             "function_call",
             wire.function_call.is_some(),
             "legacy Chat Completions function_call has no IR equivalent in v1.",
-        ),
-        (
-            "response_format",
-            wire.response_format.is_some(),
-            "Chat Completions response_format has no IR equivalent in v1.",
         ),
         (
             "logprobs",
@@ -198,22 +193,108 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     req.system = system;
     req.messages = messages;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
+    let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens: wire.max_tokens,
         stop_sequences: stop,
         reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
+        response_format,
     };
     let params_set = params.temperature.is_some()
         || params.top_p.is_some()
         || params.max_tokens.is_some()
         || params.stop_sequences.is_some()
-        || params.reasoning_effort.is_some();
+        || params.reasoning_effort.is_some()
+        || params.response_format.is_some();
     if params_set {
         req.params = Some(params);
     }
     Ok((req, losses))
+}
+
+fn decode_response_format(
+    value: Option<&serde_json::Value>,
+    losses: &mut Vec<Loss>,
+) -> Result<Option<ResponseFormat>, Error> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let serde_json::Value::Object(map) = value else {
+        return Err(Error::new(
+            "chatcompletions: response_format must be an object",
+        ));
+    };
+    let Some(serde_json::Value::String(type_str)) = map.get("type") else {
+        return Err(Error::new(
+            "chatcompletions: response_format requires string type",
+        ));
+    };
+    match type_str.as_str() {
+        "text" => Ok(Some(ResponseFormat::Text)),
+        "json_object" => Ok(Some(ResponseFormat::JsonObject)),
+        "json_schema" => {
+            let Some(serde_json::Value::Object(schema_obj)) = map.get("json_schema") else {
+                return Err(Error::new(
+                    "chatcompletions: response_format of type json_schema requires json_schema object",
+                ));
+            };
+            let Some(serde_json::Value::String(name)) = schema_obj.get("name") else {
+                return Err(Error::new(
+                    "chatcompletions: response_format.json_schema requires string name",
+                ));
+            };
+            if name.is_empty() {
+                return Err(Error::new(
+                    "chatcompletions: response_format.json_schema name must not be empty",
+                ));
+            }
+            let Some(schema) = schema_obj.get("schema") else {
+                return Err(Error::new(
+                    "chatcompletions: response_format.json_schema requires schema",
+                ));
+            };
+            if !schema.is_object() {
+                return Err(Error::new(
+                    "chatcompletions: response_format.json_schema schema must be an object",
+                ));
+            }
+            let description = match schema_obj.get("description") {
+                Some(value) => Some(
+                    value
+                        .as_str()
+                        .ok_or_else(|| Error::new("chatcompletions: response_format.json_schema description must be a string"))?
+                        .to_string(),
+                ),
+                None => None,
+            };
+            let strict = match schema_obj.get("strict") {
+                Some(value) if value.is_boolean() => Some(value.as_bool().unwrap_or(false)),
+                Some(_) => {
+                    return Err(Error::new(
+                        "chatcompletions: response_format.json_schema strict must be a boolean",
+                    ));
+                }
+                None => None,
+            };
+            Ok(Some(ResponseFormat::JsonSchema {
+                name: name.clone(),
+                description,
+                schema: schema.as_object().cloned().unwrap_or_default(),
+                strict,
+            }))
+        }
+        other => {
+            losses.push(loss(
+                "response_format.type",
+                "type",
+                LossReason::UnmappedValue,
+                format!("unknown response_format type {other:?}"),
+            ));
+            Ok(None)
+        }
+    }
 }
 
 fn decode_reasoning_effort(value: Option<&str>, losses: &mut Vec<Loss>) -> Option<ReasoningEffort> {

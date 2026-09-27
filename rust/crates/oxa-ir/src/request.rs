@@ -2,7 +2,7 @@
 //! with explicit `serde(rename)` so no rename-rule inference is involved.
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::BTreeMap;
 
 /// A conversation to be sent to a model, face-neutral (spec/01 §3.1).
@@ -161,7 +161,7 @@ pub enum ReasoningEffort {
 /// Sampling parameters (spec/01 §3.7). Absent fields are meaningful:
 /// `Option` distinguishes absent from zero, matching the pointer semantics
 /// of the Go reference implementation.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Params {
     #[serde(
         rename = "temperature",
@@ -189,4 +189,29 @@ pub struct Params {
         skip_serializing_if = "Option::is_none"
     )]
     pub reasoning_effort: Option<ReasoningEffort>,
+    #[serde(
+        rename = "response_format",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub response_format: Option<ResponseFormat>,
+}
+
+/// Output formatting preference (spec/01 §3.7.1, since 2.1).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ResponseFormat {
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "json_object")]
+    JsonObject,
+    #[serde(rename = "json_schema")]
+    JsonSchema {
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
+        schema: Map<String, Value>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        strict: Option<bool>,
+    },
 }

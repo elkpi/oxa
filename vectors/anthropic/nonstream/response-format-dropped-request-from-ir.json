@@ -1,0 +1,35 @@
+{
+  "name": "anthropic.nonstream.response-format-dropped-request-from-ir",
+  "description": "Anthropic request encoder drops IR params.response_format with unmapped-field loss (N-AN-12).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Extract data as JSON." }] }
+    ],
+    "params": {
+      "max_tokens": 1024,
+      "response_format": {
+        "type": "json_object"
+      }
+    }
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [{ "role": "user", "content": "Extract data as JSON." }],
+    "max_tokens": 1024
+  },
+  "expected_losses": [
+    {
+      "path": "params.response_format",
+      "field": "response_format",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": ["params", "request", "response_format", "loss", "n-an-12"]
+}

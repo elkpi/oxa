@@ -11,6 +11,34 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestResponseFormatDropped(t *testing.T) {
+	req := &ir.Request{
+		Model: "claude-3-5-sonnet-20241022",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Extract JSON"}}},
+		},
+		Params: ir.Params{
+			MaxTokens: ptr(int64(1024)),
+			ResponseFormat: &ir.ResponseFormat{
+				Type: ir.ResponseFormatJSONObject,
+			},
+		},
+	}
+	out, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if out.MaxTokens != 1024 {
+		t.Fatalf("max_tokens not preserved")
+	}
+	if len(losses) != 1 {
+		t.Fatalf("expected 1 loss, got %+v", losses)
+	}
+	if losses[0].Path != "params.response_format" || losses[0].Field != "response_format" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("unexpected loss: %+v", losses[0])
+	}
+}
+
 func TestDecodeRequestSystemStringAndBlocks(t *testing.T) {
 	wire := &Request{
 		Model:     "claude-sonnet-4-5",

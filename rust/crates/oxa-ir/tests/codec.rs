@@ -101,6 +101,17 @@ fn legacy_event_stream_round_trips_as_spec20() {
 }
 
 #[test]
+fn rejects_non_object_response_format_schema() {
+    let document = r#"{
+        "specVersion":"0.2.0",
+        "model":"gpt-4o",
+        "messages":[{"role":"user","content":[{"type":"text","text":"json"}]}],
+        "params":{"response_format":{"type":"json_schema","name":"result","schema":17}}
+    }"#;
+    assert!(from_json::<Request>(document).is_err());
+}
+
+#[test]
 fn rejects_wrong_spec_version() {
     let bad = SPEC_RESPONSE.replace("\"0.1.0\"", "\"9.9.9\"");
     assert!(from_json::<Response>(&bad).is_err());

@@ -68,6 +68,7 @@ export {
   type ReasoningEffort,
   type Request,
   type Response,
+  type ResponseFormat,
   type SignatureDelta,
   type StopReason,
   type ThinkingDelta,

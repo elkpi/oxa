@@ -16,6 +16,10 @@ from oxa.ir import (
     Loss,
     Request,
     Response,
+    ResponseFormat,
+    ResponseFormatJsonObject,
+    ResponseFormatJsonSchema,
+    ResponseFormatText,
     TextBlock,
     ThinkingBlock,
     ToolUseBlock,
@@ -130,6 +134,8 @@ def encode_request(
             out["max_output_tokens"] = req.params.max_tokens
         if req.params.reasoning_effort is not None:
             out["reasoning"] = {"effort": req.params.reasoning_effort}
+        if req.params.response_format is not None:
+            out["text"] = {"format": encode_text_format(req.params.response_format)}
         if req.params.stop_sequences:
             losses.append(
                 loss(
@@ -141,6 +147,25 @@ def encode_request(
             )
 
     return out, losses
+
+
+def encode_text_format(rf: ResponseFormat) -> dict[str, Any]:
+    if isinstance(rf, ResponseFormatText):
+        return {"type": "text"}
+    if isinstance(rf, ResponseFormatJsonObject):
+        return {"type": "json_object"}
+    if isinstance(rf, ResponseFormatJsonSchema):
+        res: dict[str, Any] = {
+            "type": "json_schema",
+            "name": rf.name,
+            "schema": rf.schema,
+        }
+        if rf.description is not None:
+            res["description"] = rf.description
+        if rf.strict is not None:
+            res["strict"] = rf.strict
+        return res
+    raise ValueError(f"responses: unknown response format type: {type(rf)}")
 
 
 def encode_response(

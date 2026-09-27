@@ -104,7 +104,34 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.TopP = req.Params.TopP
 	out.MaxTokens = req.Params.MaxTokens
 	out.ReasoningEffort = req.Params.ReasoningEffort
+	if req.Params.ResponseFormat != nil {
+		out.ResponseFormat = encodeResponseFormat(req.Params.ResponseFormat)
+	}
 	return out, losses, nil
+}
+
+func encodeResponseFormat(rf *ir.ResponseFormat) *ResponseFormatWire {
+	if rf == nil {
+		return nil
+	}
+	switch rf.Type {
+	case ir.ResponseFormatText:
+		return &ResponseFormatWire{Type: "text"}
+	case ir.ResponseFormatJSONObject:
+		return &ResponseFormatWire{Type: "json_object"}
+	case ir.ResponseFormatJSONSchema:
+		return &ResponseFormatWire{
+			Type: "json_schema",
+			JSONSchema: &JSONSchemaWire{
+				Name:        rf.Name,
+				Description: rf.Description,
+				Schema:      rf.Schema,
+				Strict:      rf.Strict,
+			},
+		}
+	default:
+		return &ResponseFormatWire{Type: rf.Type}
+	}
 }
 
 // EncodeResponse converts an IR response to a Chat Completions wire response

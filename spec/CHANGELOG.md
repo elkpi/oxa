@@ -5,6 +5,21 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.1.0 - Unreleased
+
+Minor evolution adding structured-output format mapping across all protocol
+faces. IR documents continue to use `specVersion: "0.2.0"`.
+
+### Added
+
+- `Params.ResponseFormat` supports `text`, `json_object`, and `json_schema`
+  (`name`, optional `description`, verbatim `schema`, optional `strict`).
+- Chat Completions `response_format` and Responses `text.format` map losslessly
+  through IR; Anthropic encoding drops the preference with one documented
+  `unmapped-field` loss and does not synthesize tools.
+- Nine shared golden vectors cover the new face and cross-protocol mappings;
+  all five language implementations validate 163 vectors.
+
 ## 2.0.0 - 2026-09-19
 
 Major milestone extending the protocol-conversion specification with reasoning

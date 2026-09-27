@@ -82,6 +82,48 @@ fn missing_finish_reason_is_a_structural_error() {
 }
 
 #[test]
+fn response_format_rejects_non_boolean_strict() {
+    let wire = wire_request(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "json" }],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "result",
+                "schema": { "type": "object" },
+                "strict": "false"
+            }
+        }
+    }));
+    let err = decode_request(&wire, &Config::default()).expect_err("strict must be boolean");
+    assert!(
+        err.to_string().contains("strict must be a boolean"),
+        "{err}"
+    );
+}
+
+#[test]
+fn response_format_rejects_non_string_description() {
+    let wire = wire_request(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "json" }],
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "result",
+                "description": 17,
+                "schema": { "type": "object" }
+            }
+        }
+    }));
+    let err = decode_request(&wire, &Config::default()).expect_err("description must be string");
+    assert!(
+        err.to_string().contains("description must be a string"),
+        "{err}"
+    );
+}
+
+#[test]
 fn decodes_reasoning_content_and_effort() {
     let wire = wire_request(serde_json::json!({
         "model": "o3-mini",
@@ -164,6 +206,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::High),
+            response_format: None,
         }),
         metadata: None,
     };

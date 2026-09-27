@@ -65,6 +65,7 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: None,
+            response_format: None,
         }),
         metadata: None,
     };
@@ -90,6 +91,50 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
     assert_eq!(losses.len(), 1);
     assert_eq!(losses[0].reason, LossReason::Degraded);
     assert_eq!(losses[0].path, "messages[0].content");
+}
+
+#[test]
+fn text_format_rejects_non_boolean_strict() {
+    let wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "input": "json",
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "result",
+                "schema": { "type": "object" },
+                "strict": "false"
+            }
+        }
+    }))
+    .expect("wire request deserializes");
+    let err = decode_request(&wire, &Config::default()).expect_err("strict must be boolean");
+    assert!(
+        err.to_string().contains("strict must be a boolean"),
+        "{err}"
+    );
+}
+
+#[test]
+fn text_format_rejects_non_string_description() {
+    let wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "input": "json",
+        "text": {
+            "format": {
+                "type": "json_schema",
+                "name": "result",
+                "description": 17,
+                "schema": { "type": "object" }
+            }
+        }
+    }))
+    .expect("wire request deserializes");
+    let err = decode_request(&wire, &Config::default()).expect_err("description must be string");
+    assert!(
+        err.to_string().contains("description must be a string"),
+        "{err}"
+    );
 }
 
 #[test]

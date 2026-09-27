@@ -152,6 +152,18 @@
       "sha256": "ef4b93c085f2b0ba49373844d2c9191c2a7958b008b932e0cae3d0be8ee86154"
     },
     {
+      "name": "anthropic.nonstream.response-format-dropped-request-from-ir",
+      "file": "anthropic/nonstream/response-format-dropped-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "loss",
+        "n-an-12"
+      ],
+      "sha256": "b29a813301def8c4bd63f040314eaf25d305a9668f101a36c03245af4b2282d8"
+    },
+    {
       "name": "anthropic.nonstream.system-prompt-request-from-ir",
       "file": "anthropic/nonstream/system-prompt-request-from-ir.json",
       "tags": [
@@ -638,6 +650,50 @@
       "sha256": "0ccd118a21d74a88ce3d15bf25aa5e89b5182fe014468a31f001ca48f17810e8"
     },
     {
+      "name": "chatcompletions.nonstream.response-format-json-object-request-from-ir",
+      "file": "chatcompletions/nonstream/response-format-json-object-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-cc-13"
+      ],
+      "sha256": "7b523e2f0a736a739b10454c909cfc48831c347887558380ce883912b81c41a8"
+    },
+    {
+      "name": "chatcompletions.nonstream.response-format-json-object-request-to-ir",
+      "file": "chatcompletions/nonstream/response-format-json-object-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-cc-13"
+      ],
+      "sha256": "b81e5ac5097be1e5d8bd4e3b843fd3e7e58bf8af69a4db7f8dc6736ee8040d86"
+    },
+    {
+      "name": "chatcompletions.nonstream.response-format-json-schema-request-from-ir",
+      "file": "chatcompletions/nonstream/response-format-json-schema-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-cc-13"
+      ],
+      "sha256": "69f792698707965dc086e130c1126542ce21790aa8926833f0707daa82a2a8b0"
+    },
+    {
+      "name": "chatcompletions.nonstream.response-format-json-schema-request-to-ir",
+      "file": "chatcompletions/nonstream/response-format-json-schema-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-cc-13"
+      ],
+      "sha256": "bd11315fb98d71a26cbd19280da3b038e5e78e4d7f5a09ace9bd2bb05ab0e893"
+    },
+    {
       "name": "chatcompletions.nonstream.specversion-010-from-ir",
       "file": "chatcompletions/nonstream/specversion-010-from-ir.json",
       "tags": [
@@ -1015,6 +1071,18 @@
       "sha256": "460af3fcff02138c9c14f745a965b32181974de208ca0c7c1751fc5ffb85300e"
     },
     {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-response-format-request",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-response-format-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "params",
+        "response_format",
+        "loss"
+      ],
+      "sha256": "7ece3c9f83cca743704feeb9476be493182bab09fb8d2e534dd14869ed45422f"
+    },
+    {
       "name": "cross.nonstream.chatcompletions-to-anthropic-thinking-response",
       "file": "cross/nonstream/chatcompletions-to-anthropic-thinking-response.json",
       "tags": [
@@ -1047,6 +1115,17 @@
         "usage"
       ],
       "sha256": "02b390c62dec31fa61e366b1ce4fe5e4f8516b2046226e10b8fe07f57a4234fc"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-responses-response-format-request",
+      "file": "cross/nonstream/chatcompletions-to-responses-response-format-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "params",
+        "response_format"
+      ],
+      "sha256": "2facda14e44afdf4f15fdd2048391b948dde83d33047a17d7d408a10ab157477"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-request",
@@ -1358,14 +1437,36 @@
       "sha256": "81e90d5808b9882e09cbe99a73b57e6b0d21c13ad70423c37ef1433b17a79793"
     },
     {
+      "name": "responses.nonstream.text-format-json-schema-request-from-ir",
+      "file": "responses/nonstream/text-format-json-schema-request-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-r-14"
+      ],
+      "sha256": "324ca3b491a6de7584b416ca8354d20f5c4d0b963e1dc84627c3d6ba924c0feb"
+    },
+    {
+      "name": "responses.nonstream.text-format-json-schema-request-to-ir",
+      "file": "responses/nonstream/text-format-json-schema-request-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "response_format",
+        "n-r-14"
+      ],
+      "sha256": "5a1eb8139ddd03f00640b7d341712f820e1707f2fe2a320a4fd4d723dc618789"
+    },
+    {
       "name": "responses.nonstream.text-format-loss-request-to-ir",
       "file": "responses/nonstream/text-format-loss-request-to-ir.json",
       "tags": [
         "loss",
         "request",
-        "N-R-8"
+        "n-r-14"
       ],
-      "sha256": "33ab14d3783d11c9617f008b83259d79968db48de00d780edad3db32b0ff21c3"
+      "sha256": "81aac1e5da3b2ef539c200c1eed2cbc64717262503f0b1c5fdd423a89c19430a"
     },
     {
       "name": "responses.nonstream.text-response-from-ir",

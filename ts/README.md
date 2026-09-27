@@ -93,8 +93,8 @@ shapes by its JSON schemas, and semantics by its specifications, in that order:
 2. `spec/schema/`
 3. `spec/*.md`
 
-The TypeScript implementation validates all 154 golden vectors for Spec 2.0.0,
-including M7 opaque tool data, M9 thinking/reasoning streams, signatures,
-reasoning effort, and granular usage accounting.
+The TypeScript implementation validates all 163 current shared golden vectors,
+including Spec 2.0 M7/M9 reasoning and usage behavior plus Spec 2.1 structured
+output format mapping.
 
 Apache-2.0. See `LICENSE` and `NOTICE`.

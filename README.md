@@ -6,9 +6,10 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Status: v2.0.0 released.** The specification and golden vectors are shared
-across five implementations. All five languages (Go, TypeScript, Rust, Python,
-and C++) validate all 154 Spec 2.0 vectors.
+**Latest coordinated release: v2.0.0.** The current source implements Spec
+2.1.0 structured-output support across all five languages (Go, TypeScript, Rust,
+Python, and C++) and validates all 163 shared golden vectors. The coordinated
+v2.1.0 package release is pending.
 
 ## What is oxa?
 

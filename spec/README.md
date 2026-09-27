@@ -8,10 +8,11 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.0.0** — all five implementations (Go, TypeScript,
-Rust, Python, and C++) implement and validate the full 154-vector set including
-reasoning and usage. See [CHANGELOG.md](CHANGELOG.md) and
-the versioning policy below.
+Current spec version: **2.1.0** — all five implementations (Go, TypeScript,
+Rust, Python, and C++) implement and validate the full 163-vector set, including
+reasoning, usage granularity, and structured-output format mapping. The
+coordinated v2.1.0 package release is pending. See [CHANGELOG.md](CHANGELOG.md)
+and the versioning policy below.
 
 ## Versioning policy
 
@@ -40,6 +41,7 @@ The version series are tied to the implementation roadmap:
 | 1.0.0 | All supported languages — Go, Rust, Python, and C++ — implement the same spec and vector set |
 | 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
 | 2.0.0 | Reasoning content and usage granularity across all faces (Go Wave 1; TypeScript Wave 2; Rust Wave 3; Python Wave 4; C++ Wave 5) |
+| 2.1.0 | Structured-output format mapping via `Params.ResponseFormat` across all faces; additive optional IR field, contract remains `0.2.0` |
 
 Post-1.0 evolution ladder:
 

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Spec 2.1.0 structured-output support across Go, TypeScript, Rust, Python, and C++.
+  - Adds `Params.ResponseFormat` with `text`, `json_object`, and `json_schema` formats while retaining IR document `specVersion: "0.2.0"`.
+  - Maps Chat Completions `response_format` and Responses `text.format` through IR without loss; Anthropic encoding records one `unmapped-field` loss without synthesizing tools.
+  - Expands the shared golden suite from 154 to 163 vectors; all five language implementations pass the new cases.
+
 ## [v2.0.0] - 2026-09-26
 
 ### Added

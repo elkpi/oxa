@@ -179,7 +179,9 @@ export function decodeRequest(
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
     ...decodeReasoningEffort(wire.reasoning_effort, losses),
-    ...(responseFormat === undefined ? {} : { response_format: responseFormat }),
+    ...(responseFormat === undefined
+      ? {}
+      : { response_format: responseFormat }),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -862,10 +864,7 @@ function decodeResponseFormat(
       const strict =
         jsonSchema.strict === undefined
           ? undefined
-          : boolean(
-              jsonSchema.strict,
-              "response_format.json_schema.strict",
-            );
+          : boolean(jsonSchema.strict, "response_format.json_schema.strict");
       return {
         type: "json_schema",
         name,

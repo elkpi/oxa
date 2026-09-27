@@ -1,6 +1,7 @@
 package chatcompletions
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -22,7 +23,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		{"parallel_tool_calls", wire.ParallelToolCalls != nil, "Chat Completions parallel tool calls have no IR equivalent in v1."},
 		{"functions", wire.Functions != nil, "legacy Chat Completions functions have no IR equivalent in v1."},
 		{"function_call", wire.FunctionCall != nil, "legacy Chat Completions function_call has no IR equivalent in v1."},
-		{"response_format", wire.ResponseFormat != nil, "Chat Completions response_format has no IR equivalent in v1."},
 		{"logprobs", wire.Logprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
 		{"top_logprobs", wire.TopLogprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
 		{"metadata", wire.Metadata != nil, "Chat Completions request metadata has no IR equivalent in v1."},
@@ -122,7 +122,74 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			fmt.Sprintf("unknown reasoning_effort value %q", wire.ReasoningEffort),
 		))
 	}
+	if wire.ResponseFormat != nil {
+		rf, rfLosses, err := decodeResponseFormat(wire.ResponseFormat)
+		if err != nil {
+			return nil, nil, err
+		}
+		losses = append(losses, rfLosses...)
+		req.Params.ResponseFormat = rf
+	}
 	return req, losses, nil
+}
+
+func decodeResponseFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
+	if raw == nil {
+		return nil, nil, nil
+	}
+	var wire ResponseFormatWire
+	switch v := raw.(type) {
+	case *ResponseFormatWire:
+		if v == nil {
+			return nil, nil, nil
+		}
+		wire = *v
+	case ResponseFormatWire:
+		wire = v
+	default:
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format: %w", err)
+		}
+		if err := json.Unmarshal(data, &wire); err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format: %w", err)
+		}
+	}
+
+	switch wire.Type {
+	case ir.ResponseFormatText:
+		return &ir.ResponseFormat{Type: ir.ResponseFormatText}, nil, nil
+	case ir.ResponseFormatJSONObject:
+		return &ir.ResponseFormat{Type: ir.ResponseFormatJSONObject}, nil, nil
+	case ir.ResponseFormatJSONSchema:
+		if wire.JSONSchema == nil {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format of type json_schema requires json_schema object")
+		}
+		if wire.JSONSchema.Name == "" {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format.json_schema requires non-empty name")
+		}
+		if len(wire.JSONSchema.Schema) == 0 {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format.json_schema requires schema")
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(wire.JSONSchema.Schema, &obj); err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: response_format.json_schema schema must be a JSON object")
+		}
+		return &ir.ResponseFormat{
+			Type:        ir.ResponseFormatJSONSchema,
+			Name:        wire.JSONSchema.Name,
+			Description: wire.JSONSchema.Description,
+			Schema:      wire.JSONSchema.Schema,
+			Strict:      wire.JSONSchema.Strict,
+		}, nil, nil
+	case "":
+		return nil, nil, fmt.Errorf("chatcompletions: response_format requires non-empty type")
+	default:
+		return nil, []ir.Loss{
+			loss("response_format.type", "type", ir.LossUnmappedValue,
+				fmt.Sprintf("unknown response_format type %q", wire.Type)),
+		}, nil
+	}
 }
 
 // DecodeResponse converts a Chat Completions wire response to the IR (face ->

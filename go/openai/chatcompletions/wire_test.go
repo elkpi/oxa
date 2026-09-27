@@ -10,6 +10,65 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestResponseFormat(t *testing.T) {
+	// 1. json_object
+	wireObj := &Request{
+		Model:          "gpt-4o",
+		Messages:       []Message{{Role: "user", Content: "Hi"}},
+		ResponseFormat: map[string]any{"type": "json_object"},
+	}
+	req, losses, err := DecodeRequest(wireObj)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode json_object: err=%v losses=%+v", err, losses)
+	}
+	if req.Params.ResponseFormat == nil || req.Params.ResponseFormat.Type != ir.ResponseFormatJSONObject {
+		t.Fatalf("expected ResponseFormatJSONObject, got %+v", req.Params.ResponseFormat)
+	}
+	encoded, losses, err := EncodeRequest(req)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("encode json_object: err=%v losses=%+v", err, losses)
+	}
+	rfWire, ok := encoded.ResponseFormat.(*ResponseFormatWire)
+	if !ok || rfWire.Type != "json_object" {
+		t.Fatalf("encoded response_format mismatch: %+v", encoded.ResponseFormat)
+	}
+
+	// 2. json_schema
+	strict := true
+	wireSchema := &Request{
+		Model:    "gpt-4o",
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		ResponseFormat: &ResponseFormatWire{
+			Type: "json_schema",
+			JSONSchema: &JSONSchemaWire{
+				Name:        "person",
+				Description: "person schema",
+				Schema:      json.RawMessage(`{"type":"object"}`),
+				Strict:      &strict,
+			},
+		},
+	}
+	reqSchema, losses, err := DecodeRequest(wireSchema)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode json_schema: err=%v losses=%+v", err, losses)
+	}
+	if reqSchema.Params.ResponseFormat == nil || reqSchema.Params.ResponseFormat.Type != ir.ResponseFormatJSONSchema {
+		t.Fatalf("expected ResponseFormatJSONSchema, got %+v", reqSchema.Params.ResponseFormat)
+	}
+	if reqSchema.Params.ResponseFormat.Name != "person" || reqSchema.Params.ResponseFormat.Strict == nil || !*reqSchema.Params.ResponseFormat.Strict {
+		t.Fatalf("expected fields mapped, got %+v", reqSchema.Params.ResponseFormat)
+	}
+
+	encodedSchema, losses, err := EncodeRequest(reqSchema)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("encode json_schema: err=%v losses=%+v", err, losses)
+	}
+	rfWireSchema, ok := encodedSchema.ResponseFormat.(*ResponseFormatWire)
+	if !ok || rfWireSchema.Type != "json_schema" || rfWireSchema.JSONSchema.Name != "person" {
+		t.Fatalf("encoded json_schema mismatch: %+v", encodedSchema.ResponseFormat)
+	}
+}
+
 func TestDecodeRequestSystemAndParams(t *testing.T) {
 	wire := &Request{
 		Model: "gpt-4o-mini",

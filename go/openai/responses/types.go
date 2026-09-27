@@ -95,7 +95,16 @@ type Request struct {
 // TextParams is the Responses text output-shaping object.
 type TextParams struct {
 	Verbosity *string `json:"verbosity,omitempty"`
-	Format    any     `json:"format,omitempty"`
+	Format    any     `json:"format,omitempty"` // TextFormatWire or map[string]any
+}
+
+// TextFormatWire is the wire shape for Responses text.format (spec/11 s3).
+type TextFormatWire struct {
+	Type        string          `json:"type"`
+	Name        string          `json:"name,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Schema      json.RawMessage `json:"schema,omitempty"`
+	Strict      *bool           `json:"strict,omitempty"`
 }
 
 // Input is the Responses request input: either a plain string (the string

@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -32,8 +33,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			"Responses request metadata has no IR equivalent in v1."},
 		{"text.verbosity", "verbosity", wire.Text != nil && wire.Text.Verbosity != nil,
 			"Responses output verbosity has no IR equivalent in v1."},
-		{"text.format", "format", wire.Text != nil && wire.Text.Format != nil,
-			"Responses text output format has no IR equivalent in v1."},
 		{"parallel_tool_calls", "parallel_tool_calls", wire.ParallelToolCalls != nil,
 			"Responses parallel tool calls have no IR equivalent in v1."},
 	} {
@@ -183,7 +182,71 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	req.Params.Temperature = wire.Temperature
 	req.Params.TopP = wire.TopP
 	req.Params.MaxTokens = wire.MaxOutputTokens
+	if wire.Text != nil && wire.Text.Format != nil {
+		rf, rfLosses, err := decodeTextFormat(wire.Text.Format)
+		if err != nil {
+			return nil, nil, err
+		}
+		losses = append(losses, rfLosses...)
+		req.Params.ResponseFormat = rf
+	}
 	return req, losses, nil
+}
+
+func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
+	if raw == nil {
+		return nil, nil, nil
+	}
+	var wire TextFormatWire
+	switch v := raw.(type) {
+	case *TextFormatWire:
+		if v == nil {
+			return nil, nil, nil
+		}
+		wire = *v
+	case TextFormatWire:
+		wire = v
+	default:
+		data, err := json.Marshal(raw)
+		if err != nil {
+			return nil, nil, fmt.Errorf("responses: text.format: %w", err)
+		}
+		if err := json.Unmarshal(data, &wire); err != nil {
+			return nil, nil, fmt.Errorf("responses: text.format: %w", err)
+		}
+	}
+
+	switch wire.Type {
+	case ir.ResponseFormatText:
+		return &ir.ResponseFormat{Type: ir.ResponseFormatText}, nil, nil
+	case ir.ResponseFormatJSONObject:
+		return &ir.ResponseFormat{Type: ir.ResponseFormatJSONObject}, nil, nil
+	case ir.ResponseFormatJSONSchema:
+		if wire.Name == "" {
+			return nil, nil, fmt.Errorf("responses: text.format of type json_schema requires non-empty name")
+		}
+		if len(wire.Schema) == 0 {
+			return nil, nil, fmt.Errorf("responses: text.format of type json_schema requires schema")
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(wire.Schema, &obj); err != nil {
+			return nil, nil, fmt.Errorf("responses: text.format schema must be a JSON object")
+		}
+		return &ir.ResponseFormat{
+			Type:        ir.ResponseFormatJSONSchema,
+			Name:        wire.Name,
+			Description: wire.Description,
+			Schema:      wire.Schema,
+			Strict:      wire.Strict,
+		}, nil, nil
+	case "":
+		return nil, nil, fmt.Errorf("responses: text.format requires non-empty type")
+	default:
+		return nil, []ir.Loss{
+			loss("text.format.type", "type", ir.LossUnmappedValue,
+				fmt.Sprintf("unknown text.format type %q", wire.Type)),
+		}, nil
+	}
 }
 
 // decodeAssistantRun converts a maximal run of assistant message items and

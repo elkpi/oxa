@@ -10,6 +10,45 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestTextFormat(t *testing.T) {
+	strict := true
+	wire := &Request{
+		Model: "gpt-4o",
+		Input: Input{Text: ptr("Hello")},
+		Text: &TextParams{
+			Format: &TextFormatWire{
+				Type:        "json_schema",
+				Name:        "user_info",
+				Description: "User info",
+				Schema:      json.RawMessage(`{"type":"object"}`),
+				Strict:      &strict,
+			},
+		},
+	}
+	req, losses, err := DecodeRequest(wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: err=%v losses=%+v", err, losses)
+	}
+	if req.Params.ResponseFormat == nil || req.Params.ResponseFormat.Type != ir.ResponseFormatJSONSchema {
+		t.Fatalf("expected ResponseFormatJSONSchema, got %+v", req.Params.ResponseFormat)
+	}
+	if req.Params.ResponseFormat.Name != "user_info" {
+		t.Fatalf("name mismatch: %+v", req.Params.ResponseFormat)
+	}
+
+	encoded, losses, err := EncodeRequest(req)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("encode: err=%v losses=%+v", err, losses)
+	}
+	if encoded.Text == nil || encoded.Text.Format == nil {
+		t.Fatalf("encoded text.format is nil: %+v", encoded.Text)
+	}
+	tf, ok := encoded.Text.Format.(*TextFormatWire)
+	if !ok || tf.Type != "json_schema" || tf.Name != "user_info" {
+		t.Fatalf("encoded format mismatch: %+v", encoded.Text.Format)
+	}
+}
+
 func TestDecodeRequestInstructionsAndSystemOrdering(t *testing.T) {
 	wire := &Request{
 		Model:        "gpt-4o-mini",
@@ -411,7 +450,7 @@ func TestUnknownInputItemAndVerbosityLosses(t *testing.T) {
 			{Type: "web_search_call"},
 			{Role: "user", Content: "Hi"},
 		}},
-		Text: &TextParams{Verbosity: ptr("low"), Format: map[string]any{"type": "json_object"}},
+		Text: &TextParams{Verbosity: ptr("low"), Format: map[string]any{"type": "unknown_format"}},
 	}
 	req, losses, err := DecodeRequest(wire)
 	if err != nil {

@@ -1,6 +1,6 @@
 # oxa Rust implementation
 
-The Rust workspace package version is **2.0.0**. Rust emits IR documents
+The Rust workspace package version is **2.1.0**. Rust emits IR documents
 with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
 and IR contract versions are independent version axes.
 

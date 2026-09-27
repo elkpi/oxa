@@ -112,6 +112,11 @@ fn rejects_non_object_response_format_schema() {
 }
 
 #[test]
+fn workspace_crate_version_is_2_1_0() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.1.0");
+}
+
+#[test]
 fn rejects_wrong_spec_version() {
     let bad = SPEC_RESPONSE.replace("\"0.1.0\"", "\"9.9.9\"");
     assert!(from_json::<Response>(&bad).is_err());

@@ -18,6 +18,7 @@ import type {
   ReasoningEffort,
   Request,
   Response,
+  ResponseFormat,
   ToolChoice,
   ToolResultBlock,
 } from "../../ir/index.js";
@@ -32,6 +33,7 @@ export function decodeRequest(
 ): ConversionResult<Request> {
   const losses: Loss[] = [];
   let effortValue: ReasoningEffort | undefined;
+  let formatValue: ResponseFormat | undefined;
   if (wire.metadata !== undefined)
     losses.push(loss("metadata", "metadata", "unmapped-field"));
   if (wire.text !== undefined) {
@@ -39,7 +41,7 @@ export function decodeRequest(
     if (text.verbosity !== undefined)
       losses.push(loss("text.verbosity", "verbosity", "unmapped-field"));
     if (text.format !== undefined)
-      losses.push(loss("text.format", "format", "unmapped-field"));
+      formatValue = decodeTextFormat(text.format, losses);
   }
   if (wire.reasoning !== undefined) {
     const reasoning = object(wire.reasoning, "reasoning");
@@ -244,6 +246,7 @@ export function decodeRequest(
           max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
     ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
+    ...(formatValue === undefined ? {} : { response_format: formatValue }),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -549,6 +552,9 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning: { effort: params.reasoning_effort } }),
+      ...(params?.response_format === undefined
+        ? {}
+        : { text: { format: encodeTextFormat(params.response_format) } }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -924,4 +930,71 @@ function whole(value: JsonValue | undefined, name: string): bigint {
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", `responses: ${message}`);
+}
+
+function boolean(value: JsonValue | undefined, name: string): boolean {
+  if (typeof value !== "boolean") fail(`${name} must be a boolean`);
+  return value;
+}
+
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const text = string(value, name);
+  if (text.length === 0) fail(`${name} must not be empty`);
+  return text;
+}
+
+function decodeTextFormat(
+  value: JsonValue | undefined,
+  losses: Loss[],
+): ResponseFormat | undefined {
+  if (value === undefined || value === null) return undefined;
+  const wire = object(value, "text.format");
+  const type = string(wire.type, "text.format.type");
+  switch (type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema": {
+      const name = nonEmptyString(wire.name, "text.format.name");
+      const schema = object(wire.schema, "text.format.schema");
+      const description =
+        wire.description === undefined
+          ? undefined
+          : string(wire.description, "text.format.description");
+      const strict =
+        wire.strict === undefined
+          ? undefined
+          : boolean(wire.strict, "text.format.strict");
+      return {
+        type: "json_schema",
+        name,
+        ...(description === undefined ? {} : { description }),
+        schema,
+        ...(strict === undefined ? {} : { strict }),
+      };
+    }
+    default:
+      losses.push(loss("text.format.type", "type", "unmapped-value"));
+      return undefined;
+  }
+}
+
+function encodeTextFormat(format: ResponseFormat): JsonObject {
+  switch (format.type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema":
+      return {
+        type: "json_schema",
+        name: format.name,
+        ...(format.description === undefined
+          ? {}
+          : { description: format.description }),
+        schema: format.schema,
+        ...(format.strict === undefined ? {} : { strict: format.strict }),
+      };
+  }
 }

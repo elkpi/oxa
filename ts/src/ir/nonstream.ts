@@ -14,6 +14,7 @@ import {
   type Params,
   type Request,
   type Response,
+  type ResponseFormat,
   type ToolChoice,
   type Usage,
 } from "./types.js";
@@ -326,7 +327,59 @@ function encodeParams(params: Params): JsonObject {
     ...(params.reasoning_effort === undefined
       ? {}
       : { reasoning_effort: params.reasoning_effort }),
+    ...(params.response_format === undefined
+      ? {}
+      : { response_format: encodeResponseFormat(params.response_format) }),
   };
+}
+
+function encodeResponseFormat(format: ResponseFormat): JsonObject {
+  switch (format.type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema":
+      return {
+        type: "json_schema",
+        name: format.name,
+        ...(format.description === undefined
+          ? {}
+          : { description: format.description }),
+        schema: { ...format.schema },
+        ...(format.strict === undefined ? {} : { strict: format.strict }),
+      };
+  }
+}
+
+function decodeResponseFormat(value: JsonValue): ResponseFormat {
+  const rf = object(value, "params.response_format");
+  const type = string(rf.type, "params.response_format.type");
+  switch (type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema":
+      return {
+        type: "json_schema",
+        name: nonEmptyString(rf.name, "params.response_format.name"),
+        ...(rf.description === undefined
+          ? {}
+          : {
+              description: string(
+                rf.description,
+                "params.response_format.description",
+              ),
+            }),
+        schema: object(rf.schema, "params.response_format.schema"),
+        ...(rf.strict === undefined
+          ? {}
+          : { strict: boolean(rf.strict, "params.response_format.strict") }),
+      };
+    default:
+      fail(`unsupported response_format type: ${type}`);
+  }
 }
 
 function decodeParams(value: JsonValue): Params {
@@ -361,6 +414,11 @@ function decodeParams(value: JsonValue): Params {
             "params.reasoning_effort",
           ),
         }),
+    ...(params.response_format === undefined
+      ? {}
+      : {
+          response_format: decodeResponseFormat(params.response_format),
+        }),
   };
 }
 
@@ -370,7 +428,8 @@ function paramsSet(params: Params): boolean {
     params.top_p !== undefined ||
     params.max_tokens !== undefined ||
     (params.stop_sequences !== undefined && params.stop_sequences.length > 0) ||
-    params.reasoning_effort !== undefined
+    params.reasoning_effort !== undefined ||
+    params.response_format !== undefined
   );
 }
 

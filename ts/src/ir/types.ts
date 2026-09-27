@@ -124,12 +124,30 @@ export interface Tool {
 export type ToolChoice =
   | { readonly mode: "auto" | "any" | "none" }
   | { readonly mode: "tool"; readonly name: string };
+export interface ResponseFormatText {
+  readonly type: "text";
+}
+export interface ResponseFormatJsonObject {
+  readonly type: "json_object";
+}
+export interface ResponseFormatJsonSchema {
+  readonly type: "json_schema";
+  readonly name: string;
+  readonly description?: string;
+  readonly schema: JsonObject;
+  readonly strict?: boolean;
+}
+export type ResponseFormat =
+  | ResponseFormatText
+  | ResponseFormatJsonObject
+  | ResponseFormatJsonSchema;
 export interface Params {
   readonly temperature?: number;
   readonly top_p?: number;
   readonly max_tokens?: bigint;
   readonly stop_sequences?: readonly string[];
   readonly reasoning_effort?: ReasoningEffort;
+  readonly response_format?: ResponseFormat;
 }
 export interface Request {
   readonly model: string;

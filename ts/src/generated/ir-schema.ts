@@ -65,12 +65,15 @@ export interface IrSchemaTool {
 
 export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; };
 
+export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
+
 export interface IrSchemaParams {
   readonly temperature?: number;
   readonly top_p?: number;
   readonly max_tokens?: number;
   readonly stop_sequences?: readonly (string)[];
   readonly reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  readonly response_format?: IrSchemaResponseFormat;
 }
 
 export interface IrSchemaResponse {

@@ -140,10 +140,10 @@ test("finds and loads repository vectors without native JSON coercion", () => {
   assert.equal(root, resolve(process.cwd(), ".."));
   assert.ok(root !== undefined);
   const vectors = loadVectors(root);
-  assert.equal(vectors.length, 154);
+  assert.equal(vectors.length, 163);
   assert.equal(
     vectors.filter((vector) => vector.document.spec_version === "0.2.0").length,
-    24,
+    34,
   );
   assert.ok(
     vectors.some(

@@ -18,6 +18,7 @@ import type {
   ReasoningEffort,
   Request,
   Response,
+  ResponseFormat,
   ToolChoice,
   ToolResultBlock,
 } from "../../ir/index.js";
@@ -35,7 +36,6 @@ export function decodeRequest(
     "parallel_tool_calls",
     "functions",
     "function_call",
-    "response_format",
     "logprobs",
     "top_logprobs",
     "metadata",
@@ -166,6 +166,7 @@ export function decodeRequest(
         ),
       );
   }
+  const responseFormat = decodeResponseFormat(wire.response_format, losses);
   const params = {
     ...(wire.temperature === undefined
       ? {}
@@ -178,6 +179,7 @@ export function decodeRequest(
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
     ...decodeReasoningEffort(wire.reasoning_effort, losses),
+    ...(responseFormat === undefined ? {} : { response_format: responseFormat }),
   };
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
@@ -380,6 +382,9 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning_effort: params.reasoning_effort }),
+      ...(params?.response_format === undefined
+        ? {}
+        : { response_format: encodeResponseFormat(params.response_format) }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -809,4 +814,89 @@ function whole(value: JsonValue | undefined, name: string): bigint {
 
 function fail(message: string): never {
   throw new OxaError("type-violation", `chatcompletions: ${message}`);
+}
+
+function boolean(value: JsonValue | undefined, name: string): boolean {
+  if (typeof value !== "boolean") fail(`${name} must be a boolean`);
+  return value;
+}
+
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const text = string(value, name);
+  if (text.length === 0) fail(`${name} must not be empty`);
+  return text;
+}
+
+function decodeResponseFormat(
+  value: JsonValue | undefined,
+  losses: Loss[],
+): ResponseFormat | undefined {
+  if (value === undefined || value === null) return undefined;
+  const wire = object(value, "response_format");
+  const type = string(wire.type, "response_format.type");
+  switch (type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema": {
+      const jsonSchema = object(
+        wire.json_schema,
+        "response_format.json_schema",
+      );
+      const name = nonEmptyString(
+        jsonSchema.name,
+        "response_format.json_schema.name",
+      );
+      const schema = object(
+        jsonSchema.schema,
+        "response_format.json_schema.schema",
+      );
+      const description =
+        jsonSchema.description === undefined
+          ? undefined
+          : string(
+              jsonSchema.description,
+              "response_format.json_schema.description",
+            );
+      const strict =
+        jsonSchema.strict === undefined
+          ? undefined
+          : boolean(
+              jsonSchema.strict,
+              "response_format.json_schema.strict",
+            );
+      return {
+        type: "json_schema",
+        name,
+        ...(description === undefined ? {} : { description }),
+        schema,
+        ...(strict === undefined ? {} : { strict }),
+      };
+    }
+    default:
+      losses.push(loss("response_format.type", "type", "unmapped-value"));
+      return undefined;
+  }
+}
+
+function encodeResponseFormat(format: ResponseFormat): JsonObject {
+  switch (format.type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema":
+      return {
+        type: "json_schema",
+        json_schema: {
+          name: format.name,
+          ...(format.description === undefined
+            ? {}
+            : { description: format.description }),
+          schema: format.schema,
+          ...(format.strict === undefined ? {} : { strict: format.strict }),
+        },
+      };
+  }
 }

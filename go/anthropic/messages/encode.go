@@ -131,6 +131,14 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			Detail: "budget approximated",
 		})
 	}
+	if req.Params.ResponseFormat != nil {
+		losses = append(losses, ir.Loss{
+			Path:   "params.response_format",
+			Field:  "response_format",
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
+		})
+	}
 	return out, losses, nil
 }
 

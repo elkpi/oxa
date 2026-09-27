@@ -253,6 +253,23 @@ class CodecTest(unittest.TestCase):
         with self.assertRaises(CodecError):
             load_request(raw)
 
+    def test_response_format_rejects_non_string_description(self) -> None:
+        raw = {
+            "specVersion": "0.2.0",
+            "model": "m",
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
+            "params": {
+                "response_format": {
+                    "type": "json_schema",
+                    "name": "result",
+                    "description": 17,
+                    "schema": {"type": "object"},
+                }
+            },
+        }
+        with self.assertRaises(CodecError):
+            load_request(raw)
+
     def test_loss_round_trip(self) -> None:
         loss = Loss(
             path="messages[0].content[1]",

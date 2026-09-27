@@ -235,7 +235,9 @@ def decode_response_format(value: Any, losses: list[Loss]) -> ResponseFormat | N
     if kind == "json_schema":
         js = value.get("json_schema")
         if not isinstance(js, dict):
-            raise ValueError("chatcompletions: response_format of type json_schema requires json_schema object")
+            raise ValueError(
+                "chatcompletions: response_format of type json_schema requires json_schema object"
+            )
         name = js.get("name")
         if not name or not isinstance(name, str):
             raise ValueError("chatcompletions: response_format.json_schema requires string name")
@@ -243,13 +245,19 @@ def decode_response_format(value: Any, losses: list[Loss]) -> ResponseFormat | N
         if not isinstance(schema, dict):
             raise ValueError("chatcompletions: response_format.json_schema requires schema object")
         desc = js.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise ValueError(
+                "chatcompletions: response_format.json_schema.description must be a string"
+            )
         strict = js.get("strict")
         if strict is not None and not isinstance(strict, bool):
-            raise ValueError("chatcompletions: response_format.json_schema.strict must be a boolean")
+            raise ValueError(
+                "chatcompletions: response_format.json_schema.strict must be a boolean"
+            )
         return ResponseFormatJsonSchema(
             name=name,
             schema=schema,
-            description=str(desc) if desc is not None else None,
+            description=desc,
             strict=strict,
         )
     losses.append(

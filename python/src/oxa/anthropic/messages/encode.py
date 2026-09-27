@@ -174,7 +174,8 @@ def encode_request(
                     "params.response_format",
                     "response_format",
                     LOSS_UNMAPPED_FIELD,
-                    "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
+                    "Anthropic Messages has no native response_format request parameter; "
+                    "structured output preference is dropped.",
                 )
             )
 

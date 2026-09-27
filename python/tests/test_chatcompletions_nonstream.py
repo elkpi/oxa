@@ -37,6 +37,22 @@ class ChatCompletionsNonstreamTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_request(wire)
 
+    def test_response_format_rejects_non_string_description(self) -> None:
+        wire = {
+            "model": "gpt-4o",
+            "messages": [{"role": "user", "content": "json"}],
+            "response_format": {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "result",
+                    "description": 17,
+                    "schema": {"type": "object"},
+                },
+            },
+        }
+        with self.assertRaises(ValueError):
+            decode_request(wire)
+
     def test_unknown_role_is_a_structural_error(self) -> None:
         wire = {
             "model": "m",

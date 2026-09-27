@@ -378,13 +378,15 @@ def load_response_format(data: dict[str, Any]) -> ResponseFormat:
         if not isinstance(schema, dict):
             raise CodecError("response_format.json_schema requires schema object")
         desc = data.get("description")
+        if desc is not None and not isinstance(desc, str):
+            raise CodecError("response_format.json_schema description must be a string")
         strict = data.get("strict")
         if strict is not None and not isinstance(strict, bool):
             raise CodecError("response_format.json_schema strict must be a boolean")
         return ResponseFormatJsonSchema(
             name=name,
             schema=schema,
-            description=str(desc) if desc is not None else None,
+            description=desc,
             strict=strict,
         )
     raise CodecError(f"unknown response_format discriminant: {kind}")

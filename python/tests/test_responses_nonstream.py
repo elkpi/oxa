@@ -40,6 +40,22 @@ class ResponsesNonstreamTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             decode_request(wire)
 
+    def test_text_format_rejects_non_string_description(self) -> None:
+        wire = {
+            "model": "gpt-4o",
+            "input": "json",
+            "text": {
+                "format": {
+                    "type": "json_schema",
+                    "name": "result",
+                    "description": 17,
+                    "schema": {"type": "object"},
+                }
+            },
+        }
+        with self.assertRaises(ValueError):
+            decode_request(wire)
+
     def test_decodes_function_call_arguments_without_normalizing_their_json_text(self) -> None:
         wire = {
             "model": "gpt-4o-mini",

@@ -17,6 +17,10 @@ from oxa.ir import (
     Loss,
     Request,
     Response,
+    ResponseFormat,
+    ResponseFormatJsonObject,
+    ResponseFormatJsonSchema,
+    ResponseFormatText,
     ToolResultBlock,
 )
 from oxa.ir import (
@@ -154,8 +158,31 @@ def encode_request(
             out["stop"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             out["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.response_format is not None:
+            out["response_format"] = encode_response_format(req.params.response_format)
 
     return out, losses
+
+
+def encode_response_format(rf: ResponseFormat) -> dict[str, Any]:
+    if isinstance(rf, ResponseFormatText):
+        return {"type": "text"}
+    if isinstance(rf, ResponseFormatJsonObject):
+        return {"type": "json_object"}
+    if isinstance(rf, ResponseFormatJsonSchema):
+        js: dict[str, Any] = {
+            "name": rf.name,
+            "schema": rf.schema,
+        }
+        if rf.description is not None:
+            js["description"] = rf.description
+        if rf.strict is not None:
+            js["strict"] = rf.strict
+        return {
+            "type": "json_schema",
+            "json_schema": js,
+        }
+    raise ValueError(f"chatcompletions: unknown response format type: {type(rf)}")
 
 
 def encode_response(

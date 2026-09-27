@@ -20,6 +20,10 @@ from oxa.ir import (
     ReasoningEffort,
     Request,
     Response,
+    ResponseFormat,
+    ResponseFormatJsonObject,
+    ResponseFormatJsonSchema,
+    ResponseFormatText,
     TextBlock,
     ThinkingBlock,
     Tool,
@@ -79,12 +83,6 @@ def decode_request(
             "verbosity",
             isinstance(text_config, dict) and text_config.get("verbosity") is not None,
             "Responses output verbosity has no IR equivalent in v1.",
-        ),
-        (
-            "text.format",
-            "format",
-            isinstance(text_config, dict) and text_config.get("format") is not None,
-            "Responses text output format has no IR equivalent in v1.",
         ),
         (
             "parallel_tool_calls",
@@ -247,18 +245,22 @@ def decode_request(
             )
 
     max_tokens = wire.get("max_output_tokens")
+    format_raw = text_config.get("format") if isinstance(text_config, dict) else None
+    response_format = decode_text_format(format_raw, losses)
     params: Params | None = None
     if (
         wire.get("temperature") is not None
         or wire.get("top_p") is not None
         or max_tokens is not None
         or reasoning_effort is not None
+        or response_format is not None
     ):
         params = Params(
             temperature=wire.get("temperature"),
             top_p=wire.get("top_p"),
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
+            response_format=response_format,
         )
 
     return (
@@ -272,6 +274,42 @@ def decode_request(
         ),
         losses,
     )
+
+
+def decode_text_format(value: Any, losses: list[Loss]) -> ResponseFormat | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("responses: text.format must be an object")
+    kind = value.get("type")
+    if kind == "text":
+        return ResponseFormatText()
+    if kind == "json_object":
+        return ResponseFormatJsonObject()
+    if kind == "json_schema":
+        name = value.get("name")
+        if not name or not isinstance(name, str):
+            raise ValueError("responses: text.format of type json_schema requires string name")
+        schema = value.get("schema")
+        if not isinstance(schema, dict):
+            raise ValueError("responses: text.format of type json_schema requires schema object")
+        desc = value.get("description")
+        strict = value.get("strict")
+        return ResponseFormatJsonSchema(
+            name=name,
+            schema=schema,
+            description=str(desc) if desc is not None else None,
+            strict=bool(strict) if strict is not None else None,
+        )
+    losses.append(
+        loss(
+            "text.format.type",
+            "type",
+            LOSS_UNMAPPED_VALUE,
+            f"unknown text.format type {kind!r}",
+        )
+    )
+    return None
 
 
 def decode_response(

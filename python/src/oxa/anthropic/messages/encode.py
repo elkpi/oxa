@@ -168,6 +168,15 @@ def encode_request(
                     "budget approximated",
                 )
             )
+        if req.params.response_format is not None:
+            losses.append(
+                loss(
+                    "params.response_format",
+                    "response_format",
+                    LOSS_UNMAPPED_FIELD,
+                    "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
+                )
+            )
 
     return out, losses
 

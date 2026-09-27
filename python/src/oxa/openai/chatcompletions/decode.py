@@ -20,6 +20,10 @@ from oxa.ir import (
     ReasoningEffort,
     Request,
     Response,
+    ResponseFormat,
+    ResponseFormatJsonObject,
+    ResponseFormatJsonSchema,
+    ResponseFormatText,
     SystemBlock,
     TextBlock,
     ThinkingBlock,
@@ -72,7 +76,6 @@ def decode_request(
         ),
         ("functions", "legacy Chat Completions functions have no IR equivalent in v1."),
         ("function_call", "legacy Chat Completions function_call has no IR equivalent in v1."),
-        ("response_format", "Chat Completions response_format has no IR equivalent in v1."),
         ("logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
         ("top_logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
         ("metadata", "Chat Completions request metadata has no IR equivalent in v1."),
@@ -183,6 +186,7 @@ def decode_request(
         stop_sequences = [s for s in stop if s] if stop else None
 
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
+    response_format = decode_response_format(wire.get("response_format"), losses)
     max_tokens = wire.get("max_tokens")
     if max_tokens is None:
         max_tokens = wire.get("max_completion_tokens")
@@ -194,6 +198,7 @@ def decode_request(
         or max_tokens is not None
         or stop_sequences is not None
         or reasoning_effort is not None
+        or response_format is not None
     ):
         params = Params(
             temperature=wire.get("temperature"),
@@ -201,6 +206,7 @@ def decode_request(
             max_tokens=max_tokens,
             stop_sequences=stop_sequences,
             reasoning_effort=reasoning_effort,
+            response_format=response_format,
         )
 
     return (
@@ -214,6 +220,45 @@ def decode_request(
         ),
         losses,
     )
+
+
+def decode_response_format(value: Any, losses: list[Loss]) -> ResponseFormat | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise ValueError("chatcompletions: response_format must be an object")
+    kind = value.get("type")
+    if kind == "text":
+        return ResponseFormatText()
+    if kind == "json_object":
+        return ResponseFormatJsonObject()
+    if kind == "json_schema":
+        js = value.get("json_schema")
+        if not isinstance(js, dict):
+            raise ValueError("chatcompletions: response_format of type json_schema requires json_schema object")
+        name = js.get("name")
+        if not name or not isinstance(name, str):
+            raise ValueError("chatcompletions: response_format.json_schema requires string name")
+        schema = js.get("schema")
+        if not isinstance(schema, dict):
+            raise ValueError("chatcompletions: response_format.json_schema requires schema object")
+        desc = js.get("description")
+        strict = js.get("strict")
+        return ResponseFormatJsonSchema(
+            name=name,
+            schema=schema,
+            description=str(desc) if desc is not None else None,
+            strict=bool(strict) if strict is not None else None,
+        )
+    losses.append(
+        loss(
+            "response_format.type",
+            "type",
+            LOSS_UNMAPPED_VALUE,
+            f"unknown response_format type {kind!r}",
+        )
+    )
+    return None
 
 
 def decode_reasoning_effort(value: Any, losses: list[Loss]) -> ReasoningEffort | None:

@@ -68,7 +68,7 @@ The wire objects in scope are:
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `functions`, `function_call` | — | unmapped-field loss |
-| `response_format` | — | unmapped-field loss |
+| `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
 | `logprobs`, `top_logprobs` | — | unmapped-field loss |
 
 On encode (IR → CC), `Request.System` is rendered as exactly one leading
@@ -203,6 +203,14 @@ Each rule has a stable ID usable as a vector tag.
   `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`); unknown inbound
   values are dropped with an `unmapped-value` loss.
 
+- **Response format mapping (N-CC-13).** `response_format` maps 1:1 to
+  `Params.ResponseFormat` (since 2.1). `type: "text"` maps to text variant;
+  `type: "json_object"` maps to json_object variant; `type: "json_schema"`
+  unwraps nested `json_schema` into flat fields (`name`, `description`, `schema`,
+  `strict`). Unrecognized `type` values are dropped with an `unmapped-value` loss.
+  On encode, IR `ResponseFormat` renders back as CC `response_format` with nested
+  `json_schema` wrapping.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -216,7 +224,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `logprobs`, `top_logprobs` | unmapped-field | request → IR | log-probability sampling has no IR equivalent |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |
-| `response_format` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `response_format.type` unknown value | unmapped-value | request → IR | unknown response_format type dropped (N-CC-13) |
 | `content[i].signature` | unmapped-field | IR → response/request | Chat Completions carries no signature field on reasoning_content (N-CC-12) |
 | `reasoning_effort` unknown value | unmapped-value | request → IR | unknown effort values are dropped (N-CC-12) |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |

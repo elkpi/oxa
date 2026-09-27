@@ -74,7 +74,8 @@ The wire objects in scope are:
 | `max_output_tokens` | `Params.MaxTokens` | name mapping only; loss-free both directions (N-R-7) |
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
-| `text.verbosity`, `text.format` | — | unmapped-field loss |
+| `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
+| `text.verbosity` | — | unmapped-field loss |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `tools[].strict` | — | unmapped-field loss per tool |
@@ -238,6 +239,11 @@ Each rule has a stable ID usable as a vector tag.
   `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`); other request
   `reasoning` properties (such as `summary` preference) are dropped with
   `unmapped-field` losses.
+- **N-R-14 (text format mapping).** `text.format` maps 1:1 to
+  `Params.ResponseFormat` (since 2.1). `type: "text"` maps to text variant;
+  `type: "json_object"` maps to json_object variant; `type: "json_schema"`
+  maps to json_schema variant (`name`, `description`, `schema`, `strict`).
+  On encode, IR `ResponseFormat` renders into request `text.format`.
 
 ## 8. Loss Catalog
 
@@ -251,7 +257,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `object`, `status` on encode, `output[].id`, `output[].status`, `output[].role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
 | empty `annotations` | exempt (envelope) | both | structural part of output_text |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | Responses metadata is string-valued with no IR equivalent; the IR metadata map has no Responses field. Dropped symmetrically as one loss per direction. |
-| `text.verbosity`, `text.format` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `text.verbosity` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `text.format.type` unknown value | unmapped-value | request → IR | unknown text.format type dropped (N-R-14) |
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
 | `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |

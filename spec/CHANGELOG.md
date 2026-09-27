@@ -5,7 +5,7 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.1.0 - Unreleased
+## 2.1.0 - 2026-09-27
 
 Minor evolution adding structured-output format mapping across all protocol
 faces. IR documents continue to use `specVersion: "0.2.0"`.

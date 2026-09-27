@@ -45,7 +45,7 @@ installed CMake package. The TypeScript CI job separately exercises the packed
 `@elkpi/oxa` artifact through `test:package` and `test:consumer`.
 
 The `reliability` job replays `testdata/stream-fragment-corpus.json` through
-Go, Rust, Python, and C++ with a bounded runtime. TypeScript runs all 125 shared
+Go, Rust, Python, and C++ with a bounded runtime. TypeScript runs all 163 shared
 golden vectors in its Node test gate; it is not currently part of that bounded
 four-language corpus replay.
 

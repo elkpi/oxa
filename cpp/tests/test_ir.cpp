@@ -156,6 +156,24 @@ void codec_tests() {
         }
     }
 
+    // ResponseFormat round-trips in request params without rewriting schema values.
+    {
+        auto request_with_format = oxa::json::parse(R"({
+            "specVersion":"0.2.0",
+            "model":"m",
+            "messages":[{"role":"user","content":[{"type":"text","text":"json please"}]}],
+            "params":{"response_format":{"type":"json_schema","name":"result",
+                "description":"result schema","schema":{"type":"object","x-order":[2,1]},"strict":false}}
+        })");
+        CHECK(request_with_format.ok());
+        auto request = load_request(*request_with_format);
+        CHECK(request.ok());
+        if (request.ok()) {
+            auto encoded = dump_request(*request);
+            CHECK(oxa::json::structurally_equal(*request_with_format, encoded));
+        }
+    }
+
     // Block discriminant shapes are pinned.
     {
         auto bp = oxa::json::parse(R"({"type":"text","text":"hi"})");

@@ -250,6 +250,20 @@ json::Value dump_request(const Request& r) {
         if (r.params->reasoning_effort.has_value()) {
             p.set("reasoning_effort", json::Value::string(*r.params->reasoning_effort));
         }
+        if (r.params->response_format.has_value()) {
+            const auto& rf = *r.params->response_format;
+            json::Value format = json::Value::object();
+            format.set("type", json::Value::string(rf.type));
+            if (rf.type == "json_schema") {
+                format.set("name", json::Value::string(rf.name));
+                if (rf.description.has_value()) {
+                    format.set("description", json::Value::string(*rf.description));
+                }
+                if (rf.schema.has_value()) format.set("schema", *rf.schema);
+                if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
+            }
+            p.set("response_format", std::move(format));
+        }
         if (!p.as_object().empty()) out.set("params", std::move(p));
     }
     if (r.metadata.has_value() && !r.metadata->empty()) {
@@ -371,6 +385,42 @@ StatusOr<Request> load_request(const json::Value& v) {
                 return invalid_argument("invalid params reasoning_effort: " + effort);
             }
             p.reasoning_effort = effort;
+        }
+        if ((f = params->find("response_format")) != nullptr) {
+            if (!f->is_object()) return invalid_argument("params response_format must be an object");
+            const json::Value* type = f->find("type");
+            if (type == nullptr || !type->is_string()) {
+                return invalid_argument("params response_format requires string type");
+            }
+            ResponseFormat response_format;
+            response_format.type = type->as_string();
+            if (response_format.type == "json_schema") {
+                const json::Value* name = f->find("name");
+                if (name == nullptr || !name->is_string() || name->as_string().empty()) {
+                    return invalid_argument("params response_format json_schema requires non-empty name");
+                }
+                response_format.name = name->as_string();
+                const json::Value* description = f->find("description");
+                if (description != nullptr) {
+                    if (!description->is_string()) {
+                        return invalid_argument("params response_format description must be a string");
+                    }
+                    response_format.description = description->as_string();
+                }
+                const json::Value* schema = f->find("schema");
+                if (schema == nullptr || !schema->is_object()) {
+                    return invalid_argument("params response_format json_schema requires schema object");
+                }
+                response_format.schema = *schema;
+                const json::Value* strict = f->find("strict");
+                if (strict != nullptr) {
+                    if (!strict->is_bool()) return invalid_argument("params response_format strict must be a boolean");
+                    response_format.strict = strict->as_bool();
+                }
+            } else if (response_format.type != "text" && response_format.type != "json_object") {
+                return invalid_argument("invalid params response_format type: " + response_format.type);
+            }
+            p.response_format = std::move(response_format);
         }
         r.params = std::move(p);
     }

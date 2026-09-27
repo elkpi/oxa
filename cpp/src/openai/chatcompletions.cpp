@@ -10,6 +10,61 @@ ir::Loss make_cc_loss(std::string path, std::string field, std::string_view reas
     return ir::make_loss(std::move(path), std::move(field), reason, std::move(detail));
 }
 
+StatusOr<std::optional<ir::ResponseFormat>> decode_response_format(
+    const json::Value& value, std::vector<ir::Loss>& losses) {
+    if (!value.is_object()) return invalid_argument("chatcompletions: response_format must be an object");
+    const auto* type = value.find("type");
+    if (type == nullptr || !type->is_string()) {
+        return invalid_argument("chatcompletions: response_format requires string type");
+    }
+    const auto& kind = type->as_string();
+    if (kind == "text") {
+        ir::ResponseFormat format;
+        format.type = "text";
+        return std::optional<ir::ResponseFormat>(std::move(format));
+    }
+    if (kind == "json_object") {
+        ir::ResponseFormat format;
+        format.type = "json_object";
+        return std::optional<ir::ResponseFormat>(std::move(format));
+    }
+    if (kind != "json_schema") {
+        losses.push_back(make_cc_loss("response_format.type", "type", ir::LOSS_UNMAPPED_VALUE,
+                                      "unknown response_format type \"" + kind + "\""));
+        return std::optional<ir::ResponseFormat>{};
+    }
+
+    const auto* schema_config = value.find("json_schema");
+    if (schema_config == nullptr || !schema_config->is_object()) {
+        return invalid_argument("chatcompletions: response_format of type json_schema requires json_schema object");
+    }
+    const auto* name = schema_config->find("name");
+    if (name == nullptr || !name->is_string() || name->as_string().empty()) {
+        return invalid_argument("chatcompletions: response_format.json_schema requires non-empty name");
+    }
+    const auto* schema = schema_config->find("schema");
+    if (schema == nullptr || !schema->is_object()) {
+        return invalid_argument("chatcompletions: response_format.json_schema requires schema object");
+    }
+    ir::ResponseFormat format;
+    format.type = "json_schema";
+    format.name = name->as_string();
+    format.schema = *schema;
+    if (const auto* description = schema_config->find("description"); description != nullptr) {
+        if (!description->is_string()) {
+            return invalid_argument("chatcompletions: response_format.json_schema description must be a string");
+        }
+        format.description = description->as_string();
+    }
+    if (const auto* strict = schema_config->find("strict"); strict != nullptr) {
+        if (!strict->is_bool()) {
+            return invalid_argument("chatcompletions: response_format.json_schema strict must be a boolean");
+        }
+        format.strict = strict->as_bool();
+    }
+    return std::optional<ir::ResponseFormat>(std::move(format));
+}
+
 bool is_valid_https_url(std::string_view raw) {
     constexpr std::string_view kPrefix = "https://";
     if (!raw.starts_with(kPrefix)) return false;
@@ -209,8 +264,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
     std::vector<ir::Loss> losses;
 
     const char* dropped_fields[] = {
-        "parallel_tool_calls", "functions", "function_call", "response_format",
-        "logprobs", "top_logprobs", "metadata"};
+        "parallel_tool_calls", "functions", "function_call", "logprobs", "top_logprobs", "metadata"};
     for (const char* f : dropped_fields) {
         if (wire.find(f) != nullptr) {
             std::string detail = "Chat Completions " + std::string(f) + " has no IR equivalent in v1.";
@@ -415,6 +469,13 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
             losses.push_back(make_cc_loss(
                 "reasoning_effort", "reasoning_effort", ir::LOSS_UNMAPPED_VALUE,
                 "Chat Completions reasoning_effort \"" + value + "\" has no IR equivalent"));
+        }
+    }
+    if (const auto* response_format = wire.find("response_format"); response_format != nullptr) {
+        OXA_ASSIGN_OR_RETURN(auto decoded_format, decode_response_format(*response_format, losses));
+        if (decoded_format.has_value()) {
+            params.response_format = std::move(*decoded_format);
+            has_params = true;
         }
     }
     if (has_params) req.params = std::move(params);
@@ -648,6 +709,22 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         if (p.reasoning_effort.has_value()) {
             out.set("reasoning_effort", json::Value::string(*p.reasoning_effort));
+        }
+        if (p.response_format.has_value()) {
+            const auto& rf = *p.response_format;
+            json::Value format = json::Value::object();
+            format.set("type", json::Value::string(rf.type));
+            if (rf.type == "json_schema") {
+                json::Value schema_config = json::Value::object();
+                schema_config.set("name", json::Value::string(rf.name));
+                if (rf.description.has_value()) {
+                    schema_config.set("description", json::Value::string(*rf.description));
+                }
+                if (rf.schema.has_value()) schema_config.set("schema", *rf.schema);
+                if (rf.strict.has_value()) schema_config.set("strict", json::Value::boolean(*rf.strict));
+                format.set("json_schema", std::move(schema_config));
+            }
+            out.set("response_format", std::move(format));
         }
     }
 

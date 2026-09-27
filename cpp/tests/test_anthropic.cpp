@@ -39,7 +39,24 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 36);
+    CHECK(rep_res->executed == 37);
+
+    oxa::ir::Request request;
+    request.model = "claude-3-5-sonnet-20241022";
+    request.messages.push_back(oxa::ir::Message{
+        std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"json"}}});
+    request.params = oxa::ir::Params{};
+    request.params->max_tokens = 1024;
+    request.params->response_format = oxa::ir::ResponseFormat{};
+    request.params->response_format->type = "json_object";
+    auto encoded = oxa::anthropic::messages::encode_request(request);
+    CHECK(encoded.ok());
+    if (encoded.ok()) {
+        CHECK(encoded->losses.size() == 1);
+        CHECK(encoded->losses[0].path == "params.response_format");
+        CHECK(encoded->losses[0].field == "response_format");
+        CHECK(encoded->losses[0].reason == oxa::ir::LOSS_UNMAPPED_FIELD);
+    }
     std::printf("test_anthropic: all %zu vectors passed\n", rep_res->executed);
     return 0;
 }

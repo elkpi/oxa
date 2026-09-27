@@ -126,6 +126,14 @@ struct ToolChoice {
     std::optional<std::string> name;
 };
 
+struct ResponseFormat {
+    std::string type;
+    std::string name;
+    std::optional<std::string> description;
+    std::optional<json::Value> schema;
+    std::optional<bool> strict;
+};
+
 // None means absent; absent and zero/empty are distinct states (spec/01 §3.7).
 struct Params {
     std::optional<double> temperature;
@@ -133,6 +141,7 @@ struct Params {
     std::optional<std::int64_t> max_tokens;
     std::optional<std::vector<std::string>> stop_sequences;
     std::optional<std::string> reasoning_effort;
+    std::optional<ResponseFormat> response_format;
 };
 
 struct Request {

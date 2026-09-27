@@ -159,6 +159,25 @@ responsibility; consumers treat `data` as an opaque string.
 | `MaxTokens` | `max_tokens` | `*int64` / integer ≥ 1 | no | |
 | `StopSequences` | `stop_sequences` | `[]string` | no | |
 | `ReasoningEffort` | `reasoning_effort` | enum `minimal` \| `low` \| `medium` \| `high` | no | absent means unset; unknown inbound values are dropped with unmapped-value (since 2.0) |
+| `ResponseFormat` | `response_format` | `*ResponseFormat` | no | structured output formatting preference (since 2.1) |
+
+### 3.7.1 ResponseFormat
+
+Structured output generation preference. Closed union of three variants discriminated by `type`:
+
+| Variant | JSON `type` | Fields | Notes |
+|---------|-------------|--------|-------|
+| `text` | `text` | `type` | explicit unstructured text generation |
+| `json_object` | `json_object` | `type` | unconstrained JSON object output (JSON mode) |
+| `json_schema` | `json_schema` | `type`, `name`, `description`, `schema`, `strict` | constrained JSON schema output |
+
+`json_schema` fields:
+- `name` (string, required): schema identifier, non-empty.
+- `description` (string, optional): description of the schema's purpose.
+- `schema` (JSON object, required): JSON Schema object carried verbatim per INV-1; MUST NOT be mutated or re-ordered.
+- `strict` (boolean, optional): whether to strictly enforce schema constraints.
+
+When unspecified by caller, `response_format` is omitted from `Params`.
 
 ## 4. Response-side types
 

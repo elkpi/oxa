@@ -215,6 +215,42 @@
         }
       ]
     },
+    "responseFormat": {
+      "description": "Output formatting preference (spec/01 §3.7.1, since 2.1).",
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "text" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "json_object" }
+          },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "json_schema" },
+            "name": { "type": "string", "minLength": 1 },
+            "description": { "type": "string" },
+            "schema": {
+              "type": "object",
+              "description": "JSON Schema object; carried verbatim per INV-1."
+            },
+            "strict": { "type": "boolean" }
+          },
+          "required": ["type", "name", "schema"],
+          "additionalProperties": false
+        }
+      ]
+    },
     "params": {
       "type": "object",
       "description": "Sampling parameters (spec/01 s3.7); optional fields are omitted, never null. Ranges are face concerns.",
@@ -228,6 +264,9 @@
         },
         "reasoning_effort": {
           "enum": ["minimal", "low", "medium", "high"]
+        },
+        "response_format": {
+          "$ref": "#/$defs/responseFormat"
         }
       },
       "additionalProperties": false

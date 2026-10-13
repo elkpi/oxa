@@ -1075,7 +1075,7 @@
         "params",
         "loss"
       ],
-      "sha256": "f7f192d6dbe7d3696bba59f6fb40f68faef35d0639037032628f483b341a62e6"
+      "sha256": "23dbfe5b14539525be57444fbbfd9c8e9b0a1bd35d8d49ab202192cfeaf36ff5"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-response",
@@ -1109,7 +1109,7 @@
         "params",
         "loss"
       ],
-      "sha256": "a8d6c485e859455c28daeec98673bfceebc8f173602161714e1cfb67d2dad75f"
+      "sha256": "0061035e609ccb5ab86f171a6507a9e5d9d9a11d0675a05306d1d5d90ca731d6"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-response",

@@ -133,19 +133,11 @@ type crossChatCompletions struct{}
 func (crossChatCompletions) Face() string { return "chatcompletions" }
 
 func (crossChatCompletions) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
-	var wire chatcompletions.Request
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return chatcompletions.DecodeRequest(&wire)
+	return chatcompletions.DecodeRequestJSON(w)
 }
 
 func (crossChatCompletions) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
-	var wire chatcompletions.Response
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return chatcompletions.DecodeResponse(&wire)
+	return chatcompletions.DecodeResponseJSON(w)
 }
 
 func (crossChatCompletions) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
@@ -172,19 +164,11 @@ type crossResponses struct{}
 func (crossResponses) Face() string { return "responses" }
 
 func (crossResponses) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
-	var wire responses.Request
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return responses.DecodeRequest(&wire)
+	return responses.DecodeRequestJSON(w)
 }
 
 func (crossResponses) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
-	var wire responses.Response
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return responses.DecodeResponse(&wire)
+	return responses.DecodeResponseJSON(w)
 }
 
 func (crossResponses) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
@@ -211,19 +195,11 @@ type crossAnthropic struct{}
 func (crossAnthropic) Face() string { return "anthropic" }
 
 func (crossAnthropic) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
-	var wire messages.Request
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return messages.DecodeRequest(&wire)
+	return messages.DecodeRequestJSON(w)
 }
 
 func (crossAnthropic) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
-	var wire messages.Response
-	if err := json.Unmarshal(w, &wire); err != nil {
-		return nil, nil, err
-	}
-	return messages.DecodeResponse(&wire)
+	return messages.DecodeResponseJSON(w)
 }
 
 func (crossAnthropic) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {

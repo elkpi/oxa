@@ -43,6 +43,17 @@ pub struct StreamDecoder {
 }
 
 impl StreamDecoder {
+    pub fn feed_json(&mut self, raw: &str) -> Result<Vec<Event>, Error> {
+        let event: StreamEvent =
+            serde_json::from_str(raw).map_err(|error| Error::new(error.to_string()))?;
+        let before = self.losses.len();
+        let events = self.feed(&event)?;
+        let native_losses = self.losses.split_off(before);
+        self.losses
+            .extend(crate::audit::audit_losses(raw, "event", native_losses)?);
+        Ok(events)
+    }
+
     /// Creates a new decoder for an Anthropic Messages stream.
     pub fn new(config: &Config) -> Self {
         StreamDecoder {

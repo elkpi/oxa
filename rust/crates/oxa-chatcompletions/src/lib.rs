@@ -6,7 +6,10 @@
 //! Semantic unmappables are losses, never errors; errors are reserved for
 //! structural type violations of known fields (spec/02 §4).
 
+mod audit;
 mod config;
+mod rawjson;
+pub use rawjson::{decode_request_json, decode_response_json};
 mod decode;
 mod encode;
 mod error;

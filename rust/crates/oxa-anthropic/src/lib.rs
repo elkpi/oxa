@@ -8,7 +8,10 @@
 //! `tool_use.input` objects are carried as raw JSON text without parsing
 //! (INV-1, N-AN-4).
 
+mod audit;
 mod config;
+mod rawjson;
+pub use rawjson::{decode_request_json, decode_response_json};
 mod decode;
 mod encode;
 mod error;

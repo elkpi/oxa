@@ -3,7 +3,10 @@
 //! Wire types remain separate from IR types, and this face depends only on
 //! `oxa-ir` and `oxa-modelmap`, never another face crate.
 
+mod audit;
 mod config;
+mod rawjson;
+pub use rawjson::{decode_request_json, decode_response_json};
 mod decode;
 mod encode;
 mod error;

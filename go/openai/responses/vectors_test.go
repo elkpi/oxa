@@ -21,19 +21,11 @@ type vectorConverter struct {
 func (vectorConverter) Face() string { return "responses" }
 
 func (vectorConverter) DecodeRequestWire(raw json.RawMessage) (*ir.Request, []ir.Loss, error) {
-	var wire Request
-	if err := json.Unmarshal(raw, &wire); err != nil {
-		return nil, nil, err
-	}
-	return DecodeRequest(&wire)
+	return DecodeRequestJSON(raw)
 }
 
 func (vectorConverter) DecodeResponseWire(raw json.RawMessage) (*ir.Response, []ir.Loss, error) {
-	var wire Response
-	if err := json.Unmarshal(raw, &wire); err != nil {
-		return nil, nil, err
-	}
-	return DecodeResponse(&wire)
+	return DecodeResponseJSON(raw)
 }
 
 func (vectorConverter) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
@@ -79,11 +71,7 @@ func (c *vectorConverter) DecodeNativeEvent(raw json.RawMessage) ([]ir.Event, er
 		c.decoder = NewStreamDecoder()
 		c.decoderFlushed = false
 	}
-	var event StreamEvent
-	if err := json.Unmarshal(raw, &event); err != nil {
-		return nil, err
-	}
-	return c.decoder.Feed(&event)
+	return c.decoder.FeedJSON(raw)
 }
 
 func (c *vectorConverter) FlushDecoder() ([]ir.Event, error) {

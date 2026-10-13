@@ -7,9 +7,21 @@ import {
   type StopReason,
   type Usage,
 } from "../../ir/index.js";
-import { jsonText } from "../../json/index.js";
+import {
+  isJsonNumber,
+  jsonText,
+  parseJson,
+  type JsonObject,
+  type JsonValue,
+} from "../../json/index.js";
 import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import {
+  auditWire,
+  mergeWireLosses,
+  parseWireEvent,
+} from "../../json/wire-audit.js";
+import { RESPONSES_STREAM_EVENT } from "./audit.js";
 import type {
   ResponsesOutputItem,
   ResponsesOutputTextPart,
@@ -46,7 +58,7 @@ type SkippedUnit =
 /** Incrementally converts Responses event objects to IR stream events. */
 export class ResponsesStreamDecoder {
   readonly #modelMapper: ModelMapper | undefined;
-  readonly #losses: Loss[] = [];
+  #losses: Loss[] = [];
   #started = false;
   #terminated = false;
   #flushed = false;
@@ -75,6 +87,21 @@ export class ResponsesStreamDecoder {
   }
 
   Feed(event: ResponsesStreamEvent): readonly Event[] {
+    const audit = auditWire(event, RESPONSES_STREAM_EVENT);
+    const before = this.#losses.length;
+    const events = this.#feed(event);
+    const produced = mergeWireLosses(this.#losses.slice(before), audit);
+    this.#losses = this.#losses.slice(0, before).concat(produced);
+    return events;
+  }
+
+  feedJSON(raw: string): readonly Event[] {
+    return this.Feed(
+      parseWireEvent(raw, RESPONSES_STREAM_EVENT) as ResponsesStreamEvent,
+    );
+  }
+
+  #feed(event: ResponsesStreamEvent): readonly Event[] {
     if (this.#flushed) this.#lifecycle("event fed after stream flush");
     if (this.#terminated) this.#lifecycle("event fed after terminal response");
     switch (event.type) {

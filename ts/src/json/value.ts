@@ -9,6 +9,19 @@ import {
 } from "./types.js";
 
 const sourceTexts = new WeakMap<object, JsonText>();
+const sourceKeys = new WeakMap<object, readonly string[]>();
+
+export function sourceKeysOf(value: object): readonly string[] {
+  return sourceKeys.get(value) ?? Object.keys(value);
+}
+
+export function withSourceKeys(
+  value: JsonObject,
+  keys: readonly string[],
+): JsonObject {
+  sourceKeys.set(value, keys);
+  return value;
+}
 
 /** Returns the exact source token registered for a lossless JSON object. */
 export function sourceTextOf(value: JsonValue): JsonText | undefined {

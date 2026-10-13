@@ -377,7 +377,7 @@
         "field-order",
         "inv-1"
       ],
-      "sha256": "d85d1381078d39e89ec6804c3d0b10aed319a432271e41ef9e429c02cb637d39"
+      "sha256": "c6adce1a52c21ddf95266d9d513a54d2fc8f32bad2bc9acdefe2ad47e9dd452a"
     },
     {
       "name": "anthropic.nonstream.tools-definition-from-ir",

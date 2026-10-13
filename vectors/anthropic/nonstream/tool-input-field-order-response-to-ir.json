@@ -22,8 +22,8 @@
     "id": "msg_tools",
     "model": "claude-sonnet-4-5",
     "content": [
-      { "type": "tool_use", "id": "toolu_1", "name": "first", "input": "{\"x\":1}" },
-      { "type": "tool_use", "id": "toolu_2", "name": "second", "input": "{\"x\":2}" }
+      { "type": "tool_use", "id": "toolu_1", "name": "first", "input": "{ \"x\": 1 }" },
+      { "type": "tool_use", "id": "toolu_2", "name": "second", "input": "{ \"x\": 2 }" }
     ],
     "stop_reason": "tool_use",
     "usage": { "input_tokens": 1, "output_tokens": 1 }

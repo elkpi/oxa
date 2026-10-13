@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import raw_field
+
 import json
 from typing import Any
 
@@ -114,32 +116,8 @@ def decode_content(
     raise ValueError(f"anthropic: {path} must be a string or list of blocks")
 
 
-def extract_tool_input_raw(raw_text: str, tool_id: str) -> str | None:
-    if not raw_text or not tool_id:
-        return None
-    id_marker = f'"{tool_id}"'
-    id_pos = raw_text.find(id_marker)
-    if id_pos == -1:
-        return None
-
-    input_marker = '"input"'
-    pos = raw_text.find(input_marker, id_pos)
-    if pos == -1 or (pos - id_pos > 1000):
-        pos = raw_text.rfind(input_marker, 0, id_pos)
-    if pos == -1:
-        return None
-
-    colon = raw_text.find(":", pos + len(input_marker))
-    if colon == -1:
-        return None
-    start = colon + 1
-    while start < len(raw_text) and raw_text[start].isspace():
-        start += 1
-    try:
-        _, end = json.JSONDecoder().raw_decode(raw_text, start)
-        return raw_text[start:end]
-    except Exception:
-        return None
+def extract_tool_input_raw(raw_text, path: str) -> str | None:
+    return raw_field(raw_text, path)
 
 
 def decode_block(
@@ -223,7 +201,7 @@ def decode_block(
             raise ValueError(f"anthropic: {path}.input is required")
         require_json_object(raw_input, f"{path}.input")
 
-        raw_slice = extract_tool_input_raw(raw_text, tool_id)
+        raw_slice = extract_tool_input_raw(raw_text, f"{path}.input")
         if raw_slice is not None:
             input_text = raw_slice
         elif isinstance(raw_input, dict):

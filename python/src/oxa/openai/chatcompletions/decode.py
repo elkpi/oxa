@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import RawDocument, audit_decode
+
 from typing import Any, cast
 
 from oxa.ir import (
@@ -61,6 +63,7 @@ from oxa.openai.chatcompletions.normalize import (
 )
 
 
+@audit_decode("chatcompletions", "request")
 def decode_request(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -287,6 +290,7 @@ def decode_reasoning_effort(value: Any, losses: list[Loss]) -> ReasoningEffort |
     return None
 
 
+@audit_decode("chatcompletions", "response")
 def decode_response(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -373,3 +377,13 @@ def decode_finish_reason(finish: str | None) -> tuple[str, Loss | None]:
             f"Chat Completions finish_reason {finish!r} has no IR equivalent",
         ),
     )
+
+
+def decode_request_json(raw_text: str, table: Table | None = None) -> tuple[Request, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_request(document.data, document, table)
+
+
+def decode_response_json(raw_text: str, table: Table | None = None) -> tuple[Response, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_response(document.data, document, table)

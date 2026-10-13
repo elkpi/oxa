@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import RawDocument, audit_feed
+
 import json
 from typing import Any
 
@@ -102,6 +104,11 @@ class StreamDecoder:
     def losses(self) -> list[Loss]:
         return list(self._losses)
 
+    def feed_json(self, raw_text: str) -> list[Event]:
+        document = RawDocument(raw_text)
+        return self.feed(document.data, document)
+
+    @audit_feed("anthropic")
     def feed(self, ev: dict[str, Any], raw_text: str = "") -> list[Event]:
         """Pushes one wire stream event and returns any completed IR events."""
         if self._flushed:
@@ -170,7 +177,7 @@ class StreamDecoder:
                 self._tool_name = name
 
                 raw_input = block.get("input")
-                raw_slice = extract_tool_input_raw(raw_text, tool_id)
+                raw_slice = extract_tool_input_raw(raw_text, "content_block.input")
                 if raw_slice is not None:
                     self._tool_input = raw_slice
                 elif isinstance(raw_input, dict):

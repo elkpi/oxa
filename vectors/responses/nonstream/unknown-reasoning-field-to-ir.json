@@ -1,0 +1,23 @@
+{
+  "name": "responses.nonstream.unknown-reasoning-field-to-ir",
+  "description": "A Responses reasoning property outside the supported effort/summary set is dropped with an unmapped-field loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "input": "Hi",
+    "reasoning": { "effort": "low", "unknown_extension": null }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }],
+    "params": { "reasoning_effort": "low" }
+  },
+  "expected_losses": [
+    { "path": "reasoning.unknown_extension", "field": "unknown_extension", "reason": "unmapped-field" }
+  ],
+  "tags": ["request", "loss", "unknown-field", "reasoning"]
+}

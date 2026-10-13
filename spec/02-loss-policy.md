@@ -80,6 +80,29 @@ the failure downstream. Unrecognized fields are dropped and recorded with
 reason `unmapped-field`. The type-violation rule above applies only to
 known fields; the value of an unrecognized field is ignored entirely.
 
+This rule applies to every non-exempt property on each recognized object
+whose structure is defined by the face mapping, including nested properties
+inside known message, content-block, tool, parameter, and native event
+objects. Presence alone triggers one loss: `null`, `false`, zero, an empty
+string, array, or object MUST NOT be treated as absent, and the value MUST
+NOT be validated or recursively inspected. Opaque values (including tool
+arguments and JSON Schema payloads) are not traversed. When an entire
+unsupported item/block/event unit is already represented by one
+`unsupported-semantic` loss, properties inside that dropped unit MUST NOT
+produce additional losses.
+
+A JSON decoding entrypoint MUST retain enough source structure to report
+unrecognized fields before a typed representation discards them. A typed
+in-memory value cannot report keys that are not represented in that value;
+callers using such an interface are responsible for passing the complete
+source document through the implementation's JSON decoding entrypoint when
+unknown-field auditing is required.
+
+For raw JSON input, all losses MUST follow source encounter order, including
+unrecognized-field losses and semantic losses. Implementations MUST preserve
+that order when combining the two. For typed in-memory input with no source
+document order, implementations MUST return losses in a deterministic order.
+
 ## 5. Streaming
 
 During a streaming conversion, losses accumulate as they are discovered.

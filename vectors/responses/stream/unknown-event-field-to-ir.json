@@ -1,0 +1,40 @@
+{
+  "name": "responses.stream.unknown-event-field-to-ir",
+  "description": "A present unknown property on a recognized Responses event is lost without changing the valid stream lifecycle.",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "events": [
+      {
+        "type": "response.created",
+        "response": { "id": "resp_unknown", "object": "response", "status": "in_progress", "model": "gpt-4o-mini", "output": [] },
+        "unknown_extension": null
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_unknown",
+          "object": "response",
+          "status": "completed",
+          "model": "gpt-4o-mini",
+          "output": [],
+          "usage": { "input_tokens": 0, "output_tokens": 0, "total_tokens": 0 }
+        }
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "resp_unknown", "model": "gpt-4o-mini" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 0, "output_tokens": 0 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [
+    { "path": "unknown_extension", "field": "unknown_extension", "reason": "unmapped-field" }
+  ],
+  "tags": ["stream", "loss", "unknown-field"]
+}

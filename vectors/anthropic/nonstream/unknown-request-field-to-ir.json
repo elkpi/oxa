@@ -1,0 +1,24 @@
+{
+  "name": "anthropic.nonstream.unknown-request-field-to-ir",
+  "description": "A present unknown Anthropic request extension is dropped and reported once.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 32,
+    "messages": [{ "role": "user", "content": "Hi" }],
+    "unknown_extension": true
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }],
+    "params": { "max_tokens": 32 }
+  },
+  "expected_losses": [
+    { "path": "unknown_extension", "field": "unknown_extension", "reason": "unmapped-field" }
+  ],
+  "tags": ["request", "loss", "unknown-field"]
+}

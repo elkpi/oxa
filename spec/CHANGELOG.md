@@ -20,6 +20,15 @@ faces. IR documents continue to use `specVersion: "0.2.0"`.
 - Nine shared golden vectors cover the new face and cross-protocol mappings;
   all five language implementations validate 163 vectors.
 
+### Clarified
+
+- The existing spec/02 unknown-field rule applies recursively to recognized
+  face objects and native stream event objects. A whole unsupported unit still
+  produces only its whole-unit loss; opaque payloads are not inspected. No IR,
+  schema, or loss reason is added.
+- Raw JSON implementations preserve source encounter order when combining
+  field-level and semantic losses.
+
 ## 2.0.0 - 2026-09-19
 
 Major milestone extending the protocol-conversion specification with reasoning

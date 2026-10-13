@@ -63,8 +63,9 @@ private:
             case '{': return parse_object(depth);
             case '[': return parse_array(depth);
             case '"': {
+                const std::size_t start = pos_;
                 OXA_ASSIGN_OR_RETURN(std::string s, parse_string_body());
-                return Value::string(std::move(s));
+                return finish(Value::string(std::move(s)), start);
             }
             case 't': return parse_literal("true", Value::boolean(true));
             case 'f': return parse_literal("false", Value::boolean(false));

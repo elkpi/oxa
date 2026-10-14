@@ -42,5 +42,23 @@ int main() {
     CHECK(chat.feed(std::string_view(R"({"id":"c1","model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]})")).ok());
     CHECK(chat.flush().ok());
     CHECK(chat.losses().size() == 1);
+
+    // Structural error tests: text must be string, tool_use input must be object
+    auto bad_text = oxa::anthropic::messages::decode_response(std::string_view(
+        R"({"id":"m1","model":"m","type":"message","role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":{}}],"usage":{"input_tokens":1,"output_tokens":1}})"));
+    CHECK(!bad_text.ok());
+
+    auto bad_tool_input = oxa::anthropic::messages::decode_response(std::string_view(
+        R"({"id":"m1","model":"m","type":"message","role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"f","input":42}],"usage":{"input_tokens":1,"output_tokens":1}})"));
+    CHECK(!bad_tool_input.ok());
+
+    // Semantic loss order: stop_reason in delta before extension
+    oxa::anthropic::messages::StreamDecoder order_dec;
+    CHECK(order_dec.feed(std::string_view(R"({"type":"message_start","message":{"id":"m1","model":"m","content":[]}})")).ok());
+    CHECK(order_dec.feed(std::string_view(R"({"type":"message_delta","delta":{"stop_reason":"new_reason","extension":false},"usage":{"input_tokens":1,"output_tokens":1}})")).ok());
+    CHECK(order_dec.losses().size() == 2);
+    CHECK(order_dec.losses()[0].reason == oxa::ir::LOSS_UNMAPPED_VALUE);
+    CHECK(order_dec.losses()[1].reason == oxa::ir::LOSS_UNMAPPED_FIELD);
+
     return 0;
 }

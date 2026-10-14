@@ -105,6 +105,7 @@ private:
     std::vector<std::string> tool_parts_;
     bool delta_seen_ = false;
     std::string stop_reason_;
+    std::string decoded_stop_reason_ = std::string(ir::STOP_END_TURN);
     std::optional<std::string> stop_seq_;
     ir::Usage usage_{0, 0};
     bool stopped_ = false;

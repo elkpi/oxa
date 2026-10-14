@@ -3,18 +3,18 @@
 namespace oxa::openai::responses {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"metadata", ""}, {"text", "text_params"}, {"reasoning", "reasoning"}, {"parallel_tool_calls", ""}}},
+        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"text", "text_params"}, {"reasoning", "reasoning"}}},
          {"response", {{"id", ""}, {"object", ""}, {"status", ""}, {"model", ""}, {"output", "output_item[]"}, {"usage", "usage"}, {"incomplete_details", "incomplete"}, {"error", ""}}},
          {"input_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "input_part[]"}}},
          {"function_call", {{"type", ""}, {"id", ""}, {"status", ""}, {"call_id", ""}, {"name", ""}, {"arguments", ""}}},
          {"function_output", {{"type", ""}, {"id", ""}, {"status", ""}, {"call_id", ""}, {"output", ""}}},
-         {"reasoning_item", {{"type", ""}, {"id", ""}, {"status", ""}, {"summary", "summary_part[]"}, {"encrypted_content", ""}}},
+         {"reasoning_item", {{"type", ""}, {"id", ""}, {"status", ""}, {"summary", "summary_part[]"}}},
          {"plain_part", {{"type", ""}, {"text", ""}, {"annotations", ""}}},
          {"input_image", {{"type", ""}, {"image_url", ""}}},
          {"output_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "output_part[]"}}},
-         {"function_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"parameters", ""}, {"strict", ""}}},
+         {"function_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"parameters", ""}}},
          {"named_choice", {{"type", ""}, {"name", ""}}},
-         {"text_params", {{"verbosity", ""}, {"format", "format"}}},
+         {"text_params", {{"format", "format"}}},
          {"plain_format", {{"type", ""}}},
          {"schema_format", {{"type", ""}, {"name", ""}, {"description", ""}, {"schema", ""}, {"strict", ""}}},
          {"reasoning", {{"effort", ""}, {"summary", ""}}},

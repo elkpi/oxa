@@ -86,6 +86,7 @@ inline std::vector<ir::Loss> audit_wire(const json::Value& root, std::string_vie
     const auto source_path = [&](std::string path) {
         if (positions.contains(path)) return path;
         if (positions.contains(audit_join("response", path))) return audit_join("response", path);
+        if (positions.contains(audit_join("delta", path))) return audit_join("delta", path);
         if (path.starts_with("output[")) {
             auto close = path.find(']');
             if (close != std::string::npos) {

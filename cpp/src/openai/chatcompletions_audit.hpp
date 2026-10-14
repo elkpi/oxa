@@ -3,10 +3,10 @@
 namespace oxa::openai::chatcompletions {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"stop", ""}, {"reasoning_effort", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"functions", ""}, {"function_call", ""}, {"response_format", "format"}, {"logprobs", ""}, {"top_logprobs", ""}, {"metadata", ""}}},
+        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"stop", ""}, {"reasoning_effort", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"response_format", "format"}}},
          {"response", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice[]"}, {"usage", "usage"}}},
          {"event", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice_delta[]"}, {"usage", "usage"}}},
-         {"message", {{"role", ""}, {"content", "part[]"}, {"reasoning_content", ""}, {"tool_calls", "tool_call[]"}, {"tool_call_id", ""}, {"function_call", ""}}},
+         {"message", {{"role", ""}, {"content", "part[]"}, {"reasoning_content", ""}, {"tool_calls", "tool_call[]"}, {"tool_call_id", ""}}},
          {"text", {{"type", ""}, {"text", ""}}},
          {"image", {{"type", ""}, {"image_url", "image_url"}}},
          {"image_url", {{"url", ""}}},

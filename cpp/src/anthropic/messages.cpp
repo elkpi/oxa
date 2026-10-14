@@ -36,8 +36,10 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
         std::string kind = t && t->is_string() ? t->as_string() : "";
         if (kind == BLOCK_TYPE_TEXT) {
             const auto* txt = item.find("text");
-            std::string text = txt && txt->is_string() ? txt->as_string() : "";
-            blocks.push_back(ir::TextBlock{std::move(text)});
+            if (!txt || !txt->is_string()) {
+                return invalid_argument(block_path + ".text must be a string");
+            }
+            blocks.push_back(ir::TextBlock{txt->as_string()});
         } else if (kind == BLOCK_TYPE_THINKING) {
             const auto* thinking_value = item.find("thinking");
             std::string thinking = thinking_value && thinking_value->is_string()
@@ -70,23 +72,25 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     "Anthropic image source type \"" + stype + "\" has no IR equivalent"));
             }
         } else if (kind == "tool_use") {
-            ir::ToolUseBlock tu;
-            if (const auto* id_val = item.find("id"); id_val && id_val->is_string()) tu.id = id_val->as_string();
-            if (const auto* name_val = item.find("name"); name_val && name_val->is_string()) tu.name = name_val->as_string();
+            const auto* id_val = item.find("id");
+            if (!id_val || !id_val->is_string() || id_val->as_string().empty()) {
+                return invalid_argument(block_path + ".id is required");
+            }
+            const auto* name_val = item.find("name");
+            if (!name_val || !name_val->is_string() || name_val->as_string().empty()) {
+                return invalid_argument(block_path + ".name is required");
+            }
             const auto* inp = item.find("input");
-            if (inp) {
-                if (keep_raw_input) {
-                    std::string_view raw = inp->raw_slice();
-                    if (!raw.empty()) {
-                        tu.input = std::string(raw);
-                    } else {
-                        tu.input = json::serialize(*inp);
-                    }
-                } else {
-                    tu.input = json::serialize(*inp);
-                }
+            if (!inp || !inp->is_object()) {
+                return invalid_argument(block_path + ".input must be an object");
+            }
+            ir::ToolUseBlock tu;
+            tu.id = id_val->as_string();
+            tu.name = name_val->as_string();
+            if (keep_raw_input && !inp->raw_slice().empty()) {
+                tu.input = std::string(inp->raw_slice());
             } else {
-                tu.input = "{}";
+                tu.input = json::serialize(*inp);
             }
             blocks.push_back(std::move(tu));
         } else if (kind == "tool_result") {
@@ -879,7 +883,12 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         const auto* d = chunk.find("delta");
         if (!d || !d->is_object()) return invalid_argument("anthropic: message_delta without delta");
 
-        if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) stop_reason_ = srv->as_string();
+        if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) {
+            stop_reason_ = srv->as_string();
+            auto [sr, loss] = decode_stop_reason(stop_reason_);
+            decoded_stop_reason_ = std::move(sr);
+            if (loss.has_value()) losses_.push_back(std::move(*loss));
+        }
         if (const auto* ssv = d->find("stop_sequence"); ssv && ssv->is_string()) stop_seq_ = ssv->as_string();
 
         if (const auto* uv = chunk.find("usage"); uv && uv->is_object()) {
@@ -901,8 +910,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         if (block_open_ || skipped_open_) return invalid_argument("anthropic: message_stop with a block still open");
         if (!delta_seen_) return invalid_argument("anthropic: message_stop without preceding message_delta");
         stopped_ = true;
-        auto [sr, loss] = decode_stop_reason(stop_reason_);
-        if (loss.has_value()) losses_.push_back(std::move(*loss));
+        std::string sr = decoded_stop_reason_;
         std::optional<std::string> seq;
         if (sr == ir::STOP_STOP_SEQUENCE) seq = stop_seq_;
         events.push_back(ir::MessageDelta{sr, seq, usage_});

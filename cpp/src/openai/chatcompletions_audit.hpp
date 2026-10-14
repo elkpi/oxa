@@ -1,5 +1,7 @@
 #pragma once
 #include "../wire_audit.hpp"
+#include "oxa/openai/chatcompletions.hpp"
+
 namespace oxa::openai::chatcompletions {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
@@ -26,11 +28,14 @@ inline const detail::AuditProfile& wire_profile() {
          {"usage", {{"prompt_tokens", ""}, {"completion_tokens", ""}, {"total_tokens", ""}, {"prompt_tokens_details", "input_detail"}, {"completion_tokens_details", "output_detail"}}},
          {"input_detail", {{"cached_tokens", ""}}},
          {"output_detail", {{"reasoning_tokens", ""}}}},
-        {{"part", {"type", {{"text", "text"}, {"image_url", "image"}}, ""}},
-         {"tool", {"type", {{"function", "function_tool"}}, ""}},
-         {"tool_call", {"type", {{"function", "function_call"}}, "function_call"}},
-         {"tool_choice", {"type", {{"function", "named_choice"}}, ""}},
-         {"format", {"type", {{"text", "plain_format"}, {"json_object", "plain_format"}, {"json_schema", "schema_format"}}, ""}}}
+        {{"part", {"type", {{CONTENT_PART_TYPE_TEXT, "text"},
+                            {CONTENT_PART_TYPE_IMAGE_URL, "image"}}, ""}},
+         {"tool", {"type", {{TOOL_TYPE_FUNCTION, "function_tool"}}, ""}},
+         {"tool_call", {"type", {{TOOL_TYPE_FUNCTION, "function_call"}}, "function_call"}},
+         {"tool_choice", {"type", {{TOOL_TYPE_FUNCTION, "named_choice"}}, ""}},
+         {"format", {"type", {{"text", "plain_format"},
+                              {"json_object", "plain_format"},
+                              {"json_schema", "schema_format"}}, ""}}}
     };
     return profile;
 }

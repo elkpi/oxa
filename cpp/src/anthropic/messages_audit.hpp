@@ -1,5 +1,7 @@
 #pragma once
 #include "../wire_audit.hpp"
+#include "oxa/anthropic/messages.hpp"
+
 namespace oxa::anthropic::messages {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
@@ -29,11 +31,26 @@ inline const detail::AuditProfile& wire_profile() {
          {"json_delta", {{"type", ""}, {"partial_json", ""}}},
          {"thinking_delta", {{"type", ""}, {"thinking", ""}}},
          {"signature_delta", {{"type", ""}, {"signature", ""}}}},
-        {{"block", {"type", {{"text", "text"}, {"thinking", "thinking"}, {"tool_use", "tool_use"}, {"tool_result", "tool_result"}, {"image", "image"}}, ""}},
-         {"source", {"type", {{"base64", "base64"}, {"url", "url"}}, ""}},
-         {"event", {"type", {{"message_start", "start"}, {"content_block_start", "block_start"}, {"content_block_delta", "block_delta"}, {"content_block_stop", "block_stop"}, {"message_delta", "message_delta"}, {"message_stop", "message_stop"}}, ""}},
-         {"stream_block", {"type", {{"text", "text"}, {"thinking", "thinking"}, {"tool_use", "tool_use"}}, ""}},
-         {"delta", {"type", {{"text_delta", "text_delta"}, {"input_json_delta", "json_delta"}, {"thinking_delta", "thinking_delta"}, {"signature_delta", "signature_delta"}}, ""}}}
+        {{"block", {"type", {{BLOCK_TYPE_TEXT, "text"},
+                             {BLOCK_TYPE_THINKING, "thinking"},
+                             {BLOCK_TYPE_TOOL_USE, "tool_use"},
+                             {BLOCK_TYPE_TOOL_RESULT, "tool_result"},
+                             {BLOCK_TYPE_IMAGE, "image"}}, ""}},
+         {"source", {"type", {{SOURCE_TYPE_BASE64, "base64"},
+                              {SOURCE_TYPE_URL, "url"}}, ""}},
+         {"event", {"type", {{EVENT_TYPE_MESSAGE_START, "start"},
+                             {EVENT_TYPE_CONTENT_BLOCK_START, "block_start"},
+                             {EVENT_TYPE_CONTENT_BLOCK_DELTA, "block_delta"},
+                             {EVENT_TYPE_CONTENT_BLOCK_STOP, "block_stop"},
+                             {EVENT_TYPE_MESSAGE_DELTA, "message_delta"},
+                             {EVENT_TYPE_MESSAGE_STOP, "message_stop"}}, ""}},
+         {"stream_block", {"type", {{BLOCK_TYPE_TEXT, "text"},
+                                    {BLOCK_TYPE_THINKING, "thinking"},
+                                    {BLOCK_TYPE_TOOL_USE, "tool_use"}}, ""}},
+         {"delta", {"type", {{DELTA_TYPE_TEXT_DELTA, "text_delta"},
+                             {DELTA_TYPE_INPUT_JSON_DELTA, "json_delta"},
+                             {DELTA_TYPE_THINKING_DELTA, "thinking_delta"},
+                             {DELTA_TYPE_SIGNATURE_DELTA, "signature_delta"}}, ""}}}
     };
     return profile;
 }

@@ -1,5 +1,7 @@
 #pragma once
 #include "../wire_audit.hpp"
+#include "oxa/openai/responses.hpp"
+
 namespace oxa::openai::responses {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
@@ -30,15 +32,41 @@ inline const detail::AuditProfile& wire_profile() {
          {"text_done_event", {{"type", ""}, {"item_id", ""}, {"output_index", ""}, {"content_index", ""}, {"text", ""}, {"sequence_number", ""}}},
          {"args_delta_event", {{"type", ""}, {"item_id", ""}, {"output_index", ""}, {"delta", ""}, {"sequence_number", ""}}},
          {"args_done_event", {{"type", ""}, {"item_id", ""}, {"output_index", ""}, {"call_id", ""}, {"name", ""}, {"arguments", ""}, {"sequence_number", ""}}}},
-        {{"input_item", {"type", {{"", "input_message"}, {"message", "input_message"}, {"function_call", "function_call"}, {"function_call_output", "function_output"}, {"reasoning", "reasoning_item"}}, "input_message"}},
-         {"input_part", {"type", {{"input_text", "plain_part"}, {"output_text", "plain_part"}, {"input_image", "input_image"}}, ""}},
-         {"summary_part", {"type", {{"summary_text", "plain_part"}, {"output_text", "plain_part"}}, ""}},
-         {"output_part", {"type", {{"output_text", "plain_part"}}, ""}},
-         {"output_item", {"type", {{"message", "output_message"}, {"function_call", "function_call"}, {"reasoning", "reasoning_item"}}, ""}},
-         {"tool", {"type", {{"function", "function_tool"}}, ""}},
-         {"tool_choice", {"type", {{"function", "named_choice"}}, ""}},
-         {"format", {"type", {{"text", "plain_format"}, {"json_object", "plain_format"}, {"json_schema", "schema_format"}}, ""}},
-         {"event", {"type", {{"response.created", "response_event"}, {"response.completed", "response_event"}, {"response.incomplete", "response_event"}, {"response.failed", "response_event"}, {"response.output_item.added", "item_event"}, {"response.output_item.done", "item_event"}, {"response.content_part.added", "part_event"}, {"response.content_part.done", "part_event"}, {"response.reasoning_summary_part.added", "summary_part_event"}, {"response.reasoning_summary_part.done", "summary_part_event"}, {"response.output_text.delta", "text_delta_event"}, {"response.reasoning_summary_text.delta", "text_delta_event"}, {"response.output_text.done", "text_done_event"}, {"response.reasoning_summary_text.done", "text_done_event"}, {"response.function_call_arguments.delta", "args_delta_event"}, {"response.function_call_arguments.done", "args_done_event"}}, ""}}}
+        {{"input_item", {"type", {{"", "input_message"},
+                                  {ITEM_TYPE_MESSAGE, "input_message"},
+                                  {ITEM_TYPE_FUNCTION_CALL, "function_call"},
+                                  {ITEM_TYPE_FUNCTION_CALL_OUTPUT, "function_output"},
+                                  {ITEM_TYPE_REASONING, "reasoning_item"}}, "input_message"}},
+         {"input_part", {"type", {{PART_TYPE_INPUT_TEXT, "plain_part"},
+                                  {PART_TYPE_OUTPUT_TEXT, "plain_part"},
+                                  {PART_TYPE_INPUT_IMAGE, "input_image"}}, ""}},
+         {"summary_part", {"type", {{"summary_text", "plain_part"},
+                                    {PART_TYPE_OUTPUT_TEXT, "plain_part"}}, ""}},
+         {"output_part", {"type", {{PART_TYPE_OUTPUT_TEXT, "plain_part"}}, ""}},
+         {"output_item", {"type", {{ITEM_TYPE_MESSAGE, "output_message"},
+                                   {ITEM_TYPE_FUNCTION_CALL, "function_call"},
+                                   {ITEM_TYPE_REASONING, "reasoning_item"}}, ""}},
+         {"tool", {"type", {{TOOL_TYPE_FUNCTION, "function_tool"}}, ""}},
+         {"tool_choice", {"type", {{TOOL_TYPE_FUNCTION, "named_choice"}}, ""}},
+         {"format", {"type", {{"text", "plain_format"},
+                              {"json_object", "plain_format"},
+                              {"json_schema", "schema_format"}}, ""}},
+         {"event", {"type", {{EVENT_TYPE_RESPONSE_CREATED, "response_event"},
+                             {EVENT_TYPE_RESPONSE_COMPLETED, "response_event"},
+                             {EVENT_TYPE_RESPONSE_INCOMPLETE, "response_event"},
+                             {EVENT_TYPE_RESPONSE_FAILED, "response_event"},
+                             {EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, "item_event"},
+                             {EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, "item_event"},
+                             {EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED, "part_event"},
+                             {EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, "part_event"},
+                             {EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED, "summary_part_event"},
+                             {EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE, "summary_part_event"},
+                             {EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA, "text_delta_event"},
+                             {EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA, "text_delta_event"},
+                             {EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, "text_done_event"},
+                             {EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, "text_done_event"},
+                             {EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, "args_delta_event"},
+                             {EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE, "args_done_event"}}, ""}}}
     };
     return profile;
 }

@@ -137,11 +137,12 @@ func (d *StreamDecoder) FeedJSON(raw []byte) ([]ir.Event, error) {
 		return nil, fmt.Errorf("anthropic: stream event JSON: %w", err)
 	}
 	isSkipped := false
-	if event.Type == EventTypeContentBlockStart {
+	switch event.Type {
+	case EventTypeContentBlockStart:
 		if event.ContentBlock != nil && event.ContentBlock.Type != BlockTypeText && event.ContentBlock.Type != BlockTypeThinking && event.ContentBlock.Type != BlockTypeToolUse {
 			isSkipped = true
 		}
-	} else if event.Type == EventTypeContentBlockDelta || event.Type == EventTypeContentBlockStop {
+	case EventTypeContentBlockDelta, EventTypeContentBlockStop:
 		if d.skipped[event.Index] {
 			isSkipped = true
 		}

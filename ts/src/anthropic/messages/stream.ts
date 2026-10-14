@@ -10,12 +10,20 @@ import {
   isJsonArray,
   isJsonNumber,
   jsonText,
+  parseJson,
   stringifyJson,
   type JsonObject,
   type JsonText,
+  type JsonValue,
 } from "../../json/index.js";
 import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import {
+  auditWire,
+  mergeWireLosses,
+  parseWireEvent,
+} from "../../json/wire-audit.js";
+import { ANTHROPIC_STREAM_EVENT } from "./audit.js";
 import type { AnthropicStreamEvent } from "./types.js";
 
 export interface AnthropicStreamDecoderOptions {
@@ -25,7 +33,7 @@ export interface AnthropicStreamDecoderOptions {
 /** Incrementally converts Anthropic Messages event objects to IR events. */
 export class AnthropicStreamDecoder {
   readonly #modelMapper: ModelMapper | undefined;
-  readonly #losses: Loss[] = [];
+  #losses: Loss[] = [];
   #started = false;
   #stopped = false;
   #flushed = false;
@@ -50,6 +58,21 @@ export class AnthropicStreamDecoder {
   }
 
   Feed(event: AnthropicStreamEvent): readonly Event[] {
+    const audit = auditWire(event, ANTHROPIC_STREAM_EVENT);
+    const before = this.#losses.length;
+    const events = this.#feed(event);
+    const produced = mergeWireLosses(this.#losses.slice(before), audit);
+    this.#losses = this.#losses.slice(0, before).concat(produced);
+    return events;
+  }
+
+  feedJSON(raw: string): readonly Event[] {
+    return this.Feed(
+      parseWireEvent(raw, ANTHROPIC_STREAM_EVENT) as AnthropicStreamEvent,
+    );
+  }
+
+  #feed(event: AnthropicStreamEvent): readonly Event[] {
     if (this.#flushed) this.#lifecycle("event fed after stream flush");
     if (this.#stopped) this.#lifecycle("event fed after message_stop");
     switch (event.type) {

@@ -6,9 +6,22 @@ import {
   type StopReason,
   type Usage,
 } from "../../ir/index.js";
-import { jsonText, type JsonNumber } from "../../json/index.js";
+import {
+  isJsonNumber,
+  jsonText,
+  parseJson,
+  type JsonObject,
+  type JsonNumber,
+  type JsonValue,
+} from "../../json/index.js";
 import type { ConversionResult, Loss } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
+import {
+  auditWire,
+  mergeWireLosses,
+  parseWireEvent,
+} from "../../json/wire-audit.js";
+import { CHAT_CHUNK } from "./audit.js";
 
 export interface ChatCompletionsChunk {
   readonly object?: "chat.completion.chunk";
@@ -60,7 +73,7 @@ interface ToolCall {
 /** Incrementally converts Chat Completions chunks to IR stream events. */
 export class ChatCompletionsStreamDecoder {
   readonly #modelMapper: ModelMapper | undefined;
-  readonly #losses: Loss[] = [];
+  #losses: Loss[] = [];
   readonly #toolCalls: ToolCall[] = [];
   #started = false;
   #id = "";
@@ -80,6 +93,19 @@ export class ChatCompletionsStreamDecoder {
   }
 
   Feed(chunk: ChatCompletionsChunk): readonly Event[] {
+    const audit = auditWire(chunk, CHAT_CHUNK);
+    const before = this.#losses.length;
+    const events = this.#feed(chunk);
+    const produced = mergeWireLosses(this.#losses.slice(before), audit);
+    this.#losses = this.#losses.slice(0, before).concat(produced);
+    return events;
+  }
+
+  feedJSON(raw: string): readonly Event[] {
+    return this.Feed(parseWireEvent(raw, CHAT_CHUNK) as ChatCompletionsChunk);
+  }
+
+  #feed(chunk: ChatCompletionsChunk): readonly Event[] {
     if (this.#flushed) this.#lifecycle("chunk fed after stream flush");
     if (
       this.#started &&

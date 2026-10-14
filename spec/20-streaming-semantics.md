@@ -328,6 +328,7 @@ Each rule has a stable ID usable as a streaming vector tag.
 | Source construct | Direction | Required result |
 |------------------|-----------|-----------------|
 | unknown standalone native event | face → IR | one `unsupported-semantic` loss per event; valid state unchanged |
+| unrecognized non-exempt property on a recognized native event object | face → IR | one `unmapped-field` loss per property, rooted at the event payload; recognized lifecycle state remains valid and the loss is not an IR event |
 | unsupported native block/item/part | face → IR | one `unsupported-semantic` loss per native unit; matching descendants/done events absorbed |
 | non-function tool call | CC → IR | one `unsupported-semantic` loss; descendants absorbed |
 | RE `function_call_output` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed |

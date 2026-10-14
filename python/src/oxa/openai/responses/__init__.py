@@ -35,7 +35,7 @@ from oxa.openai.responses.constants import (
     TOOL_CHOICE_REQUIRED,
     TOOL_TYPE_FUNCTION,
 )
-from oxa.openai.responses.decode import decode_request, decode_response
+from oxa.openai.responses.decode import decode_request, decode_response, decode_request_json, decode_response_json
 from oxa.openai.responses.encode import encode_request, encode_response
 from oxa.openai.responses.streamin import StreamDecoder
 from oxa.openai.responses.streamout import StreamEncoder
@@ -77,7 +77,9 @@ __all__ = [
     "EVENT_TYPE_RESPONSE_FAILED",
     # Functions
     "decode_request",
+    "decode_request_json",
     "decode_response",
+    "decode_response_json",
     "encode_request",
     "encode_response",
     # Streaming Classes

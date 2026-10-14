@@ -10,6 +10,57 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestDecodeRequestJSONReportsPresentFalseUnknownField(t *testing.T) {
+	raw := []byte(`{"model":"m","input":"hi","store":false}`)
+	got, losses, err := DecodeRequestJSON(raw)
+	if err != nil || got == nil || len(got.Messages) != 1 {
+		t.Fatalf("DecodeRequestJSON: request=%+v err=%v", got, err)
+	}
+	if len(losses) != 1 || losses[0].Path != "store" || losses[0].Field != "store" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one unmapped-field for present store:false", losses)
+	}
+}
+
+func TestDecodeRequestJSONPreservesSourceOrderForUnknownFieldLosses(t *testing.T) {
+	raw := []byte(`{"model":"m","input":"hi","store":false,"previous_response_id":"resp_1"}`)
+	_, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	if len(losses) != 2 || losses[0].Path != "store" || losses[1].Path != "previous_response_id" {
+		t.Fatalf("losses = %#v, want store then previous_response_id", losses)
+	}
+}
+
+func TestDecodeResponseJSONReportsUnknownFields(t *testing.T) {
+	for _, test := range []struct {
+		name string
+		raw  string
+		path string
+	}{
+		{
+			name: "top-level null value",
+			raw:  `{"id":"resp_1","object":"response","status":"completed","model":"m","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hi"}]}],"unknown_extension":null}`,
+			path: "unknown_extension",
+		},
+		{
+			name: "nested false value",
+			raw:  `{"id":"resp_1","object":"response","status":"completed","model":"m","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hi","unknown_extension":false}]}]}`,
+			path: "output[0].content[0].unknown_extension",
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			resp, losses, err := DecodeResponseJSON([]byte(test.raw))
+			if err != nil || resp == nil || len(resp.Content) != 1 {
+				t.Fatalf("DecodeResponseJSON: response=%+v err=%v", resp, err)
+			}
+			if len(losses) != 1 || losses[0].Path != test.path || losses[0].Field != "unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+				t.Fatalf("losses = %#v, want one unmapped-field at %q", losses, test.path)
+			}
+		})
+	}
+}
+
 func TestTextFormat(t *testing.T) {
 	strict := true
 	wire := &Request{

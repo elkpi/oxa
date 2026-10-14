@@ -2,10 +2,7 @@
 
 use std::path::Path;
 
-use oxa_responses::{
-    Config, Request, Response, StreamDecoder, StreamEncoder, StreamEvent, decode_request,
-    decode_response, encode_request, encode_response,
-};
+use oxa_responses::{Config, StreamDecoder, StreamEncoder, encode_request, encode_response};
 
 struct VectorConverter {
     config: Config,
@@ -20,16 +17,14 @@ impl oxa_vectest::Converter for VectorConverter {
         &self,
         wire: &str,
     ) -> Result<(oxa_ir::Request, Vec<oxa_ir::Loss>), String> {
-        let wire: Request = serde_json::from_str(wire).map_err(|err| err.to_string())?;
-        decode_request(&wire, &self.config).map_err(|err| err.to_string())
+        oxa_responses::decode_request_json(wire, &self.config).map_err(|err| err.to_string())
     }
 
     fn decode_response_wire(
         &self,
         wire: &str,
     ) -> Result<(oxa_ir::Response, Vec<oxa_ir::Loss>), String> {
-        let wire: Response = serde_json::from_str(wire).map_err(|err| err.to_string())?;
-        decode_response(&wire, &self.config).map_err(|err| err.to_string())
+        oxa_responses::decode_response_json(wire, &self.config).map_err(|err| err.to_string())
     }
 
     fn encode_request_ir(
@@ -101,8 +96,7 @@ impl oxa_vectest::StreamConverter for StreamVectorConverter {
     }
 
     fn decode_native_event(&mut self, event: &str) -> Result<Vec<oxa_ir::Event>, String> {
-        let ev: StreamEvent = serde_json::from_str(event).map_err(|err| err.to_string())?;
-        self.decoder.feed(&ev).map_err(|err| err.to_string())
+        self.decoder.feed_json(event).map_err(|err| err.to_string())
     }
 
     fn flush_decoder(&mut self) -> Result<Vec<oxa_ir::Event>, String> {

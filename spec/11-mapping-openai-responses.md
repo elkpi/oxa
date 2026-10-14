@@ -279,6 +279,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR image both data+URL / bad media type / unusable URL | unsupported-semantic | IR → request | see N-R-4 |
 | IR `ImageBlock`/`ToolResultBlock` in assistant input; non-text blocks in tool result | unsupported-semantic | IR → request | see N-R-5, N-R-6 |
 | interleaved tool results and ordinary content in one IR user turn | degraded | IR → request | N-R-10: function_call_output items are hoisted ahead of the trailing user content; source order is not preserved |
+| unrecognized non-exempt property on a recognized Responses object | unmapped-field | request/response → IR | one loss per present property; see spec/02 §4 |
 | IR stop reason outside the five known values; `status` outside the three known values; tool input not a JSON string | structural error | both | not a loss; conversion fails |
 
 ## 9. References

@@ -1,0 +1,25 @@
+{
+  "name": "anthropic.nonstream.unknown-nested-request-field-to-ir",
+  "description": "An unknown field on a recognized Anthropic system text block is reported even when its value is null.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 32,
+    "system": [{ "type": "text", "text": "Rules", "unknown_extension": null }],
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "system": [{ "type": "text", "text": "Rules" }],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }],
+    "params": { "max_tokens": 32 }
+  },
+  "expected_losses": [
+    { "path": "system[0].unknown_extension", "field": "unknown_extension", "reason": "unmapped-field" }
+  ],
+  "tags": ["request", "loss", "unknown-field", "nested"]
+}

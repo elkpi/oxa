@@ -24,7 +24,7 @@ structures and oxa's shared Intermediate Representation (IR).
   fragments remain unparsed raw JSON text.
 - **Shared Golden Vectors**: Conforms to the exact same shared `vectors/` golden
   suite (44 Chat Completions + 37 Anthropic + 47 Responses + 17 cross-protocol
-  + 18 stream = 163 golden vectors) as Go, TypeScript, Rust, and Python.
+  + 21 stream = 173 golden vectors) as Go, TypeScript, Rust, and Python.
 
 ## Building and Testing
 
@@ -64,3 +64,10 @@ Test harnesses locate the shared `vectors/` suite by walking up parent
 directories from `cpp/` until finding a directory containing both `vectors/`
 and `.git/`. Tests skip cleanly if the repository root is absent (e.g. when
 building a standalone package archive).
+
+## 原始 JSON 入口
+
+各 face 的 request/response converter 保留既有 `std::string_view` overload；
+stream decoder 新增 `feed(std::string_view)`。解析后的 `json::Value` 也执行字段审计；
+有源文本时按节点 span 合并 losses，并保留 Anthropic tool input 的 `raw_slice()`。
+没有 source span 的程序内构造对象只保证确定性与 canonical encoding。

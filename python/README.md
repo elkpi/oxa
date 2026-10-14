@@ -61,3 +61,10 @@ Test harnesses locate the shared `vectors/` suite by walking up parent
 directories from `python/` until finding a directory containing both `vectors/`
 and `.git/`. Tests skip cleanly if the repository root is absent (e.g. when
 building a standalone package archive).
+
+## 原始 JSON 入口
+
+各 face 导出 `decode_request_json(raw_text, table=None)` /
+`decode_response_json(raw_text, table=None)`；stream decoder 支持 `feed_json(raw_text)`。
+旧 dict 接口仍可用；若同时提供 `raw_text`，它必须对应该 dict。参数原文按完整对象/数组
+路径提取，不再通过 tool ID 的字符串位置关联。空 loss 列表不是业务准入证明。

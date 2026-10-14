@@ -90,10 +90,12 @@ public:
     explicit StreamDecoder(Options opts = {});
 
     StatusOr<std::vector<ir::Event>> feed(const json::Value& chunk);
+    StatusOr<std::vector<ir::Event>> feed(std::string_view wire_json);
     StatusOr<std::vector<ir::Event>> flush();
     const std::vector<ir::Loss>& losses() const noexcept { return losses_; }
 
 private:
+    StatusOr<std::vector<ir::Event>> feed_unchecked(const json::Value& event);
     Options opts_;
     std::vector<ir::Loss> losses_;
     bool started_ = false;

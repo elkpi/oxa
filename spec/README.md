@@ -9,9 +9,9 @@ and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
 Current spec version: **2.1.0** — all five implementations (Go, TypeScript,
-Rust, Python, and C++) implement and validate the full 163-vector set, including
+Rust, Python, and C++) implement and validate the full 173-vector set, including
 reasoning, usage granularity, and structured-output format mapping. The
-coordinated v2.1.0 package release is pending. See [CHANGELOG.md](CHANGELOG.md)
+coordinated v2.1.0 package release is published. See [CHANGELOG.md](CHANGELOG.md)
 and the versioning policy below.
 
 ## Versioning policy

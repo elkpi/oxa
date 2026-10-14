@@ -1,0 +1,24 @@
+{
+  "name": "responses.nonstream.unknown-request-fields-to-ir",
+  "description": "Responses previous_response_id and store are present but have no IR destination; store:false still produces a loss.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "input": "Hi",
+    "previous_response_id": "resp_previous",
+    "store": false
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "gpt-4o-mini",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+  },
+  "expected_losses": [
+    { "path": "previous_response_id", "field": "previous_response_id", "reason": "unmapped-field" },
+    { "path": "store", "field": "store", "reason": "unmapped-field" }
+  ],
+  "tags": ["request", "loss", "unknown-field", "responses"]
+}

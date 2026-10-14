@@ -66,6 +66,24 @@ var wireTextStream = []*StreamEvent{
 	streamCompleted("resp_1", "gpt-4o-mini", 3, 5),
 }
 
+func TestStreamDecoderFeedJSONReportsUnknownFieldWithoutChangingLifecycle(t *testing.T) {
+	d := NewStreamDecoder()
+	events, err := d.FeedJSON([]byte(`{"type":"response.created","response":{"id":"resp_raw","object":"response","status":"in_progress","model":"m","output":[]},"unknown_extension":null}`))
+	if err != nil || len(events) != 1 {
+		t.Fatalf("FeedJSON created: events=%v err=%v", events, err)
+	}
+	if losses := d.Losses(); len(losses) != 1 || losses[0].Path != "unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one unknown-extension loss", losses)
+	}
+	events, err = d.FeedJSON([]byte(`{"type":"response.completed","response":{"id":"resp_raw","object":"response","status":"completed","model":"m","output":[],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}}`))
+	if err != nil || len(events) != 2 {
+		t.Fatalf("FeedJSON completed: events=%v err=%v", events, err)
+	}
+	if _, err := d.Flush(); err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+}
+
 func TestStreamDecoderHappyPath(t *testing.T) {
 	d := NewStreamDecoder()
 	var got []ir.Event

@@ -1,0 +1,164 @@
+import type { WireAuditSpec } from "../../json/wire-audit.js";
+
+const SYSTEM_BLOCK: WireAuditSpec = {
+  fields: { type: undefined, text: undefined },
+};
+
+const SOURCE: WireAuditSpec = {
+  fields: {
+    type: undefined,
+    media_type: undefined,
+    data: undefined,
+    url: undefined,
+  },
+};
+
+const BLOCK: WireAuditSpec = {
+  variant: (block) => {
+    switch (block.type) {
+      case "text":
+        return { fields: { type: undefined, text: undefined } };
+      case "thinking":
+        return {
+          fields: {
+            type: undefined,
+            thinking: undefined,
+            signature: undefined,
+          },
+        };
+      case "image":
+        return {
+          fields: { type: undefined, source: SOURCE },
+        };
+      case "tool_use":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            name: undefined,
+            input: undefined,
+          },
+        };
+      case "tool_result":
+        return {
+          fields: {
+            type: undefined,
+            tool_use_id: undefined,
+            content: { items: BLOCK },
+            is_error: undefined,
+          },
+        };
+      default:
+        return undefined;
+    }
+  },
+};
+
+const TOOL: WireAuditSpec = {
+  fields: { name: undefined, description: undefined, input_schema: undefined },
+};
+
+const TOOL_CHOICE: WireAuditSpec = {
+  fields: {
+    type: undefined,
+    name: undefined,
+  },
+};
+
+const THINKING: WireAuditSpec = {
+  fields: { type: undefined, budget_tokens: undefined },
+};
+
+const MESSAGE: WireAuditSpec = {
+  fields: {
+    role: undefined,
+    content: { items: BLOCK },
+  },
+};
+
+const USAGE: WireAuditSpec = {
+  fields: {
+    input_tokens: undefined,
+    output_tokens: undefined,
+    cache_read_input_tokens: undefined,
+    cache_creation_input_tokens: undefined,
+  },
+};
+
+const RESPONSE: WireAuditSpec = {
+  fields: {
+    id: undefined,
+    type: undefined,
+    role: undefined,
+    model: undefined,
+    content: { items: BLOCK },
+    stop_reason: undefined,
+    stop_sequence: undefined,
+    usage: USAGE,
+  },
+};
+
+export const ANTHROPIC_REQUEST: WireAuditSpec = {
+  fields: {
+    model: undefined,
+    system: { items: SYSTEM_BLOCK },
+    messages: { items: MESSAGE },
+    max_tokens: undefined,
+    temperature: undefined,
+    top_p: undefined,
+    stop_sequences: { items: undefined },
+    tools: { items: TOOL },
+    tool_choice: TOOL_CHOICE,
+    thinking: THINKING,
+  },
+};
+
+export const ANTHROPIC_RESPONSE: WireAuditSpec = RESPONSE;
+
+const STREAM_DELTA: WireAuditSpec = {
+  variant: (delta) => {
+    switch (delta.type) {
+      case "text_delta":
+        return { fields: { type: undefined, text: undefined } };
+      case "input_json_delta":
+        return { fields: { type: undefined, partial_json: undefined } };
+      case "thinking_delta":
+        return { fields: { type: undefined, thinking: undefined } };
+      case "signature_delta":
+        return { fields: { type: undefined, signature: undefined } };
+      default:
+        return undefined;
+    }
+  },
+};
+
+const MESSAGE_DELTA: WireAuditSpec = {
+  fields: { stop_reason: undefined, stop_sequence: undefined },
+};
+
+export const ANTHROPIC_STREAM_EVENT: WireAuditSpec = {
+  variant: (event) => {
+    switch (event.type) {
+      case "message_start":
+        return { fields: { type: undefined, message: RESPONSE } };
+      case "content_block_start":
+        return {
+          fields: { type: undefined, index: undefined, content_block: BLOCK },
+        };
+      case "content_block_delta":
+        return {
+          fields: { type: undefined, index: undefined, delta: STREAM_DELTA },
+        };
+      case "content_block_stop":
+        return { fields: { type: undefined, index: undefined } };
+      case "message_delta":
+        return {
+          fields: { type: undefined, delta: MESSAGE_DELTA, usage: USAGE },
+        };
+      case "message_stop":
+        return { fields: { type: undefined } };
+      default:
+        return undefined;
+    }
+  },
+};

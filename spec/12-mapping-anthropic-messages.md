@@ -230,6 +230,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR block type with no Messages equivalent in its position | unsupported-semantic | IR → request | N-AN-5 |
 | IR tool-choice mode with no Messages equivalent | unsupported-semantic | IR → request | N-AN-6 |
 | unknown `stop_reason` value | unmapped-value | response → IR | maps to IR `other` |
+| unrecognized non-exempt property on a recognized Messages object | unmapped-field | request/response → IR | one loss per present property; see spec/02 §4; unknown block types remain one whole-block loss (N-AN-9) |
 | missing/non-positive `max_tokens`, missing `stop_reason`, malformed blocks | structural error | as noted | not losses; conversion fails |
 
 ## 9. References

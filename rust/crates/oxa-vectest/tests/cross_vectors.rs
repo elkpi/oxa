@@ -23,18 +23,14 @@ macro_rules! converter {
                 &self,
                 wire: &str,
             ) -> Result<(oxa_ir::Request, Vec<oxa_ir::Loss>), String> {
-                let wire: $provider::Request =
-                    serde_json::from_str(wire).map_err(|err| err.to_string())?;
-                $provider::decode_request(&wire, &self.config).map_err(|err| err.to_string())
+                $provider::decode_request_json(wire, &self.config).map_err(|err| err.to_string())
             }
 
             fn decode_response_wire(
                 &self,
                 wire: &str,
             ) -> Result<(oxa_ir::Response, Vec<oxa_ir::Loss>), String> {
-                let wire: $provider::Response =
-                    serde_json::from_str(wire).map_err(|err| err.to_string())?;
-                $provider::decode_response(&wire, &self.config).map_err(|err| err.to_string())
+                $provider::decode_response_json(wire, &self.config).map_err(|err| err.to_string())
             }
 
             fn encode_request_ir(

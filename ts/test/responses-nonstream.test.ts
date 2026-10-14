@@ -7,7 +7,7 @@ import {
   encodeRequest,
   encodeResponse,
 } from "../src/openai/responses/index.js";
-import { integer } from "../src/json/index.js";
+import { integer, parseJson, type JsonObject } from "../src/json/index.js";
 import { runNonstreamVectors } from "./nonstream-vector-runner.js";
 
 test("runs every Responses non-stream vector", () => {
@@ -18,6 +18,15 @@ test("runs every Responses non-stream vector", () => {
       encodeRequest,
       encodeResponse,
     }) > 0,
+  );
+});
+
+test("reports a present-false unknown request field once", () => {
+  const raw = '{"model":"m","input":"hi","store":false}';
+  const decoded = decodeRequest(parseJson(raw) as JsonObject);
+  assert.deepEqual(
+    decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+    [{ path: "store", field: "store", reason: "unmapped-field" }],
   );
 });
 

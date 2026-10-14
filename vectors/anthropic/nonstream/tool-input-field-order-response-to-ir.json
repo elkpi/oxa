@@ -1,0 +1,33 @@
+{
+  "name": "anthropic.nonstream.tool-input-field-order-response-to-ir",
+  "description": "Anthropic response tool_use inputs remain associated with their own blocks when each input property precedes its id property.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "id": "msg_tools",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      { "type": "tool_use", "input": { "x": 1 }, "id": "toolu_1", "name": "first" },
+      { "type": "tool_use", "input": { "x": 2 }, "id": "toolu_2", "name": "second" }
+    ],
+    "stop_reason": "tool_use",
+    "usage": { "input_tokens": 1, "output_tokens": 1 }
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "id": "msg_tools",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      { "type": "tool_use", "id": "toolu_1", "name": "first", "input": "{ \"x\": 1 }" },
+      { "type": "tool_use", "id": "toolu_2", "name": "second", "input": "{ \"x\": 2 }" }
+    ],
+    "stop_reason": "tool_use",
+    "usage": { "input_tokens": 1, "output_tokens": 1 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "tools", "raw-json", "field-order", "inv-1"]
+}

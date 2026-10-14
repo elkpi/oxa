@@ -49,7 +49,7 @@
         "request",
         "n-an-9"
       ],
-      "sha256": "6119a4205533a9cabae4d07c65132c4b80fe37d3a19010838eafa5e960f17883"
+      "sha256": "07a17c2a2a3d797f526efa654cc82d0a8f4f51c745ac1f20e0f611bbab471b24"
     },
     {
       "name": "anthropic.nonstream.minimal-text-request-from-ir",
@@ -126,6 +126,18 @@
         "request"
       ],
       "sha256": "c96afcb3e3f90ca6f4baf2383b146166a0c2fbfa0aba6b3496fe7f8166bb76b2"
+    },
+    {
+      "name": "anthropic.nonstream.raw-json-request-tool-input-to-ir",
+      "file": "anthropic/nonstream/raw-json-request-tool-input-to-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "raw-json",
+        "inv-1",
+        "n-an-4"
+      ],
+      "sha256": "955537a59d9105357ff05afabe9f16a0bef5dea9a6aee84d8a6444e5c62b946e"
     },
     {
       "name": "anthropic.nonstream.raw-json-tool-input-from-ir",
@@ -356,6 +368,18 @@
       "sha256": "23f636ab9def554bcde26c06a20ee466712661467d42742cb027e6a79d7d8468"
     },
     {
+      "name": "anthropic.nonstream.tool-input-field-order-response-to-ir",
+      "file": "anthropic/nonstream/tool-input-field-order-response-to-ir.json",
+      "tags": [
+        "response",
+        "tools",
+        "raw-json",
+        "field-order",
+        "inv-1"
+      ],
+      "sha256": "c6adce1a52c21ddf95266d9d513a54d2fc8f32bad2bc9acdefe2ad47e9dd452a"
+    },
+    {
       "name": "anthropic.nonstream.tools-definition-from-ir",
       "file": "anthropic/nonstream/tools-definition-from-ir.json",
       "tags": [
@@ -374,6 +398,27 @@
         "inv-1"
       ],
       "sha256": "63e6c259a4395eb26a14372a28a2a9ef451a9810b7ce150164c3926b95709cab"
+    },
+    {
+      "name": "anthropic.nonstream.unknown-nested-request-field-to-ir",
+      "file": "anthropic/nonstream/unknown-nested-request-field-to-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "unknown-field",
+        "nested"
+      ],
+      "sha256": "8e84529672d346a9ddf2a5b177f0b2c4b93c04a0394dfb3a4d42c579abf13c4e"
+    },
+    {
+      "name": "anthropic.nonstream.unknown-request-field-to-ir",
+      "file": "anthropic/nonstream/unknown-request-field-to-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "unknown-field"
+      ],
+      "sha256": "66b6dc78a65d587cd86c22652a077e0a75ef8f09b875f4ce0d2fd71bac9ca2c2"
     },
     {
       "name": "anthropic.nonstream.usage-cache-tokens-to-ir",
@@ -445,6 +490,16 @@
         "n-s-11"
       ],
       "sha256": "000b1711c237dc62e71333033dbf74c82a10e7ae4c49d3df38c586a7dacca3dd"
+    },
+    {
+      "name": "anthropic.stream.unknown-event-field-to-ir",
+      "file": "anthropic/stream/unknown-event-field-to-ir.json",
+      "tags": [
+        "stream",
+        "loss",
+        "unknown-field"
+      ],
+      "sha256": "d8dfc54266093a18fe6a8f59e81f260742f22d83513311d13822770014d6baa6"
     },
     {
       "name": "anthropic.stream.usage-int64-to-ir",
@@ -918,6 +973,16 @@
       "sha256": "0a4c88ef6ac2fa5d11bc2568e60241b5d2c68d2ab11ab51fde3e3075a4b37fc2"
     },
     {
+      "name": "chatcompletions.nonstream.unknown-request-field-to-ir",
+      "file": "chatcompletions/nonstream/unknown-request-field-to-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "unknown-field"
+      ],
+      "sha256": "683771629b57a013a4a98855653ebfc71c19c3a62c5545a0abe97a613b1ad24b"
+    },
+    {
       "name": "chatcompletions.nonstream.usage-details-to-ir",
       "file": "chatcompletions/nonstream/usage-details-to-ir.json",
       "tags": [
@@ -980,6 +1045,16 @@
       "sha256": "fa4888ad1886b6636f2d8b1f38d49943cb81c1a34d55fd8acf11324a8d61f78c"
     },
     {
+      "name": "chatcompletions.stream.unknown-event-field-to-ir",
+      "file": "chatcompletions/stream/unknown-event-field-to-ir.json",
+      "tags": [
+        "stream",
+        "loss",
+        "unknown-field"
+      ],
+      "sha256": "0ded40981f87405752c1c6b9951a3ac32337ecbc35f65e99a321b0ec77c2c76f"
+    },
+    {
       "name": "chatcompletions.stream.usage-int64-to-ir",
       "file": "chatcompletions/stream/usage-int64-to-ir.json",
       "tags": [
@@ -1000,7 +1075,7 @@
         "params",
         "loss"
       ],
-      "sha256": "f7f192d6dbe7d3696bba59f6fb40f68faef35d0639037032628f483b341a62e6"
+      "sha256": "23dbfe5b14539525be57444fbbfd9c8e9b0a1bd35d8d49ab202192cfeaf36ff5"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-response",
@@ -1034,7 +1109,7 @@
         "params",
         "loss"
       ],
-      "sha256": "a8d6c485e859455c28daeec98673bfceebc8f173602161714e1cfb67d2dad75f"
+      "sha256": "0061035e609ccb5ab86f171a6507a9e5d9d9a11d0675a05306d1d5d90ca731d6"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-response",
@@ -1646,6 +1721,28 @@
       "sha256": "0dded2041ae11fb991c1abd31e51d41c32c75ca99dcc6daaa853844090040bd4"
     },
     {
+      "name": "responses.nonstream.unknown-reasoning-field-to-ir",
+      "file": "responses/nonstream/unknown-reasoning-field-to-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "unknown-field",
+        "reasoning"
+      ],
+      "sha256": "5d5abf7de6dccdb6d9975cc4f5801c4148cfd1b41624df2832000de5fe3737e1"
+    },
+    {
+      "name": "responses.nonstream.unknown-request-fields-to-ir",
+      "file": "responses/nonstream/unknown-request-fields-to-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "unknown-field",
+        "responses"
+      ],
+      "sha256": "b6fca4b216d97608d16399ada38a5a1eaed2675b0b3f8425cc8d0862d5c91402"
+    },
+    {
       "name": "responses.nonstream.usage-details-to-ir",
       "file": "responses/nonstream/usage-details-to-ir.json",
       "tags": [
@@ -1736,6 +1833,16 @@
         "n-s-6"
       ],
       "sha256": "7c5673095bdce96e62d11f69cf06dc2ea2ebba5fc25b3e99571fd2cc98b10f13"
+    },
+    {
+      "name": "responses.stream.unknown-event-field-to-ir",
+      "file": "responses/stream/unknown-event-field-to-ir.json",
+      "tags": [
+        "stream",
+        "loss",
+        "unknown-field"
+      ],
+      "sha256": "e4b36e6fd47817d84fb581c08abf9eb2bbc9d1c07b4be7b51aaaeaef9e017202"
     },
     {
       "name": "responses.stream.usage-int64-to-ir",

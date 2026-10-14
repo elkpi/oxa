@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import RawDocument, audit_decode
+
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
@@ -52,6 +54,7 @@ from oxa.ir import (
 from oxa.modelmap import Table
 
 
+@audit_decode("anthropic", "request")
 def decode_request(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -64,7 +67,7 @@ def decode_request(
     if max_tokens is None or max_tokens <= 0:
         raise ValueError("anthropic: max_tokens is required and must be positive")
 
-    if wire.get("metadata") is not None:
+    if "metadata" in wire:
         losses.append(
             loss(
                 "metadata",
@@ -114,7 +117,7 @@ def decode_request(
             raise ValueError(f"anthropic: messages[{index}]: unknown role {role_str!r}")
 
         content_path = f"messages[{index}].content"
-        blocks, b_losses = decode_content(msg.get("content"), content_path)
+        blocks, b_losses = decode_content(msg.get("content"), content_path, raw_text)
         losses.extend(b_losses)
         messages.append(IrMessage(role=role, content=blocks))
 
@@ -161,6 +164,7 @@ def decode_request(
     )
 
 
+@audit_decode("anthropic", "response")
 def decode_response(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -170,8 +174,12 @@ def decode_response(
     losses: list[Loss] = []
 
     content_raw = wire.get("content", [])
+    if not isinstance(content_raw, list):
+        raise ValueError("anthropic: content must be a list of blocks")
     content: list[Block] = []
     for index, block in enumerate(content_raw):
+        if not isinstance(block, dict):
+            raise ValueError(f"anthropic: content[{index}] must be a block object")
         decoded, b_losses, mapped = decode_block(block, f"content[{index}]", raw_text)
         if mapped:
             content.extend(decoded)
@@ -238,3 +246,13 @@ def decode_stop_reason(stop: Any) -> tuple[str, Loss | None]:
             f"Anthropic stop_reason {stop!r} has no IR equivalent",
         ),
     )
+
+
+def decode_request_json(raw_text: str, table: Table | None = None) -> tuple[Request, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_request(document.data, document, table)
+
+
+def decode_response_json(raw_text: str, table: Table | None = None) -> tuple[Response, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_response(document.data, document, table)

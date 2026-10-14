@@ -1,6 +1,8 @@
 export {
   decodeRequest,
+  decodeRequestJSON,
   decodeResponse,
+  decodeResponseJSON,
   encodeRequest,
   encodeResponse,
   type NonstreamOptions,

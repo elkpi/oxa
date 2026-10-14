@@ -27,6 +27,28 @@ func chunkUsage() *Chunk {
 	return &Chunk{Object: "chat.completion.chunk", Choices: nil, Usage: &UsageWire{PromptTokens: 3, CompletionTokens: 5, TotalTokens: 8}}
 }
 
+func TestStreamDecoderFeedJSONReportsUnknownFieldWithoutChangingLifecycle(t *testing.T) {
+	d := NewStreamDecoder()
+	events, err := d.FeedJSON([]byte(`{"id":"chatcmpl_raw","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{"role":"assistant"},"finish_reason":null}],"unknown_extension":null}`))
+	if err != nil || len(events) != 1 {
+		t.Fatalf("FeedJSON role chunk: events=%v err=%v", events, err)
+	}
+	if losses := d.Losses(); len(losses) != 1 || losses[0].Path != "unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one unknown-extension loss", losses)
+	}
+	events, err = d.FeedJSON([]byte(`{"id":"chatcmpl_raw","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`))
+	if err != nil || len(events) != 0 {
+		t.Fatalf("FeedJSON finish chunk: events=%v err=%v", events, err)
+	}
+	flushed, err := d.Flush()
+	if err != nil {
+		t.Fatalf("Flush: %v", err)
+	}
+	if len(flushed) == 0 {
+		t.Fatalf("flush emitted no terminal events: %+v", flushed)
+	}
+}
+
 func TestStreamDecoderHappyPath(t *testing.T) {
 	d := NewStreamDecoder()
 	var got []ir.Event

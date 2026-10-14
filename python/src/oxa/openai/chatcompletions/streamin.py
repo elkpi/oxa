@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import RawDocument, audit_feed
+
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -81,6 +83,11 @@ class StreamDecoder:
     def losses(self) -> list[Loss]:
         return list(self._losses)
 
+    def feed_json(self, raw_text: str) -> list[Event]:
+        document = RawDocument(raw_text)
+        return self.feed(document.data, document)
+
+    @audit_feed("chatcompletions")
     def feed(self, chunk: dict[str, Any], raw_text: str = "") -> list[Event]:
         """Pushes one wire chunk and returns any IR events it completes."""
         if self._flushed:

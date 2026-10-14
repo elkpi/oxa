@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import RawDocument, audit_decode
+
 from typing import Any, cast
 
 from oxa.ir import (
@@ -62,6 +64,7 @@ from oxa.openai.responses.normalize import (
 )
 
 
+@audit_decode("responses", "request")
 def decode_request(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -316,6 +319,7 @@ def decode_text_format(value: Any, losses: list[Loss]) -> ResponseFormat | None:
     return None
 
 
+@audit_decode("responses", "response")
 def decode_response(
     wire: dict[str, Any],
     raw_text: str = "",
@@ -494,3 +498,13 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
             ],
         )
     return STOP_OTHER, []
+
+
+def decode_request_json(raw_text: str, table: Table | None = None) -> tuple[Request, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_request(document.data, document, table)
+
+
+def decode_response_json(raw_text: str, table: Table | None = None) -> tuple[Response, list[Loss]]:
+    document = RawDocument(raw_text)
+    return decode_response(document.data, document, table)

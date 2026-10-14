@@ -1,4 +1,5 @@
 #include "oxa/anthropic/messages.hpp"
+#include "messages_audit.hpp"
 
 namespace oxa::anthropic::messages {
 namespace {
@@ -9,7 +10,7 @@ ir::Loss make_ant_loss(std::string path, std::string field, std::string_view rea
 }
 
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
-    const json::Value* content, const std::string& path, bool keep_raw_input = false) {
+    const json::Value* content, const std::string& path, bool keep_raw_input = true) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -35,8 +36,10 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
         std::string kind = t && t->is_string() ? t->as_string() : "";
         if (kind == BLOCK_TYPE_TEXT) {
             const auto* txt = item.find("text");
-            std::string text = txt && txt->is_string() ? txt->as_string() : "";
-            blocks.push_back(ir::TextBlock{std::move(text)});
+            if (!txt || !txt->is_string()) {
+                return invalid_argument(block_path + ".text must be a string");
+            }
+            blocks.push_back(ir::TextBlock{txt->as_string()});
         } else if (kind == BLOCK_TYPE_THINKING) {
             const auto* thinking_value = item.find("thinking");
             std::string thinking = thinking_value && thinking_value->is_string()
@@ -69,23 +72,25 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     "Anthropic image source type \"" + stype + "\" has no IR equivalent"));
             }
         } else if (kind == "tool_use") {
-            ir::ToolUseBlock tu;
-            if (const auto* id_val = item.find("id"); id_val && id_val->is_string()) tu.id = id_val->as_string();
-            if (const auto* name_val = item.find("name"); name_val && name_val->is_string()) tu.name = name_val->as_string();
+            const auto* id_val = item.find("id");
+            if (!id_val || !id_val->is_string() || id_val->as_string().empty()) {
+                return invalid_argument(block_path + ".id is required");
+            }
+            const auto* name_val = item.find("name");
+            if (!name_val || !name_val->is_string() || name_val->as_string().empty()) {
+                return invalid_argument(block_path + ".name is required");
+            }
             const auto* inp = item.find("input");
-            if (inp) {
-                if (keep_raw_input) {
-                    std::string_view raw = inp->raw_slice();
-                    if (!raw.empty()) {
-                        tu.input = std::string(raw);
-                    } else {
-                        tu.input = json::serialize(*inp);
-                    }
-                } else {
-                    tu.input = json::serialize(*inp);
-                }
+            if (!inp || !inp->is_object()) {
+                return invalid_argument(block_path + ".input must be an object");
+            }
+            ir::ToolUseBlock tu;
+            tu.id = id_val->as_string();
+            tu.name = name_val->as_string();
+            if (keep_raw_input && !inp->raw_slice().empty()) {
+                tu.input = std::string(inp->raw_slice());
             } else {
-                tu.input = "{}";
+                tu.input = json::serialize(*inp);
             }
             blocks.push_back(std::move(tu));
         } else if (kind == "tool_result") {
@@ -144,7 +149,7 @@ StatusOr<std::string> encode_stop_reason(std::string_view stop_reason) {
 
 }  // namespace
 
-StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
+static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Value& wire,
                                                  const Options& opts) {
     if (!wire.is_object()) return invalid_argument("anthropic: request must be an object");
     std::vector<ir::Loss> losses;
@@ -289,6 +294,13 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
     req.params = std::move(params);
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
+}
+
+StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const Options& opts) {
+    auto result = decode_request_unchecked(wire, opts);
+    if (!result.ok()) return result;
+    result->losses = detail::audit_wire(wire, "request", wire_profile(), std::move(result->losses));
+    return result;
 }
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
@@ -483,7 +495,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }
 
-StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
+static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::Value& wire,
                                                   const Options& opts) {
     if (!wire.is_object()) return invalid_argument("anthropic: response must be an object");
     std::vector<ir::Loss> losses;
@@ -522,6 +534,13 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
     }
 
     return Conversion<ir::Response>{std::move(resp), std::move(losses)};
+}
+
+StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire, const Options& opts) {
+    auto result = decode_response_unchecked(wire, opts);
+    if (!result.ok()) return result;
+    result->losses = detail::audit_wire(wire, "response", wire_profile(), std::move(result->losses));
+    return result;
 }
 
 StatusOr<Conversion<ir::Response>> decode_response(std::string_view wire_json,
@@ -599,7 +618,23 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
 StreamDecoder::StreamDecoder(Options opts) : opts_(std::move(opts)) {}
 
-StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& event) {
+    const auto before = losses_.size();
+    auto result = feed_unchecked(event);
+    if (!result.ok()) return result;
+    std::vector<ir::Loss> produced(losses_.begin() + before, losses_.end());
+    produced = detail::audit_wire(event, "event", wire_profile(), std::move(produced));
+    losses_.resize(before);
+    losses_.insert(losses_.end(), produced.begin(), produced.end());
+    return result;
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed(std::string_view wire_json) {
+    OXA_ASSIGN_OR_RETURN(json::Value event, json::parse(wire_json));
+    return feed(event);
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value& chunk) {
     if (flushed_) return invalid_argument("anthropic: event fed after stream flush");
     if (stopped_) return invalid_argument("anthropic: event fed after message_stop");
     if (!chunk.is_object()) return invalid_argument("anthropic: event must be an object");
@@ -848,7 +883,12 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         const auto* d = chunk.find("delta");
         if (!d || !d->is_object()) return invalid_argument("anthropic: message_delta without delta");
 
-        if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) stop_reason_ = srv->as_string();
+        if (const auto* srv = d->find("stop_reason"); srv && srv->is_string()) {
+            stop_reason_ = srv->as_string();
+            auto [sr, loss] = decode_stop_reason(stop_reason_);
+            decoded_stop_reason_ = std::move(sr);
+            if (loss.has_value()) losses_.push_back(std::move(*loss));
+        }
         if (const auto* ssv = d->find("stop_sequence"); ssv && ssv->is_string()) stop_seq_ = ssv->as_string();
 
         if (const auto* uv = chunk.find("usage"); uv && uv->is_object()) {
@@ -870,8 +910,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
         if (block_open_ || skipped_open_) return invalid_argument("anthropic: message_stop with a block still open");
         if (!delta_seen_) return invalid_argument("anthropic: message_stop without preceding message_delta");
         stopped_ = true;
-        auto [sr, loss] = decode_stop_reason(stop_reason_);
-        if (loss.has_value()) losses_.push_back(std::move(*loss));
+        std::string sr = decoded_stop_reason_;
         std::optional<std::string> seq;
         if (sr == ir::STOP_STOP_SEQUENCE) seq = stop_seq_;
         events.push_back(ir::MessageDelta{sr, seq, usage_});

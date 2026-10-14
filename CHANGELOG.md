@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.1.1] - 2026-10-14
+
+### Fixed
+
+- 五种语言对原始 provider JSON 的未知字段按属性存在记录 `unmapped-field`，包含嵌套属性、`null` 和 `store:false`；opaque payload 与整体 unsupported unit 不重复递归报损。
+- Anthropic 请求的 `tool_use.input` 保留原始空白、键序、转义和数字拼写，避免 Go 大整数精度变化，以及 Rust/Python/C++ 的重新序列化。
+- Python 按完整对象/数组路径定位 tool input，修复字段顺序变化时两个工具调用共享错误参数的问题。
+- 共享套件增加到 173 vectors，并校正两条 cross vectors 的原始参数文本期望；IR contract 仍为 `0.2.0`，Spec 仍为 `2.1.0`。
+- README 正确区分已发布的 v2.1.0 与未发布的 v2.1.1 源码。
+
+### Added
+
+- Go、TypeScript、Rust、Python 的 raw JSON request/response 入口和流事件入口；C++ 保留已有 raw nonstream overload，并新增 raw streaming overload。
+
 ## [v2.1.0] - 2026-09-27
 
 ### Added

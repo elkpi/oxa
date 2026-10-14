@@ -237,6 +237,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR image both data+URL / bad media type / unusable URL | unsupported-semantic | IR → request | see N-CC-3 |
 | IR `ImageBlock`/`ToolResultBlock` in assistant message; non-text blocks in tool result | unsupported-semantic | IR → request | see N-CC-6, N-CC-8 |
 | interleaved tool results and ordinary content in one IR user turn | degraded | IR → request | N-CC-9: tool messages are hoisted ahead of the trailing user content; source order is not preserved |
+| unrecognized non-exempt property on a recognized Chat Completions object | unmapped-field | request/response → IR | one loss per present property; see spec/02 §4 |
 | IR stop reason outside the five known values | structural error | IR → response | not a loss; conversion fails |
 
 ## 9. References

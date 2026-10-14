@@ -1,4 +1,5 @@
 #include "oxa/openai/chatcompletions.hpp"
+#include "chatcompletions_audit.hpp"
 
 #include <algorithm>
 
@@ -258,7 +259,7 @@ StatusOr<FinishReasonResult> encode_finish_reason(std::string_view stop_reason) 
 
 }  // namespace
 
-StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
+static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Value& wire,
                                                  const Options& opts) {
     if (!wire.is_object()) return invalid_argument("chatcompletions: request must be an object");
     std::vector<ir::Loss> losses;
@@ -481,6 +482,13 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire,
     if (has_params) req.params = std::move(params);
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
+}
+
+StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const Options& opts) {
+    auto result = decode_request_unchecked(wire, opts);
+    if (!result.ok()) return result;
+    result->losses = detail::audit_wire(wire, "request", wire_profile(), std::move(result->losses));
+    return result;
 }
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
@@ -731,7 +739,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }
 
-StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
+static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::Value& wire,
                                                   const Options& opts) {
     if (!wire.is_object()) return invalid_argument("chatcompletions: response must be an object");
     const auto* choices = wire.find("choices");
@@ -807,6 +815,13 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
     }
 
     return Conversion<ir::Response>{std::move(resp), std::move(losses)};
+}
+
+StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire, const Options& opts) {
+    auto result = decode_response_unchecked(wire, opts);
+    if (!result.ok()) return result;
+    result->losses = detail::audit_wire(wire, "response", wire_profile(), std::move(result->losses));
+    return result;
 }
 
 StatusOr<Conversion<ir::Response>> decode_response(std::string_view wire_json,
@@ -901,7 +916,23 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
 StreamDecoder::StreamDecoder(Options opts) : opts_(std::move(opts)) {}
 
-StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& chunk) {
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed(const json::Value& event) {
+    const auto before = losses_.size();
+    auto result = feed_unchecked(event);
+    if (!result.ok()) return result;
+    std::vector<ir::Loss> produced(losses_.begin() + before, losses_.end());
+    produced = detail::audit_wire(event, "event", wire_profile(), std::move(produced));
+    losses_.resize(before);
+    losses_.insert(losses_.end(), produced.begin(), produced.end());
+    return result;
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed(std::string_view wire_json) {
+    OXA_ASSIGN_OR_RETURN(json::Value event, json::parse(wire_json));
+    return feed(event);
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value& chunk) {
     if (flushed_) return invalid_argument("chatcompletions: chunk fed after stream flush");
     if (!chunk.is_object()) return invalid_argument("chatcompletions: chunk must be an object");
 

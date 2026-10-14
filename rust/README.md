@@ -1,12 +1,12 @@
 # oxa Rust implementation
 
-The Rust workspace source is prepared for **2.1.0**; the latest published
-version remains 2.0.0 until the coordinated release. Rust emits IR documents
+The Rust workspace source is **2.1.1 (unreleased)**; the latest published
+version is **2.1.0**. Rust emits IR documents
 with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 163
+oxa implementation — Rust gets no vector set of its own, and CI runs all 173
 current Spec 2.x vectors against it, including Spec 2.1 structured outputs.
 
 ## Layout
@@ -58,3 +58,11 @@ can still build and test outside the monorepo.
 - [x] `oxa-sse` — byte-level SSE frame adapter (spec/20 §6)
 - [x] streaming text (M6), tool-argument aggregation (M7), and reasoning blocks
       with signatures (M9) across all three faces
+
+## 原始 JSON 入口
+
+各 spoke 导出 `decode_request_json(raw, &config)` /
+`decode_response_json(raw, &config)`；stream decoder 支持 `feed_json(raw)`。
+对 provider JSON 使用这些入口，不要先经过 `serde_json::Value` 或 typed wire struct
+后才审计未知字段。旧 typed API 保留；raw 请求路径通过借用 `RawValue` 保留
+Anthropic tool input 的数字拼写、空白和键序。

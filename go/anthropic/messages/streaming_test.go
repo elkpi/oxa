@@ -48,6 +48,29 @@ var wireTextStream = []*StreamEvent{
 	{Type: "message_stop"},
 }
 
+func TestStreamDecoderFeedJSONReportsUnknownFieldWithoutChangingLifecycle(t *testing.T) {
+	d := NewStreamDecoder()
+	events, err := d.FeedJSON([]byte(`{"type":"message_start","message":{"id":"msg_raw","type":"message","role":"assistant","model":"claude-3","content":[],"stop_reason":null,"usage":{"input_tokens":0,"output_tokens":0}},"unknown_extension":null}`))
+	if err != nil || len(events) != 1 {
+		t.Fatalf("FeedJSON message_start: events=%v err=%v", events, err)
+	}
+	if losses := d.Losses(); len(losses) != 1 || losses[0].Path != "unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one unknown-extension loss", losses)
+	}
+	events, err = d.FeedJSON([]byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":1}}`))
+	if err != nil || len(events) != 0 {
+		t.Fatalf("FeedJSON message_delta: events=%v err=%v", events, err)
+	}
+	events, err = d.FeedJSON([]byte(`{"type":"message_stop"}`))
+	if err != nil || len(events) != 2 {
+		t.Fatalf("FeedJSON message_stop: events=%v err=%v", events, err)
+	}
+	flushed, err := d.Flush()
+	if err != nil || len(flushed) != 0 {
+		t.Fatalf("Flush: events=%v err=%v", flushed, err)
+	}
+}
+
 func TestStreamEventMarshalWireShape(t *testing.T) {
 	for _, tc := range []struct {
 		name  string

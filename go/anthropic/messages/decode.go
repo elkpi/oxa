@@ -149,6 +149,24 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 			}
 		}
 		return blocks, losses, nil
+	case []SystemBlockWire:
+		blocks := make([]ir.SystemBlock, 0, len(v))
+		var losses []ir.Loss
+		for i, w := range v {
+			if w.Type != BlockTypeText {
+				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
+			}
+			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
+			if len(w.CacheControl) > 0 {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("system[%d].cache_control", i),
+					Field:  "cache_control",
+					Reason: ir.LossUnmappedField,
+					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
+				})
+			}
+		}
+		return blocks, losses, nil
 	default:
 		return nil, nil, fmt.Errorf("anthropic: system is neither string nor block array")
 	}

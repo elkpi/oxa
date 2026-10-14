@@ -1,0 +1,43 @@
+{
+  "name": "anthropic.stream.unknown-event-field-to-ir",
+  "description": "A present unknown property on a recognized Anthropic event is lost without changing the valid stream lifecycle.",
+  "spec_version": "0.1.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "events": [
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_unknown",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-sonnet-4-5",
+          "content": [],
+          "stop_reason": null,
+          "usage": { "input_tokens": 0, "output_tokens": 0 }
+        },
+        "unknown_extension": null
+      },
+      {
+        "type": "message_delta",
+        "delta": { "stop_reason": "end_turn" },
+        "usage": { "input_tokens": 1, "output_tokens": 1 }
+      },
+      { "type": "message_stop" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "events": [
+      { "type": "message_start", "id": "msg_unknown", "model": "claude-sonnet-4-5" },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 1, "output_tokens": 1 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [
+    { "path": "unknown_extension", "field": "unknown_extension", "reason": "unmapped-field" }
+  ],
+  "tags": ["stream", "loss", "unknown-field"]
+}

@@ -78,10 +78,12 @@ public:
     explicit StreamDecoder(Options opts = {});
 
     StatusOr<std::vector<ir::Event>> feed(const json::Value& chunk);
+    StatusOr<std::vector<ir::Event>> feed(std::string_view wire_json);
     StatusOr<std::vector<ir::Event>> flush();
     const std::vector<ir::Loss>& losses() const noexcept { return losses_; }
 
 private:
+    StatusOr<std::vector<ir::Event>> feed_unchecked(const json::Value& event);
     Options opts_;
     std::vector<ir::Loss> losses_;
     bool started_ = false;
@@ -103,6 +105,7 @@ private:
     std::vector<std::string> tool_parts_;
     bool delta_seen_ = false;
     std::string stop_reason_;
+    std::string decoded_stop_reason_ = std::string(ir::STOP_END_TURN);
     std::optional<std::string> stop_seq_;
     ir::Usage usage_{0, 0};
     bool stopped_ = false;

@@ -1,6 +1,6 @@
 import { OxaError } from "../error.js";
 import type { JsonNumber, JsonObject, JsonValue } from "./types.js";
-import { jsonText, withSourceText } from "./value.js";
+import { jsonText, withSourceKeys, withSourceText } from "./value.js";
 
 const numberPattern = /-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/y;
 
@@ -57,7 +57,8 @@ class Parser {
     this.consume("{");
     this.skipWhitespace();
     const object: Record<string, JsonValue> = {};
-    if (this.tryConsume("}")) return object;
+    const keys: string[] = [];
+    if (this.tryConsume("}")) return withSourceKeys(object, keys);
     for (;;) {
       if (this.peek() !== '"') this.fail("object key must be a string");
       const key = this.parseString();
@@ -67,9 +68,15 @@ class Parser {
       this.skipWhitespace();
       this.consume(":");
       this.skipWhitespace();
-      object[key] = this.parseValue();
+      Object.defineProperty(object, key, {
+        value: this.parseValue(),
+        enumerable: true,
+        writable: true,
+        configurable: true,
+      });
+      keys.push(key);
       this.skipWhitespace();
-      if (this.tryConsume("}")) return object;
+      if (this.tryConsume("}")) return withSourceKeys(object, keys);
       this.consume(",");
       this.skipWhitespace();
     }

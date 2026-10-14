@@ -10,6 +10,28 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestDecodeRequestJSONReportsPresentUnknownField(t *testing.T) {
+	raw := []byte(`{"model":"m","messages":[{"role":"user","content":"Hi","unknown_extension":true}]}`)
+	got, losses, err := DecodeRequestJSON(raw)
+	if err != nil || got == nil || len(got.Messages) != 1 {
+		t.Fatalf("DecodeRequestJSON: request=%+v err=%v", got, err)
+	}
+	if len(losses) != 1 || losses[0].Path != "messages[0].unknown_extension" || losses[0].Field != "unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one nested unmapped-field", losses)
+	}
+}
+
+func TestDecodeRequestJSONOpaqueToolArgumentsNotAudited(t *testing.T) {
+	raw := []byte(`{"model":"m","messages":[{"role":"user","content":"Hi"}],"tools":[{"type":"function","function":{"name":"f","parameters":{"type":"object","unknown_extension":true}}}]}`)
+	_, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v, want none: schema payloads are opaque", losses)
+	}
+}
+
 func TestResponseFormat(t *testing.T) {
 	// 1. json_object
 	wireObj := &Request{

@@ -11,6 +11,59 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestDecodeRequestJSONPreservesRawToolInput(t *testing.T) {
+	toolInput := `{ "z": 9007199254740993, "a": 1e+01, "escaped": "\\u0041" }`
+	raw := []byte(`{"model":"m","max_tokens":32,"messages":[` +
+		`{"role":"user","content":"invoke"},` +
+		`{"role":"assistant","content":[{"type":"tool_use","input":{ "z": 9007199254740993, "a": 1e+01, "escaped": "\\u0041" },"id":"t1","name":"f"}]},` +
+		`{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("DecodeRequestJSON: err=%v losses=%+v", err, losses)
+	}
+	toolUse, ok := req.Messages[1].Content[0].(ir.ToolUseBlock)
+	if !ok {
+		t.Fatalf("content = %#v, want ToolUseBlock", req.Messages[1].Content)
+	}
+	var decoded string
+	if err := json.Unmarshal(toolUse.Input, &decoded); err != nil {
+		t.Fatalf("tool input is not a string token: %v", err)
+	}
+	if decoded != toolInput {
+		t.Fatalf("tool input changed:\n want %q\n got  %q", toolInput, decoded)
+	}
+}
+
+func TestDecodeRequestJSONReportsTopLevelAndNestedUnknownFields(t *testing.T) {
+	raw := []byte(`{"model":"m","max_tokens":32,"unknown_extension":true,"messages":[{"role":"user","content":[{"type":"text","text":"Hi","unknown_extension":null}]}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil || req == nil || len(req.Messages) != 1 {
+		t.Fatalf("DecodeRequestJSON: request=%+v err=%v", req, err)
+	}
+	if len(losses) != 2 {
+		t.Fatalf("losses = %#v, want two unmapped-field losses", losses)
+	}
+	if losses[0].Path != "unknown_extension" || losses[1].Path != "messages[0].content[0].unknown_extension" {
+		t.Fatalf("loss order/paths wrong: %#v", losses)
+	}
+	for _, loss := range losses {
+		if loss.Reason != ir.LossUnmappedField || loss.Field != "unknown_extension" {
+			t.Fatalf("loss = %+v, want unmapped-field unknown_extension", loss)
+		}
+	}
+}
+
+func TestDecodeResponseJSONReportsUnknownFieldOnKnownBlock(t *testing.T) {
+	raw := []byte(`{"id":"msg_1","type":"message","role":"assistant","model":"m","content":[{"type":"text","text":"Hi","unknown_extension":false}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`)
+	resp, losses, err := DecodeResponseJSON(raw)
+	if err != nil || resp == nil || len(resp.Content) != 1 {
+		t.Fatalf("DecodeResponseJSON: response=%+v err=%v", resp, err)
+	}
+	if len(losses) != 1 || losses[0].Path != "content[0].unknown_extension" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("losses = %#v, want one nested unmapped-field", losses)
+	}
+}
+
 func TestResponseFormatDropped(t *testing.T) {
 	req := &ir.Request{
 		Model: "claude-3-5-sonnet-20241022",

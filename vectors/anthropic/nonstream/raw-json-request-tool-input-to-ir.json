@@ -1,0 +1,55 @@
+{
+  "name": "anthropic.nonstream.raw-json-request-tool-input-to-ir",
+  "description": "An Anthropic request tool_use input preserves the source JSON token, including large integers, number spelling, whitespace, key order, and escape spelling.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 32,
+    "messages": [
+      { "role": "user", "content": "Run the tool." },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "input": { "z": 9007199254740993, "a": 1e+01, "escaped": "\\u0041" },
+            "id": "toolu_raw_request",
+            "name": "inspect"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [{ "type": "tool_result", "tool_use_id": "toolu_raw_request", "content": "Done." }]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Run the tool." }] },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "toolu_raw_request",
+            "name": "inspect",
+            "input": "{ \"z\": 9007199254740993, \"a\": 1e+01, \"escaped\": \"\\\\u0041\" }"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [{ "type": "tool_result", "tool_use_id": "toolu_raw_request", "content": [{ "type": "text", "text": "Done." }] }]
+      }
+    ],
+    "params": { "max_tokens": 32 }
+  },
+  "expected_losses": [],
+  "tags": ["request", "tools", "raw-json", "inv-1", "n-an-4"]
+}

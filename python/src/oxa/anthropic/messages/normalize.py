@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from oxa._wire import raw_field
+
 import json
 from typing import Any
 
@@ -105,41 +107,18 @@ def decode_content(
         out: list[Block] = []
         losses: list[Loss] = []
         for index, block in enumerate(content):
-            if isinstance(block, dict):
-                decoded, b_losses, mapped = decode_block(block, f"{path}[{index}]", raw_text)
-                if mapped:
-                    out.extend(decoded)
-                losses.extend(b_losses)
+            if not isinstance(block, dict):
+                raise ValueError(f"anthropic: {path}[{index}] must be a block object")
+            decoded, b_losses, mapped = decode_block(block, f"{path}[{index}]", raw_text)
+            if mapped:
+                out.extend(decoded)
+            losses.extend(b_losses)
         return out, losses
     raise ValueError(f"anthropic: {path} must be a string or list of blocks")
 
 
-def extract_tool_input_raw(raw_text: str, tool_id: str) -> str | None:
-    if not raw_text or not tool_id:
-        return None
-    id_marker = f'"{tool_id}"'
-    id_pos = raw_text.find(id_marker)
-    if id_pos == -1:
-        return None
-
-    input_marker = '"input"'
-    pos = raw_text.find(input_marker, id_pos)
-    if pos == -1 or (pos - id_pos > 1000):
-        pos = raw_text.rfind(input_marker, 0, id_pos)
-    if pos == -1:
-        return None
-
-    colon = raw_text.find(":", pos + len(input_marker))
-    if colon == -1:
-        return None
-    start = colon + 1
-    while start < len(raw_text) and raw_text[start].isspace():
-        start += 1
-    try:
-        _, end = json.JSONDecoder().raw_decode(raw_text, start)
-        return raw_text[start:end]
-    except Exception:
-        return None
+def extract_tool_input_raw(raw_text, path: str) -> str | None:
+    return raw_field(raw_text, path)
 
 
 def decode_block(
@@ -153,8 +132,11 @@ def decode_block(
     block: Block
 
     if kind == BLOCK_TYPE_TEXT:
-        block = TextBlock(text=wire.get("text", ""))
-        if wire.get("cache_control") is not None:
+        text_val = wire.get("text")
+        if not isinstance(text_val, str):
+            raise ValueError(f"anthropic: {path}.text must be a string")
+        block = TextBlock(text=text_val)
+        if "cache_control" in wire:
             losses.append(
                 loss(
                     f"{path}.cache_control",
@@ -170,7 +152,7 @@ def decode_block(
             thinking=wire.get("thinking", ""),
             signature=wire.get("signature"),
         )
-        if wire.get("cache_control") is not None:
+        if "cache_control" in wire:
             losses.append(
                 loss(
                     f"{path}.cache_control",
@@ -194,12 +176,30 @@ def decode_block(
             if not data:
                 raise ValueError(f"anthropic: {path}.source.data is required")
             block = ImageBlock(media_type=media_type, data=data)
+            if "cache_control" in wire:
+                losses.append(
+                    loss(
+                        f"{path}.cache_control",
+                        "cache_control",
+                        LOSS_UNMAPPED_FIELD,
+                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
+                    )
+                )
             return [block], losses, True
         if src_kind == SOURCE_TYPE_URL:
             url = source.get("url", "")
             if not url:
                 raise ValueError(f"anthropic: {path}.source.url is required")
             block = ImageBlock(url=url)
+            if "cache_control" in wire:
+                losses.append(
+                    loss(
+                        f"{path}.cache_control",
+                        "cache_control",
+                        LOSS_UNMAPPED_FIELD,
+                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
+                    )
+                )
             return [block], losses, True
         losses.append(
             loss(
@@ -221,16 +221,24 @@ def decode_block(
         raw_input = wire.get("input")
         if raw_input is None:
             raise ValueError(f"anthropic: {path}.input is required")
-        require_json_object(raw_input, f"{path}.input")
+        if not isinstance(raw_input, dict):
+            raise ValueError(f"anthropic: {path}.input must be a JSON object")
 
-        raw_slice = extract_tool_input_raw(raw_text, tool_id)
+        raw_slice = extract_tool_input_raw(raw_text, f"{path}.input")
         if raw_slice is not None:
             input_text = raw_slice
-        elif isinstance(raw_input, dict):
-            input_text = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
         else:
-            input_text = str(raw_input)
+            input_text = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
         block = ToolUseBlock(id=tool_id, name=name, input=input_text)
+        if "cache_control" in wire:
+            losses.append(
+                loss(
+                    f"{path}.cache_control",
+                    "cache_control",
+                    LOSS_UNMAPPED_FIELD,
+                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
+                )
+            )
         return [block], losses, True
 
     if kind == BLOCK_TYPE_TOOL_RESULT:
@@ -246,6 +254,15 @@ def decode_block(
             losses.extend(c_losses)
         is_error = bool(wire.get("is_error", False))
         block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
+        if "cache_control" in wire:
+            losses.append(
+                loss(
+                    f"{path}.cache_control",
+                    "cache_control",
+                    LOSS_UNMAPPED_FIELD,
+                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
+                )
+            )
         return [block], losses, True
 
     losses.append(
@@ -290,7 +307,7 @@ def decode_tool_choice(choice: Any) -> tuple[ToolChoice | None, list[Loss]]:
             )
         )
 
-    if choice.get("disable_parallel_tool_use"):
+    if "disable_parallel_tool_use" in choice:
         losses.append(
             loss(
                 "tool_choice.disable_parallel_tool_use",

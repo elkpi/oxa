@@ -5,12 +5,15 @@ import {
   isJsonArray,
   isJsonNumber,
   jsonText,
+  parseJson,
   type JsonObject,
   type JsonValue,
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
 import { parseUsageInteger, validateRequest } from "../../ir/index.js";
+import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
+import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
 import type {
   Block,
   ImageBlock,
@@ -28,6 +31,22 @@ export interface NonstreamOptions {
 }
 
 export function decodeRequest(
+  wire: JsonObject,
+  options: NonstreamOptions = {},
+): ConversionResult<Request> {
+  const audit = auditWire(wire, CHAT_REQUEST);
+  const result = decodeRequestObject(wire, options);
+  return { value: result.value, losses: mergeWireLosses(result.losses, audit) };
+}
+
+export function decodeRequestJSON(
+  raw: string,
+  options: NonstreamOptions = {},
+): ConversionResult<Request> {
+  return decodeRequest(objectOrThrow(parseJson(raw), "request"), options);
+}
+
+function decodeRequestObject(
   wire: JsonObject,
   options: NonstreamOptions = {},
 ): ConversionResult<Request> {
@@ -196,6 +215,22 @@ export function decodeRequest(
 }
 
 export function decodeResponse(
+  wire: JsonObject,
+  options: NonstreamOptions = {},
+): ConversionResult<Response> {
+  const audit = auditWire(wire, CHAT_RESPONSE);
+  const result = decodeResponseObject(wire, options);
+  return { value: result.value, losses: mergeWireLosses(result.losses, audit) };
+}
+
+export function decodeResponseJSON(
+  raw: string,
+  options: NonstreamOptions = {},
+): ConversionResult<Response> {
+  return decodeResponse(objectOrThrow(parseJson(raw), "response"), options);
+}
+
+function decodeResponseObject(
   wire: JsonObject,
   options: NonstreamOptions = {},
 ): ConversionResult<Response> {
@@ -898,4 +933,15 @@ function encodeResponseFormat(format: ResponseFormat): JsonObject {
         },
       };
   }
+}
+
+function objectOrThrow(value: JsonValue, name: string): JsonObject {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    isJsonNumber(value)
+  )
+    fail(`${name} must be an object`);
+  return value as JsonObject;
 }

@@ -111,6 +111,10 @@ fn source_path(path: &str, positions: &BTreeMap<String, usize>) -> String {
     if positions.contains_key(&response) {
         return response;
     }
+    let delta = join("delta", path);
+    if positions.contains_key(&delta) {
+        return delta;
+    }
     if path.starts_with("output[")
         && let Some(close) = path.find(']')
     {
@@ -136,6 +140,82 @@ fn source_path(path: &str, positions: &BTreeMap<String, usize>) -> String {
         }
     }
     path.to_owned()
+}
+
+pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
+    if name.is_empty() {
+        return Ok(raw.get().to_string());
+    }
+    if let Some(item_kind) = name.strip_suffix("[]") {
+        if raw.get().starts_with('[') {
+            let items: Vec<&RawValue> =
+                serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+            let mut out = String::from("[");
+            for (i, item) in items.iter().enumerate() {
+                if i > 0 {
+                    out.push(',');
+                }
+                out.push_str(&clean_json(item, item_kind)?);
+            }
+            out.push(']');
+            return Ok(out);
+        }
+        return Ok(raw.get().to_string());
+    }
+    if !raw.get().starts_with('{') {
+        return Ok(raw.get().to_string());
+    }
+    let object: RawObject<'_> =
+        serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    let Some(fields) = shape(name, &object) else {
+        let mut out = String::from("{");
+        let mut first = true;
+        for (k, v) in &object.0 {
+            let keep = if name == "event" {
+                [
+                    "type",
+                    "item_id",
+                    "output_index",
+                    "content_index",
+                    "call_id",
+                    "name",
+                ]
+                .contains(&k.as_str())
+            } else {
+                k == "type"
+            };
+            if keep {
+                if !first {
+                    out.push(',');
+                }
+                first = false;
+                let k_json =
+                    serde_json::to_string(k).map_err(|error| Error::new(error.to_string()))?;
+                out.push_str(&k_json);
+                out.push(':');
+                out.push_str(v.get());
+            }
+        }
+        out.push('}');
+        return Ok(out);
+    };
+    let mut out = String::from("{");
+    let mut first = true;
+    for (key, value) in &object.0 {
+        if let Some((_, child_kind)) = fields.iter().find(|(f, _)| f == key) {
+            if !first {
+                out.push(',');
+            }
+            first = false;
+            let key_json =
+                serde_json::to_string(key).map_err(|error| Error::new(error.to_string()))?;
+            out.push_str(&key_json);
+            out.push(':');
+            out.push_str(&clean_json(value, child_kind)?);
+        }
+    }
+    out.push('}');
+    Ok(out)
 }
 
 pub(crate) fn audit_losses(raw: &str, name: &str, losses: Vec<Loss>) -> Result<Vec<Loss>, Error> {
@@ -193,7 +273,6 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("temperature", ""),
             ("top_p", ""),
             ("stop_sequences", ""),
-            ("metadata", ""),
             ("tools", "tool[]"),
             ("tool_choice", "tool_choice"),
             ("thinking", "thinking_config"),
@@ -209,13 +288,9 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("usage", "usage"),
         ]),
         "message" => Some(&[("role", ""), ("content", "block[]")]),
-        "system_block" => Some(&[("type", ""), ("text", ""), ("cache_control", "")]),
+        "system_block" => Some(&[("type", ""), ("text", "")]),
         "tool" => Some(&[("name", ""), ("description", ""), ("input_schema", "")]),
-        "tool_choice" => Some(&[
-            ("type", ""),
-            ("name", ""),
-            ("disable_parallel_tool_use", ""),
-        ]),
+        "tool_choice" => Some(&[("type", ""), ("name", "")]),
         "thinking_config" => Some(&[("type", ""), ("budget_tokens", "")]),
         "block" => match tag(object, "type") {
             Some(value) => match value.as_str() {
@@ -228,28 +303,16 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             },
             None => None,
         },
-        "text" => Some(&[("type", ""), ("text", ""), ("cache_control", "")]),
-        "thinking" => Some(&[
-            ("type", ""),
-            ("thinking", ""),
-            ("signature", ""),
-            ("cache_control", ""),
-        ]),
-        "tool_use" => Some(&[
-            ("type", ""),
-            ("id", ""),
-            ("name", ""),
-            ("input", ""),
-            ("cache_control", ""),
-        ]),
+        "text" => Some(&[("type", ""), ("text", "")]),
+        "thinking" => Some(&[("type", ""), ("thinking", ""), ("signature", "")]),
+        "tool_use" => Some(&[("type", ""), ("id", ""), ("name", ""), ("input", "")]),
         "tool_result" => Some(&[
             ("type", ""),
             ("tool_use_id", ""),
             ("content", "block[]"),
             ("is_error", ""),
-            ("cache_control", ""),
         ]),
-        "image" => Some(&[("type", ""), ("source", "source"), ("cache_control", "")]),
+        "image" => Some(&[("type", ""), ("source", "source")]),
         "source" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "base64" => shape("base64", object),
@@ -279,7 +342,20 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             None => None,
         },
         "start" => Some(&[("type", ""), ("message", "response")]),
-        "block_start" => Some(&[("type", ""), ("index", ""), ("content_block", "block")]),
+        "block_start" => Some(&[
+            ("type", ""),
+            ("index", ""),
+            ("content_block", "stream_block"),
+        ]),
+        "stream_block" => match tag(object, "type") {
+            Some(value) => match value.as_str() {
+                "text" => shape("text", object),
+                "thinking" => shape("thinking", object),
+                "tool_use" => shape("tool_use", object),
+                _ => None,
+            },
+            None => None,
+        },
         "block_delta" => Some(&[("type", ""), ("index", ""), ("delta", "delta")]),
         "block_stop" => Some(&[("type", ""), ("index", "")]),
         "message_delta" => Some(&[("type", ""), ("delta", "stop_delta"), ("usage", "usage")]),

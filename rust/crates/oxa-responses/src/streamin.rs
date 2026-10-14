@@ -57,8 +57,11 @@ pub struct StreamDecoder {
 
 impl StreamDecoder {
     pub fn feed_json(&mut self, raw: &str) -> Result<Vec<Event>, Error> {
-        let event: StreamEvent =
+        let root: &serde_json::value::RawValue =
             serde_json::from_str(raw).map_err(|error| Error::new(error.to_string()))?;
+        let cleaned = crate::audit::clean_json(root, "event")?;
+        let event: StreamEvent =
+            serde_json::from_str(&cleaned).map_err(|error| Error::new(error.to_string()))?;
         let before = self.losses.len();
         let events = self.feed(&event)?;
         let native_losses = self.losses.split_off(before);

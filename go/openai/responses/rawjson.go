@@ -48,15 +48,17 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	if err != nil {
 		return nil, nil, fmt.Errorf("responses: request JSON: %w", err)
 	}
+	schema := schemaForRawType(reflect.TypeOf(Request{}))
+	cleanJSON := filterKnownJSON(raw, root, schema)
 	var wire Request
-	if err := json.Unmarshal(raw, &wire); err != nil {
+	if err := json.Unmarshal(cleanJSON, &wire); err != nil {
 		return nil, nil, fmt.Errorf("responses: request JSON: %w", err)
 	}
 	req, losses, err := DecodeRequest(&wire, opts...)
 	if err != nil {
 		return nil, nil, err
 	}
-	audited, locations := inspectRawJSON(root, schemaForRawType(reflect.TypeOf(Request{})), "")
+	audited, locations := inspectRawJSON(root, schema, "")
 	return req, orderRawLosses(losses, audited, locations), nil
 }
 
@@ -65,15 +67,17 @@ func DecodeResponseJSON(raw []byte, opts ...Option) (*ir.Response, []ir.Loss, er
 	if err != nil {
 		return nil, nil, fmt.Errorf("responses: response JSON: %w", err)
 	}
+	schema := schemaForRawType(reflect.TypeOf(Response{}))
+	cleanJSON := filterKnownJSON(raw, root, schema)
 	var wire Response
-	if err := json.Unmarshal(raw, &wire); err != nil {
+	if err := json.Unmarshal(cleanJSON, &wire); err != nil {
 		return nil, nil, fmt.Errorf("responses: response JSON: %w", err)
 	}
 	resp, losses, err := DecodeResponse(&wire, opts...)
 	if err != nil {
 		return nil, nil, err
 	}
-	audited, locations := inspectRawJSON(root, schemaForRawType(reflect.TypeOf(Response{})), "")
+	audited, locations := inspectRawJSON(root, schema, "")
 	return resp, orderRawLosses(losses, audited, locations), nil
 }
 
@@ -303,7 +307,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			if kind != ToolTypeFunction {
 				return nil
 			}
-			return rawObjectSchema(t, []string{"type", "name", "description", "parameters", "strict"}, nil, seen)
+			return rawObjectSchema(t, []string{"type", "name", "description", "parameters"}, nil, seen)
 		}
 		return schema
 	case reflect.TypeOf(OutputItem{}):
@@ -317,7 +321,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeFunctionCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
-				return rawObjectSchema(t, []string{"type", "id", "status", "summary", "encrypted_content"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "status", "summary"}, nil, seen)
 			default:
 				return nil
 			}
@@ -388,10 +392,18 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		switch t {
 		case reflect.TypeOf(Request{}):
 			schema.fields["input"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(InputItem{}), seen)}
-			schema.fields["tool_choice"] = schemaForRawTypeSeen(reflect.TypeOf(ToolChoiceWire{}), seen)
+			schema.fields["tool_choice"] = &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
+				if node == nil || node.kind != '{' {
+					return nil
+				}
+				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type", "name"}, nil, seen)
+			}}
 			schema.fields["reasoning"] = &rawJSONSchema{fields: map[string]*rawJSONSchema{"effort": nil, "summary": nil}}
+			delete(schema.fields, "metadata")
+			delete(schema.fields, "parallel_tool_calls")
 		case reflect.TypeOf(TextParams{}):
 			schema.fields["format"] = schemaForRawTypeSeen(reflect.TypeOf(TextFormatWire{}), seen)
+			delete(schema.fields, "verbosity")
 		case reflect.TypeOf(InputItem{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ContentPart{}), seen)}
 		}
@@ -560,4 +572,68 @@ func rawJSONStringField(node *rawJSONNode, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byte {
+	if node == nil || schema == nil {
+		return raw
+	}
+	if schema.variant != nil {
+		v := schema.variant(node)
+		if v == nil {
+			var buf []byte
+			buf = append(buf, '{')
+			first := true
+			for _, f := range node.fields {
+				if f.name == "type" {
+					if !first {
+						buf = append(buf, ',')
+					}
+					first = false
+					buf = append(buf, raw[f.keyOffset:f.value.end]...)
+				}
+			}
+			buf = append(buf, '}')
+			return buf
+		}
+		schema = v
+	}
+	if node.kind == '{' && schema.fields != nil {
+		var buf []byte
+		buf = append(buf, '{')
+		first := true
+		for _, f := range node.fields {
+			childSchema, isKnown := schema.fields[f.name]
+			if !isKnown {
+				continue
+			}
+			if !first {
+				buf = append(buf, ',')
+			}
+			first = false
+			keyBytes := raw[f.keyOffset:scanRawJSONString(raw, f.keyOffset)]
+			buf = append(buf, keyBytes...)
+			buf = append(buf, ':')
+			if childSchema != nil && (f.value.kind == '{' || f.value.kind == '[') {
+				buf = append(buf, filterKnownJSON(raw, f.value, childSchema)...)
+			} else {
+				buf = append(buf, raw[f.value.start:f.value.end]...)
+			}
+		}
+		buf = append(buf, '}')
+		return buf
+	}
+	if node.kind == '[' && schema.items != nil {
+		var buf []byte
+		buf = append(buf, '[')
+		for i, item := range node.items {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			buf = append(buf, filterKnownJSON(raw, item, schema.items)...)
+		}
+		buf = append(buf, ']')
+		return buf
+	}
+	return raw[node.start:node.end]
 }

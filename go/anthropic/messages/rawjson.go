@@ -69,8 +69,10 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	if err != nil {
 		return nil, nil, fmt.Errorf("anthropic: request JSON: %w", err)
 	}
+	schema := schemaForRawType(reflect.TypeOf(Request{}))
+	cleanJSON := filterKnownJSON(raw, root, schema)
 	var shadow rawRequestShadow
-	if err := json.Unmarshal(raw, &shadow); err != nil {
+	if err := json.Unmarshal(cleanJSON, &shadow); err != nil {
 		return nil, nil, fmt.Errorf("anthropic: request JSON: %w", err)
 	}
 	wire := Request{
@@ -102,7 +104,7 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	audited, locations := inspectRawJSON(root, schemaForRawType(reflect.TypeOf(Request{})), "")
+	audited, locations := inspectRawJSON(root, schema, "")
 	return req, orderRawLosses(losses, audited, locations), nil
 }
 
@@ -128,11 +130,32 @@ func (d *StreamDecoder) FeedJSON(raw []byte) ([]ir.Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("anthropic: stream event JSON: %w", err)
 	}
+	schema := schemaForRawType(reflect.TypeOf(StreamEvent{}))
+	cleanJSON := filterKnownJSON(raw, root, schema)
 	var event StreamEvent
-	if err := json.Unmarshal(raw, &event); err != nil {
+	if err := json.Unmarshal(cleanJSON, &event); err != nil {
 		return nil, fmt.Errorf("anthropic: stream event JSON: %w", err)
 	}
-	audited, locations := inspectRawJSON(root, schemaForRawType(reflect.TypeOf(StreamEvent{})), "")
+	isSkipped := false
+	if event.Type == EventTypeContentBlockStart {
+		if event.ContentBlock != nil && event.ContentBlock.Type != BlockTypeText && event.ContentBlock.Type != BlockTypeThinking && event.ContentBlock.Type != BlockTypeToolUse {
+			isSkipped = true
+		}
+	} else if event.Type == EventTypeContentBlockDelta || event.Type == EventTypeContentBlockStop {
+		if d.skipped[event.Index] {
+			isSkipped = true
+		}
+	}
+	audited, locations := inspectRawJSON(root, schema, "")
+	if isSkipped {
+		var filtered []rawJSONLoss
+		for _, l := range audited {
+			if l.loss.Path == "type" || l.loss.Path == "index" {
+				filtered = append(filtered, l)
+			}
+		}
+		audited = filtered
+	}
 	before := len(d.losses)
 	events, err := d.Feed(&event)
 	if err != nil {
@@ -194,16 +217,31 @@ func contentFromRaw(raw json.RawMessage) (any, error) {
 }
 
 func blockFromRaw(raw json.RawMessage) (BlockWire, error) {
+	node, err := parseRawJSON(raw)
+	if err != nil {
+		var block BlockWire
+		err := json.Unmarshal(raw, &block)
+		return block, err
+	}
+	blockSchema := schemaForRawType(reflect.TypeOf(BlockWire{}))
+	cleanJSON := filterKnownJSON(raw, node, blockSchema)
 	var block BlockWire
-	if err := json.Unmarshal(raw, &block); err != nil {
+	if err := json.Unmarshal(cleanJSON, &block); err != nil {
 		return BlockWire{}, err
 	}
-	if block.Type == BlockTypeToolResult {
+	if block.Type == BlockTypeToolUse {
+		for _, f := range node.fields {
+			if f.name == "input" {
+				block.Input = raw[f.value.start:f.value.end]
+				break
+			}
+		}
+	} else if block.Type == BlockTypeToolResult {
 		var nodes []json.RawMessage
 		if err := json.Unmarshal(raw, &shadowBlockContent{Content: &nodes}); err == nil && nodes != nil {
 			nested := make([]BlockWire, 0, len(nodes))
-			for _, node := range nodes {
-				child, err := blockFromRaw(node)
+			for _, childRaw := range nodes {
+				child, err := blockFromRaw(childRaw)
 				if err != nil {
 					return BlockWire{}, err
 				}
@@ -381,7 +419,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	}
 	switch t {
 	case reflect.TypeOf(SystemBlockWire{}):
-		return rawObjectSchema(t, []string{"type", "text", "cache_control"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
 	case reflect.TypeOf(BlockWire{}):
 		schema := &rawJSONSchema{}
 		seen[t] = schema
@@ -389,13 +427,13 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
 			case BlockTypeText:
-				return rawObjectSchema(t, []string{"type", "text", "cache_control"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
 			case BlockTypeThinking:
-				return rawObjectSchema(t, []string{"type", "thinking", "signature", "cache_control"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "thinking", "signature"}, nil, seen)
 			case BlockTypeToolUse:
-				return rawObjectSchema(t, []string{"type", "id", "name", "input", "cache_control"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "name", "input"}, nil, seen)
 			case BlockTypeToolResult:
-				return rawObjectSchema(t, []string{"type", "tool_use_id", "content", "is_error", "cache_control"},
+				return rawObjectSchema(t, []string{"type", "tool_use_id", "content", "is_error"},
 					map[string]*rawJSONSchema{
 						"content": {variant: func(content *rawJSONNode) *rawJSONSchema {
 							if content != nil && content.kind == '[' {
@@ -406,7 +444,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 					},
 					seen)
 			case BlockTypeImage:
-				return rawObjectSchema(t, []string{"type", "source", "cache_control"},
+				return rawObjectSchema(t, []string{"type", "source"},
 					map[string]*rawJSONSchema{
 						"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
 					},
@@ -421,7 +459,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	case reflect.TypeOf(ToolWire{}):
 		return rawObjectSchema(t, []string{"name", "description", "input_schema"}, nil, seen)
 	case reflect.TypeOf(ToolChoiceWire{}):
-		return rawObjectSchema(t, []string{"type", "name", "disable_parallel_tool_use"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "name"}, nil, seen)
 	case reflect.TypeOf(ThinkingWire{}):
 		return rawObjectSchema(t, []string{"type", "budget_tokens"}, nil, seen)
 	case reflect.TypeOf(Message{}):
@@ -454,18 +492,49 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		}
 		return schema
 	case reflect.TypeOf(StreamDelta{}):
-		return rawObjectSchema(t, []string{"type", "text", "partial_json", "thinking", "signature", "stop_reason", "stop_sequence"}, nil, seen)
+		schema := &rawJSONSchema{}
+		seen[t] = schema
+		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			switch kind {
+			case DeltaTypeTextDelta:
+				return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
+			case DeltaTypeInputJSONDelta:
+				return rawObjectSchema(t, []string{"type", "partial_json"}, nil, seen)
+			case DeltaTypeThinking:
+				return rawObjectSchema(t, []string{"type", "thinking"}, nil, seen)
+			case DeltaTypeSignature:
+				return rawObjectSchema(t, []string{"type", "signature"}, nil, seen)
+			default:
+				return rawObjectSchema(t, []string{"stop_reason", "stop_sequence"}, nil, seen)
+			}
+		}
+		return schema
 	case reflect.TypeOf(StreamEvent{}):
 		schema := &rawJSONSchema{}
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
-			return rawObjectSchema(t, []string{"type", "message", "index", "content_block", "delta", "usage"},
-				map[string]*rawJSONSchema{
-					"message":       schemaForRawTypeSeen(reflect.TypeOf(Response{}), seen),
-					"content_block": schemaForRawTypeSeen(reflect.TypeOf(BlockWire{}), seen),
-					"delta":         schemaForRawTypeSeen(reflect.TypeOf(StreamDelta{}), seen),
-				},
-				seen)
+			kind, _ := rawJSONStringField(node, "type")
+			switch kind {
+			case EventTypeMessageStart:
+				return rawObjectSchema(t, []string{"type", "message"},
+					map[string]*rawJSONSchema{"message": schemaForRawTypeSeen(reflect.TypeOf(Response{}), seen)}, seen)
+			case EventTypeContentBlockStart:
+				return rawObjectSchema(t, []string{"type", "index", "content_block"},
+					map[string]*rawJSONSchema{"content_block": schemaForRawTypeSeen(reflect.TypeOf(BlockWire{}), seen)}, seen)
+			case EventTypeContentBlockDelta:
+				return rawObjectSchema(t, []string{"type", "index", "delta"},
+					map[string]*rawJSONSchema{"delta": schemaForRawTypeSeen(reflect.TypeOf(StreamDelta{}), seen)}, seen)
+			case EventTypeContentBlockStop:
+				return rawObjectSchema(t, []string{"type", "index"}, nil, seen)
+			case EventTypeMessageDelta:
+				return rawObjectSchema(t, []string{"type", "delta", "usage"},
+					map[string]*rawJSONSchema{"delta": schemaForRawTypeSeen(reflect.TypeOf(StreamDelta{}), seen)}, seen)
+			case EventTypeMessageStop:
+				return rawObjectSchema(t, []string{"type"}, nil, seen)
+			default:
+				return nil
+			}
 		}
 		return schema
 	}
@@ -503,6 +572,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			}}
 			schema.fields["messages"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(Message{}), seen)}
 			schema.fields["tools"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ToolWire{}), seen)}
+			delete(schema.fields, "metadata")
 		case reflect.TypeOf(Response{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(BlockWire{}), seen)}
 		}
@@ -623,6 +693,14 @@ func orderRawLosses(existing []ir.Loss, audited []rawJSONLoss, locations rawJSON
 		if offset, ok := locations.values[loss.Path]; ok {
 			return offset
 		}
+		if loss.Path == "stop_reason" {
+			if offset, ok := locations.keys["delta.stop_reason"]; ok {
+				return offset
+			}
+			if offset, ok := locations.values["delta.stop_reason"]; ok {
+				return offset
+			}
+		}
 		return maxInt
 	}
 	appendLoss := func(loss ir.Loss, offset int) {
@@ -671,4 +749,68 @@ func rawJSONStringField(node *rawJSONNode, name string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byte {
+	if node == nil || schema == nil {
+		return raw
+	}
+	if schema.variant != nil {
+		v := schema.variant(node)
+		if v == nil {
+			var buf []byte
+			buf = append(buf, '{')
+			first := true
+			for _, f := range node.fields {
+				if f.name == "type" {
+					if !first {
+						buf = append(buf, ',')
+					}
+					first = false
+					buf = append(buf, raw[f.keyOffset:f.value.end]...)
+				}
+			}
+			buf = append(buf, '}')
+			return buf
+		}
+		schema = v
+	}
+	if node.kind == '{' && schema.fields != nil {
+		var buf []byte
+		buf = append(buf, '{')
+		first := true
+		for _, f := range node.fields {
+			childSchema, isKnown := schema.fields[f.name]
+			if !isKnown {
+				continue
+			}
+			if !first {
+				buf = append(buf, ',')
+			}
+			first = false
+			keyBytes := raw[f.keyOffset:scanRawJSONString(raw, f.keyOffset)]
+			buf = append(buf, keyBytes...)
+			buf = append(buf, ':')
+			if childSchema != nil && (f.value.kind == '{' || f.value.kind == '[') {
+				buf = append(buf, filterKnownJSON(raw, f.value, childSchema)...)
+			} else {
+				buf = append(buf, raw[f.value.start:f.value.end]...)
+			}
+		}
+		buf = append(buf, '}')
+		return buf
+	}
+	if node.kind == '[' && schema.items != nil {
+		var buf []byte
+		buf = append(buf, '[')
+		for i, item := range node.items {
+			if i > 0 {
+				buf = append(buf, ',')
+			}
+			buf = append(buf, filterKnownJSON(raw, item, schema.items)...)
+		}
+		buf = append(buf, ']')
+		return buf
+	}
+	return raw[node.start:node.end]
 }

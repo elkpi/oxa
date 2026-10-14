@@ -39,3 +39,11 @@ From the repo root, `make test` runs the Go test suite.
 Zero third-party runtime dependencies. Standard library only (`encoding/json`, `io`, etc.).
 
 `github.com/santhosh-tekuri/jsonschema/v6` is used only by `cmd/veccheck` for JSON Schema 2020-12 validation as a dev/CI tool.
+
+## 原始 JSON 入口
+
+对 provider JSON 调用各 face 的 `DecodeRequestJSON(raw, opts...)` /
+`DecodeResponseJSON(raw, opts...)`；流 decoder 使用 `FeedJSON(raw)`。
+它们保留未映射字段的存在信息和 Anthropic tool input 原文；不要先
+`json.Unmarshal` 到 wire struct 后再期待 converter 恢复已丢失的字段。
+原有 typed 接口保留给程序内构造的输入。

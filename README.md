@@ -6,9 +6,10 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.1.0.** Go, TypeScript, Rust, Python, and C++
-implement Spec 2.1.0 structured-output support and validate all 163 shared
-golden vectors.
+**Latest coordinated release: v2.1.0.** The source tree is **v2.1.1
+(unreleased)**, implements Spec 2.1.0 across Go, TypeScript, Rust, Python, and
+C++, and validates all 173 shared golden vectors. Release follows PR review
+and merge; v2.1.1 has not been published.
 
 ## What is oxa?
 
@@ -53,25 +54,25 @@ without a corresponding vector update.
 
 ## Language matrix
 
-| Language   | Directory | Source status                  |
-| ---------- | --------- | ------------------------------ |
-| Go         | `go/`     | v2.1.0 released |
-| TypeScript | `ts/`     | v2.1.0 released |
-| Rust       | `rust/`   | v2.1.0 released |
-| Python     | `python/` | v2.1.0 released |
-| C++        | `cpp/`    | v2.1.0 released |
+| Language   | Directory | Source             | Latest published |
+| ---------- | --------- | ------------------ | ---------------- |
+| Go         | `go/`     | 2.1.1 (unreleased) | 2.1.0            |
+| TypeScript | `ts/`     | 2.1.1 (unreleased) | 2.1.0            |
+| Rust       | `rust/`   | 2.1.1 (unreleased) | 2.1.0            |
+| Python     | `python/` | 2.1.1 (unreleased) | 2.1.0            |
+| C++        | `cpp/`    | 2.1.1 (unreleased) | 2.1.0            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.1.0 released)
-ts/        TypeScript implementation (v2.1.0 released)
+go/        Go reference implementation (v2.1.1 source; v2.1.0 released)
+ts/        TypeScript implementation (v2.1.1 source; v2.1.0 released)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.1.0 released)
-python/    Python implementation (v2.1.0 released)
-cpp/       C++ implementation (v2.1.0 released)
+rust/      Rust implementation (v2.1.1 source; v2.1.0 released)
+python/    Python implementation (v2.1.1 source; v2.1.0 released)
+cpp/       C++ implementation (v2.1.1 source; v2.1.0 released)
 ```
 
 ## Current capabilities
@@ -90,6 +91,27 @@ representation (IR). The coordinated v2.1.0 package release is published.
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried
 ([spec/02](spec/02-loss-policy.md)).
+
+## 原始 JSON 与业务运行时边界
+
+接收 provider JSON 时，优先调用 raw JSON 入口，再组合 IR → target face。
+Go/Rust 的旧 typed API 无法恢复已经被调用方反序列化丢弃的属性；只有保留完整源输入，
+才能报告未知字段并保证 opaque tool input 的原文保真。TypeScript 的 raw 入口复用
+`parseJson`，不要先经过会丢数值精度的原生 `JSON.parse`。
+
+| Language | Request / response JSON entrypoints | Stream JSON entrypoint |
+| -------- | ----------------------------------- | ---------------------- |
+| Go | `DecodeRequestJSON` / `DecodeResponseJSON` | `FeedJSON` |
+| TypeScript | `decodeRequestJSON` / `decodeResponseJSON` | `feedJSON` |
+| Rust | `decode_request_json` / `decode_response_json` | `feed_json` |
+| Python | `decode_request_json` / `decode_response_json` | `feed_json` |
+| C++ | existing `std::string_view` decode overloads | `feed(std::string_view)` |
+
+OXA IR 是转换用的受限投影，不是业务运行时的完整模型。它没有运行时 error event、
+server/custom-tool 生命周期或 compaction 语义；`MessageDone` 只表示 IR 流结束，
+不代表上游请求成功。业务侧应在原始输入上做准入检查，并自行保留失败、取消、会话状态
+和 provider 扩展；不要把空 loss 列表当成完整准入或兼容性证明，也不要把未映射字段
+盲目透传到目标 API。
 
 ## Quick start
 

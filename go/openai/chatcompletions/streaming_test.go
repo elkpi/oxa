@@ -37,8 +37,8 @@ func TestStreamDecoderFeedJSONReportsUnknownFieldWithoutChangingLifecycle(t *tes
 		t.Fatalf("losses = %#v, want one unknown-extension loss", losses)
 	}
 	events, err = d.FeedJSON([]byte(`{"id":"chatcmpl_raw","object":"chat.completion.chunk","created":0,"model":"m","choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`))
-	if err != nil {
-		t.Fatalf("FeedJSON finish chunk: %v", err)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("FeedJSON finish chunk: events=%v err=%v", events, err)
 	}
 	flushed, err := d.Flush()
 	if err != nil {

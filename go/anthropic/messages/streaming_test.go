@@ -58,8 +58,8 @@ func TestStreamDecoderFeedJSONReportsUnknownFieldWithoutChangingLifecycle(t *tes
 		t.Fatalf("losses = %#v, want one unknown-extension loss", losses)
 	}
 	events, err = d.FeedJSON([]byte(`{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":1,"output_tokens":1}}`))
-	if err != nil {
-		t.Fatalf("FeedJSON message_delta: %v", err)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("FeedJSON message_delta: events=%v err=%v", events, err)
 	}
 	events, err = d.FeedJSON([]byte(`{"type":"message_stop"}`))
 	if err != nil || len(events) != 2 {

@@ -6,10 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.1.0.** The source tree is **v2.1.1
-(unreleased)**, implements Spec 2.1.0 across Go, TypeScript, Rust, Python, and
-C++, and validates all 173 shared golden vectors. Release follows PR review
-and merge; v2.1.1 has not been published.
+**Latest coordinated release: v2.1.1.** Implements Spec 2.1.0 across Go,
+TypeScript, Rust, Python, and C++, and validates all 173 shared golden vectors.
 
 ## What is oxa?
 
@@ -152,7 +150,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.1.0`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.1.1`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

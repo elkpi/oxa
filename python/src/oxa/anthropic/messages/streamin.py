@@ -411,6 +411,14 @@ class StreamDecoder:
                 MessageDone(),
             ]
 
+        self._losses.append(
+            loss(
+                "type",
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f"Anthropic stream event type {kind!r} is not decoded in this milestone",
+            )
+        )
         return []
 
     def flush(self) -> list[Event]:

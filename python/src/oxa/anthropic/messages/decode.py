@@ -67,7 +67,7 @@ def decode_request(
     if max_tokens is None or max_tokens <= 0:
         raise ValueError("anthropic: max_tokens is required and must be positive")
 
-    if wire.get("metadata") is not None:
+    if "metadata" in wire:
         losses.append(
             loss(
                 "metadata",
@@ -174,8 +174,12 @@ def decode_response(
     losses: list[Loss] = []
 
     content_raw = wire.get("content", [])
+    if not isinstance(content_raw, list):
+        raise ValueError("anthropic: content must be a list of blocks")
     content: list[Block] = []
     for index, block in enumerate(content_raw):
+        if not isinstance(block, dict):
+            raise ValueError(f"anthropic: content[{index}] must be a block object")
         decoded, b_losses, mapped = decode_block(block, f"content[{index}]", raw_text)
         if mapped:
             content.extend(decoded)

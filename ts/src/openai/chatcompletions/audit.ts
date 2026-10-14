@@ -32,7 +32,6 @@ const MESSAGE: WireAuditSpec = {
     reasoning_content: undefined,
     tool_calls: { items: TOOL_CALL },
     tool_call_id: undefined,
-    function_call: undefined,
   },
 };
 
@@ -40,6 +39,19 @@ const TOOL: WireAuditSpec = {
   variant: (tool) => {
     if (tool.type !== "function") return undefined;
     return { fields: { type: undefined, function: FUNCTION } };
+  },
+};
+
+const FUNCTION_CHOICE: WireAuditSpec = {
+  fields: { name: undefined },
+};
+
+const TOOL_CHOICE: WireAuditSpec = {
+  variant: (choice) => {
+    if (choice.type === "function") {
+      return { fields: { type: undefined, function: FUNCTION_CHOICE } };
+    }
+    return undefined;
   },
 };
 
@@ -87,14 +99,8 @@ export const CHAT_REQUEST: WireAuditSpec = {
     stop: { items: undefined },
     reasoning_effort: undefined,
     tools: { items: TOOL },
-    tool_choice: undefined,
-    parallel_tool_calls: undefined,
-    functions: undefined,
-    function_call: undefined,
+    tool_choice: TOOL_CHOICE,
     response_format: RESPONSE_FORMAT,
-    logprobs: undefined,
-    top_logprobs: undefined,
-    metadata: undefined,
   },
 };
 

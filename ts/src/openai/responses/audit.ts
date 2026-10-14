@@ -62,7 +62,6 @@ const INPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
-            encrypted_content: undefined,
           },
         };
       default:
@@ -80,9 +79,17 @@ const TOOL: WireAuditSpec = {
         name: undefined,
         description: undefined,
         parameters: undefined,
-        strict: undefined,
       },
     };
+  },
+};
+
+const TOOL_CHOICE: WireAuditSpec = {
+  variant: (choice) => {
+    if (choice.type === "function") {
+      return { fields: { type: undefined, name: undefined } };
+    }
+    return undefined;
   },
 };
 
@@ -146,7 +153,6 @@ const OUTPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
-            encrypted_content: undefined,
           },
         };
       default:
@@ -187,11 +193,9 @@ export const RESPONSES_REQUEST: WireAuditSpec = {
     top_p: undefined,
     max_output_tokens: undefined,
     tools: { items: TOOL },
-    tool_choice: undefined,
-    metadata: undefined,
-    text: { fields: { verbosity: undefined, format: FORMAT } },
+    tool_choice: TOOL_CHOICE,
+    text: { fields: { format: FORMAT } },
     reasoning: { fields: { effort: undefined, summary: undefined } },
-    parallel_tool_calls: undefined,
   },
 };
 

@@ -1,7 +1,7 @@
 import type { WireAuditSpec } from "../../json/wire-audit.js";
 
 const SYSTEM_BLOCK: WireAuditSpec = {
-  fields: { type: undefined, text: undefined, cache_control: undefined },
+  fields: { type: undefined, text: undefined },
 };
 
 const SOURCE: WireAuditSpec = {
@@ -17,25 +17,18 @@ const BLOCK: WireAuditSpec = {
   variant: (block) => {
     switch (block.type) {
       case "text":
-        return {
-          fields: {
-            type: undefined,
-            text: undefined,
-            cache_control: undefined,
-          },
-        };
+        return { fields: { type: undefined, text: undefined } };
       case "thinking":
         return {
           fields: {
             type: undefined,
             thinking: undefined,
             signature: undefined,
-            cache_control: undefined,
           },
         };
       case "image":
         return {
-          fields: { type: undefined, source: SOURCE, cache_control: undefined },
+          fields: { type: undefined, source: SOURCE },
         };
       case "tool_use":
         return {
@@ -44,7 +37,6 @@ const BLOCK: WireAuditSpec = {
             id: undefined,
             name: undefined,
             input: undefined,
-            cache_control: undefined,
           },
         };
       case "tool_result":
@@ -54,7 +46,6 @@ const BLOCK: WireAuditSpec = {
             tool_use_id: undefined,
             content: { items: BLOCK },
             is_error: undefined,
-            cache_control: undefined,
           },
         };
       default:
@@ -71,7 +62,6 @@ const TOOL_CHOICE: WireAuditSpec = {
   fields: {
     type: undefined,
     name: undefined,
-    disable_parallel_tool_use: undefined,
   },
 };
 
@@ -117,7 +107,6 @@ export const ANTHROPIC_REQUEST: WireAuditSpec = {
     temperature: undefined,
     top_p: undefined,
     stop_sequences: { items: undefined },
-    metadata: undefined,
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
     thinking: THINKING,
@@ -127,39 +116,49 @@ export const ANTHROPIC_REQUEST: WireAuditSpec = {
 export const ANTHROPIC_RESPONSE: WireAuditSpec = RESPONSE;
 
 const STREAM_DELTA: WireAuditSpec = {
-  fields: {
-    type: undefined,
-    text: undefined,
-    partial_json: undefined,
-    thinking: undefined,
-    signature: undefined,
-    stop_reason: undefined,
-    stop_sequence: undefined,
+  variant: (delta) => {
+    switch (delta.type) {
+      case "text_delta":
+        return { fields: { type: undefined, text: undefined } };
+      case "input_json_delta":
+        return { fields: { type: undefined, partial_json: undefined } };
+      case "thinking_delta":
+        return { fields: { type: undefined, thinking: undefined } };
+      case "signature_delta":
+        return { fields: { type: undefined, signature: undefined } };
+      default:
+        return undefined;
+    }
   },
+};
+
+const MESSAGE_DELTA: WireAuditSpec = {
+  fields: { stop_reason: undefined, stop_sequence: undefined },
 };
 
 export const ANTHROPIC_STREAM_EVENT: WireAuditSpec = {
   variant: (event) => {
-    if (
-      ![
-        "message_start",
-        "content_block_start",
-        "content_block_delta",
-        "content_block_stop",
-        "message_delta",
-        "message_stop",
-      ].includes(String(event.type))
-    )
-      return undefined;
-    return {
-      fields: {
-        type: undefined,
-        message: RESPONSE,
-        index: undefined,
-        content_block: BLOCK,
-        delta: STREAM_DELTA,
-        usage: USAGE,
-      },
-    };
+    switch (event.type) {
+      case "message_start":
+        return { fields: { type: undefined, message: RESPONSE } };
+      case "content_block_start":
+        return {
+          fields: { type: undefined, index: undefined, content_block: BLOCK },
+        };
+      case "content_block_delta":
+        return {
+          fields: { type: undefined, index: undefined, delta: STREAM_DELTA },
+        };
+      case "content_block_stop":
+        return { fields: { type: undefined, index: undefined } };
+      case "message_delta":
+        return {
+          fields: { type: undefined, delta: MESSAGE_DELTA, usage: USAGE },
+        };
+      case "message_stop":
+        return { fields: { type: undefined } };
+      default:
+        return undefined;
+    }
   },
 };

@@ -5,6 +5,21 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## Unreleased
+
+### Added
+
+- Responses input messages accept `developer` alongside `system`, `user`, and
+  `assistant`. N-R-1 retains instruction precedence over user content and the
+  shared system/developer encounter order after top-level `instructions`.
+- Developer instructions map to the existing IR system field with one
+  `degraded` loss per developer role; the role distinction cannot round-trip.
+- Instruction-only requests gain an empty user message with an explicit
+  `degraded` loss, preserving the existing IR request schema.
+- Twelve shared vectors cover developer messages, content parts, ordering,
+  instruction-only normalization, and conversion to Chat Completions and
+  Anthropic Messages. No IR schema or contract version changes.
+
 ## 2.1.0 - 2026-09-27
 
 Minor evolution adding structured-output format mapping across all protocol

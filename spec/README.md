@@ -8,11 +8,12 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.1.0** — all five implementations (Go, TypeScript,
-Rust, Python, and C++) implement and validate the full 173-vector set, including
-reasoning, usage granularity, and structured-output format mapping. The
-coordinated v2.1.0 package release is published. See [CHANGELOG.md](CHANGELOG.md)
-and the versioning policy below.
+Current spec version: **2.1.0**. Go, TypeScript, Rust, Python, and C++ share
+one golden suite of **185 vectors**, covering reasoning, usage granularity,
+structured-output format mapping, and Responses developer instructions.
+Implementation release **v2.1.2 is being prepared**; the latest published
+coordinated release is **v2.1.1**. The specification version and IR contract
+remain unchanged. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 

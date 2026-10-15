@@ -93,7 +93,8 @@ shapes by its JSON schemas, and semantics by its specifications, in that order:
 2. `spec/schema/`
 3. `spec/*.md`
 
-The TypeScript implementation validates all 173 current shared golden vectors,
+The TypeScript implementation uses the shared 185-vector golden suite, with
+Node gates for each face, streaming, and Responses cross-protocol requests,
 including Spec 2.0 M7/M9 reasoning and usage behavior plus Spec 2.1 structured
 output format mapping.
 
@@ -104,4 +105,4 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 各 face 导出 `decodeRequestJSON(raw, options)` 和 `decodeResponseJSON(raw, options)`；
 stream decoder 支持 `feedJSON(raw)`。raw 入口使用 `parseJson` 保留原始数字 token、
 对象键序和工具参数文本；对象接口也执行相同字段审计。不要用原生 `JSON.parse`
-预先丢掉大整数精度。该能力属于当前未发布的 2.1.1 源码。
+预先丢掉大整数精度。该能力自 v2.1.1 起已发布，当前 v2.1.2 源码保留支持。

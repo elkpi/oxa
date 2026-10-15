@@ -6,8 +6,10 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.1.1.** Implements Spec 2.1.0 across Go,
-TypeScript, Rust, Python, and C++, and validates all 173 shared golden vectors.
+**Latest coordinated release: v2.1.1.** The source tree is **v2.1.2
+(unreleased)**, implements Spec 2.1.0 across Go, TypeScript, Rust, Python, and
+C++, and validates all 185 shared golden vectors. Release follows PR review,
+merge, and release checks; v2.1.2 has not been published.
 
 ## What is oxa?
 
@@ -54,30 +56,31 @@ without a corresponding vector update.
 
 | Language   | Directory | Source             | Latest published |
 | ---------- | --------- | ------------------ | ---------------- |
-| Go         | `go/`     | 2.1.1 (unreleased) | 2.1.0            |
-| TypeScript | `ts/`     | 2.1.1 (unreleased) | 2.1.0            |
-| Rust       | `rust/`   | 2.1.1 (unreleased) | 2.1.0            |
-| Python     | `python/` | 2.1.1 (unreleased) | 2.1.0            |
-| C++        | `cpp/`    | 2.1.1 (unreleased) | 2.1.0            |
+| Go         | `go/`     | 2.1.2 (unreleased) | 2.1.1            |
+| TypeScript | `ts/`     | 2.1.2 (unreleased) | 2.1.1            |
+| Rust       | `rust/`   | 2.1.2 (unreleased) | 2.1.1            |
+| Python     | `python/` | 2.1.2 (unreleased) | 2.1.1            |
+| C++        | `cpp/`    | 2.1.2 (unreleased) | 2.1.1            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.1.1 source; v2.1.0 released)
-ts/        TypeScript implementation (v2.1.1 source; v2.1.0 released)
+go/        Go reference implementation (v2.1.2 source; v2.1.1 released)
+ts/        TypeScript implementation (v2.1.2 source; v2.1.1 released)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.1.1 source; v2.1.0 released)
-python/    Python implementation (v2.1.1 source; v2.1.0 released)
-cpp/       C++ implementation (v2.1.1 source; v2.1.0 released)
+rust/      Rust implementation (v2.1.2 source; v2.1.1 released)
+python/    Python implementation (v2.1.2 source; v2.1.1 released)
+cpp/       C++ implementation (v2.1.2 source; v2.1.1 released)
 ```
 
 ## Current capabilities
 
 The current source tree implements Spec 2.1.0 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). The coordinated v2.1.0 package release is published.
+representation (IR). The coordinated v2.1.2 package release is being prepared;
+v2.1.1 remains the latest published release.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -88,7 +91,10 @@ representation (IR). The coordinated v2.1.0 package release is published.
 
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried
-([spec/02](spec/02-loss-policy.md)).
+([spec/02](spec/02-loss-policy.md)). Responses `developer` messages retain
+instruction text and ordering in the IR system field. The current IR cannot
+retain the developer/system role distinction, so each developer message
+records an explicit `degraded` loss.
 
 ## 原始 JSON 与业务运行时边界
 

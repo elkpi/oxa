@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v2.1.2] - 2026-10-15
 
 ### Fixed
 
@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 现有 IR 无法区分 developer/system，每条 developer 消息显式记录 `input[i].role` 的 `degraded` loss；转换到 Chat Completions 或 Anthropic 时保留指令内容和该 loss。
 - 仅含指令的 Responses 请求补充一条空 user 消息以满足 IR 约束，并记录额外的 `input` degradation，不再因缺少普通会话消息而拒绝转换。
 - 新增 12 条共享 vectors，向量总数从 173 增至 185；IR schema 与 contract version 不变。
+
+### Changed
+
+- Go、TypeScript、Rust、Python、C++ 发行版本统一准备为 `2.1.2`；Spec 保持 `2.1.0`，IR contract 保持 `0.2.0`，Go module path 仍为 `github.com/elkpi/oxa/go/v2`。
 
 ## [v2.1.1] - 2026-10-14
 

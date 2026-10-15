@@ -222,12 +222,20 @@ function decodeRequestObject(
       }
       if (type === "message") {
         const role = string(item.role, `input[${index}].role`);
+        if (role === "developer")
+          losses.push({
+            path: `input[${index}].role`,
+            field: "role",
+            reason: "degraded",
+            detail:
+              "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
+          });
         const content = decodeContent(
           item.content,
           `input[${index}].content`,
           losses,
         );
-        if (role === "system") {
+        if (role === "system" || role === "developer") {
           for (let child = 0; child < content.length; child += 1) {
             const block = content[child]!;
             if (block.type === "text") system.push(block);
@@ -253,6 +261,16 @@ function decodeRequestObject(
       losses.push(loss(`input[${index}]`, "type", "unsupported-semantic"));
       index += 1;
     }
+  }
+  if (messages.length === 0 && system.length > 0) {
+    messages.push({ role: "user", content: [{ type: "text", text: "" }] });
+    losses.push({
+      path: "input",
+      field: "input",
+      reason: "degraded",
+      detail:
+        "An empty user message was added because the IR requires at least one conversation message.",
+    });
   }
   const params = {
     ...(wire.temperature === undefined

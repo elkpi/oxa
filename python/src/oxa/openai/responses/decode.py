@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from oxa._wire import RawDocument, audit_decode
-
 from typing import Any, cast
 
+from oxa._wire import RawDocument, audit_decode
 from oxa.ir import (
+    LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
@@ -47,6 +47,7 @@ from oxa.openai.responses.constants import (
     ITEM_TYPE_REASONING,
     PART_TYPE_OUTPUT_TEXT,
     ROLE_ASSISTANT,
+    ROLE_DEVELOPER,
     ROLE_SYSTEM,
     ROLE_USER,
     STATUS_COMPLETED,
@@ -108,7 +109,7 @@ def decode_request(
         system=[],
     )
 
-    if wire.get("instructions"):
+    if wire.get("instructions") is not None:
         req.system.append(TextBlock(text=wire["instructions"]))
 
     tools: list[Tool] = []
@@ -155,7 +156,17 @@ def decode_request(
             kind = item.get("type", "")
             if kind in ("", ITEM_TYPE_MESSAGE):
                 role = item.get("role", "")
-                if role == ROLE_SYSTEM:
+                if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
+                    if role == ROLE_DEVELOPER:
+                        losses.append(
+                            loss(
+                                f"input[{index}].role",
+                                "role",
+                                LOSS_DEGRADED,
+                                "Responses developer instructions are carried as IR system "
+                                "content; the developer/system role distinction is not preserved.",
+                            )
+                        )
                     path = f"input[{index}].content"
                     content, c_losses = decode_content(item.get("content"), path)
                     sys_blocks, s_losses = content_system(content, path)
@@ -201,7 +212,18 @@ def decode_request(
                 index += 1
 
     if not req.messages:
-        raise ValueError("responses: request carries no conversation input")
+        if not req.system:
+            raise ValueError("responses: request carries no conversation input")
+        req.messages.append(IrMessage(role=IR_ROLE_USER, content=[TextBlock(text="")]))
+        losses.append(
+            loss(
+                "input",
+                "input",
+                LOSS_DEGRADED,
+                "An empty user message was added because the IR requires "
+                "at least one conversation message.",
+            )
+        )
 
     reasoning_effort: ReasoningEffort | None = None
     reasoning = wire.get("reasoning")

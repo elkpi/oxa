@@ -1,0 +1,32 @@
+{
+  "name": "cross.nonstream.responses-developer-to-anthropic-request",
+  "description": "A target without a developer role receives the instruction as system content; composed losses explicitly report the collapsed role.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "m",
+    "max_output_tokens": 64,
+    "instructions": "First.\n",
+    "input": [
+      { "role": "system", "content": "Second.\n" },
+      { "role": "developer", "content": [{ "type": "input_text", "text": "Third.\n" }, { "type": "input_text", "text": "Fourth.\n" }] },
+      { "role": "user", "content": "Hi" }
+    ]
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 64,
+    "system": [
+      { "type": "text", "text": "First.\n" },
+      { "type": "text", "text": "Second.\n" },
+      { "type": "text", "text": "Third.\n" },
+      { "type": "text", "text": "Fourth.\n" }
+    ],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+  },
+  "expected_losses": [{ "path": "input[1].role", "field": "role", "reason": "degraded" }],
+  "tags": ["cross", "developer", "system", "request", "loss", "N-R-1"]
+}

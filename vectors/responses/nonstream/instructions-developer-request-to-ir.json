@@ -1,0 +1,21 @@
+{
+  "name": "responses.nonstream.instructions-developer-request-to-ir",
+  "description": "Top-level instructions precede developer content, and both remain separate from the user turn.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "m",
+    "instructions": "Instructions first.\n",
+    "input": [{ "role": "developer", "content": "Developer second.\n" }, { "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "m",
+    "system": [{ "type": "text", "text": "Instructions first.\n" }, { "type": "text", "text": "Developer second.\n" }],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+  },
+  "expected_losses": [{ "path": "input[0].role", "field": "role", "reason": "degraded" }],
+  "tags": ["developer", "system", "request", "loss", "N-R-1"]
+}

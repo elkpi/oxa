@@ -23,7 +23,7 @@ converter cannot carry semantically is dropped with a loss record rather
 than an error (spec/02). Errors are reserved for structural type violations
 of known fields: an `input` that is neither string nor item array, unknown
 message-item `role` values, a non-string content leaf where a string is
-required, a request with no conversation input, an unknown response
+required, a request with neither conversation input nor system content, an unknown response
 `status`, or tool input that is not a JSON string on encode.
 
 ## 2. Wire Objects
@@ -41,7 +41,7 @@ The wire objects in scope are:
   `reasoning`, `parallel_tool_calls`. Responses has NO stop-sequences
   parameter.
 - **InputItem**: a message item (`type` absent or `"message"`, `role`
-  `system` | `user` | `assistant`, `content` string or parts array), a
+  `system` | `developer` | `user` | `assistant`, `content` string or parts array), a
   `function_call` item (`call_id`, `name`, `arguments`), a
   `function_call_output` item (`call_id`, `output`), or an unknown type.
 - **ContentPart**: `type` (`input_text` | `output_text` | `input_image`),
@@ -63,7 +63,7 @@ The wire objects in scope are:
 | `model` | `Request.Model` | passed through the model map (spec/03) |
 | `instructions` | `Request.System[]` (first block) | N-R-1 |
 | `input` (string) | one user message, one text block | N-R-2 |
-| `input[role=system]` | `Request.System[]`, after instructions, in wire order | N-R-1 |
+| `input[role=system/developer]` | `Request.System[]`, after instructions, in shared wire order | N-R-1; one `degraded` loss per developer item because IR cannot retain the role distinction |
 | `input[role=user/assistant].content` | `Messages[].Content` blocks | N-R-3 |
 | `input[type=function_call]` (consecutive run, incl. adjacent assistant message items) | one assistant message; `ToolUseBlock`s after any text blocks | N-R-5 |
 | `input[type=function_call_output]` (consecutive run) | one user message of `ToolResultBlock`s | N-R-6 |
@@ -145,20 +145,40 @@ MUST NOT be cited for streaming behavior.
 
 Each rule has a stable ID usable as a vector tag.
 
-- **N-R-1 (system extraction and ordering).** `instructions` converts to
-  the first IR system block. Every message item with `role: "system"`,
-  in wire order, appends further system blocks after it (text content
-  only; non-text parts are unsupported-semantic losses). On encode, all
-  IR system blocks MUST be concatenated, in order, into the
-  `instructions` string.
+- **N-R-1 (instruction extraction, hierarchy, and ordering).** `instructions`
+  converts to the first IR system block. Every message item with
+  `role: "system"` or `role: "developer"` appends further system blocks after
+  it, preserving their shared wire order and the order of text parts within
+  each item. Text content is carried verbatim; non-text parts are
+  unsupported-semantic losses. Both roles remain in the high-priority IR
+  system field, never ordinary user/assistant messages, so their instructions
+  retain precedence over user instructions regardless of their position in
+  `input`. This rule does not infer an additional precedence relation between
+  system and developer instructions.
+
+  The current IR cannot distinguish developer from system instructions.
+  Each developer item MUST therefore record exactly one `degraded` loss at
+  `input[i].role`, field `role`, even when all its text is carried. This loss
+  MUST explain that the developer/system distinction is not preserved; it
+  remains part of the composed loss list for every target face (spec/02 §6).
+  On encode, all IR system blocks MUST be concatenated, in order, into the
+  `instructions` string. Conversion through IR is not a role-preserving
+  round-trip, including when the target face itself supports developer.
+
+  When instruction extraction leaves no conversation messages but at least
+  one system block, the decoder MUST synthesize one user message containing
+  a single empty `TextBlock`, satisfying the existing IR request shape. It
+  MUST record an additional `degraded` loss at `input`, field `input`, naming
+  the added empty user message. With neither system blocks nor conversation
+  messages, decoding remains a structural error.
 - **N-R-2 (input string shorthand).** A string `input` converts to one
   IR user message with one text block. On encode, the string shorthand is
   rendered exactly when the IR conversation is one user message whose
   content is exactly one text block AND there is no system content
   (`instructions` would force the array form); every other conversation,
   including one whose single user message has multiple text blocks, renders
-  as an item array. A non-system message whose decoded content is empty MUST carry a
-  single empty `TextBlock` (spec/01 §3.3).
+  as an item array. A user or assistant message whose decoded content is empty
+  MUST carry a single empty `TextBlock` (spec/01 §3.3).
 - **N-R-3 (content normalization).** String item content becomes one IR
   `TextBlock`. A parts array becomes one block per part (`input_text` and
   `output_text` → `TextBlock`, `input_image` → `ImageBlock` via N-R-4);
@@ -265,6 +285,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `tools[i].strict` | unmapped-field | request → IR | strict mode has no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
+| `input[i].role` = `developer` | degraded | request → IR | text is retained in `Request.System` but the developer/system distinction is lost (N-R-1) |
+| instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |
 | content part `type` ∉ {`input_text`,`output_text`,`input_image`} | unsupported-semantic | request → IR | part has no IR equivalent |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |
 | `tool_choice` unsupported forms | unsupported-semantic | both | see N-R-9 |
@@ -293,3 +315,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 - OpenAI API reference,
   <https://platform.openai.com/docs/api-reference/responses>
   (retrieved 2026-08-28)
+- OpenAI SDK pinned role/hierarchy references:
+  [openai-node EasyInputMessage](https://github.com/openai/openai-node/blob/5f218bf5d8770de5445012b4f1c3b150db983379/src/resources/responses/responses.ts#L969-L987),
+  [openai-python EasyInputMessageParam](https://github.com/openai/openai-python/blob/70d473892f7c427a02a3b566add9c86072842e25/src/openai/types/responses/easy_input_message_param.py#L13-L31).

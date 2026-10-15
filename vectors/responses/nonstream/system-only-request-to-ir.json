@@ -1,0 +1,17 @@
+{
+  "name": "responses.nonstream.system-only-request-to-ir",
+  "description": "A sole system message uses the same explicitly degraded empty user normalization as a sole developer message.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": { "model": "m", "input": [{ "role": "system", "content": "Answer briefly." }] },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "m",
+    "system": [{ "type": "text", "text": "Answer briefly." }],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "" }] }]
+  },
+  "expected_losses": [{ "path": "input", "field": "input", "reason": "degraded" }],
+  "tags": ["system", "request", "loss", "N-R-1"]
+}

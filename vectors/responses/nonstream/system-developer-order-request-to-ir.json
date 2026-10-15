@@ -1,0 +1,45 @@
+{
+  "name": "responses.nonstream.system-developer-order-request-to-ir",
+  "description": "Interleaved developer/system messages preserve their shared encounter order after instructions, without changing conversation order or priority.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "m",
+    "instructions": "First.\n",
+    "input": [
+      { "role": "developer", "content": "Second.\n" },
+      { "role": "user", "content": "Question one" },
+      { "role": "system", "content": "Third.\n" },
+      { "type": "message", "role": "developer", "content": "Fourth.\n" },
+      { "role": "assistant", "content": "Answer one" },
+      { "role": "user", "content": "Question two" },
+      { "role": "developer", "content": "Fifth.\n" },
+      { "role": "system", "content": "Sixth.\n" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "m",
+    "system": [
+      { "type": "text", "text": "First.\n" },
+      { "type": "text", "text": "Second.\n" },
+      { "type": "text", "text": "Third.\n" },
+      { "type": "text", "text": "Fourth.\n" },
+      { "type": "text", "text": "Fifth.\n" },
+      { "type": "text", "text": "Sixth.\n" }
+    ],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Question one" }] },
+      { "role": "assistant", "content": [{ "type": "text", "text": "Answer one" }] },
+      { "role": "user", "content": [{ "type": "text", "text": "Question two" }] }
+    ]
+  },
+  "expected_losses": [
+    { "path": "input[0].role", "field": "role", "reason": "degraded" },
+    { "path": "input[3].role", "field": "role", "reason": "degraded" },
+    { "path": "input[6].role", "field": "role", "reason": "degraded" }
+  ],
+  "tags": ["developer", "system", "multiturn", "request", "loss", "N-R-1"]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "responses.nonstream.developer-only-request-to-ir",
+  "description": "A sole developer message retains its instruction and gains an explicitly degraded empty user turn to satisfy IR invariants.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": { "model": "m", "input": [{ "type": "message", "role": "developer", "content": "Answer briefly." }] },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "m",
+    "system": [{ "type": "text", "text": "Answer briefly." }],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "" }] }]
+  },
+  "expected_losses": [
+    { "path": "input", "field": "input", "reason": "degraded" },
+    { "path": "input[0].role", "field": "role", "reason": "degraded" }
+  ],
+  "tags": ["developer", "system", "request", "loss", "N-R-1"]
+}

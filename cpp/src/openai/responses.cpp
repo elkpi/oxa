@@ -336,13 +336,22 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             if (kind.empty() || kind == "message") {
                 const auto* role_val = item.find("role");
                 std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
-                if (role == "system") {
+                if (role == ROLE_SYSTEM || role == ROLE_DEVELOPER) {
+                    if (role == ROLE_DEVELOPER) {
+                        losses.push_back(make_resp_loss(
+                            "input[" + std::to_string(index) + "].role", "role", ir::LOSS_DEGRADED,
+                            "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved."));
+                    }
                     std::string path = "input[" + std::to_string(index) + "].content";
                     auto [blocks, bl_losses] = decode_content(item.find("content"), path);
                     losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
-                    for (auto& b : blocks) {
-                        if (auto* tb = std::get_if<ir::TextBlock>(&b)) {
+                    for (std::size_t child = 0; child < blocks.size(); ++child) {
+                        if (auto* tb = std::get_if<ir::TextBlock>(&blocks[child])) {
                             req.system.push_back(std::move(*tb));
+                        } else {
+                            losses.push_back(make_resp_loss(
+                                path + "[" + std::to_string(child) + "]", "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "Non-text content cannot be carried in the IR system field."));
                         }
                     }
                     ++index;
@@ -472,7 +481,13 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     }
 
     if (req.messages.empty()) {
-        return invalid_argument("responses: request carries no conversation input");
+        if (req.system.empty()) {
+            return invalid_argument("responses: request carries no conversation input");
+        }
+        req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), {ir::TextBlock{""}}});
+        losses.push_back(make_resp_loss(
+            "input", "input", ir::LOSS_DEGRADED,
+            "An empty user message was added because the IR requires at least one conversation message."));
     }
 
     ir::Params params;

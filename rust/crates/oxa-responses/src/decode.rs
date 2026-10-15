@@ -14,8 +14,8 @@ use crate::normalize::{
 use crate::types::{
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, Input, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
-    ROLE_SYSTEM, ROLE_USER, Request, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE,
-    TOOL_TYPE_FUNCTION, UsageWire,
+    ROLE_DEVELOPER, ROLE_SYSTEM, ROLE_USER, Request, Response, STATUS_COMPLETED, STATUS_FAILED,
+    STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, UsageWire,
 };
 
 /// Converts a Responses wire request to the IR (face → IR). Semantic
@@ -111,7 +111,15 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 let item = &items[index];
                 match item.kind.as_str() {
                     "" | ITEM_TYPE_MESSAGE => match item.role.as_str() {
-                        ROLE_SYSTEM => {
+                        ROLE_SYSTEM | ROLE_DEVELOPER => {
+                            if item.role == ROLE_DEVELOPER {
+                                losses.push(loss(
+                                    format!("input[{index}].role"),
+                                    "role",
+                                    LossReason::Degraded,
+                                    "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
+                                ));
+                            }
                             let path = format!("input[{index}].content");
                             let (content, content_losses) =
                                 decode_content(item.content.as_ref(), &path);
@@ -179,8 +187,22 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         }
     }
     if request.messages.is_empty() {
-        return Err(Error::new(
-            "responses: request carries no conversation input",
+        if request.system.is_empty() {
+            return Err(Error::new(
+                "responses: request carries no conversation input",
+            ));
+        }
+        request.messages.push(oxa_ir::Message {
+            role: Role::User,
+            content: vec![Block::Text {
+                text: String::new(),
+            }],
+        });
+        losses.push(loss(
+            "input",
+            "input",
+            LossReason::Degraded,
+            "An empty user message was added because the IR requires at least one conversation message.",
         ));
     }
     let reasoning_effort = decode_reasoning_effort(wire.reasoning.as_ref(), &mut losses)?;

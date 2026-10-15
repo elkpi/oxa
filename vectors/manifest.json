@@ -1203,6 +1203,45 @@
       "sha256": "2facda14e44afdf4f15fdd2048391b948dde83d33047a17d7d408a10ab157477"
     },
     {
+      "name": "cross.nonstream.responses-developer-only-to-chatcompletions-request",
+      "file": "cross/nonstream/responses-developer-only-to-chatcompletions-request.json",
+      "tags": [
+        "cross",
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "146a539a16e215321f342f9182f910433051d83238283c96a058f32d3a858da0"
+    },
+    {
+      "name": "cross.nonstream.responses-developer-to-anthropic-request",
+      "file": "cross/nonstream/responses-developer-to-anthropic-request.json",
+      "tags": [
+        "cross",
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "2ca3eca282ecd265de211f4415ab4f0339afd71653d3af5fc48810f78e0364db"
+    },
+    {
+      "name": "cross.nonstream.responses-developer-to-chatcompletions-request",
+      "file": "cross/nonstream/responses-developer-to-chatcompletions-request.json",
+      "tags": [
+        "cross",
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "04bb5bc2e61b5ac386a3ed2cb29fc50b27f0bc193d88fd9819b247cc49c50b6c"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-request",
       "file": "cross/nonstream/responses-to-anthropic-request.json",
       "tags": [
@@ -1272,6 +1311,68 @@
       "sha256": "708b4e9aaed24d5586089683a082a1a9746b2403f3ed13b65b596b6f30306297"
     },
     {
+      "name": "responses.nonstream.developer-empty-request-to-ir",
+      "file": "responses/nonstream/developer-empty-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "5842dfaa7ef885d5303678eddc35c5e3413b4adcef9ec7758b5b25ad9534ae95"
+    },
+    {
+      "name": "responses.nonstream.developer-message-request-to-ir",
+      "file": "responses/nonstream/developer-message-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "9d84a274634e48ee659d9a9d0e2e3accc7422a147034083f6b99077073bab14d"
+    },
+    {
+      "name": "responses.nonstream.developer-nontext-loss-request-to-ir",
+      "file": "responses/nonstream/developer-nontext-loss-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "images",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "2ff611c0eda26c2b8278a102ef2601ec1e21761f2a4b29021ea63ae64c0d1c6b"
+    },
+    {
+      "name": "responses.nonstream.developer-only-request-to-ir",
+      "file": "responses/nonstream/developer-only-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "8e569da09923650f138c8b861c5413567e4371194f2e2da90aca774838666083"
+    },
+    {
+      "name": "responses.nonstream.developer-text-parts-request-to-ir",
+      "file": "responses/nonstream/developer-text-parts-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1",
+        "N-R-3"
+      ],
+      "sha256": "cf88b8af0ee7128c773a8e0d6f0da0dec6ee61d9c5d1a2ecfb2c16a8a7e8f188"
+    },
+    {
       "name": "responses.nonstream.failed-response-to-ir",
       "file": "responses/nonstream/failed-response-to-ir.json",
       "tags": [
@@ -1331,6 +1432,29 @@
         "N-R-11"
       ],
       "sha256": "5f1463b6a199367ba568a7175366572c1772e113d1e01dd9b0315cbb58a3125d"
+    },
+    {
+      "name": "responses.nonstream.instructions-developer-request-to-ir",
+      "file": "responses/nonstream/instructions-developer-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "9cf1478bdd49f02295e8eebde46501de384c4187836fa7e4505c2a82b15f95ee"
+    },
+    {
+      "name": "responses.nonstream.instructions-only-request-to-ir",
+      "file": "responses/nonstream/instructions-only-request-to-ir.json",
+      "tags": [
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "d1965bc3df5c896c99c269089e369376e532c4598ef5dd6e2998cb8ee93be6d9"
     },
     {
       "name": "responses.nonstream.loss-verbosity-request-to-ir",
@@ -1482,6 +1606,19 @@
       "sha256": "f49157cd7e153d85abe89a99f73ef8712420cd25ab268e3a9de607be6067b69c"
     },
     {
+      "name": "responses.nonstream.system-developer-order-request-to-ir",
+      "file": "responses/nonstream/system-developer-order-request-to-ir.json",
+      "tags": [
+        "developer",
+        "system",
+        "multiturn",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "a2053894482c24c67dcd1eb4308f8bacb0c8cb7e26cd4dc37603e05e16c8a432"
+    },
+    {
       "name": "responses.nonstream.system-item-request-to-ir",
       "file": "responses/nonstream/system-item-request-to-ir.json",
       "tags": [
@@ -1490,6 +1627,17 @@
         "N-R-1"
       ],
       "sha256": "4e240b218e65dbcb59b96177aa31d5944fe4726fc579690eebdee1b46d2603e0"
+    },
+    {
+      "name": "responses.nonstream.system-only-request-to-ir",
+      "file": "responses/nonstream/system-only-request-to-ir.json",
+      "tags": [
+        "system",
+        "request",
+        "loss",
+        "N-R-1"
+      ],
+      "sha256": "ecba5437b04a28407d1707192054c04acc1ee7c342ab05107a743d420d30e653"
     },
     {
       "name": "responses.nonstream.system-prompt-request-from-ir",

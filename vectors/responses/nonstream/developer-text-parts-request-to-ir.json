@@ -1,0 +1,23 @@
+{
+  "name": "responses.nonstream.developer-text-parts-request-to-ir",
+  "description": "Developer text content parts become ordered system blocks, including an empty text part.",
+  "spec_version": "0.1.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "m",
+    "input": [
+      { "role": "developer", "content": [{ "type": "input_text", "text": "One.\n" }, { "type": "input_text", "text": "" }, { "type": "input_text", "text": "Two.\n" }] },
+      { "role": "user", "content": "Hi" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.1.0",
+    "model": "m",
+    "system": [{ "type": "text", "text": "One.\n" }, { "type": "text", "text": "" }, { "type": "text", "text": "Two.\n" }],
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+  },
+  "expected_losses": [{ "path": "input[0].role", "field": "role", "reason": "degraded" }],
+  "tags": ["developer", "system", "request", "loss", "N-R-1", "N-R-3"]
+}

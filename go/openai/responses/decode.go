@@ -68,8 +68,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		}
 	}
 
-	// N-R-1: instructions render as the first system block; system items in
-	// the input array follow in document order.
+	// N-R-1：instructions 在前，system/developer 条目共享输入顺序。
 	if wire.Instructions != nil {
 		req.System = append(req.System, ir.SystemBlock{Text: *wire.Instructions})
 	}
@@ -112,7 +111,13 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		switch item.Type {
 		case "", ItemTypeMessage:
 			switch item.Role {
-			case RoleSystem:
+			case RoleSystem, RoleDeveloper:
+				if item.Role == RoleDeveloper {
+					losses = append(losses, loss(
+						fmt.Sprintf("input[%d].role", i), "role", ir.LossDegraded,
+						"Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
+					))
+				}
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
 				if err != nil {
 					return nil, nil, err
@@ -177,7 +182,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		}
 	}
 	if len(req.Messages) == 0 {
-		return nil, nil, fmt.Errorf("responses: request carries no conversation input")
+		if len(req.System) == 0 {
+			return nil, nil, fmt.Errorf("responses: request carries no conversation input")
+		}
+		req.Messages = append(req.Messages, ir.Message{
+			Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: ""}},
+		})
+		losses = append(losses, loss("input", "input", ir.LossDegraded,
+			"An empty user message was added because the IR requires at least one conversation message."))
 	}
 	req.Params.Temperature = wire.Temperature
 	req.Params.TopP = wire.TopP

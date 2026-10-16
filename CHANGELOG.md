@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.2.0] - Unreleased
+
+### Added
+
+- Responses Custom Tools：独立 IR 调用、结果和文本 Delta；支持 text/Lark/regex format、custom tool_choice、call_id 关联及任意文本输入保真。
+- 字符串与 text/image 内容列表结果保持区别；不能表达的文件等内容显式报告 loss；流式支持 delta/done、快照一致性校验及无 delta 回退。
+- 新增 20 个共享向量，总数 205；目标 profile 暂不支持 custom 时显式降级，不将文本伪装成 function arguments。
+- 计划在后续版本（如 v2.3.0）补齐 Chat Completions 与 Anthropic Messages 的 Custom Tools 支持。
+
+### Changed
+
+- 规范版本升级为 `2.2.0`，IR contract 保持 `0.2.0`（兼容读取 `0.1.0`）；遵循大的架构重构升级高位版本、同一框架下的补充扩展升级中间版本、BUG与小feature升级小版本的版本准则。
+- Go、TypeScript、Rust、Python、C++ 协调准备版本为 `2.2.0`。
+
 ## [v2.1.2] - 2026-10-15
 
 ### Fixed

@@ -74,6 +74,21 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	}
 
 	for i, tool := range wire.Tools {
+		if tool.Type == ToolTypeCustom {
+			if tool.Name == "" {
+				return nil, nil, fmt.Errorf("responses: custom tool name is required")
+			}
+			format, formatLosses, err := decodeCustomFormat(tool.Format, fmt.Sprintf("tools[%d].format", i))
+			if err != nil {
+				return nil, nil, err
+			}
+			losses = append(losses, formatLosses...)
+			if len(formatLosses) > 0 {
+				continue
+			}
+			req.Tools = append(req.Tools, ir.Tool{Type: ir.ToolTypeCustom, Name: tool.Name, Description: tool.Description, Format: format})
+			continue
+		}
 		if tool.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
@@ -155,7 +170,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case ItemTypeFunctionCall, ItemTypeReasoning:
+		case ItemTypeFunctionCall, ItemTypeCustomToolCall, ItemTypeReasoning:
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -165,7 +180,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			losses = append(losses, runLosses...)
 			i = next
-		case ItemTypeFunctionCallOutput:
+		case ItemTypeFunctionCallOutput, ItemTypeCustomToolCallOutput:
 			merged, next, runLosses, err := decodeOutputRun(wire.Input.Items, i)
 			if err != nil {
 				return nil, nil, err
@@ -201,6 +216,9 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		}
 		losses = append(losses, rfLosses...)
 		req.Params.ResponseFormat = rf
+	}
+	if err := ir.ValidateCustomConversation(req); err != nil {
+		return nil, nil, err
 	}
 	return req, losses, nil
 }
@@ -273,6 +291,14 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
+		if item.Type == ItemTypeCustomToolCall {
+			call, err := decodeCustomCall(item.CallID, item.Name, item.Input)
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			calls = append(calls, call)
+			continue
+		}
 		if item.Type == ItemTypeFunctionCall {
 			input, err := wrapToolArguments(item.Arguments)
 			if err != nil {
@@ -314,14 +340,32 @@ func decodeAssistantRun(items []InputItem, start int) (*ir.Message, int, []ir.Lo
 // items into one IR user message of ToolResultBlocks (N-R-6, INV-4).
 func decodeOutputRun(items []InputItem, start int) (*ir.Message, int, []ir.Loss, error) {
 	content := make([]ir.Block, 0)
+	var losses []ir.Loss
 	i := start
-	for ; i < len(items) && items[i].Type == ItemTypeFunctionCallOutput; i++ {
-		content = append(content, ir.ToolResultBlock{
-			ToolUseID: items[i].CallID,
-			Content:   []ir.Block{ir.TextBlock{Text: items[i].Output}},
-		})
+	for ; i < len(items); i++ {
+		item := items[i]
+		if item.Type == ItemTypeCustomToolCallOutput {
+			if item.CallID == "" {
+				return nil, 0, nil, fmt.Errorf("responses: custom result requires call_id")
+			}
+			output, partLosses, err := decodeCustomOutput(item.Output, fmt.Sprintf("input[%d].output", i))
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			losses = append(losses, partLosses...)
+			content = append(content, ir.CustomToolResultBlock{ToolUseID: item.CallID, Output: output})
+			continue
+		}
+		if item.Type != ItemTypeFunctionCallOutput {
+			break
+		}
+		output, ok := item.Output.(string)
+		if !ok {
+			return nil, 0, nil, fmt.Errorf("responses: function output must be a string")
+		}
+		content = append(content, ir.ToolResultBlock{ToolUseID: item.CallID, Content: []ir.Block{ir.TextBlock{Text: output}}})
 	}
-	return &ir.Message{Role: ir.RoleUser, Content: content}, i, nil, nil
+	return &ir.Message{Role: ir.RoleUser, Content: content}, i, losses, nil
 }
 
 // decodeToolChoice maps the Responses tool_choice forms to the IR modes
@@ -357,6 +401,9 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 		return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			"Responses tool_choice has no IR equivalent")}
 	}
+	if kind == ToolTypeCustom && name != "" {
+		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: name, ToolType: ir.ToolTypeCustom}, nil
+	}
 	if kind == ToolTypeFunction && name != "" {
 		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: name}, nil
 	}
@@ -380,7 +427,11 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 			return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 				"IR named tool choice has no function name"))
 		}
-		return ToolChoiceWire{Type: ToolTypeFunction, Name: choice.Name}, nil
+		kind := ToolTypeFunction
+		if choice.ToolType == ir.ToolTypeCustom {
+			kind = ToolTypeCustom
+		}
+		return ToolChoiceWire{Type: kind, Name: choice.Name}, nil
 	default:
 		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			fmt.Sprintf("IR tool_choice mode %q has no Responses equivalent", choice.Mode)))
@@ -401,6 +452,13 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	hasToolUse := false
 	for i, item := range wire.Output {
 		switch item.Type {
+		case ItemTypeCustomToolCall:
+			call, err := decodeCustomCall(item.CallID, item.Name, item.Input)
+			if err != nil {
+				return nil, nil, err
+			}
+			calls = append(calls, call)
+			hasToolUse = true
 		case ItemTypeReasoning:
 			if len(item.Summary) == 0 {
 				losses = append(losses, loss(

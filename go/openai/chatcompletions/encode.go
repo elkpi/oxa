@@ -24,7 +24,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
-		for _, tool := range req.Tools {
+		for i, tool := range req.Tools {
+			if tool.Type == ir.ToolTypeCustom {
+				losses = append(losses, loss(fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic, "custom tools are not implemented by this Chat Completions profile"))
+				continue
+			}
 			out.Tools = append(out.Tools, ToolWire{
 				Type: ToolTypeFunction,
 				Function: FunctionWire{
@@ -37,6 +41,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	choice, choiceLoss := encodeToolChoice(req.ToolChoice)
 	out.ToolChoice = choice
+	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceAny && len(req.Tools) > 0 && len(out.Tools) == 0 {
+		out.ToolChoice = nil
+		losses = append(losses, loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "all tool declarations were dropped"))
+	}
 	if choiceLoss != nil {
 		losses = append(losses, *choiceLoss)
 	}
@@ -64,6 +72,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			// source turn, that hoisting does not preserve the source order.
 			lastResult, firstNormal := -1, -1
 			for k, block := range message.Content {
+				if _, custom := block.(ir.CustomToolResultBlock); custom {
+					losses = append(losses, loss(fmt.Sprintf("messages[%d].content[%d]", i, k), "content", ir.LossUnsupportedSemantic, "custom tool results are not implemented by this profile"))
+					continue
+				}
 				if result, ok := block.(ir.ToolResultBlock); ok {
 					results = append(results, result)
 					lastResult = k
@@ -157,6 +169,19 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		finish = FinishReasonContentFilter
 	case ir.StopToolUse:
 		finish = FinishReasonToolCalls
+		hasCustom, hasFunction := false, false
+		for _, b := range resp.Content {
+			switch b.(type) {
+			case ir.CustomToolUseBlock:
+				hasCustom = true
+			case ir.ToolUseBlock:
+				hasFunction = true
+			}
+		}
+		if hasCustom && !hasFunction {
+			finish = FinishReasonStop
+			losses = append(losses, loss("stop_reason", "stop_reason", ir.LossDegraded, "custom calls were dropped; tool_use normalized to end_turn"))
+		}
 	case ir.StopSequence:
 		// Chat Completions reports only finish_reason "stop" without
 		// identifying which stop sequence matched, so the sequence value is

@@ -38,6 +38,7 @@ type streamEncodeBlock struct {
 // loss. Tool chunks remain buffered until MessageDelta so a later text block
 // can be normalized before all native tool_calls.
 type StreamEncoder struct {
+	customFilter    customStreamFilter
 	models          modelmap.Table
 	id              string
 	model           string
@@ -62,7 +63,7 @@ func NewStreamEncoder(opts ...Option) *StreamEncoder {
 // Apply pushes one IR event and returns the chunks it produces (possibly none:
 // content-block lifecycle events are absorbed into the chunk deltas).
 // Out-of-grammar orderings are structural errors.
-func (e *StreamEncoder) Apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
+func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 	if ev == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil event")
 	}

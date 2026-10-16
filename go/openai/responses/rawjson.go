@@ -86,6 +86,21 @@ func (d *StreamDecoder) FeedJSON(raw []byte) ([]ir.Event, error) {
 	if err != nil {
 		return nil, fmt.Errorf("responses: stream event JSON: %w", err)
 	}
+	kind, _ := rawJSONStringField(root, "type")
+	if kind == EventTypeResponseCustomToolInputDelta || kind == EventTypeResponseCustomToolInputDone {
+		var required struct {
+			Delta       *string `json:"delta"`
+			Input       *string `json:"input"`
+			OutputIndex *int    `json:"output_index"`
+			ItemID      *string `json:"item_id"`
+		}
+		if err := json.Unmarshal(raw, &required); err != nil {
+			return nil, err
+		}
+		if required.OutputIndex == nil || required.ItemID == nil || (kind == EventTypeResponseCustomToolInputDelta && required.Delta == nil) || (kind == EventTypeResponseCustomToolInputDone && required.Input == nil) {
+			return nil, fmt.Errorf("responses: custom input event requires typed identity and input/delta fields")
+		}
+	}
 	var event StreamEvent
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return nil, fmt.Errorf("responses: stream event JSON: %w", err)
@@ -275,6 +290,10 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				}, seen)
 			}
 			switch kind {
+			case ItemTypeCustomToolCall:
+				return rawObjectSchema(t, []string{"type", "call_id", "name", "input", "id"}, nil, seen)
+			case ItemTypeCustomToolCallOutput:
+				return rawObjectSchema(t, []string{"type", "call_id", "output", "id"}, map[string]*rawJSONSchema{"output": rawCustomOutputSchema(seen)}, seen)
 			case ItemTypeFunctionCall:
 				return rawObjectSchema(t, []string{"type", "call_id", "name", "arguments"}, nil, seen)
 			case ItemTypeFunctionCallOutput:
@@ -304,10 +323,27 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
+			if kind == ToolTypeCustom {
+				return rawObjectSchema(t, []string{"type", "name", "description", "format"}, nil, seen)
+			}
 			if kind != ToolTypeFunction {
 				return nil
 			}
 			return rawObjectSchema(t, []string{"type", "name", "description", "parameters"}, nil, seen)
+		}
+		return schema
+	case reflect.TypeOf(CustomToolFormatWire{}):
+		schema := &rawJSONSchema{}
+		seen[t] = schema
+		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			if kind == "text" {
+				return rawObjectSchema(t, []string{"type"}, nil, seen)
+			}
+			if kind == "grammar" {
+				return rawObjectSchema(t, []string{"type", "syntax", "definition"}, nil, seen)
+			}
+			return nil
 		}
 		return schema
 	case reflect.TypeOf(OutputItem{}):
@@ -318,6 +354,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			switch kind {
 			case ItemTypeMessage:
 				return rawObjectSchema(t, []string{"type", "id", "status", "role", "content"}, nil, seen)
+			case ItemTypeCustomToolCall:
+				return rawObjectSchema(t, []string{"type", "id", "call_id", "name", "input"}, nil, seen)
 			case ItemTypeFunctionCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
@@ -355,7 +393,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "item_id", "output_index", "content_index", "delta", "sequence_number"}, nil, seen)
 			case EventTypeResponseOutputTextDone, EventTypeResponseReasoningSummaryTextDone:
 				return rawObjectSchema(t, []string{"type", "item_id", "output_index", "content_index", "text", "sequence_number"}, nil, seen)
-			case EventTypeResponseFunctionCallArgsDelta:
+			case EventTypeResponseCustomToolInputDone:
+				return rawObjectSchema(t, []string{"type", "item_id", "output_index", "input", "sequence_number"}, nil, seen)
+			case EventTypeResponseFunctionCallArgsDelta, EventTypeResponseCustomToolInputDelta:
 				return rawObjectSchema(t, []string{"type", "item_id", "output_index", "delta", "sequence_number"}, nil, seen)
 			case EventTypeResponseFunctionCallArgsDone:
 				return rawObjectSchema(t, []string{"type", "item_id", "output_index", "call_id", "name", "arguments", "sequence_number"}, nil, seen)
@@ -411,6 +451,20 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	default:
 		return nil
 	}
+}
+
+func rawCustomOutputSchema(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
+	return &rawJSONSchema{items: &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
+		kind, _ := rawJSONStringField(node, "type")
+		switch kind {
+		case PartTypeInputText:
+			return rawObjectSchema(reflect.TypeOf(ContentPart{}), []string{"type", "text"}, nil, seen)
+		case PartTypeInputImage:
+			return rawObjectSchema(reflect.TypeOf(ContentPart{}), []string{"type", "image_url"}, nil, seen)
+		default:
+			return nil
+		}
+	}}}
 }
 
 func rawObjectSchema(t reflect.Type, allowed []string, overrides map[string]*rawJSONSchema, seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
@@ -534,6 +588,16 @@ func orderRawLosses(existing []ir.Loss, audited []rawJSONLoss, locations rawJSON
 		appendLoss(loss, findOffset(loss))
 	}
 	for _, loss := range audited {
+		absorbed := false
+		for _, parent := range existing {
+			if parent.Reason == ir.LossUnsupportedSemantic && (strings.HasPrefix(loss.loss.Path, parent.Path+".") || strings.HasPrefix(loss.loss.Path, parent.Path+"[")) {
+				absorbed = true
+				break
+			}
+		}
+		if absorbed {
+			continue
+		}
 		key := lossKey{loss.loss.Path, loss.loss.Field, loss.loss.Reason}
 		if seen[key] {
 			continue

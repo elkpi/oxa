@@ -93,6 +93,15 @@ func checkVectorFile(s *schemas, vectorsDir, relFile string, names map[string]bo
 				if err := s.ir.Validate(irDoc); err != nil {
 					errs = append(errs, fmt.Errorf("%s: %s does not validate against ir.schema.json: %v", display, irField, err))
 				}
+				if doc.Mode == "nonstream" {
+					if object, ok := irDoc.(map[string]any); ok {
+						if _, request := object["messages"]; request {
+							if _, err := ir.UnmarshalRequest(irRaw); err != nil {
+								errs = append(errs, fmt.Errorf("%s: %s violates request invariants: %w", display, irField, err))
+							}
+						}
+					}
+				}
 				if doc.Mode == "stream" {
 					es, err := ir.UnmarshalEventStream(irRaw)
 					if err != nil {
@@ -191,6 +200,12 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				block.kind = "text"
 			case ir.ThinkingBlock:
 				block.kind = "thinking"
+			case ir.CustomToolUseBlock:
+				input, err := decodeEventString(b.Input)
+				if err != nil {
+					return fmt.Errorf("%s.block.input: %w", path, err)
+				}
+				block.kind, block.input = "custom_tool_use", input
 			case ir.ToolUseBlock:
 				input, err := decodeEventString(b.Input)
 				if err != nil {
@@ -213,6 +228,15 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				return fmt.Errorf("%s.index: want open block index %d, got %d", path, open.index, e.Index)
 			}
 			switch d := e.Delta.(type) {
+			case ir.CustomToolInputDelta:
+				if open.kind != "custom_tool_use" {
+					return fmt.Errorf("%s.delta: custom input requires custom tool block", path)
+				}
+				part, err := decodeEventString(d.Text)
+				if err != nil {
+					return fmt.Errorf("%s.delta.text: %w", path, err)
+				}
+				open.parts = append(open.parts, part)
 			case ir.TextDelta:
 				if open.kind != "text" {
 					return fmt.Errorf("%s.delta: text_delta requires a text block, got %s", path, open.kind)
@@ -254,7 +278,7 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 			if e.Index != open.index {
 				return fmt.Errorf("%s.index: want open block index %d, got %d", path, open.index, e.Index)
 			}
-			if open.kind == "tool_use" {
+			if open.kind == "tool_use" || open.kind == "custom_tool_use" {
 				joined := strings.Join(open.parts, "")
 				switch {
 				case len(open.parts) > 0 && joined != open.input:

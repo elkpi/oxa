@@ -33,17 +33,19 @@ type StreamDecoder struct {
 	terminated bool
 	flushed    bool
 
-	nextOutputIndex  int
-	nextBlockIndex   int
-	itemOpen         bool
-	skippedItem      bool
-	itemType         string
-	itemID           string
-	skippedCallID    string
-	outputIndex      int
-	nextContentIndex int
-	functionCall     *streamFunctionCall
-	toolUseSeen      bool
+	nextOutputIndex      int
+	nextBlockIndex       int
+	itemOpen             bool
+	skippedItem          bool
+	itemType             string
+	itemID               string
+	skippedCallID        string
+	outputIndex          int
+	nextContentIndex     int
+	functionCall         *streamFunctionCall
+	customCall           *streamCustomCall
+	completedCustomCalls map[string]OutputItem
+	toolUseSeen          bool
 
 	blockOpen    bool
 	skippedPart  bool
@@ -75,7 +77,12 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		return nil, fmt.Errorf("responses: event fed after terminal response")
 	}
 
+	if d.customCall != nil && (strings.HasPrefix(ev.Type, "response.content_part.") || strings.HasPrefix(ev.Type, "response.output_text.") || strings.HasPrefix(ev.Type, "response.reasoning_summary_")) {
+		return nil, fmt.Errorf("responses: content event on custom tool item")
+	}
 	switch ev.Type {
+	case EventTypeResponseCustomToolInputDelta, EventTypeResponseCustomToolInputDone:
+		return d.feedCustomInput(ev)
 	case EventTypeResponseCreated:
 		if d.started {
 			return nil, fmt.Errorf("responses: duplicate response.created")
@@ -109,6 +116,15 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.nextContentIndex = 0
 		d.functionCall = nil
 		switch {
+		case ev.Item.Type == ItemTypeCustomToolCall:
+			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Name == "" || ev.Item.Input == nil {
+				return nil, fmt.Errorf("responses: custom item requires id, call_id, name and input")
+			}
+			if _, exists := d.completedCustomCalls[ev.Item.ID]; exists {
+				return nil, fmt.Errorf("responses: duplicate custom item id")
+			}
+			d.customCall = &streamCustomCall{callID: ev.Item.CallID, name: ev.Item.Name, initial: *ev.Item.Input}
+			return nil, nil
 		case ev.Item.Type == ItemTypeMessage && ev.Item.Role == RoleAssistant:
 			return nil, nil
 		case ev.Item.Type == ItemTypeReasoning:
@@ -341,6 +357,19 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("responses: response.output_item.done with a content part still open")
 		}
 		var events []ir.Event
+		if d.customCall != nil {
+			var err error
+			events, err = d.replayCustomCall(ev.Item)
+			if err != nil {
+				return nil, err
+			}
+			d.customCall = nil
+			d.toolUseSeen = true
+			if d.completedCustomCalls == nil {
+				d.completedCustomCalls = map[string]OutputItem{}
+			}
+			d.completedCustomCalls[ev.Item.ID] = *ev.Item
+		}
 		if d.functionCall != nil {
 			joined := strings.Join(d.functionCall.fragments, "")
 			if ev.Item.CallID != d.functionCall.callID || ev.Item.Name != d.functionCall.name || ev.Item.Arguments != joined {
@@ -369,6 +398,25 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if ev.Response == nil {
 			return nil, fmt.Errorf("responses: %s without response", ev.Type)
+		}
+		for _, item := range ev.Response.Output {
+			if item.Type != ItemTypeCustomToolCall {
+				continue
+			}
+			prior, ok := d.completedCustomCalls[item.ID]
+			if item.ID == "" {
+				for _, candidate := range d.completedCustomCalls {
+					if candidate.CallID == item.CallID {
+						if ok {
+							return nil, fmt.Errorf("responses: ambiguous terminal custom call_id")
+						}
+						prior, ok = candidate, true
+					}
+				}
+			}
+			if !ok || item.Input == nil || prior.Input == nil || *item.Input != *prior.Input || item.CallID != prior.CallID || item.Name != prior.Name {
+				return nil, fmt.Errorf("responses: terminal custom snapshot mismatch")
+			}
 		}
 		stop, losses, err := decodeStatus(ev.Response, d.toolUseSeen)
 		if err != nil {

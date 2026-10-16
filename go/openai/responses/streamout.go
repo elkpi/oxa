@@ -15,6 +15,7 @@ const (
 	streamMessageOutputItem streamOutputItemKind = iota
 	streamFunctionCallOutputItem
 	streamReasoningOutputItem
+	streamCustomCallOutputItem
 )
 
 // streamOutputItem retains one native Responses output-item lifecycle. A message
@@ -58,6 +59,7 @@ type StreamEncoder struct {
 	nextOutputIndex   int
 	nextMessageItem   int
 	nextFunctionItem  int
+	nextCustomItem    int
 	nextReasoningItem int
 	activeItem        *streamOutputItem
 	activeBlock       *streamEncodeBlock
@@ -112,6 +114,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			out, losses, err = e.startTextBlock(event.Index, block)
 		case ir.ThinkingBlock:
 			out, losses, err = e.startThinkingBlock(event.Index, block)
+		case ir.CustomToolUseBlock:
+			out, losses, err = e.startCustomCallBlock(event.Index, block)
 		case ir.ToolUseBlock:
 			out, losses, err = e.startFunctionCallBlock(event.Index, block)
 		default:
@@ -163,6 +167,17 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			default:
 				return nil, nil, fmt.Errorf("responses: ThinkingBlock received non-thinking delta %T", event.Delta)
 			}
+		case streamCustomCallOutputItem:
+			delta, ok := event.Delta.(ir.CustomToolInputDelta)
+			if !ok {
+				return nil, nil, fmt.Errorf("responses: custom call requires custom input delta")
+			}
+			fragment, err := unwrapStreamIRString(delta.Text)
+			if err != nil {
+				return nil, nil, err
+			}
+			e.activeBlock.fragments = append(e.activeBlock.fragments, fragment)
+			return []*StreamEvent{{Type: EventTypeResponseCustomToolInputDelta, ItemID: e.activeItem.id, OutputIndex: e.activeItem.outputIndex, Delta: fragment}}, nil, nil
 		case streamFunctionCallOutputItem:
 			delta, ok := event.Delta.(ir.InputJSONDelta)
 			if !ok {
@@ -192,6 +207,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return e.stopTextBlock()
 		case streamReasoningOutputItem:
 			return e.stopThinkingBlock()
+		case streamCustomCallOutputItem:
+			return e.stopCustomCallBlock()
 		case streamFunctionCallOutputItem:
 			return e.stopFunctionCallBlock()
 		default:

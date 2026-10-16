@@ -1,0 +1,116 @@
+{
+  "name": "anthropic.stream.custom-tool-call-from-ir",
+  "description": "N-AN-13：IR Custom Tool 流式事件编码为 Anthropic Messages 结构化包装流式事件。",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "events": [
+      {
+        "type": "message_start",
+        "id": "msg_custom_stream",
+        "model": "claude-sonnet-4-5"
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "block": {
+          "type": "custom_tool_use",
+          "id": "toolu_custom",
+          "name": "code_exec",
+          "input": "print(\"hello\"\n)"
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "custom_tool_input_delta",
+          "text": "print(\"hello\"\n)"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "message_delta",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 7
+        }
+      },
+      {
+        "type": "message_done"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "stream",
+    "n-an-13"
+  ],
+  "target": {
+    "protocol": "anthropic"
+  },
+  "expected_output": {
+    "events": [
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_custom_stream",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-sonnet-4-5",
+          "content": [],
+          "stop_reason": null,
+          "usage": {
+            "input_tokens": 0,
+            "output_tokens": 0
+          }
+        }
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "tool_use",
+          "id": "toolu_custom",
+          "name": "code_exec",
+          "input": {}
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "input_json_delta",
+          "partial_json": "{\"input\": \"print(\\\"hello\\\"\\n)\"}"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "tool_use"
+        },
+        "usage": {
+          "input_tokens": 12,
+          "output_tokens": 7
+        }
+      },
+      {
+        "type": "message_stop"
+      }
+    ]
+  }
+}

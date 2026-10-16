@@ -14,6 +14,60 @@
       "sha256": "3b2e7e1eb9e8b7d0a2789a91ae3144f068a9d0a43f31b8bc93b8da9f780cd505"
     },
     {
+      "name": "anthropic.nonstream.custom-tool-conversation-from-ir",
+      "file": "anthropic/nonstream/custom-tool-conversation-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "0ed970af6e9f1f54d63732c1dd367e913ff461cc0ca61e8a2def88b2e49e3b33"
+    },
+    {
+      "name": "anthropic.nonstream.custom-tool-conversation-to-ir",
+      "file": "anthropic/nonstream/custom-tool-conversation-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "d1050bec6d00367edbde4cfabf763048d754d8ff1ff0ea3ae99eb1912e8d3529"
+    },
+    {
+      "name": "anthropic.nonstream.custom-tool-declaration-choice-from-ir",
+      "file": "anthropic/nonstream/custom-tool-declaration-choice-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "1ae564419322d92779f0b4d4120e12f6fa6bcdc3cb60c68e2dc76de496144874"
+    },
+    {
+      "name": "anthropic.nonstream.custom-tool-declaration-choice-to-ir",
+      "file": "anthropic/nonstream/custom-tool-declaration-choice-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "0591a034555e83743a404f6e884a7f00492cc3ab00b2bde484b9f38b49903553"
+    },
+    {
+      "name": "anthropic.nonstream.custom-tool-response-from-ir",
+      "file": "anthropic/nonstream/custom-tool-response-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "e11257cbf9603f85f011efe3c768939d1a57aa944bb57b6c801b8286b1a22624"
+    },
+    {
+      "name": "anthropic.nonstream.custom-tool-response-to-ir",
+      "file": "anthropic/nonstream/custom-tool-response-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-an-13"
+      ],
+      "sha256": "0a9ac94f74dad75ee60e17155466352c10c435feae5c7ecd07190d4c9ea0cac9"
+    },
+    {
       "name": "anthropic.nonstream.images-from-ir",
       "file": "anthropic/nonstream/images-from-ir.json",
       "tags": [
@@ -444,6 +498,26 @@
       "sha256": "8dea8ed40add19442ee85c06390c244ed712acf90c85ad824c201a72105e1c9f"
     },
     {
+      "name": "anthropic.stream.custom-tool-call-from-ir",
+      "file": "anthropic/stream/custom-tool-call-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "stream",
+        "n-an-13"
+      ],
+      "sha256": "488b9fc8b9219f9f66bdda7e1f59cadda80993139cdb88d05a4f5ba6e3530ebb"
+    },
+    {
+      "name": "anthropic.stream.custom-tool-call-to-ir",
+      "file": "anthropic/stream/custom-tool-call-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "stream",
+        "n-an-13"
+      ],
+      "sha256": "3b25f196a6e814d01dda23fc9e73bf035e525f30eec5924302162589b137bfb4"
+    },
+    {
       "name": "anthropic.stream.m7-tool-use-from-ir",
       "file": "anthropic/stream/m7-tool-use-from-ir.json",
       "tags": [
@@ -537,6 +611,60 @@
         "n-ap-5"
       ],
       "sha256": "d9f2260cac2af1cc7eb1c477b97885eaf86e9f25deb84640e90fa26f7e5158c3"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-conversation-from-ir",
+      "file": "chatcompletions/nonstream/custom-tool-conversation-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "f2ea00bd0b7c637e9621b4bd4fbaedfca563b9ba3666f7b676d2497539efe639"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-conversation-to-ir",
+      "file": "chatcompletions/nonstream/custom-tool-conversation-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "3f5ae85869b496552f3116d345eccf3938c368db21b1060ef74f0b27bc96fa04"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-declaration-choice-from-ir",
+      "file": "chatcompletions/nonstream/custom-tool-declaration-choice-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "01cc8d04029d9ddd62d3d4171a866cd09c396af046fed95d8da33309aeddb0b5"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-declaration-choice-to-ir",
+      "file": "chatcompletions/nonstream/custom-tool-declaration-choice-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "c5de0cd1f81d68a6bcd7f9e1d542ec0b2d7c667fb8629c7310f269a23ac04ecd"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-response-from-ir",
+      "file": "chatcompletions/nonstream/custom-tool-response-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "3237213dbf067686891b4ba7d80133ffc82fc441c51ef514148aa17bae2c1d5a"
+    },
+    {
+      "name": "chatcompletions.nonstream.custom-tool-response-to-ir",
+      "file": "chatcompletions/nonstream/custom-tool-response-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-cc-14"
+      ],
+      "sha256": "8dbc3fcdb2151db8d4cb7f2c6b78f65d3dc2c27e87f5341afecfb1c98ca55cc6"
     },
     {
       "name": "chatcompletions.nonstream.images-from-ir",
@@ -1019,6 +1147,26 @@
       "sha256": "dfd4d723f7fed8b076b667b9da2483b119fb446152fe69a55eecf2afe2cc4496"
     },
     {
+      "name": "chatcompletions.stream.custom-tool-call-from-ir",
+      "file": "chatcompletions/stream/custom-tool-call-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "stream",
+        "n-cc-14"
+      ],
+      "sha256": "aee81a2b7b439296a081f0443e37b390b79644d73c829ee50c6146949cef5e87"
+    },
+    {
+      "name": "chatcompletions.stream.custom-tool-call-to-ir",
+      "file": "chatcompletions/stream/custom-tool-call-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "stream",
+        "n-cc-14"
+      ],
+      "sha256": "c52556edadc34e7c4e22b7c75c6e23ab9670e43f9dcadacca5a7215b11dfcab6"
+    },
+    {
       "name": "chatcompletions.stream.m7-tool-calls-from-ir",
       "file": "chatcompletions/stream/m7-tool-calls-from-ir.json",
       "tags": [
@@ -1268,6 +1416,17 @@
       "sha256": "04bb5bc2e61b5ac386a3ed2cb29fc50b27f0bc193d88fd9819b247cc49c50b6c"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-custom-tool",
+      "file": "cross/nonstream/responses-to-anthropic-custom-tool.json",
+      "tags": [
+        "cross",
+        "custom-tools",
+        "request",
+        "n-an-13"
+      ],
+      "sha256": "0e5a6d739863fff288c4354c32fa81bb9154250ba55f6e18df10c12e88cb418f"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-request",
       "file": "cross/nonstream/responses-to-anthropic-request.json",
       "tags": [
@@ -1302,6 +1461,17 @@
         "n-an-11"
       ],
       "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-custom-tool",
+      "file": "cross/nonstream/responses-to-chatcompletions-custom-tool.json",
+      "tags": [
+        "cross",
+        "custom-tools",
+        "request",
+        "n-cc-14"
+      ],
+      "sha256": "3f40c7350738d228cd0e0ab36d184b32a90afe815464d2fab98663625b1574ff"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-request",

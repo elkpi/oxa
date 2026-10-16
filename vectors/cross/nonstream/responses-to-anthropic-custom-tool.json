@@ -1,0 +1,115 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-custom-tool",
+  "description": "Cross-protocol: OpenAI Responses 自定义工具请求通过 IR 转换为 Anthropic Messages 结构化包装自定义工具请求，默认 max_tokens 产生 1 条 degraded loss。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "m",
+    "tools": [
+      {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "format": {
+          "type": "text"
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "custom",
+      "name": "code_exec"
+    },
+    "input": [
+      {
+        "role": "user",
+        "content": "run code"
+      },
+      {
+        "type": "custom_tool_call",
+        "call_id": "call_c",
+        "name": "code_exec",
+        "input": "print(\"hello\")"
+      },
+      {
+        "type": "custom_tool_call_output",
+        "call_id": "call_c",
+        "output": "hello"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 4096,
+    "tools": [
+      {
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "input": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "input"
+          ]
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "tool",
+      "name": "code_exec"
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": "run code"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_c",
+            "name": "code_exec",
+            "input": {
+              "input": "print(\"hello\")"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_c",
+            "content": "hello"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "max_tokens",
+      "field": "max_tokens",
+      "reason": "degraded",
+      "detail": "N-AN-2: IR request carries no max_tokens; rendered default 4096"
+    }
+  ],
+  "tags": [
+    "cross",
+    "custom-tools",
+    "request",
+    "n-an-13"
+  ]
+}

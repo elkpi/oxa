@@ -1,0 +1,125 @@
+{
+  "name": "anthropic.nonstream.custom-tool-conversation-from-ir",
+  "description": "N-AN-13：IR Custom Tool 会话调用与结果多轮转换为 Anthropic Messages 结构化包装。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-4-5",
+    "tools": [
+      {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "format": {
+          "type": "text"
+        }
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "run code"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "executing"
+          },
+          {
+            "type": "custom_tool_use",
+            "id": "toolu_custom",
+            "name": "code_exec",
+            "input": "print(\"hello\\n\")"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "custom_tool_result",
+            "tool_use_id": "toolu_custom",
+            "output": "hello\n"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "n-an-13"
+  ],
+  "target": {
+    "protocol": "anthropic"
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "input": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "input"
+          ]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "run code"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "executing"
+          },
+          {
+            "type": "tool_use",
+            "id": "toolu_custom",
+            "name": "code_exec",
+            "input": {
+              "input": "print(\"hello\\n\")"
+            }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "toolu_custom",
+            "content": "hello\n"
+          }
+        ]
+      }
+    ]
+  }
+}

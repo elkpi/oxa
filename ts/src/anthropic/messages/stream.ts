@@ -473,7 +473,11 @@ type EncoderBlock =
       readonly kind: "custom";
       readonly index: number;
       readonly irIndex: number;
-      readonly blockType: "custom_tool_use" | "custom_tool_result";
+      readonly blockType:
+        | "custom_tool_use"
+        | "custom_tool_result"
+        | "apply_patch_tool_use"
+        | "apply_patch_tool_result";
     }
   | {
       readonly kind: "thinking";
@@ -621,7 +625,9 @@ export class AnthropicStreamEncoder {
     }
     if (
       event.block.type === "custom_tool_use" ||
-      event.block.type === "custom_tool_result"
+      event.block.type === "custom_tool_result" ||
+      event.block.type === "apply_patch_tool_use" ||
+      event.block.type === "apply_patch_tool_result"
     ) {
       if (
         event.block.type === "custom_tool_use" &&

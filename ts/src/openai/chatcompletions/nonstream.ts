@@ -361,7 +361,10 @@ export function encodeRequest(
       if (block.type === "tool_result") {
         results.push({ block, index: blockIndex });
         lastResult = blockIndex;
-      } else if (block.type === "custom_tool_result") {
+      } else if (
+        block.type === "custom_tool_result" ||
+        block.type === "apply_patch_tool_result"
+      ) {
         losses.push(
           loss(
             `messages[${index}].content[${blockIndex}]`,
@@ -396,7 +399,7 @@ export function encodeRequest(
   }
   const tools =
     request.tools?.flatMap((tool, index) => {
-      if (tool.type === "custom") {
+      if (tool.type === "custom" || tool.type === "apply_patch") {
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
         return [];
       }
@@ -413,15 +416,14 @@ export function encodeRequest(
         },
       ];
     }) ?? [];
-  const allToolsDropped =
-    (request.tools?.length ?? 0) > 0 && tools.length === 0;
-  const toolChoice =
-    request.tool_choice?.mode === "any" && allToolsDropped
-      ? (losses.push(
-          loss("tool_choice", "tool_choice", "unsupported-semantic"),
-        ),
-        undefined)
-      : encodeToolChoice(request.tool_choice, losses);
+  const toolChoice = encodeToolChoice(request.tool_choice, losses);
+  if (
+    request.tool_choice?.mode === "any" &&
+    request.tools !== undefined &&
+    request.tools.length > 0 &&
+    tools.length === 0
+  )
+    losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   const params = request.params;
   return {
     value: {
@@ -541,20 +543,17 @@ function decodeContent(
   for (let index = 0; index < parts.length; index += 1) {
     const part = object(parts[index], `${path}[${index}]`);
     const type = string(part.type, `${path}[${index}].type`);
-    if (type === "text") {
+    if (type === "text")
       blocks.push({
         type: "text",
-        text:
-          part.text === undefined
-            ? ""
-            : string(part.text, `${path}[${index}].text`),
+        text: string(part.text, `${path}[${index}].text`),
       });
-    } else if (type === "image_url") {
-      const image = object(part.image_url, `${path}[${index}].image_url`);
-      const decoded = decodeImage(
-        string(image.url, `${path}[${index}].image_url.url`),
+    else if (type === "image_url") {
+      const image = decodeImage(
+        object(part.image_url, `${path}[${index}].image_url`),
+        `${path}[${index}].image_url`,
       );
-      if (decoded === undefined)
+      if (image === undefined)
         losses.push(
           loss(
             `${path}[${index}].image_url`,
@@ -562,36 +561,11 @@ function decodeContent(
             "unsupported-semantic",
           ),
         );
-      else blocks.push(decoded);
-    } else {
+      else blocks.push(image);
+    } else
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
-    }
   }
   return blocks;
-}
-
-function decodeImage(value: string): ImageBlock | undefined {
-  if (value.startsWith("https:")) {
-    try {
-      const url = new URL(value);
-      if (url.protocol === "https:" && url.host !== "")
-        return { type: "image", url: value };
-    } catch {}
-    return undefined;
-  }
-  if (!value.startsWith("data:")) return undefined;
-  const comma = value.indexOf(",");
-  if (comma < 0) return undefined;
-  const metadata = value.slice(5, comma);
-  if (!metadata.endsWith(";base64")) return undefined;
-  const mediaType = metadata.slice(0, -7);
-  if (!mediaType.toLowerCase().startsWith("image/") || mediaType === "image/")
-    return undefined;
-  return {
-    type: "image",
-    media_type: mediaType,
-    data: value.slice(comma + 1),
-  };
 }
 
 function decodeToolCalls(
@@ -599,71 +573,60 @@ function decodeToolCalls(
   path: string,
   losses: Loss[],
 ): Block[] {
-  return optionalArray(value, path).flatMap((entry, index) => {
-    const call = object(entry, `${path}[${index}]`);
-    if (call.type !== "function") {
+  if (value === undefined || value === null) return [];
+  const calls = array(value, path);
+  const blocks: Block[] = [];
+  for (let index = 0; index < calls.length; index += 1) {
+    const call = object(calls[index], `${path}[${index}]`);
+    const type = string(call.type, `${path}[${index}].type`);
+    if (type !== "function") {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
-      return [];
+      continue;
     }
     const fn = object(call.function, `${path}[${index}].function`);
-    return [
-      {
-        type: "tool_use" as const,
-        id: string(call.id, `${path}[${index}].id`),
-        name: string(fn.name, `${path}[${index}].function.name`),
-        input: jsonText(
-          string(fn.arguments, `${path}[${index}].function.arguments`),
-        ),
-      },
-    ];
-  });
-}
-
-function decodeToolChoice(
-  value: JsonValue | undefined,
-  losses: Loss[],
-): ToolChoice | undefined {
-  if (value === undefined || value === null) return undefined;
-  if (typeof value === "string") {
-    if (value === "auto" || value === "none") return { mode: value };
-    if (value === "required") return { mode: "any" };
-  } else if (
-    typeof value === "object" &&
-    value !== null &&
-    !isJsonArray(value) &&
-    !isJsonNumber(value)
-  ) {
-    const fn =
-      value.function === undefined
-        ? undefined
-        : object(value.function, "tool_choice.function");
-    if (
-      value.type === "function" &&
-      fn !== undefined &&
-      typeof fn.name === "string"
-    )
-      return { mode: "tool", name: fn.name };
+    blocks.push({
+      type: "tool_use",
+      id: string(call.id, `${path}[${index}].id`),
+      name: string(fn.name, `${path}[${index}].function.name`),
+      input: jsonText(
+        string(fn.arguments, `${path}[${index}].function.arguments`),
+      ),
+    });
   }
-  losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
-  return undefined;
+  return blocks;
 }
 
-function encodeToolChoice(
-  value: ToolChoice | undefined,
+function encodeUserContent(
+  blocks: readonly Block[],
+  path: string,
   losses: Loss[],
-): JsonValue | undefined {
-  if (value === undefined) return undefined;
-  if (value.mode === "auto" || value.mode === "none") return value.mode;
-  if (value.mode === "any") return "required";
-  if (value.mode === "tool" && value.name !== "") {
-    if (value.tool_type === "custom") {
-      losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
-      return undefined;
+): JsonValue {
+  let text = "";
+  let textBlocks = 0;
+  let otherBlocks = 0;
+  const parts: JsonValue[] = [];
+  for (let index = 0; index < blocks.length; index += 1) {
+    const block = blocks[index]!;
+    if (block.type === "text") {
+      text += block.text;
+      textBlocks += 1;
+      parts.push({ type: "text", text: block.text });
+    } else if (block.type === "image") {
+      const image = encodeImage(block, `${path}[${index}]`);
+      if (image === undefined)
+        losses.push(
+          loss(`${path}[${index}]`, "media_type", "unsupported-semantic"),
+        );
+      else {
+        otherBlocks += 1;
+        parts.push({ type: "image_url", image_url: image });
+      }
+    } else {
+      otherBlocks += 1;
+      losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
     }
-    return { type: "function", function: { name: value.name } };
   }
-  losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
-  return undefined;
+  return textBlocks <= 1 && otherBlocks === 0 ? text : parts;
 }
 
 function encodeAssistant(
@@ -714,7 +677,11 @@ function encodeToolResult(
     if (block.type === "text") content += block.text;
     else
       losses.push(
-        loss(`${path}.content[${index}]`, "content", "unsupported-semantic"),
+        loss(
+          `${path}.content[${index}]`,
+          "content",
+          "unsupported-semantic",
+        ),
       );
   }
   if (result.is_error === true)
@@ -726,61 +693,117 @@ function encodeToolResult(
   };
 }
 
-function encodeUserContent(
-  blocks: readonly Block[],
-  path: string,
+function decodeToolChoice(
+  value: JsonValue | undefined,
   losses: Loss[],
-): JsonValue {
-  let text = "";
-  let hasImage = false;
-  const parts: JsonValue[] = [];
-  for (let index = 0; index < blocks.length; index += 1) {
-    const block = blocks[index]!;
-    if (block.type === "text") {
-      text += block.text;
-      parts.push({ type: "text", text: block.text });
-    } else if (block.type === "image") {
-      const image = encodeImage(block);
-      if (image === undefined)
-        losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
-      else {
-        hasImage = true;
-        parts.push({ type: "image_url", image_url: { url: image } });
-      }
-    } else
-      losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
-  }
-  return hasImage ? parts : text;
-}
-
-function encodeImage(image: ImageBlock): string | undefined {
-  if (image.data !== undefined && image.url !== undefined) return undefined;
-  if (image.data !== undefined) {
-    if (
-      image.media_type === undefined ||
-      !image.media_type.toLowerCase().startsWith("image/") ||
-      image.media_type === "image/"
-    )
-      return undefined;
-    return `data:${image.media_type};base64,${image.data}`;
-  }
-  if (image.url !== undefined) {
-    try {
-      const url = new URL(image.url);
-      if (url.protocol === "https:" && url.host !== "") return image.url;
-    } catch {}
-  }
+): ToolChoice | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") {
+    if (value === "auto" || value === "none") return { mode: value };
+    if (value === "required") return { mode: "any" };
+  } else if (
+    typeof value === "object" &&
+    !isJsonArray(value) &&
+    !isJsonNumber(value) &&
+    value.type === "function" &&
+    typeof object(value.function, "tool_choice.function").name === "string"
+  )
+    return {
+      mode: "tool",
+      name: string(
+        object(value.function, "tool_choice.function").name,
+        "tool_choice.function.name",
+      ),
+    };
+  losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }
 
-function loss(path: string, field: string, reason: LossReason): Loss {
-  return { path, field, reason };
+function encodeToolChoice(
+  value: ToolChoice | undefined,
+  losses: Loss[],
+): JsonValue | undefined {
+  if (value === undefined) return undefined;
+  if (value.mode === "auto" || value.mode === "none") return value.mode;
+  if (value.mode === "any") return "required";
+  if (value.mode === "tool" && value.name !== "") {
+    if (value.tool_type === "custom" || value.tool_type === "apply_patch") {
+      losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
+      return undefined;
+    }
+    return { type: "function", function: { name: value.name } };
+  }
+  losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
+  return undefined;
+}
+
+function decodeResponseFormat(
+  value: JsonValue | undefined,
+  losses: Loss[],
+): ResponseFormat | undefined {
+  if (value === undefined || value === null) return undefined;
+  const format = object(value, "response_format");
+  const type = string(format.type, "response_format.type");
+  switch (type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema": {
+      const schema = object(format.json_schema, "response_format.json_schema");
+      return {
+        type: "json_schema",
+        name: string(schema.name, "response_format.json_schema.name"),
+        ...(schema.description === undefined
+          ? {}
+          : {
+              description: string(
+                schema.description,
+                "response_format.json_schema.description",
+              ),
+            }),
+        schema: object(schema.schema, "response_format.json_schema.schema"),
+        ...(schema.strict === undefined
+          ? {}
+          : {
+              strict: boolean(
+                schema.strict,
+                "response_format.json_schema.strict",
+              ),
+            }),
+      };
+    }
+    default:
+      losses.push(loss("response_format.type", "type", "unmapped-value"));
+      return undefined;
+  }
+}
+
+function encodeResponseFormat(format: ResponseFormat): JsonObject {
+  switch (format.type) {
+    case "text":
+      return { type: "text" };
+    case "json_object":
+      return { type: "json_object" };
+    case "json_schema":
+      return {
+        type: "json_schema",
+        json_schema: {
+          name: format.name,
+          ...(format.description === undefined
+            ? {}
+            : { description: format.description }),
+          schema: format.schema,
+          ...(format.strict === undefined ? {} : { strict: format.strict }),
+        },
+      };
+  }
 }
 
 function decodeReasoningEffort(
   value: JsonValue | undefined,
   losses: Loss[],
-): { reasoning_effort?: ReasoningEffort } {
+): { readonly reasoning_effort?: ReasoningEffort } {
   if (value === undefined || value === null) return {};
   const effort = string(value, "reasoning_effort");
   if (
@@ -794,11 +817,12 @@ function decodeReasoningEffort(
   return {};
 }
 
-function decodeUsageDetails(
-  value: JsonObject,
-): Pick<Response["usage"], "input_tokens_details" | "output_tokens_details"> {
-  const promptDetails = value.prompt_tokens_details;
-  const completionDetails = value.completion_tokens_details;
+function decodeUsageDetails(usage: JsonObject): {
+  readonly input_tokens_details?: { readonly cached_tokens: bigint };
+  readonly output_tokens_details?: { readonly reasoning_tokens: bigint };
+} {
+  const promptDetails = usage.prompt_tokens_details;
+  const completionDetails = usage.completion_tokens_details;
   return {
     ...(promptDetails === undefined || promptDetails === null
       ? {}
@@ -831,20 +855,64 @@ function decodeUsageDetails(
   };
 }
 
+function decodeImage(
+  image: JsonObject,
+  path: string,
+): ImageBlock | undefined {
+  const url = string(image.url, `${path}.url`);
+  if (url.startsWith("https:")) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === "https:" && parsed.host !== "")
+        return { type: "image", url };
+    } catch {}
+    return undefined;
+  }
+  if (!url.startsWith("data:")) return undefined;
+  const comma = url.indexOf(",");
+  if (comma < 0) return undefined;
+  const metadata = url.slice(5, comma);
+  if (!metadata.endsWith(";base64")) return undefined;
+  const mediaType = metadata.slice(0, -7);
+  if (!mediaType.toLowerCase().startsWith("image/") || mediaType === "image/")
+    return undefined;
+  return {
+    type: "image",
+    media_type: mediaType,
+    data: url.slice(comma + 1),
+  };
+}
+
+function encodeImage(image: ImageBlock, path: string): JsonObject | undefined {
+  if (image.data !== undefined && image.url !== undefined) return undefined;
+  if (image.data !== undefined) {
+    if (
+      image.media_type === undefined ||
+      !image.media_type.toLowerCase().startsWith("image/") ||
+      image.media_type === "image/"
+    )
+      return undefined;
+    return { url: `data:${image.media_type};base64,${image.data}` };
+  }
+  if (image.url !== undefined) {
+    try {
+      const url = new URL(image.url);
+      if (url.protocol === "https:" && url.host !== "")
+        return { url: image.url };
+    } catch {}
+  }
+  return undefined;
+}
+
+function loss(path: string, field: string, reason: LossReason): Loss {
+  return { path, field, reason };
+}
 function optionalArray(
   value: JsonValue | undefined,
   name: string,
 ): readonly JsonValue[] {
   return value === undefined || value === null ? [] : array(value, name);
 }
-
-function strings(
-  value: JsonValue | undefined,
-  name: string,
-): readonly string[] {
-  return array(value, name).map((entry) => string(entry, name));
-}
-
 function array(
   value: JsonValue | undefined,
   name: string,
@@ -852,7 +920,6 @@ function array(
   if (!isJsonArray(value)) fail(`${name} must be an array`);
   return value;
 }
-
 function object(value: JsonValue | undefined, name: string): JsonObject {
   if (
     value === undefined ||
@@ -864,118 +931,37 @@ function object(value: JsonValue | undefined, name: string): JsonObject {
     fail(`${name} must be an object`);
   return value;
 }
-
+function objectOrThrow(value: JsonValue, name: string): JsonObject {
+  return object(value, name);
+}
 function string(value: JsonValue | undefined, name: string): string {
   if (typeof value !== "string") fail(`${name} must be a string`);
   return value;
 }
-
+function strings(
+  value: JsonValue | undefined,
+  name: string,
+): readonly string[] {
+  if (typeof value === "string") return [value];
+  return array(value, name).map((item, index) =>
+    string(item, `${name}[${index}]`),
+  );
+}
 function number(value: JsonValue | undefined, name: string): number {
   if (!isJsonNumber(value)) fail(`${name} must be a number`);
   const result = Number(value.token);
   if (!Number.isFinite(result)) fail(`${name} must be finite`);
   return result;
 }
-
 function whole(value: JsonValue | undefined, name: string): bigint {
   if (!isJsonNumber(value) || !value.isInteger)
     fail(`${name} must be an integer`);
   return BigInt(value.token);
 }
-
-function fail(message: string): never {
-  throw new OxaError("type-violation", `chatcompletions: ${message}`);
-}
-
 function boolean(value: JsonValue | undefined, name: string): boolean {
   if (typeof value !== "boolean") fail(`${name} must be a boolean`);
   return value;
 }
-
-function nonEmptyString(value: JsonValue | undefined, name: string): string {
-  const text = string(value, name);
-  if (text.length === 0) fail(`${name} must not be empty`);
-  return text;
-}
-
-function decodeResponseFormat(
-  value: JsonValue | undefined,
-  losses: Loss[],
-): ResponseFormat | undefined {
-  if (value === undefined || value === null) return undefined;
-  const wire = object(value, "response_format");
-  const type = string(wire.type, "response_format.type");
-  switch (type) {
-    case "text":
-      return { type: "text" };
-    case "json_object":
-      return { type: "json_object" };
-    case "json_schema": {
-      const jsonSchema = object(
-        wire.json_schema,
-        "response_format.json_schema",
-      );
-      const name = nonEmptyString(
-        jsonSchema.name,
-        "response_format.json_schema.name",
-      );
-      const schema = object(
-        jsonSchema.schema,
-        "response_format.json_schema.schema",
-      );
-      const description =
-        jsonSchema.description === undefined
-          ? undefined
-          : string(
-              jsonSchema.description,
-              "response_format.json_schema.description",
-            );
-      const strict =
-        jsonSchema.strict === undefined
-          ? undefined
-          : boolean(jsonSchema.strict, "response_format.json_schema.strict");
-      return {
-        type: "json_schema",
-        name,
-        ...(description === undefined ? {} : { description }),
-        schema,
-        ...(strict === undefined ? {} : { strict }),
-      };
-    }
-    default:
-      losses.push(loss("response_format.type", "type", "unmapped-value"));
-      return undefined;
-  }
-}
-
-function encodeResponseFormat(format: ResponseFormat): JsonObject {
-  switch (format.type) {
-    case "text":
-      return { type: "text" };
-    case "json_object":
-      return { type: "json_object" };
-    case "json_schema":
-      return {
-        type: "json_schema",
-        json_schema: {
-          name: format.name,
-          ...(format.description === undefined
-            ? {}
-            : { description: format.description }),
-          schema: format.schema,
-          ...(format.strict === undefined ? {} : { strict: format.strict }),
-        },
-      };
-  }
-}
-
-function objectOrThrow(value: JsonValue, name: string): JsonObject {
-  if (
-    value === null ||
-    typeof value !== "object" ||
-    Array.isArray(value) ||
-    isJsonNumber(value)
-  )
-    fail(`${name} must be an object`);
-  return value as JsonObject;
+function fail(message: string): never {
+  throw new OxaError("type-violation", `chatcompletions: ${message}`);
 }

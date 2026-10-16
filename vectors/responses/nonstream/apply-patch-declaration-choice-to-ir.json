@@ -1,0 +1,59 @@
+{
+  "name": "responses.nonstream.apply-patch-declaration-choice-to-ir",
+  "description": "N-AP-1..5：专用 Apply Patch 类型、关联、文本保真与原子流式。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "m",
+    "input": "go",
+    "tools": [
+      {
+        "type": "apply_patch"
+      }
+    ],
+    "tool_choice": {
+      "type": "apply_patch"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "apply-patch",
+    "n-ap-1",
+    "n-ap-2",
+    "n-ap-3",
+    "n-ap-4",
+    "n-ap-5"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "apply_patch"
+      }
+    ],
+    "tool_choice": {
+      "mode": "tool",
+      "tool_type": "apply_patch"
+    }
+  }
+}

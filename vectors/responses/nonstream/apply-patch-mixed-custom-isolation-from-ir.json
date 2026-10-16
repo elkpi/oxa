@@ -1,0 +1,159 @@
+{
+  "name": "responses.nonstream.apply-patch-mixed-custom-isolation-from-ir",
+  "description": "N-AP-1..5：专用 Apply Patch 类型、关联、文本保真与原子流式。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "f",
+            "name": "clock",
+            "input": "{}"
+          },
+          {
+            "type": "apply_patch_tool_use",
+            "id": "c",
+            "status": "completed",
+            "operation": {
+              "type": "update_file",
+              "path": "C:\\work\\file.py",
+              "diff": "not a valid diff\r\n-old\n+new\n  "
+            }
+          },
+          {
+            "type": "custom_tool_use",
+            "id": "u",
+            "name": "apply_patch",
+            "input": "raw custom input"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "f",
+            "content": [
+              {
+                "type": "text",
+                "text": "ok"
+              }
+            ]
+          },
+          {
+            "type": "apply_patch_tool_result",
+            "tool_use_id": "c",
+            "status": "completed",
+            "output": ""
+          },
+          {
+            "type": "custom_tool_result",
+            "tool_use_id": "u",
+            "output": "custom result"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "apply_patch"
+      },
+      {
+        "type": "custom",
+        "name": "apply_patch"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "apply-patch",
+    "n-ap-1",
+    "n-ap-2",
+    "n-ap-3",
+    "n-ap-4",
+    "n-ap-5"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "expected_output": {
+    "model": "m",
+    "input": [
+      {
+        "role": "user",
+        "content": "go"
+      },
+      {
+        "type": "function_call",
+        "call_id": "f",
+        "name": "clock",
+        "arguments": "{}"
+      },
+      {
+        "type": "apply_patch_call",
+        "call_id": "c",
+        "status": "completed",
+        "operation": {
+          "type": "update_file",
+          "path": "C:\\work\\file.py",
+          "diff": "not a valid diff\r\n-old\n+new\n  "
+        }
+      },
+      {
+        "type": "custom_tool_call",
+        "call_id": "u",
+        "name": "apply_patch",
+        "input": "raw custom input"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "f",
+        "output": "ok"
+      },
+      {
+        "type": "apply_patch_call_output",
+        "call_id": "c",
+        "status": "completed",
+        "output": ""
+      },
+      {
+        "type": "custom_tool_call_output",
+        "call_id": "u",
+        "output": "custom result"
+      }
+    ],
+    "tools": [
+      {
+        "type": "apply_patch"
+      },
+      {
+        "type": "custom",
+        "name": "apply_patch"
+      }
+    ]
+  }
+}

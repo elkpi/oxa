@@ -113,7 +113,7 @@ fn rejects_non_object_response_format_schema() {
 
 #[test]
 fn workspace_crate_version_is_2_1_2() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.1.2");
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.2.0");
 }
 
 #[test]
@@ -198,9 +198,9 @@ fn emits_spec_020_and_dual_reads_010() {
     let encoded_value = value(&encoded);
     assert_eq!(encoded_value["specVersion"].as_str(), Some("0.2.0"));
 
-    let current = SPEC_REQUEST.replace("\"0.1.0\"", "\"0.2.0\"");
-    let decoded: Request = from_json(&current).expect("read 0.2.0 request");
-    assert_eq!(decoded, legacy);
+    let v020 = SPEC_REQUEST.replace("\"0.1.0\"", "\"0.2.0\"");
+    let decoded020: Request = from_json(&v020).expect("read 0.2.0 request");
+    assert_eq!(decoded020, legacy);
 }
 
 #[test]

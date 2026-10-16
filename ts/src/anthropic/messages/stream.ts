@@ -296,11 +296,49 @@ export class AnthropicStreamDecoder {
       this.#toolFragments.length === 0
         ? [this.#toolStartInput]
         : [...this.#toolFragments];
-    const input = jsonText(fragments.join(""));
+    const rawJoined = fragments.join("");
+    let customInput: string | undefined;
+    try {
+      const parsed = JSON.parse(rawJoined);
+      if (
+        typeof parsed === "object" &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        const keys = Object.keys(parsed);
+        if (
+          keys.length === 1 &&
+          keys[0] === "input" &&
+          typeof parsed.input === "string"
+        ) {
+          customInput = parsed.input;
+        }
+      }
+    } catch {}
+
     const index = this.#openIrIndex;
     const id = this.#toolId;
     const name = this.#toolName;
     this.#clearBlock();
+    if (customInput !== undefined) {
+      return [
+        {
+          type: "content_block_start",
+          index,
+          block: { type: "custom_tool_use", id, name, input: customInput },
+        },
+        {
+          type: "content_block_delta",
+          index,
+          delta: {
+            type: "custom_tool_input_delta",
+            text: customInput,
+          },
+        },
+        { type: "content_block_stop", index },
+      ];
+    }
+    const input = jsonText(rawJoined);
     return [
       {
         type: "content_block_start",
@@ -474,7 +512,6 @@ type EncoderBlock =
       readonly index: number;
       readonly irIndex: number;
       readonly blockType:
-        | "custom_tool_use"
         | "custom_tool_result"
         | "apply_patch_tool_use"
         | "apply_patch_tool_result";
@@ -490,6 +527,13 @@ type EncoderBlock =
     }
   | {
       readonly kind: "tool";
+      readonly index: number;
+      readonly irIndex: number;
+      readonly input: string;
+      readonly fragments: string[];
+    }
+  | {
+      readonly kind: "custom_tool";
       readonly index: number;
       readonly irIndex: number;
       readonly input: string;
@@ -623,17 +667,35 @@ export class AnthropicStreamEncoder {
         },
       ]);
     }
+    if (event.block.type === "custom_tool_use") {
+      if (event.block.id === "" || event.block.name === "")
+        this.#lifecycle("custom_tool_use requires nonempty id and name");
+      this.#toolSeen = true;
+      this.#openBlock = {
+        kind: "custom_tool",
+        index: nativeIndex,
+        irIndex: event.index,
+        input: event.block.input,
+        fragments: [],
+      };
+      return this.#result([
+        {
+          type: "content_block_start",
+          index: nativeIndex,
+          content_block: {
+            type: "tool_use",
+            id: event.block.id,
+            name: event.block.name,
+            input: {},
+          },
+        },
+      ]);
+    }
     if (
-      event.block.type === "custom_tool_use" ||
       event.block.type === "custom_tool_result" ||
       event.block.type === "apply_patch_tool_use" ||
       event.block.type === "apply_patch_tool_result"
     ) {
-      if (
-        event.block.type === "custom_tool_use" &&
-        (event.block.id === "" || event.block.name === "")
-      )
-        this.#lifecycle("custom_tool_use requires nonempty id and name");
       if (
         event.block.type === "custom_tool_result" &&
         event.block.tool_use_id === ""
@@ -669,13 +731,23 @@ export class AnthropicStreamEncoder {
     )
       this.#lifecycle("content_block_delta out of grammar order");
     if (this.#openBlock.kind === "custom") {
-      if (
-        this.#openBlock.blockType !== "custom_tool_use" ||
-        event.delta.type !== "custom_tool_input_delta" ||
-        typeof event.delta.text !== "string"
-      )
-        this.#lifecycle("delta does not match skipped custom block");
-      return this.#result([]);
+      this.#lifecycle("delta does not match skipped custom block");
+    }
+    if (this.#openBlock.kind === "custom_tool") {
+      if (event.delta.type !== "custom_tool_input_delta")
+        this.#lifecycle("custom tool block received non-custom-input delta");
+      this.#openBlock.fragments.push(event.delta.text);
+      const partialJson = JSON.stringify({ input: event.delta.text });
+      return this.#result([
+        {
+          type: "content_block_delta",
+          index: this.#openBlock.index,
+          delta: {
+            type: "input_json_delta",
+            partial_json: jsonText(partialJson),
+          },
+        },
+      ]);
     }
     if (this.#openBlock.kind === "text") {
       if (event.delta.type !== "text_delta")
@@ -739,6 +811,27 @@ export class AnthropicStreamEncoder {
     if (block.kind === "custom") {
       this.#openBlock = undefined;
       return this.#result([]);
+    }
+    if (block.kind === "custom_tool") {
+      const events: AnthropicStreamEvent[] = [];
+      if (block.fragments.length === 0) {
+        block.fragments.push(block.input);
+        events.push({
+          type: "content_block_delta",
+          index: block.index,
+          delta: {
+            type: "input_json_delta",
+            partial_json: jsonText(JSON.stringify({ input: block.input })),
+          },
+        });
+      } else if (block.fragments.join("") !== block.input) {
+        this.#lifecycle(
+          "custom_tool_use input does not equal concatenated fragments",
+        );
+      }
+      events.push({ type: "content_block_stop", index: block.index });
+      this.#openBlock = undefined;
+      return this.#result(events);
     }
     if (block.kind === "text") {
       this.#openBlock = undefined;

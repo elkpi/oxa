@@ -81,7 +81,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 46);
+        CHECK(r->executed == 52);
     }
 
     // 2. Anthropic nonstream
@@ -94,7 +94,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 42);
+        CHECK(r->executed == 48);
     }
 
     // 3. Responses nonstream
@@ -121,11 +121,11 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 20);
+        CHECK(r->executed == 22);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 
-    // Unsupported target profiles drop custom declarations, choices, calls, and results once each.
+    // Custom tools are supported in Chat Completions and Anthropic without loss.
     {
         oxa::ir::Request req;
         req.model = "m";
@@ -139,11 +139,44 @@ int main() {
         auto cc_req = oxa::openai::chatcompletions::encode_request(req);
         auto ant_req = oxa::anthropic::messages::encode_request(req);
         CHECK(cc_req.ok() && ant_req.ok());
-        if (cc_req.ok()) CHECK(cc_req->losses.size() == 4);
-        if (ant_req.ok()) CHECK(ant_req->losses.size() == 4);
+        if (cc_req.ok()) CHECK(cc_req->losses.empty());
+        if (ant_req.ok()) CHECK(ant_req->losses.empty());
+
         oxa::ir::Response response;
         response.id = "r"; response.model = "m"; response.stop_reason = std::string(oxa::ir::STOP_TOOL_USE);
         response.content.push_back(oxa::ir::CustomToolUseBlock{"c", "code_exec", "arbitrary"});
+        auto cc_resp = oxa::openai::chatcompletions::encode_response(response);
+        auto ant_resp = oxa::anthropic::messages::encode_response(response);
+        CHECK(cc_resp.ok() && ant_resp.ok());
+        if (cc_resp.ok()) {
+            CHECK(cc_resp->losses.empty());
+            CHECK(cc_resp->value.find("choices")->as_array()[0].find("finish_reason")->as_string() == "tool_calls");
+        }
+        if (ant_resp.ok()) {
+            CHECK(ant_resp->losses.empty());
+            CHECK(ant_resp->value.find("stop_reason")->as_string() == "tool_use");
+        }
+    }
+
+    // Apply patch tools remain unsupported in Chat Completions and Anthropic.
+    {
+        oxa::ir::Request req;
+        req.model = "m";
+        req.tools = std::vector<oxa::ir::Tool>{};
+        oxa::ir::Tool tool; tool.type = "apply_patch"; tool.name = "apply_patch";
+        req.tools->push_back(tool);
+        req.tool_choice = oxa::ir::ToolChoice{std::string(oxa::ir::TOOL_CHOICE_TOOL), "apply_patch", "apply_patch"};
+        req.params = oxa::ir::Params{}; req.params->max_tokens = 32;
+        req.messages.push_back({"user", {oxa::ir::TextBlock{"hello"}}});
+        auto cc_req = oxa::openai::chatcompletions::encode_request(req);
+        auto ant_req = oxa::anthropic::messages::encode_request(req);
+        CHECK(cc_req.ok() && ant_req.ok());
+        if (cc_req.ok()) CHECK(cc_req->losses.size() == 2);
+        if (ant_req.ok()) CHECK(ant_req->losses.size() == 2);
+
+        oxa::ir::Response response;
+        response.id = "r"; response.model = "m"; response.stop_reason = std::string(oxa::ir::STOP_TOOL_USE);
+        response.content.push_back(oxa::ir::ApplyPatchToolUseBlock{"p", "in_progress", oxa::ir::CreateFileOperation{"a.txt", ""}});
         auto cc_resp = oxa::openai::chatcompletions::encode_response(response);
         auto ant_resp = oxa::anthropic::messages::encode_response(response);
         CHECK(cc_resp.ok() && ant_resp.ok());
@@ -157,6 +190,6 @@ int main() {
         }
     }
 
-    std::puts("test_vectors: all 181 nonstream vectors passed");
+    std::puts("test_vectors: all 241 nonstream vectors passed");
     return 0;
 }

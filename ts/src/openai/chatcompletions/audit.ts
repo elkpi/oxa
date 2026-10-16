@@ -37,7 +37,12 @@ const CUSTOM: WireAuditSpec = {
 };
 
 const TOOL_CALL: WireAuditSpec = {
-  fields: { id: undefined, type: undefined, function: FUNCTION, custom: CUSTOM },
+  fields: {
+    id: undefined,
+    type: undefined,
+    function: FUNCTION,
+    custom: CUSTOM,
+  },
 };
 
 const MESSAGE: WireAuditSpec = {

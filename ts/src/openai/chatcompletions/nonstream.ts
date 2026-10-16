@@ -108,25 +108,26 @@ function decodeRequestObject(
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
         return [];
       }
-    const fn = object(tool.function, `tools[${index}].function`);
-    return [
-      {
-        name: string(fn.name, `tools[${index}].function.name`),
-        ...(fn.description === undefined
-          ? {}
-          : {
-              description: string(
-                fn.description,
-                `tools[${index}].function.description`,
-              ),
-            }),
-        input_schema: object(
-          fn.parameters,
-          `tools[${index}].function.parameters`,
-        ),
-      },
-    ];
-  });
+      const fn = object(tool.function, `tools[${index}].function`);
+      return [
+        {
+          name: string(fn.name, `tools[${index}].function.name`),
+          ...(fn.description === undefined
+            ? {}
+            : {
+                description: string(
+                  fn.description,
+                  `tools[${index}].function.description`,
+                ),
+              }),
+          input_schema: object(
+            fn.parameters,
+            `tools[${index}].function.parameters`,
+          ),
+        },
+      ];
+    },
+  );
   const toolChoice = decodeToolChoice(wire.tool_choice, losses);
   const messages: Message[] = [];
   const system: Request["system"] extends readonly (infer T)[] | undefined

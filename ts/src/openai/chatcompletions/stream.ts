@@ -633,9 +633,7 @@ export class ChatCompletionsStreamEncoder {
         }
       }
       if (this.#active.fragments.join("") !== this.#active.input)
-        this.#lifecycle(
-          "tool_use input does not equal concatenated fragments",
-        );
+        this.#lifecycle("tool_use input does not equal concatenated fragments");
     }
     this.#active = undefined;
     return this.#result([]);

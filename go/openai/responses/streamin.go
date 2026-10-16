@@ -33,19 +33,23 @@ type StreamDecoder struct {
 	terminated bool
 	flushed    bool
 
-	nextOutputIndex      int
-	nextBlockIndex       int
-	itemOpen             bool
-	skippedItem          bool
-	itemType             string
-	itemID               string
-	skippedCallID        string
-	outputIndex          int
-	nextContentIndex     int
-	functionCall         *streamFunctionCall
-	customCall           *streamCustomCall
-	completedCustomCalls map[string]OutputItem
-	toolUseSeen          bool
+	nextOutputIndex            int
+	nextBlockIndex             int
+	itemOpen                   bool
+	skippedItem                bool
+	itemType                   string
+	itemID                     string
+	skippedCallID              string
+	outputIndex                int
+	nextContentIndex           int
+	functionCall               *streamFunctionCall
+	customCall                 *streamCustomCall
+	applyPatchCall             *streamApplyPatchCall
+	applyPatchResult           *streamApplyPatchResult
+	completedCustomCalls       map[string]OutputItem
+	completedApplyPatchCalls   map[string]OutputItem
+	completedApplyPatchResults map[string]OutputItem
+	toolUseSeen                bool
 
 	blockOpen    bool
 	skippedPart  bool
@@ -79,6 +83,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 
 	if d.customCall != nil && (strings.HasPrefix(ev.Type, "response.content_part.") || strings.HasPrefix(ev.Type, "response.output_text.") || strings.HasPrefix(ev.Type, "response.reasoning_summary_")) {
 		return nil, fmt.Errorf("responses: content event on custom tool item")
+	}
+	if (d.applyPatchCall != nil || d.applyPatchResult != nil) && (strings.HasPrefix(ev.Type, "response.content_part.") || strings.HasPrefix(ev.Type, "response.output_text.") || strings.HasPrefix(ev.Type, "response.reasoning_summary_") || strings.HasPrefix(ev.Type, "response.function_call_arguments.") || strings.HasPrefix(ev.Type, "response.custom_tool_call_input.")) {
+		return nil, fmt.Errorf("responses: content or delta event on apply patch item")
 	}
 	switch ev.Type {
 	case EventTypeResponseCustomToolInputDelta, EventTypeResponseCustomToolInputDone:
@@ -115,7 +122,36 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.skippedCallID = ""
 		d.nextContentIndex = 0
 		d.functionCall = nil
+		d.applyPatchCall = nil
+		d.applyPatchResult = nil
 		switch {
+		case ev.Item.Type == ItemTypeApplyPatchCall:
+			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Operation == nil || ev.Item.Status == "" {
+				return nil, fmt.Errorf("responses: apply_patch_call item requires id, call_id, status and operation")
+			}
+			if _, exists := d.completedApplyPatchCalls[ev.Item.ID]; exists {
+				return nil, fmt.Errorf("responses: duplicate apply_patch_call item id")
+			}
+			d.applyPatchCall = &streamApplyPatchCall{
+				id: ev.Item.ID, callID: ev.Item.CallID, status: ev.Item.Status, operation: ev.Item.Operation,
+			}
+			return nil, nil
+		case ev.Item.Type == ItemTypeApplyPatchCallOutput:
+			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Status == "" {
+				return nil, fmt.Errorf("responses: apply_patch_call_output item requires id, call_id and status")
+			}
+			if _, exists := d.completedApplyPatchResults[ev.Item.ID]; exists {
+				return nil, fmt.Errorf("responses: duplicate apply_patch_call_output item id")
+			}
+			var outputStr *string
+			if ev.Item.Output != nil {
+				s := *ev.Item.Output
+				outputStr = &s
+			}
+			d.applyPatchResult = &streamApplyPatchResult{
+				id: ev.Item.ID, callID: ev.Item.CallID, status: ev.Item.Status, output: outputStr,
+			}
+			return nil, nil
 		case ev.Item.Type == ItemTypeCustomToolCall:
 			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Name == "" || ev.Item.Input == nil {
 				return nil, fmt.Errorf("responses: custom item requires id, call_id, name and input")
@@ -357,6 +393,31 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("responses: response.output_item.done with a content part still open")
 		}
 		var events []ir.Event
+		if d.applyPatchCall != nil {
+			var err error
+			events, err = d.replayApplyPatchCall(ev.Item)
+			if err != nil {
+				return nil, err
+			}
+			d.toolUseSeen = true
+			if d.completedApplyPatchCalls == nil {
+				d.completedApplyPatchCalls = map[string]OutputItem{}
+			}
+			d.completedApplyPatchCalls[ev.Item.ID] = *ev.Item
+			d.applyPatchCall = nil
+		}
+		if d.applyPatchResult != nil {
+			var err error
+			events, err = d.replayApplyPatchResult(ev.Item)
+			if err != nil {
+				return nil, err
+			}
+			if d.completedApplyPatchResults == nil {
+				d.completedApplyPatchResults = map[string]OutputItem{}
+			}
+			d.completedApplyPatchResults[ev.Item.ID] = *ev.Item
+			d.applyPatchResult = nil
+		}
 		if d.customCall != nil {
 			var err error
 			events, err = d.replayCustomCall(ev.Item)
@@ -400,22 +461,46 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("responses: %s without response", ev.Type)
 		}
 		for _, item := range ev.Response.Output {
-			if item.Type != ItemTypeCustomToolCall {
-				continue
-			}
-			prior, ok := d.completedCustomCalls[item.ID]
-			if item.ID == "" {
-				for _, candidate := range d.completedCustomCalls {
-					if candidate.CallID == item.CallID {
-						if ok {
-							return nil, fmt.Errorf("responses: ambiguous terminal custom call_id")
+			if item.Type == ItemTypeCustomToolCall {
+				prior, ok := d.completedCustomCalls[item.ID]
+				if item.ID == "" {
+					for _, candidate := range d.completedCustomCalls {
+						if candidate.CallID == item.CallID {
+							if ok {
+								return nil, fmt.Errorf("responses: ambiguous terminal custom call_id")
+							}
+							prior, ok = candidate, true
 						}
-						prior, ok = candidate, true
 					}
 				}
-			}
-			if !ok || item.Input == nil || prior.Input == nil || *item.Input != *prior.Input || item.CallID != prior.CallID || item.Name != prior.Name {
-				return nil, fmt.Errorf("responses: terminal custom snapshot mismatch")
+				if !ok || item.Input == nil || prior.Input == nil || *item.Input != *prior.Input || item.CallID != prior.CallID || item.Name != prior.Name {
+					return nil, fmt.Errorf("responses: terminal custom snapshot mismatch")
+				}
+			} else if item.Type == ItemTypeApplyPatchCall {
+				prior, ok := d.completedApplyPatchCalls[item.ID]
+				if !ok || item.CallID != prior.CallID || item.Status != prior.Status {
+					return nil, fmt.Errorf("responses: terminal apply patch call snapshot mismatch")
+				}
+				if item.Operation == nil || prior.Operation == nil || item.Operation.Type != prior.Operation.Type || item.Operation.Path != prior.Operation.Path {
+					return nil, fmt.Errorf("responses: terminal apply patch operation mismatch")
+				}
+				if (item.Operation.Diff == nil) != (prior.Operation.Diff == nil) {
+					return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
+				}
+				if item.Operation.Diff != nil && *item.Operation.Diff != *prior.Operation.Diff {
+					return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
+				}
+			} else if item.Type == ItemTypeApplyPatchCallOutput {
+				prior, ok := d.completedApplyPatchResults[item.ID]
+				if !ok || item.CallID != prior.CallID || item.Status != prior.Status {
+					return nil, fmt.Errorf("responses: terminal apply patch result snapshot mismatch")
+				}
+				if (item.Output == nil) != (prior.Output == nil) {
+					return nil, fmt.Errorf("responses: terminal apply patch output mismatch")
+				}
+				if item.Output != nil && *item.Output != *prior.Output {
+					return nil, fmt.Errorf("responses: terminal apply patch output mismatch")
+				}
 			}
 		}
 		stop, losses, err := decodeStatus(ev.Response, d.toolUseSeen)

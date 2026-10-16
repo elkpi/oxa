@@ -37,6 +37,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolDef, 0, len(req.Tools))
 		for _, tool := range req.Tools {
+			if tool.Type == ir.ToolTypeApplyPatch {
+				out.Tools = append(out.Tools, ToolDef{Type: ToolTypeApplyPatch})
+				continue
+			}
 			if tool.Type == ir.ToolTypeCustom {
 				if len(tool.InputSchema) > 0 {
 					return nil, nil, fmt.Errorf("responses: custom tool cannot carry input_schema")
@@ -152,7 +156,7 @@ func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]i
 	lastResult, firstNormal := -1, -1
 	for k, block := range message.Content {
 		switch block.(type) {
-		case ir.ToolResultBlock, ir.CustomToolResultBlock:
+		case ir.ToolResultBlock, ir.CustomToolResultBlock, ir.ApplyPatchToolResultBlock:
 			results = append(results, block)
 			resultIndexes = append(resultIndexes, k)
 			lastResult = k
@@ -171,6 +175,18 @@ func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]i
 	}
 	for j, resultBlock := range results {
 		j = resultIndexes[j]
+		if patch, ok := resultBlock.(ir.ApplyPatchToolResultBlock); ok {
+			item := InputItem{
+				Type:   ItemTypeApplyPatchCallOutput,
+				CallID: patch.ToolUseID,
+				Status: string(patch.Status),
+			}
+			if patch.Output != nil {
+				item.Output = *patch.Output
+			}
+			*items = append(*items, item)
+			continue
+		}
 		if custom, ok := resultBlock.(ir.CustomToolResultBlock); ok {
 			output, outputLosses, err := encodeCustomOutput(custom.Output, fmt.Sprintf("%s.content[%d].output", path, j))
 			if err != nil {
@@ -271,6 +287,17 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 					"Responses request reasoning items carry no provider signature",
 				))
 			}
+		case ir.ApplyPatchToolUseBlock:
+			opWire, err := encodeApplyPatchOperation(value.Operation)
+			if err != nil {
+				return nil, err
+			}
+			calls = append(calls, InputItem{
+				Type:      ItemTypeApplyPatchCall,
+				CallID:    value.ID,
+				Status:    string(value.Status),
+				Operation: opWire,
+			})
 		case ir.CustomToolUseBlock:
 			input, err := unwrapToolArguments(value.Input)
 			if err != nil {
@@ -322,6 +349,8 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var thinkings []OutputContent
 	text := ""
 	hasText := false
+	apcIndex := 0
+	apcoIndex := 0
 	for i, block := range resp.Content {
 		switch value := block.(type) {
 		case ir.TextBlock:
@@ -337,6 +366,31 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 					"Responses reasoning items carry no provider signature",
 				))
 			}
+		case ir.ApplyPatchToolUseBlock:
+			opWire, err := encodeApplyPatchOperation(value.Operation)
+			if err != nil {
+				return nil, nil, err
+			}
+			output = append(output, OutputItem{
+				Type:      ItemTypeApplyPatchCall,
+				ID:        fmt.Sprintf("apc_%d", apcIndex),
+				Status:    string(value.Status),
+				CallID:    value.ID,
+				Operation: opWire,
+			})
+			apcIndex++
+		case ir.ApplyPatchToolResultBlock:
+			item := OutputItem{
+				Type:   ItemTypeApplyPatchCallOutput,
+				ID:     fmt.Sprintf("apco_%d", apcoIndex),
+				Status: string(value.Status),
+				CallID: value.ToolUseID,
+			}
+			if value.Output != nil {
+				item.Output = value.Output
+			}
+			output = append(output, item)
+			apcoIndex++
 		case ir.CustomToolUseBlock:
 			input, err := unwrapToolArguments(value.Input)
 			if err != nil {

@@ -16,6 +16,8 @@ const (
 	streamFunctionCallOutputItem
 	streamReasoningOutputItem
 	streamCustomCallOutputItem
+	streamApplyPatchCallOutputItem
+	streamApplyPatchResultOutputItem
 )
 
 // streamOutputItem retains one native Responses output-item lifecycle. A message
@@ -32,14 +34,16 @@ type streamOutputItem struct {
 }
 
 type streamEncodeBlock struct {
-	index         int
-	kind          streamOutputItemKind
-	contentIndex  int
-	text          string
-	toolInput     string
-	fragments     []string
-	signature     string
-	signatureSeen bool
+	index            int
+	kind             streamOutputItemKind
+	contentIndex     int
+	text             string
+	toolInput        string
+	fragments        []string
+	signature        string
+	signatureSeen    bool
+	applyPatchCall   *ir.ApplyPatchToolUseBlock
+	applyPatchResult *ir.ApplyPatchToolResultBlock
 }
 
 // StreamEncoder incrementally converts an IR event stream into OpenAI
@@ -55,15 +59,17 @@ type StreamEncoder struct {
 	delta   bool
 	done    bool
 
-	nextBlockIndex    int
-	nextOutputIndex   int
-	nextMessageItem   int
-	nextFunctionItem  int
-	nextCustomItem    int
-	nextReasoningItem int
-	activeItem        *streamOutputItem
-	activeBlock       *streamEncodeBlock
-	completed         []OutputItem
+	nextBlockIndex           int
+	nextOutputIndex          int
+	nextMessageItem          int
+	nextFunctionItem         int
+	nextCustomItem           int
+	nextApplyPatchCallItem   int
+	nextApplyPatchResultItem int
+	nextReasoningItem        int
+	activeItem               *streamOutputItem
+	activeBlock              *streamEncodeBlock
+	completed                []OutputItem
 }
 
 // NewStreamEncoder returns a Responses event-stream encoder. The variadic
@@ -114,6 +120,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			out, losses, err = e.startTextBlock(event.Index, block)
 		case ir.ThinkingBlock:
 			out, losses, err = e.startThinkingBlock(event.Index, block)
+		case ir.ApplyPatchToolUseBlock:
+			out, losses, err = e.startApplyPatchCallBlock(event.Index, block)
+		case ir.ApplyPatchToolResultBlock:
+			out, losses, err = e.startApplyPatchResultBlock(event.Index, block)
 		case ir.CustomToolUseBlock:
 			out, losses, err = e.startCustomCallBlock(event.Index, block)
 		case ir.ToolUseBlock:
@@ -167,6 +177,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			default:
 				return nil, nil, fmt.Errorf("responses: ThinkingBlock received non-thinking delta %T", event.Delta)
 			}
+		case streamApplyPatchCallOutputItem, streamApplyPatchResultOutputItem:
+			return nil, nil, fmt.Errorf("responses: ApplyPatch block received unexpected delta")
 		case streamCustomCallOutputItem:
 			delta, ok := event.Delta.(ir.CustomToolInputDelta)
 			if !ok {
@@ -207,6 +219,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return e.stopTextBlock()
 		case streamReasoningOutputItem:
 			return e.stopThinkingBlock()
+		case streamApplyPatchCallOutputItem:
+			return e.stopApplyPatchCallBlock()
+		case streamApplyPatchResultOutputItem:
+			return e.stopApplyPatchResultBlock()
 		case streamCustomCallOutputItem:
 			return e.stopCustomCallBlock()
 		case streamFunctionCallOutputItem:

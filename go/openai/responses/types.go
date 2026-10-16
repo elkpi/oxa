@@ -18,8 +18,11 @@ const (
 
 	ToolTypeFunction                      = "function"
 	ToolTypeCustom                        = "custom"
+	ToolTypeApplyPatch                    = "apply_patch"
 	ItemTypeCustomToolCall                = "custom_tool_call"
 	ItemTypeCustomToolCallOutput          = "custom_tool_call_output"
+	ItemTypeApplyPatchCall                = "apply_patch_call"
+	ItemTypeApplyPatchCallOutput          = "apply_patch_call_output"
 	EventTypeResponseCustomToolInputDelta = "response.custom_tool_call_input.delta"
 	EventTypeResponseCustomToolInputDone  = "response.custom_tool_call_input.done"
 
@@ -154,16 +157,18 @@ func (in Input) MarshalJSON() ([]byte, error) {
 // (type absent or "message", role user/assistant/system), a function_call
 // item, a function_call_output item, or an unknown type dropped with a loss.
 type InputItem struct {
-	ID        string          `json:"id,omitempty"`
-	Type      string          `json:"type,omitempty"`
-	Role      string          `json:"role,omitempty"`
-	Content   any             `json:"content,omitempty"` // string or []ContentPart
-	CallID    string          `json:"call_id,omitempty"`
-	Name      string          `json:"name,omitempty"`
-	Arguments string          `json:"arguments,omitempty"`
-	Output    any             `json:"output,omitempty"`
-	Input     *string         `json:"input,omitempty"`
-	Summary   []OutputContent `json:"summary,omitempty"`
+	ID        string                   `json:"id,omitempty"`
+	Type      string                   `json:"type,omitempty"`
+	Role      string                   `json:"role,omitempty"`
+	Content   any                      `json:"content,omitempty"` // string or []ContentPart
+	CallID    string                   `json:"call_id,omitempty"`
+	Name      string                   `json:"name,omitempty"`
+	Arguments string                   `json:"arguments,omitempty"`
+	Output    any                      `json:"output,omitempty"`
+	Input     *string                  `json:"input,omitempty"`
+	Status    string                   `json:"status,omitempty"`
+	Operation *ApplyPatchOperationWire `json:"operation,omitempty"`
+	Summary   []OutputContent          `json:"summary,omitempty"`
 }
 
 // ContentPart is one element of a parts-array item content: input_text,
@@ -180,11 +185,17 @@ type ContentPart struct {
 // loss (N-R-8).
 type ToolDef struct {
 	Type        string                `json:"type"`
-	Name        string                `json:"name"`
+	Name        string                `json:"name,omitempty"`
 	Description string                `json:"description,omitempty"`
 	Parameters  json.RawMessage       `json:"parameters,omitempty"`
 	Strict      *bool                 `json:"strict,omitempty"`
 	Format      *CustomToolFormatWire `json:"format,omitempty"`
+}
+
+type ApplyPatchOperationWire struct {
+	Type string  `json:"type"`
+	Path string  `json:"path"`
+	Diff *string `json:"diff,omitempty"`
 }
 
 type CustomToolFormatWire struct {
@@ -193,11 +204,10 @@ type CustomToolFormatWire struct {
 	Definition *string `json:"definition,omitempty"`
 }
 
-// ToolChoiceWire forces one named function (Responses named form is flat:
-// {type: "function", name}).
+// ToolChoiceWire forces one named function or custom or apply_patch tool.
 type ToolChoiceWire struct {
 	Type string `json:"type"`
-	Name string `json:"name"`
+	Name string `json:"name,omitempty"`
 }
 
 // Response is the Responses wire response object.
@@ -226,17 +236,19 @@ type ErrorWire struct {
 // OutputItem is one element of a wire response's output array: a message
 // item, a function_call item, or a reasoning item (dropped with a loss).
 type OutputItem struct {
-	Type             string          `json:"type"`
-	ID               string          `json:"id,omitempty"`
-	Status           string          `json:"status,omitempty"`
-	Role             string          `json:"role,omitempty"`
-	Content          []OutputContent `json:"content,omitempty"`
-	CallID           string          `json:"call_id,omitempty"`
-	Name             string          `json:"name,omitempty"`
-	Arguments        string          `json:"arguments,omitempty"`
-	Input            *string         `json:"input,omitempty"`
-	Summary          []OutputContent `json:"summary,omitempty"`
-	EncryptedContent string          `json:"encrypted_content,omitempty"`
+	Type             string                   `json:"type"`
+	ID               string                   `json:"id,omitempty"`
+	Status           string                   `json:"status,omitempty"`
+	Role             string                   `json:"role,omitempty"`
+	Content          []OutputContent          `json:"content,omitempty"`
+	CallID           string                   `json:"call_id,omitempty"`
+	Name             string                   `json:"name,omitempty"`
+	Arguments        string                   `json:"arguments,omitempty"`
+	Input            *string                  `json:"input,omitempty"`
+	Output           *string                  `json:"output,omitempty"`
+	Operation        *ApplyPatchOperationWire `json:"operation,omitempty"`
+	Summary          []OutputContent          `json:"summary,omitempty"`
+	EncryptedContent string                   `json:"encrypted_content,omitempty"`
 }
 
 // OutputContent is one element of a message output item's content array.

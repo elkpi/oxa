@@ -330,8 +330,8 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[dict[str, Any] | None
     if choice.mode == TOOL_CHOICE_NONE:
         return {"type": TOOL_CHOICE_TYPE_NONE}, []
     if choice.mode == TOOL_CHOICE_TOOL:
-        if choice.tool_type == "custom":
-            return None, [loss("tool_choice", "type", LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no custom tool choice mapping")]
+        if choice.tool_type in ("custom", "apply_patch"):
+            return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no tool choice mapping")]
         if not choice.name:
             raise ValueError("anthropic: tool_choice.name is required for mode tool")
         return {

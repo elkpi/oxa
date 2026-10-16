@@ -28,6 +28,8 @@ from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
     STOP_TOOL_USE,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     CustomToolInputDelta,
     CustomToolUseBlock,
     ContentBlockDelta,
@@ -60,6 +62,7 @@ class StreamEncoder:
         "_open_index",
         "_open_tool",
         "_open_custom",
+        "_open_apply_patch",
         "_custom_input",
         "_custom_parts",
         "_tool_seen",
@@ -84,6 +87,7 @@ class StreamEncoder:
         self._open_index = -1
         self._open_tool = False
         self._open_custom = False
+        self._open_apply_patch = False
         self._custom_input = ""
         self._custom_parts: list[str] = []
         self._tool_seen = False
@@ -173,6 +177,12 @@ class StreamEncoder:
                 self._custom_parts.clear()
                 return [], []
 
+            if isinstance(ev.block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+                self._open_index = ev.index
+                self._native_index = -1
+                self._open_apply_patch = True
+                return [], []
+
             if isinstance(ev.block, ToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("anthropic: ToolUseBlock requires nonempty ID and name")
@@ -201,6 +211,9 @@ class StreamEncoder:
         if isinstance(ev, ContentBlockDelta):
             if self._open_index != ev.index:
                 raise ValueError("anthropic: ContentBlockDelta out of grammar order")
+
+            if self._open_apply_patch:
+                raise ValueError("anthropic: apply patch block does not accept deltas")
 
             if self._open_custom:
                 if not isinstance(ev.delta, CustomToolInputDelta):
@@ -300,6 +313,12 @@ class StreamEncoder:
                 self._thinking_signature = None
                 self._thinking_parts.clear()
                 self._signature_seen = False
+
+            if self._open_apply_patch:
+                self._open_apply_patch = False
+                self._open_index = -1
+                self._native_index = -1
+                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool has no Anthropic Messages streaming mapping")]
 
             if self._open_custom:
                 if self._custom_parts and "".join(self._custom_parts) != self._custom_input:

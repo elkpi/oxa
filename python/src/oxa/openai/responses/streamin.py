@@ -9,6 +9,8 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     CustomToolInputDelta,
     CustomToolUseBlock,
     ContentBlockDelta,
@@ -58,7 +60,12 @@ from oxa.openai.responses.constants import (
     ROLE_ASSISTANT,
 )
 from oxa.openai.responses.decode import decode_status
-from oxa.openai.responses.normalize import loss
+from oxa.openai.responses.normalize import (
+    decode_apply_patch_call_status,
+    decode_apply_patch_operation,
+    decode_apply_patch_result_status,
+    loss,
+)
 
 
 @dataclass(slots=True)
@@ -75,6 +82,22 @@ class _StreamCustomToolCall:
     name: str
     fragments: list[str] = field(default_factory=list)
     snapshots: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _StreamApplyPatchCall:
+    item_id: str
+    call_id: str
+    status: str
+    operation: dict[str, Any]
+
+
+@dataclass(slots=True)
+class _StreamApplyPatchResult:
+    item_id: str
+    call_id: str
+    status: str
+    output: str | None = None
 
 
 class StreamDecoder:
@@ -97,6 +120,9 @@ class StreamDecoder:
         "_next_content_index",
         "_function_call",
         "_custom_tool_call",
+        "_apply_patch_call",
+        "_apply_patch_result",
+        "_completed_items",
         "_tool_use_seen",
         "_block_open",
         "_skipped_part",
@@ -122,6 +148,9 @@ class StreamDecoder:
         self._next_content_index = 0
         self._function_call: _StreamFunctionCall | None = None
         self._custom_tool_call: _StreamCustomToolCall | None = None
+        self._apply_patch_call: _StreamApplyPatchCall | None = None
+        self._apply_patch_result: _StreamApplyPatchResult | None = None
+        self._completed_items: dict[str, dict[str, Any]] = {}
         self._tool_use_seen = False
         self._block_open = False
         self._skipped_part = False
@@ -145,6 +174,15 @@ class StreamDecoder:
             raise ValueError("responses: event fed after terminal response")
 
         kind = ev.get("type", "")
+
+        if (self._apply_patch_call is not None or self._apply_patch_result is not None) and (
+            kind.startswith("response.content_part.")
+            or kind.startswith("response.output_text.")
+            or kind.startswith("response.reasoning_summary_")
+            or kind.startswith("response.function_call_arguments.")
+            or kind.startswith("response.custom_tool_call_input.")
+        ):
+            raise ValueError("responses: content or delta event on apply patch item")
 
         if kind == EVENT_TYPE_RESPONSE_CREATED:
             if self._started:
@@ -184,6 +222,28 @@ class StreamDecoder:
             if item_type == ITEM_TYPE_MESSAGE and item.get("role") == ROLE_ASSISTANT:
                 return []
             if item_type == ITEM_TYPE_REASONING:
+                return []
+            if item_type == "apply_patch_call":
+                call_id = item.get("call_id", "")
+                if not self._item_id or not call_id or not item.get("status") or item.get("operation") is None:
+                    raise ValueError("responses: apply_patch_call requires id, call_id, status, and operation")
+                self._apply_patch_call = _StreamApplyPatchCall(
+                    item_id=self._item_id,
+                    call_id=call_id,
+                    status=item["status"],
+                    operation=item["operation"],
+                )
+                return []
+            if item_type == "apply_patch_call_output":
+                call_id = item.get("call_id", "")
+                if not self._item_id or not call_id or not item.get("status"):
+                    raise ValueError("responses: apply_patch_call_output requires id, call_id, and status")
+                self._apply_patch_result = _StreamApplyPatchResult(
+                    item_id=self._item_id,
+                    call_id=call_id,
+                    status=item["status"],
+                    output=item.get("output"),
+                )
                 return []
             if item_type == ITEM_TYPE_FUNCTION_CALL:
                 call_id = item.get("call_id", "")
@@ -504,6 +564,41 @@ class StreamDecoder:
                 )
 
             events: list[Event] = []
+            if self._apply_patch_call is not None:
+                ap = self._apply_patch_call
+                self._apply_patch_call = None
+                if item.get("call_id") != ap.call_id:
+                    raise ValueError("responses: output_item.done call_id does not match active apply_patch_call")
+                status, s_loss = decode_apply_patch_call_status(item.get("status"), f"output[{output_index}]")
+                if s_loss is not None:
+                    raise ValueError(f"responses: {s_loss.detail}")
+                op, op_loss = decode_apply_patch_operation(item.get("operation"), f"output[{output_index}].operation")
+                if op_loss is not None:
+                    raise ValueError(f"responses: {op_loss.detail}")
+                idx = self._next_block_index
+                self._next_block_index += 1
+                events.append(ContentBlockStart(index=idx, block=ApplyPatchToolUseBlock(id=ap.call_id, status=status, operation=op)))
+                events.append(ContentBlockStop(index=idx))
+                self._tool_use_seen = True
+                self._completed_items[item.get("id", "")] = item
+
+            if self._apply_patch_result is not None:
+                apr = self._apply_patch_result
+                self._apply_patch_result = None
+                if item.get("call_id") != apr.call_id:
+                    raise ValueError("responses: output_item.done call_id does not match active apply_patch_call_output")
+                status, s_loss = decode_apply_patch_result_status(item.get("status"), f"output[{output_index}]")
+                if s_loss is not None:
+                    raise ValueError(f"responses: {s_loss.detail}")
+                idx = self._next_block_index
+                self._next_block_index += 1
+                out = item.get("output")
+                if out is not None and not isinstance(out, str):
+                    raise ValueError("responses: apply_patch_call_output output must be a string")
+                events.append(ContentBlockStart(index=idx, block=ApplyPatchToolResultBlock(tool_use_id=apr.call_id, status=status, output=out)))
+                events.append(ContentBlockStop(index=idx))
+                self._completed_items[item.get("id", "")] = item
+
             if self._function_call is not None:
                 fc = self._function_call
                 self._function_call = None
@@ -567,6 +662,8 @@ class StreamDecoder:
             self._skipped_call_id = ""
             self._skipped_item = False
             self._function_call = None
+            self._apply_patch_call = None
+            self._apply_patch_result = None
             return events
 
         if kind in (
@@ -580,6 +677,22 @@ class StreamDecoder:
             response = ev.get("response")
             if not isinstance(response, dict):
                 raise ValueError(f"responses: {kind} without response")
+
+            for item in response.get("output", []):
+                if not isinstance(item, dict):
+                    continue
+                itype = item.get("type")
+                if itype in ("apply_patch_call", "apply_patch_call_output"):
+                    prior = self._completed_items.get(item.get("id", ""))
+                    if prior is None or item.get("call_id") != prior.get("call_id") or item.get("status") != prior.get("status"):
+                        raise ValueError("responses: terminal apply patch snapshot mismatch")
+                    if itype == "apply_patch_call":
+                        if item.get("operation") != prior.get("operation"):
+                            raise ValueError("responses: terminal apply patch operation mismatch")
+                    else:
+                        if item.get("output") != prior.get("output"):
+                            raise ValueError("responses: terminal apply patch output mismatch")
+
             stop, status_losses = decode_status(response, self._tool_use_seen)
             self._losses.extend(status_losses)
             self._terminated = True

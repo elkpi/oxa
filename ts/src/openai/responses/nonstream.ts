@@ -15,6 +15,7 @@ import { parseUsageInteger, validateRequest } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { RESPONSES_REQUEST, RESPONSES_RESPONSE } from "./audit.js";
 import type {
+  ApplyPatchOperation,
   Block,
   ImageBlock,
   Message,
@@ -93,6 +94,9 @@ function decodeRequestObject(
   const tools = optionalArray(wire.tools, "tools").flatMap<Tool>(
     (entry, index) => {
       const tool = object(entry, `tools[${index}]`);
+      if (tool.type === "apply_patch") {
+        return [{ type: "apply_patch" as const }];
+      }
       const name = nonEmptyString(tool.name, `tools[${index}].name`);
       const description =
         tool.description === undefined
@@ -141,6 +145,10 @@ function decodeRequestObject(
     });
   } else {
     const items = array(wire.input, "input");
+    const { decodedCalls, decodedResults, dropped, losses: pairLosses } =
+      precheckApplyPatchPairs(items);
+    losses.push(...pairLosses);
+
     for (let index = 0; index < items.length; ) {
       const item = object(items[index], `input[${index}]`);
       const type =
@@ -150,6 +158,7 @@ function decodeRequestObject(
       if (
         type === "function_call" ||
         type === "custom_tool_call" ||
+        type === "apply_patch_call" ||
         type === "reasoning" ||
         (type === "message" && item.role === "assistant")
       ) {
@@ -185,6 +194,44 @@ function decodeRequestObject(
                   thinking.push({ type: "thinking", thinking: text });
               }
             }
+            index += 1;
+            continue;
+          }
+          if (currentType === "apply_patch_call") {
+            if (dropped.has(index)) {
+              index += 1;
+              continue;
+            }
+            const block = decodedCalls.get(index);
+            if (block !== undefined) {
+              calls.push(block);
+              index += 1;
+              continue;
+            }
+            const statusResult = decodeApplyPatchCallStatusWire(
+              current.status,
+              `input[${index}]`,
+            );
+            if (statusResult.loss) {
+              losses.push(statusResult.loss);
+              index += 1;
+              continue;
+            }
+            const opResult = decodeApplyPatchOperationWire(
+              current.operation,
+              `input[${index}]`,
+            );
+            if (opResult.loss) {
+              losses.push(opResult.loss);
+              index += 1;
+              continue;
+            }
+            calls.push({
+              type: "apply_patch_tool_use",
+              id: nonEmptyString(current.call_id, `input[${index}].call_id`),
+              status: statusResult.status!,
+              operation: opResult.operation!,
+            });
             index += 1;
             continue;
           }
@@ -224,25 +271,66 @@ function decodeRequestObject(
           index += 1;
         }
         const content = [...thinking, ...texts, ...calls];
-        messages.push({
-          role: "assistant",
-          content:
-            content.length === 0 ? [{ type: "text", text: "" }] : content,
-        });
+        if (content.length > 0) {
+          messages.push({
+            role: "assistant",
+            content,
+          });
+        }
         continue;
       }
       if (
         type === "function_call_output" ||
-        type === "custom_tool_call_output"
+        type === "custom_tool_call_output" ||
+        type === "apply_patch_call_output"
       ) {
         const content: Block[] = [];
         while (index < items.length) {
           const current = object(items[index], `input[${index}]`);
           if (
             current.type !== "function_call_output" &&
-            current.type !== "custom_tool_call_output"
+            current.type !== "custom_tool_call_output" &&
+            current.type !== "apply_patch_call_output"
           )
             break;
+          if (current.type === "apply_patch_call_output") {
+            if (dropped.has(index)) {
+              index += 1;
+              continue;
+            }
+            const block = decodedResults.get(index);
+            if (block !== undefined) {
+              content.push(block);
+              index += 1;
+              continue;
+            }
+            const statusResult = decodeApplyPatchResultStatusWire(
+              current.status,
+              `input[${index}]`,
+            );
+            if (statusResult.loss) {
+              losses.push(statusResult.loss);
+              index += 1;
+              continue;
+            }
+            const outResult = decodeApplyPatchResultOutputWire(
+              current.output,
+              `input[${index}]`,
+            );
+            content.push({
+              type: "apply_patch_tool_result",
+              tool_use_id: nonEmptyString(
+                current.call_id,
+                `input[${index}].call_id`,
+              ),
+              status: statusResult.status!,
+              ...(outResult.output !== undefined
+                ? { output: outResult.output }
+                : {}),
+            });
+            index += 1;
+            continue;
+          }
           const callId = nonEmptyString(
             current.call_id,
             `input[${index}].call_id`,
@@ -270,7 +358,9 @@ function decodeRequestObject(
             });
           index += 1;
         }
-        messages.push({ role: "user", content });
+        if (content.length > 0) {
+          messages.push({ role: "user", content });
+        }
         continue;
       }
       if (type === "message") {
@@ -348,6 +438,287 @@ function decodeRequestObject(
   };
   validateRequest(request);
   return { value: request, losses };
+}
+
+function precheckApplyPatchPairs(items: readonly JsonValue[]): {
+  decodedCalls: Map<number, Block>;
+  decodedResults: Map<number, Block>;
+  dropped: Set<number>;
+  losses: Loss[];
+} {
+  const decodedCalls = new Map<number, Block>();
+  const decodedResults = new Map<number, Block>();
+  const dropped = new Set<number>();
+  const losses: Loss[] = [];
+
+  let i = 0;
+  while (i < items.length) {
+    const item = items[i];
+    if (
+      typeof item !== "object" ||
+      item === null ||
+      isJsonArray(item) ||
+      isJsonNumber(item)
+    ) {
+      i++;
+      continue;
+    }
+    const type = item.type === undefined ? "message" : item.type;
+    const isAssistant =
+      (type === "message" && item.role === "assistant") ||
+      type === "function_call" ||
+      type === "custom_tool_call" ||
+      type === "apply_patch_call" ||
+      type === "reasoning";
+
+    if (!isAssistant) {
+      i++;
+      continue;
+    }
+
+    const calls: { callId: string; kind: string; index: number }[] = [];
+    let aStart = i;
+    while (aStart < items.length) {
+      const it = items[aStart];
+      if (
+        typeof it !== "object" ||
+        it === null ||
+        isJsonArray(it) ||
+        isJsonNumber(it)
+      )
+        break;
+      const t = it.type === undefined ? "message" : it.type;
+      if (t === "function_call") {
+        calls.push({
+          callId: string(it.call_id, `input[${aStart}].call_id`),
+          kind: "function",
+          index: aStart,
+        });
+      } else if (t === "custom_tool_call") {
+        calls.push({
+          callId: string(it.call_id, `input[${aStart}].call_id`),
+          kind: "custom",
+          index: aStart,
+        });
+      } else if (t === "apply_patch_call") {
+        calls.push({
+          callId: string(it.call_id, `input[${aStart}].call_id`),
+          kind: "apply_patch",
+          index: aStart,
+        });
+      } else if (
+        t === "reasoning" ||
+        (t === "message" && it.role === "assistant")
+      ) {
+        // assistant content
+      } else {
+        break;
+      }
+      aStart++;
+    }
+
+    const results: { callId: string; kind: string; index: number }[] = [];
+    let oStart = aStart;
+    while (oStart < items.length) {
+      const it = items[oStart];
+      if (
+        typeof it !== "object" ||
+        it === null ||
+        isJsonArray(it) ||
+        isJsonNumber(it)
+      )
+        break;
+      const t = it.type;
+      if (t === "function_call_output") {
+        results.push({
+          callId: string(it.call_id, `input[${oStart}].call_id`),
+          kind: "function",
+          index: oStart,
+        });
+      } else if (t === "custom_tool_call_output") {
+        results.push({
+          callId: string(it.call_id, `input[${oStart}].call_id`),
+          kind: "custom",
+          index: oStart,
+        });
+      } else if (t === "apply_patch_call_output") {
+        results.push({
+          callId: string(it.call_id, `input[${oStart}].call_id`),
+          kind: "apply_patch",
+          index: oStart,
+        });
+      } else {
+        break;
+      }
+      oStart++;
+    }
+
+    if (calls.length > 0 && calls.length === results.length) {
+      let matched = true;
+      for (let k = 0; k < calls.length; k++) {
+        if (
+          calls[k]!.callId !== results[k]!.callId ||
+          calls[k]!.kind !== results[k]!.kind
+        ) {
+          matched = false;
+          break;
+        }
+      }
+      if (matched) {
+        for (let k = 0; k < calls.length; k++) {
+          if (calls[k]!.kind !== "apply_patch") continue;
+          const cIdx = calls[k]!.index;
+          const oIdx = results[k]!.index;
+          const cItem = object(items[cIdx], `input[${cIdx}]`);
+          const oItem = object(items[oIdx], `input[${oIdx}]`);
+
+          const callOpResult = decodeApplyPatchOperationWire(
+            cItem.operation,
+            `input[${cIdx}]`,
+          );
+          const callStatusResult = decodeApplyPatchCallStatusWire(
+            cItem.status,
+            `input[${cIdx}]`,
+          );
+          const resStatusResult = decodeApplyPatchResultStatusWire(
+            oItem.status,
+            `input[${oIdx}]`,
+          );
+          const resOutputResult = decodeApplyPatchResultOutputWire(
+            oItem.output,
+            `input[${oIdx}]`,
+          );
+
+          const hasCallLoss =
+            callOpResult.loss !== undefined ||
+            callStatusResult.loss !== undefined;
+          const hasResLoss = resStatusResult.loss !== undefined;
+
+          if (hasCallLoss || hasResLoss) {
+            dropped.add(cIdx);
+            dropped.add(oIdx);
+            if (hasCallLoss) {
+              if (callOpResult.loss) losses.push(callOpResult.loss);
+              if (callStatusResult.loss) losses.push(callStatusResult.loss);
+            } else {
+              losses.push(loss(`input[${cIdx}]`, "type", "unsupported-semantic"));
+            }
+            if (hasResLoss) {
+              if (resStatusResult.loss) losses.push(resStatusResult.loss);
+            } else {
+              losses.push(loss(`input[${oIdx}]`, "type", "unsupported-semantic"));
+            }
+          } else {
+            decodedCalls.set(cIdx, {
+              type: "apply_patch_tool_use",
+              id: string(cItem.call_id, `input[${cIdx}].call_id`),
+              status: callStatusResult.status!,
+              operation: callOpResult.operation!,
+            });
+            decodedResults.set(oIdx, {
+              type: "apply_patch_tool_result",
+              tool_use_id: string(oItem.call_id, `input[${oIdx}].call_id`),
+              status: resStatusResult.status!,
+              ...(resOutputResult.output !== undefined
+                ? { output: resOutputResult.output }
+                : {}),
+            });
+          }
+        }
+      }
+    }
+
+    i = oStart;
+  }
+
+  return { decodedCalls, decodedResults, dropped, losses };
+}
+
+function decodeApplyPatchOperationWire(
+  wire: JsonValue | undefined,
+  path: string,
+): { operation?: ApplyPatchOperation; loss?: Loss } {
+  if (
+    wire === undefined ||
+    wire === null ||
+    typeof wire !== "object" ||
+    isJsonArray(wire) ||
+    isJsonNumber(wire)
+  ) {
+    return { loss: loss(path, "operation", "unsupported-semantic") };
+  }
+  const type = string(wire.type, `${path}.operation.type`);
+  switch (type) {
+    case "create_file":
+    case "update_file":
+      return {
+        operation: {
+          type,
+          path: string(wire.path, `${path}.operation.path`),
+          diff: string(wire.diff, `${path}.operation.diff`),
+        },
+      };
+    case "delete_file":
+      return {
+        operation: {
+          type,
+          path: string(wire.path, `${path}.operation.path`),
+        },
+      };
+    default:
+      return { loss: loss(path, "operation", "unsupported-semantic") };
+  }
+}
+
+function decodeApplyPatchCallStatusWire(
+  status: JsonValue | undefined,
+  path: string,
+): { status?: "in_progress" | "completed"; loss?: Loss } {
+  if (typeof status !== "string") {
+    return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+  }
+  if (status === "in_progress" || status === "completed") {
+    return { status };
+  }
+  return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+}
+
+function decodeApplyPatchResultStatusWire(
+  status: JsonValue | undefined,
+  path: string,
+): { status?: "completed" | "failed"; loss?: Loss } {
+  if (typeof status !== "string") {
+    return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+  }
+  if (status === "completed" || status === "failed") {
+    return { status };
+  }
+  return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+}
+
+function decodeApplyPatchResultOutputWire(
+  output: JsonValue | undefined,
+  path: string,
+): { output?: string } {
+  if (output === undefined || output === null) {
+    return {};
+  }
+  if (typeof output === "string") {
+    return { output };
+  }
+  fail(`${path}.output must be a string`);
+}
+
+function encodeApplyPatchOperation(op: ApplyPatchOperation): JsonObject {
+  switch (op.type) {
+    case "create_file":
+    case "update_file":
+      return { type: op.type, path: op.path, diff: op.diff };
+    case "delete_file":
+      return { type: op.type, path: op.path };
+    default:
+      fail("unknown apply_patch operation");
+  }
 }
 
 export function decodeResponse(
@@ -460,6 +831,48 @@ function decodeResponseObject(
             "unmapped-field",
           ),
         );
+    } else if (item.type === "apply_patch_call") {
+      const statusResult = decodeApplyPatchCallStatusWire(
+        item.status,
+        `output[${index}]`,
+      );
+      if (statusResult.loss) {
+        losses.push(statusResult.loss);
+        continue;
+      }
+      const opResult = decodeApplyPatchOperationWire(
+        item.operation,
+        `output[${index}]`,
+      );
+      if (opResult.loss) {
+        losses.push(opResult.loss);
+        continue;
+      }
+      calls.push({
+        type: "apply_patch_tool_use",
+        id: nonEmptyString(item.call_id, `output[${index}].call_id`),
+        status: statusResult.status!,
+        operation: opResult.operation!,
+      });
+    } else if (item.type === "apply_patch_call_output") {
+      const statusResult = decodeApplyPatchResultStatusWire(
+        item.status,
+        `output[${index}]`,
+      );
+      if (statusResult.loss) {
+        losses.push(statusResult.loss);
+        continue;
+      }
+      const outResult = decodeApplyPatchResultOutputWire(
+        item.output,
+        `output[${index}]`,
+      );
+      calls.push({
+        type: "apply_patch_tool_result",
+        tool_use_id: nonEmptyString(item.call_id, `output[${index}].call_id`),
+        status: statusResult.status!,
+        ...(outResult.output !== undefined ? { output: outResult.output } : {}),
+      });
     } else if (item.type === "function_call") {
       calls.push({
         type: "tool_use",
@@ -495,7 +908,10 @@ function decodeResponseObject(
     losses.push(loss("error", "error", "unsupported-semantic"));
   } else if (status === "completed") {
     stopReason = calls.some(
-      (block) => block.type === "tool_use" || block.type === "custom_tool_use",
+      (block) =>
+        block.type === "tool_use" ||
+        block.type === "custom_tool_use" ||
+        block.type === "apply_patch_tool_use",
     )
       ? "tool_use"
       : "end_turn";
@@ -602,6 +1018,13 @@ export function encodeRequest(
                 "unmapped-field",
               ),
             );
+        } else if (block.type === "apply_patch_tool_use") {
+          calls.push({
+            type: "apply_patch_call",
+            call_id: block.id,
+            status: block.status,
+            operation: encodeApplyPatchOperation(block.operation),
+          });
         } else if (block.type === "tool_use") {
           calls.push({
             type: "function_call",
@@ -652,25 +1075,27 @@ export function encodeRequest(
       : undefined;
   const tools =
     request.tools?.map((tool) =>
-      tool.type === "custom"
-        ? {
-            type: "custom",
-            name: tool.name,
-            ...(tool.description === undefined
-              ? {}
-              : { description: tool.description }),
-            ...(tool.format === undefined
-              ? {}
-              : { format: encodeCustomToolFormat(tool.format) }),
-          }
-        : {
-            type: "function",
-            name: tool.name,
-            ...(tool.description === undefined
-              ? {}
-              : { description: tool.description }),
-            parameters: tool.input_schema,
-          },
+      tool.type === "apply_patch"
+        ? { type: "apply_patch" }
+        : tool.type === "custom"
+          ? {
+              type: "custom",
+              name: tool.name,
+              ...(tool.description === undefined
+                ? {}
+                : { description: tool.description }),
+              ...(tool.format === undefined
+                ? {}
+                : { format: encodeCustomToolFormat(tool.format) }),
+            }
+          : {
+              type: "function",
+              name: tool.name,
+              ...(tool.description === undefined
+                ? {}
+                : { description: tool.description }),
+              parameters: tool.input_schema,
+            },
     ) ?? [];
   const toolChoice = encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
@@ -718,6 +1143,8 @@ export function encodeResponse(
   let hasText = false;
   const thinking: string[] = [];
   const calls: JsonValue[] = [];
+  let apcIndex = 0;
+  let apcoIndex = 0;
   for (let index = 0; index < response.content.length; index += 1) {
     const block = response.content[index]!;
     if (block.type === "text") {
@@ -729,6 +1156,24 @@ export function encodeResponse(
         losses.push(
           loss(`content[${index}].signature`, "signature", "unmapped-field"),
         );
+    } else if (block.type === "apply_patch_tool_use") {
+      calls.push({
+        type: "apply_patch_call",
+        id: `apc_${apcIndex}`,
+        status: block.status,
+        call_id: block.id,
+        operation: encodeApplyPatchOperation(block.operation),
+      });
+      apcIndex += 1;
+    } else if (block.type === "apply_patch_tool_result") {
+      calls.push({
+        type: "apply_patch_call_output",
+        id: `apco_${apcoIndex}`,
+        status: block.status,
+        call_id: block.tool_use_id,
+        ...(block.output !== undefined ? { output: block.output } : {}),
+      });
+      apcoIndex += 1;
     } else if (block.type === "tool_use") {
       calls.push({
         type: "function_call",
@@ -852,14 +1297,19 @@ function encodeUserMessage(
   const results: {
     readonly block:
       | ToolResultBlock
-      | Extract<Block, { type: "custom_tool_result" }>;
+      | Extract<Block, { type: "custom_tool_result" }>
+      | Extract<Block, { type: "apply_patch_tool_result" }>;
     readonly index: number;
   }[] = [];
   let firstNormal = -1;
   let lastResult = -1;
   for (let index = 0; index < message.content.length; index += 1) {
     const block = message.content[index]!;
-    if (block.type === "tool_result" || block.type === "custom_tool_result") {
+    if (
+      block.type === "tool_result" ||
+      block.type === "custom_tool_result" ||
+      block.type === "apply_patch_tool_result"
+    ) {
       results.push({ block, index });
       lastResult = index;
     } else {
@@ -870,6 +1320,17 @@ function encodeUserMessage(
   if (firstNormal >= 0 && firstNormal < lastResult)
     losses.push(loss(`messages[${messageIndex}]`, "ordering", "degraded"));
   for (const result of results) {
+    if (result.block.type === "apply_patch_tool_result") {
+      items.push({
+        type: "apply_patch_call_output",
+        call_id: result.block.tool_use_id,
+        status: result.block.status,
+        ...(result.block.output !== undefined
+          ? { output: result.block.output }
+          : {}),
+      });
+      continue;
+    }
     if (result.block.type === "custom_tool_result") {
       items.push({
         type: "custom_tool_call_output",
@@ -1136,16 +1597,22 @@ function decodeToolChoice(
   } else if (
     typeof value === "object" &&
     !isJsonArray(value) &&
-    !isJsonNumber(value) &&
-    (value.type === "function" || value.type === "custom") &&
-    typeof value.name === "string" &&
-    value.name !== ""
-  )
-    return {
-      mode: "tool",
-      name: value.name,
-      ...(value.type === "custom" ? { tool_type: "custom" } : {}),
-    };
+    !isJsonNumber(value)
+  ) {
+    if (value.type === "apply_patch") {
+      return { mode: "tool", tool_type: "apply_patch" };
+    }
+    if (
+      (value.type === "function" || value.type === "custom") &&
+      typeof value.name === "string" &&
+      value.name !== ""
+    )
+      return {
+        mode: "tool",
+        name: value.name,
+        ...(value.type === "custom" ? { tool_type: "custom" } : {}),
+      };
+  }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }
@@ -1157,11 +1624,14 @@ function encodeToolChoice(
   if (value === undefined) return undefined;
   if (value.mode === "auto" || value.mode === "none") return value.mode;
   if (value.mode === "any") return "required";
-  if (value.mode === "tool" && value.name !== "")
-    return {
-      type: value.tool_type === "custom" ? "custom" : "function",
-      name: value.name,
-    };
+  if (value.mode === "tool") {
+    if (value.tool_type === "apply_patch") return { type: "apply_patch" };
+    if (value.name !== "")
+      return {
+        type: value.tool_type === "custom" ? "custom" : "function",
+        name: value.name,
+      };
+  }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }
@@ -1276,7 +1746,7 @@ function encodeTextFormat(format: ResponseFormat): JsonObject {
         ...(format.description === undefined
           ? {}
           : { description: format.description }),
-        schema: format.schema,
+        schema: { ...format.schema },
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
   }

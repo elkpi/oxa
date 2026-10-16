@@ -32,6 +32,8 @@ from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     CustomToolResultBlock,
     CustomToolUseBlock,
     STOP_END_TURN,
@@ -89,7 +91,7 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
-            if tool.type == "custom":
+            if tool.type in ("custom", "apply_patch"):
                 losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Anthropic mapping"))
                 continue
             require_json_object(tool.input_schema, f"tools[{index}].input_schema")
@@ -234,7 +236,7 @@ def encode_request_block(
     if isinstance(block, ImageBlock):
         return encode_image_block(block.media_type, block.data, block.url, path)
 
-    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock)):
+    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
 
     if isinstance(block, ToolUseBlock):
@@ -471,7 +473,7 @@ def encode_response_block(
             [],
             True,
         )
-    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock)):
+    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
     return (
         None,

@@ -333,7 +333,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     }
 
     const bool all_tools_custom = req.tools.has_value() && !req.tools->empty() &&
-        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) { return tool.type == "custom"; });
+        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) {
+            return tool.type == "custom" || tool.type == ir::TOOL_TYPE_APPLY_PATCH;
+        });
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
@@ -341,6 +343,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             if (t.type == "custom") {
                 losses.push_back(make_ant_loss("tools[" + std::to_string(ti) + "]", "type",
                     ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                continue;
+            }
+            if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
+                losses.push_back(make_ant_loss("tools[" + std::to_string(ti) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
                 continue;
             }
             json::Value tw = json::Value::object();
@@ -351,7 +358,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tw.set("input_schema", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
             tools_arr.push_back(std::move(tw));
         }
-        out.set("tools", std::move(tools_arr));
+        if (!tools_arr.as_array().empty()) {
+            out.set("tools", std::move(tools_arr));
+        }
     }
 
     if (req.tool_choice.has_value()) {
@@ -362,7 +371,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
             if (all_tools_custom) losses.push_back(make_ant_loss("tool_choice", "tool_choice",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "required choice was omitted because all tools are unsupported custom tools"));
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
             else {
                 json::Value tco = json::Value::object();
                 tco.set("type", json::Value::string("any"));
@@ -373,9 +382,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tco.set("type", json::Value::string("none"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
-            if (tc.tool_type.has_value() && *tc.tool_type == "custom") {
+            if (tc.tool_type.has_value() && (*tc.tool_type == "custom" || *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH)) {
                 losses.push_back(make_ant_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "Anthropic Messages has no native custom tool choice mapping"));
+                    "tool choice has no equivalent"));
             } else {
                 json::Value tco = json::Value::object();
                 tco.set("type", json::Value::string("tool"));
@@ -452,6 +461,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
                     losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "custom_tool_result", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
                 } else if (const auto* tr = std::get_if<ir::ToolResultBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("tool_result"));
@@ -627,6 +639,9 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "custom_tool_result",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+        } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
         }
     }
     out.set("content", std::move(content_arr));
@@ -1022,11 +1037,26 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
             (void)custom;
             skipped_custom_ = true; open_tool_ = false; open_thinking_ = false;
-            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "block",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages streaming does not support custom tools"));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
+            (void)ap;
+            skipped_atomic_ = true; skipped_custom_ = false; open_tool_ = false; open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages streaming does not support apply_patch tools"));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
+            (void)apr;
+            skipped_atomic_ = true; skipped_custom_ = false; open_tool_ = false; open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         skipped_custom_ = false;
+        skipped_atomic_ = false;
         open_index_ = next_index_++;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_start"));
@@ -1068,6 +1098,9 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
         if (!block_open_ || cbd->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockDelta out of grammar order");
+        }
+        if (skipped_atomic_) {
+            return invalid_argument("anthropic: atomic block does not accept deltas");
         }
         if (skipped_custom_) {
             if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
@@ -1114,6 +1147,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
         if (!block_open_ || cst->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (skipped_atomic_) {
+            block_open_ = false; skipped_atomic_ = false;
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (skipped_custom_) {
             block_open_ = false; skipped_custom_ = false;

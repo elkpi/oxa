@@ -10,12 +10,16 @@ import {
 } from "../json/index.js";
 import {
   specVersion,
+  type ApplyPatchOperation,
   type Block,
+  type Message,
   type Params,
   type Request,
   type Response,
   type ResponseFormat,
+  type Tool,
   type ToolChoice,
+  type ToolResultBlock,
   type Usage,
 } from "./types.js";
 
@@ -36,25 +40,27 @@ export function encodeRequest(request: Request): JsonObject {
       ? {}
       : {
           tools: request.tools.map((tool) =>
-            tool.type === "custom"
-              ? {
-                  type: "custom",
-                  name: tool.name,
-                  ...(tool.description === undefined
-                    ? {}
-                    : { description: tool.description }),
-                  ...(tool.format === undefined
-                    ? {}
-                    : { format: encodeCustomToolFormat(tool.format) }),
-                }
-              : {
-                  ...(tool.type === undefined ? {} : { type: "function" }),
-                  name: tool.name,
-                  ...(tool.description === undefined
-                    ? {}
-                    : { description: tool.description }),
-                  input_schema: tool.input_schema,
-                },
+            tool.type === "apply_patch"
+              ? { type: "apply_patch" }
+              : tool.type === "custom"
+                ? {
+                    type: "custom",
+                    name: tool.name,
+                    ...(tool.description === undefined
+                      ? {}
+                      : { description: tool.description }),
+                    ...(tool.format === undefined
+                      ? {}
+                      : { format: encodeCustomToolFormat(tool.format) }),
+                  }
+                : {
+                    ...(tool.type === undefined ? {} : { type: "function" }),
+                    name: tool.name,
+                    ...(tool.description === undefined
+                      ? {}
+                      : { description: tool.description }),
+                    input_schema: tool.input_schema,
+                  },
           ),
         }),
     ...(request.tool_choice === undefined
@@ -72,15 +78,17 @@ export function encodeRequest(request: Request): JsonObject {
 
 export function decodeRequest(document: JsonValue): Request {
   const root = documentRoot(document);
+  const params =
+    root.params === undefined ? undefined : decodeParams(root.params);
   const request: Request = {
-    model: string(root.model, "request.model"),
+    model: nonEmptyString(root.model, "request.model"),
     ...(root.system === undefined
       ? {}
       : {
-          system: array(root.system, "request.system").map((value) => {
-            const block = decodeBlock(value);
+          system: array(root.system, "request.system").map((entry) => {
+            const block = decodeBlock(entry);
             if (block.type !== "text")
-              fail("request.system must contain only text blocks");
+              fail("system blocks must be text blocks");
             return block;
           }),
         }),
@@ -88,7 +96,7 @@ export function decodeRequest(document: JsonValue): Request {
       const message = object(value, "request.message");
       const role = string(message.role, "request.message.role");
       if (role !== "user" && role !== "assistant")
-        fail("request.message.role is unsupported");
+        fail("message.role must be user or assistant");
       return {
         role,
         content: array(message.content, "request.message.content").map(
@@ -105,6 +113,17 @@ export function decodeRequest(document: JsonValue): Request {
               tool.type === undefined
                 ? "function"
                 : string(tool.type, "request.tool.type");
+            if (type === "apply_patch") {
+              if (
+                tool.name !== undefined ||
+                tool.description !== undefined ||
+                tool.input_schema !== undefined ||
+                tool.format !== undefined
+              ) {
+                fail("apply_patch declaration must only contain type");
+              }
+              return { type: "apply_patch" as const };
+            }
             const name = nonEmptyString(tool.name, "request.tool.name");
             const description =
               tool.description === undefined
@@ -138,10 +157,16 @@ export function decodeRequest(document: JsonValue): Request {
     ...(root.tool_choice === undefined
       ? {}
       : { tool_choice: decodeToolChoice(root.tool_choice) }),
-    ...(root.params === undefined ? {} : { params: decodeParams(root.params) }),
+    ...(params === undefined ? {} : { params }),
     ...(root.metadata === undefined
       ? {}
-      : { metadata: stringRecord(root.metadata, "request.metadata") }),
+      : {
+          metadata: Object.fromEntries(
+            Object.entries(object(root.metadata, "request.metadata")).map(
+              ([key, value]) => [key, string(value, `request.metadata.${key}`)],
+            ),
+          ),
+        }),
   };
   validateRequest(request);
   return request;
@@ -159,12 +184,21 @@ export function validateRequest(request: Request): void {
       invalid("messages[" + index + "].content must not be empty");
     for (const block of message.content) {
       if (
-        (block.type === "tool_use" || block.type === "custom_tool_use") &&
-        (block.id === "" || block.name === "")
+        (block.type === "tool_use" ||
+          block.type === "custom_tool_use" ||
+          block.type === "apply_patch_tool_use") &&
+        block.id === ""
       )
         invalid("tool call id and name must not be empty");
       if (
-        (block.type === "tool_result" || block.type === "custom_tool_result") &&
+        (block.type === "tool_use" || block.type === "custom_tool_use") &&
+        block.name === ""
+      )
+        invalid("tool call id and name must not be empty");
+      if (
+        (block.type === "tool_result" ||
+          block.type === "custom_tool_result" ||
+          block.type === "apply_patch_tool_result") &&
         block.tool_use_id === ""
       )
         invalid("tool result tool_use_id must not be empty");
@@ -179,7 +213,9 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
     message.role === "assistant"
       ? message.content.filter(
           (block) =>
-            block.type === "tool_use" || block.type === "custom_tool_use",
+            block.type === "tool_use" ||
+            block.type === "custom_tool_use" ||
+            block.type === "apply_patch_tool_use",
         )
       : [];
   const toolResults = topLevelToolResults(message.content);
@@ -194,12 +230,16 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
     const followingResults = topLevelToolResults(following.content);
     if (
       followingResults.length !== toolUses.length ||
-      toolUses.some(
-        (toolUse, toolIndex) =>
-          followingResults[toolIndex]?.tool_use_id !== toolUse.id ||
-          (toolUse.type === "custom_tool_use") !==
-            (followingResults[toolIndex]?.type === "custom_tool_result"),
-      )
+      toolUses.some((toolUse, toolIndex) => {
+        const res = followingResults[toolIndex];
+        if (res === undefined || res.tool_use_id !== toolUse.id) return true;
+        if (toolUse.type === "tool_use") return res.type !== "tool_result";
+        if (toolUse.type === "custom_tool_use")
+          return res.type !== "custom_tool_result";
+        if (toolUse.type === "apply_patch_tool_use")
+          return res.type !== "apply_patch_tool_result";
+        return true;
+      })
     )
       invalid(
         "INV-3/INV-4: tool results must match preceding tool uses in order",
@@ -213,7 +253,9 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
       preceding.role !== "assistant" ||
       !preceding.content.some(
         (block) =>
-          block.type === "tool_use" || block.type === "custom_tool_use",
+          block.type === "tool_use" ||
+          block.type === "custom_tool_use" ||
+          block.type === "apply_patch_tool_use",
       )
     )
       invalid("INV-3: orphan or split tool results");
@@ -225,10 +267,12 @@ function topLevelToolResults(
 ): readonly (
   | Extract<Block, { readonly type: "tool_result" }>
   | Extract<Block, { readonly type: "custom_tool_result" }>
+  | Extract<Block, { readonly type: "apply_patch_tool_result" }>
 )[] {
   const results: (
     | Extract<Block, { readonly type: "tool_result" }>
     | Extract<Block, { readonly type: "custom_tool_result" }>
+    | Extract<Block, { readonly type: "apply_patch_tool_result" }>
   )[] = [];
   collectToolResults(content, 0, results);
   return results;
@@ -240,10 +284,15 @@ function collectToolResults(
   results: (
     | Extract<Block, { readonly type: "tool_result" }>
     | Extract<Block, { readonly type: "custom_tool_result" }>
+    | Extract<Block, { readonly type: "apply_patch_tool_result" }>
   )[],
 ): void {
   for (const block of content) {
-    if (block.type !== "tool_result" && block.type !== "custom_tool_result")
+    if (
+      block.type !== "tool_result" &&
+      block.type !== "custom_tool_result" &&
+      block.type !== "apply_patch_tool_result"
+    )
       continue;
     if (depth > 0)
       invalid("INV-3: nested tool results cannot answer a tool use");
@@ -270,8 +319,8 @@ export function encodeResponse(response: Response): JsonObject {
 export function decodeResponse(document: JsonValue): Response {
   const root = documentRoot(document);
   return {
-    id: string(root.id, "response.id"),
-    model: string(root.model, "response.model"),
+    id: nonEmptyString(root.id, "response.id"),
+    model: nonEmptyString(root.model, "response.model"),
     content: array(root.content, "response.content").map(decodeBlock),
     stop_reason: string(
       root.stop_reason,
@@ -330,6 +379,20 @@ function encodeBlock(block: Block): JsonObject {
             ? block.output
             : block.output.map(encodeCustomOutput),
       };
+    case "apply_patch_tool_use":
+      return {
+        type: block.type,
+        id: block.id,
+        status: block.status,
+        operation: encodeApplyPatchOperation(block.operation),
+      };
+    case "apply_patch_tool_result":
+      return {
+        type: block.type,
+        tool_use_id: block.tool_use_id,
+        status: block.status,
+        ...(block.output === undefined ? {} : { output: block.output }),
+      };
     case "tool_result":
       return {
         type: "tool_result",
@@ -337,6 +400,16 @@ function encodeBlock(block: Block): JsonObject {
         content: block.content.map(encodeBlock),
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       };
+  }
+}
+
+function encodeApplyPatchOperation(op: ApplyPatchOperation): JsonObject {
+  switch (op.type) {
+    case "create_file":
+    case "update_file":
+      return { type: op.type, path: op.path, diff: op.diff };
+    case "delete_file":
+      return { type: op.type, path: op.path };
   }
 }
 
@@ -393,6 +466,27 @@ function decodeBlock(value: JsonValue): Block {
             : array(output, "block.output").map(decodeCustomOutput),
       };
     }
+    case "apply_patch_tool_use":
+      return {
+        type: block.type,
+        id: nonEmptyString(block.id, "block.id"),
+        status: decodeApplyPatchCallStatus(block.status, "block.status"),
+        operation: decodeApplyPatchOperation(
+          block.operation,
+          "block.operation",
+        ),
+      };
+    case "apply_patch_tool_result": {
+      if (block.output !== undefined && typeof block.output !== "string") {
+        fail("apply_patch_tool_result output must be a string if defined");
+      }
+      return {
+        type: block.type,
+        tool_use_id: nonEmptyString(block.tool_use_id, "block.tool_use_id"),
+        status: decodeApplyPatchResultStatus(block.status, "block.status"),
+        ...(block.output === undefined ? {} : { output: block.output }),
+      };
+    }
     case "tool_result":
       return {
         type: "tool_result",
@@ -405,6 +499,56 @@ function decodeBlock(value: JsonValue): Block {
     default:
       fail("unsupported IR block type");
   }
+}
+
+function decodeApplyPatchOperation(
+  value: JsonValue | undefined,
+  path: string,
+): ApplyPatchOperation {
+  const op = object(value, path);
+  const type = string(op.type, `${path}.type`);
+  const filePath = string(op.path, `${path}.path`);
+  switch (type) {
+    case "create_file":
+    case "update_file":
+      return {
+        type,
+        path: filePath,
+        diff: string(op.diff, `${path}.diff`),
+      };
+    case "delete_file":
+      if (op.diff !== undefined) {
+        fail(`${path}: delete_file must not carry diff`);
+      }
+      return {
+        type,
+        path: filePath,
+      };
+    default:
+      fail(`unsupported apply_patch operation type: ${type}`);
+  }
+}
+
+function decodeApplyPatchCallStatus(
+  value: JsonValue | undefined,
+  path: string,
+): "in_progress" | "completed" {
+  const s = string(value, path);
+  if (s !== "in_progress" && s !== "completed") {
+    fail(`unknown apply_patch call status: ${s}`);
+  }
+  return s;
+}
+
+function decodeApplyPatchResultStatus(
+  value: JsonValue | undefined,
+  path: string,
+): "completed" | "failed" {
+  const s = string(value, path);
+  if (s !== "completed" && s !== "failed") {
+    fail(`unknown apply_patch result status: ${s}`);
+  }
+  return s;
 }
 
 function encodeCustomOutput(
@@ -422,23 +566,25 @@ function encodeCustomOutput(
       };
 }
 function decodeCustomOutput(
-  value: JsonValue,
+  b: JsonValue,
 ): import("./types.js").TextBlock | import("./types.js").ImageBlock {
-  const b = object(value, "block.output[]");
-  if (b.type === "text")
-    return { type: "text", text: string(b.text, "block.output[].text") };
-  if (b.type === "image")
+  const block = object(b, "block.output[]");
+  if (block.type === "text")
+    return { type: "text", text: string(block.text, "block.output[].text") };
+  if (block.type === "image")
     return {
       type: "image",
-      ...(b.media_type === undefined
+      ...(block.media_type === undefined
         ? {}
-        : { media_type: string(b.media_type, "block.output[].media_type") }),
-      ...(b.data === undefined
+        : {
+            media_type: string(block.media_type, "block.output[].media_type"),
+          }),
+      ...(block.data === undefined
         ? {}
-        : { data: string(b.data, "block.output[].data") }),
-      ...(b.url === undefined
+        : { data: string(block.data, "block.output[].data") }),
+      ...(block.url === undefined
         ? {}
-        : { url: string(b.url, "block.output[].url") }),
+        : { url: string(block.url, "block.output[].url") }),
     };
   fail("custom tool output only supports text and image blocks");
 }
@@ -701,6 +847,14 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
       choice.tool_type === undefined
         ? undefined
         : string(choice.tool_type, "request.tool_choice.tool_type");
+    if (toolType === "apply_patch") {
+      if (choice.name !== undefined)
+        fail("apply_patch tool choice must not have name");
+      return {
+        mode: "tool",
+        tool_type: "apply_patch",
+      };
+    }
     if (
       toolType !== undefined &&
       toolType !== "function" &&
@@ -727,19 +881,39 @@ function documentRoot(document: JsonValue): JsonObject {
   return root;
 }
 
-function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
-  return value === "0.1.0" || value === "0.2.0";
+function array(
+  value: JsonValue | undefined,
+  name: string,
+): readonly JsonValue[] {
+  if (!isJsonArray(value)) fail(`${name} must be an array`);
+  return value;
 }
 
-function stringRecord(
-  value: JsonValue,
-  name: string,
-): Readonly<Record<string, string>> {
-  const source = object(value, name);
-  const result: Record<string, string> = {};
-  for (const [key, child] of Object.entries(source))
-    result[key] = string(child, `${name}.${key}`);
+function object(value: JsonValue | undefined, name: string): JsonObject {
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    isJsonArray(value) ||
+    isJsonNumber(value)
+  )
+    fail(`${name} must be an object`);
+  return value;
+}
+
+function string(value: JsonValue | undefined, name: string): string {
+  if (typeof value !== "string") fail(`${name} must be a string`);
+  return value;
+}
+
+function nonEmptyString(value: JsonValue | undefined, name: string): string {
+  const result = string(value, name);
+  if (result.length === 0) fail(`${name} must not be empty`);
   return result;
+}
+
+function boolean(value: JsonValue | undefined, name: string): boolean {
+  if (typeof value !== "boolean") fail(`${name} must be a boolean`);
+  return value;
 }
 
 function token(value: JsonValue | undefined, name: string): bigint {
@@ -763,55 +937,18 @@ function finiteNumber(value: JsonValue | undefined, name: string): number {
   return result;
 }
 
-function array(
-  value: JsonValue | undefined,
-  name: string,
-): readonly JsonValue[] {
-  if (!isJsonArray(value)) fail(`${name} must be an array`);
-  return value;
-}
-
-function object(value: JsonValue | undefined, name: string): JsonObject {
-  if (
-    value === undefined ||
-    value === null ||
-    typeof value !== "object" ||
-    isJsonArray(value) ||
-    isJsonNumber(value)
-  )
-    fail(`${name} must be an object`);
-  return value;
-}
-
-function string(value: JsonValue | undefined, name: string): string {
-  if (typeof value !== "string") fail(`${name} must be a string`);
-  return value;
-}
-
-function nonEmptyString(value: JsonValue | undefined, name: string): string {
-  const result = string(value, name);
-  if (result.length === 0) fail(`${name} must not be empty`);
-  return result;
-}
-
 function reasoningEffort(
-  value: JsonValue | undefined,
+  value: JsonValue,
   name: string,
-): NonNullable<Params["reasoning_effort"]> {
-  const result = string(value, name);
-  if (
-    result !== "minimal" &&
-    result !== "low" &&
-    result !== "medium" &&
-    result !== "high"
-  )
-    fail(`${name} is unsupported`);
-  return result;
+): import("./types.js").ReasoningEffort {
+  const str = string(value, name);
+  if (str !== "minimal" && str !== "low" && str !== "medium" && str !== "high")
+    fail(`${name} must be minimal, low, medium, or high`);
+  return str;
 }
 
-function boolean(value: JsonValue | undefined, name: string): boolean {
-  if (typeof value !== "boolean") fail(`${name} must be a boolean`);
-  return value;
+function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
+  return value === "0.1.0" || value === "0.2.0";
 }
 
 function fail(message: string): never {

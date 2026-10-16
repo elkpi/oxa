@@ -13,6 +13,8 @@ from oxa.ir.constants import (
     BLOCK_TYPE_TOOL_USE,
     BLOCK_TYPE_CUSTOM_TOOL_USE,
     BLOCK_TYPE_CUSTOM_TOOL_RESULT,
+    BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
+    BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
@@ -101,7 +103,60 @@ class CustomToolResultBlock:
     type: str = field(default=BLOCK_TYPE_CUSTOM_TOOL_RESULT, init=False)
 
 
-Block = TextBlock | ThinkingBlock | ImageBlock | ToolUseBlock | ToolResultBlock | CustomToolUseBlock | CustomToolResultBlock
+@dataclass(frozen=True, slots=True)
+class ApplyPatchCreateFileOperation:
+    path: str
+    diff: str
+    type: str = field(default="create_file", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyPatchDeleteFileOperation:
+    path: str
+    type: str = field(default="delete_file", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyPatchUpdateFileOperation:
+    path: str
+    diff: str
+    type: str = field(default="update_file", init=False)
+
+
+ApplyPatchOperation = (
+    ApplyPatchCreateFileOperation
+    | ApplyPatchDeleteFileOperation
+    | ApplyPatchUpdateFileOperation
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyPatchToolUseBlock:
+    id: str
+    status: str
+    operation: ApplyPatchOperation
+    type: str = field(default=BLOCK_TYPE_APPLY_PATCH_TOOL_USE, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class ApplyPatchToolResultBlock:
+    tool_use_id: str
+    status: str
+    output: str | None = None
+    type: str = field(default=BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT, init=False)
+
+
+Block = (
+    TextBlock
+    | ThinkingBlock
+    | ImageBlock
+    | ToolUseBlock
+    | ToolResultBlock
+    | CustomToolUseBlock
+    | CustomToolResultBlock
+    | ApplyPatchToolUseBlock
+    | ApplyPatchToolResultBlock
+)
 SystemBlock = TextBlock
 
 # ---- Request Components ---------------------------------------------------
@@ -137,7 +192,7 @@ class Tool:
     input_schema is a JSON-Schema-shaped object carried verbatim.
     """
 
-    name: str
+    name: str = ""
     input_schema: dict[str, Any] | None = None
     description: str | None = None
     type: str = "function"

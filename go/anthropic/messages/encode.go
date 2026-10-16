@@ -51,6 +51,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tools[%d]", i), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "custom tools have no equivalent in Anthropic Messages"})
 			continue
 		}
+		if tool.Type == ir.ToolTypeApplyPatch {
+			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tools[%d]", i), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tools have no equivalent in Anthropic Messages"})
+			continue
+		}
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
 		}
@@ -157,8 +161,8 @@ func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error)
 	if choice == nil {
 		return nil, nil, nil
 	}
-	if choice.ToolType == ir.ToolTypeCustom {
-		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "custom tool choice has no equivalent"}}, nil
+	if choice.ToolType == ir.ToolTypeCustom || choice.ToolType == ir.ToolTypeApplyPatch {
+		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "tool choice has no equivalent"}}, nil
 	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto:
@@ -355,7 +359,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		hasCustom, hasFunction := false, false
 		for _, b := range resp.Content {
 			switch b.(type) {
-			case ir.CustomToolUseBlock:
+			case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
 				hasCustom = true
 			case ir.ToolUseBlock:
 				hasFunction = true

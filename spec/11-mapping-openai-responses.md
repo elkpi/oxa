@@ -9,6 +9,9 @@ non-streaming request and response conversion implemented by the Go spoke
 [13 — Custom Tools](13-custom-tools.md)（N-C-1 至 N-C-5）；这些扩展与现有
 function 映射并存，不得通过名称或输入内容推断类型。
 
+规范 2.3 的专用 Apply Patch 声明、选择、请求/响应调用与结果见
+[14 — Apply Patch](14-apply-patch.md)。它与名为 apply_patch 的 custom 工具严格分离。
+
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be
 interpreted as described in RFC 2119 and RFC 8174 (see

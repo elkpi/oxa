@@ -21,7 +21,7 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, ITEM_TYPE_CUSTOM_TOOL_CALL,
     ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE,
-    ITEM_TYPE_REASONING, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
+    ITEM_TYPE_REASONING, OutputValue, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
 };
 
 struct StreamFunctionCall {
@@ -42,6 +42,14 @@ struct CompletedCustomCall {
     input: String,
 }
 
+struct StreamApplyPatchCall {
+    call_id: String,
+}
+
+struct StreamApplyPatchResult {
+    call_id: String,
+}
+
 pub struct StreamDecoder {
     config: Config,
     losses: Vec<Loss>,
@@ -58,7 +66,10 @@ pub struct StreamDecoder {
     output_index: i64,
     next_content_index: i64,
     function_call: Option<StreamFunctionCall>,
+    apply_patch_call: Option<StreamApplyPatchCall>,
+    apply_patch_result: Option<StreamApplyPatchResult>,
     completed_custom_calls: Vec<CompletedCustomCall>,
+    completed_items: Vec<crate::types::OutputItem>,
     tool_use_seen: bool,
     encrypted_content_loss_recorded: bool,
     block_open: bool,
@@ -101,7 +112,10 @@ impl StreamDecoder {
             output_index: 0,
             next_content_index: 0,
             function_call: None,
+            apply_patch_call: None,
+            apply_patch_result: None,
             completed_custom_calls: Vec::new(),
+            completed_items: Vec::new(),
             tool_use_seen: false,
             encrypted_content_loss_recorded: false,
             block_open: false,
@@ -119,6 +133,18 @@ impl StreamDecoder {
         }
         if self.terminated {
             return Err(Error::new("responses: event fed after terminal response"));
+        }
+
+        if (self.apply_patch_call.is_some() || self.apply_patch_result.is_some())
+            && (ev.kind.starts_with("response.content_part.")
+                || ev.kind.starts_with("response.output_text.")
+                || ev.kind.starts_with("response.reasoning_summary_")
+                || ev.kind.starts_with("response.function_call_arguments.")
+                || ev.kind.starts_with("response.custom_tool_call_input."))
+        {
+            return Err(Error::new(
+                "responses: content or delta event on apply patch item",
+            ));
         }
 
         match ev.kind.as_str() {
@@ -169,6 +195,32 @@ impl StreamDecoder {
                 }
                 if item.kind == ITEM_TYPE_REASONING {
                     self.record_encrypted_content_loss(output_index, &item.encrypted_content);
+                    return Ok(Vec::new());
+                }
+                if item.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL {
+                    if item.id.is_empty()
+                        || item.call_id.is_empty()
+                        || item.status.is_empty()
+                        || item.operation.is_none()
+                    {
+                        return Err(Error::new(
+                            "responses: apply_patch_call requires id, call_id, status and operation",
+                        ));
+                    }
+                    self.apply_patch_call = Some(StreamApplyPatchCall {
+                        call_id: item.call_id.clone(),
+                    });
+                    return Ok(Vec::new());
+                }
+                if item.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT {
+                    if item.id.is_empty() || item.call_id.is_empty() || item.status.is_empty() {
+                        return Err(Error::new(
+                            "responses: apply_patch_call_output requires id, call_id and status",
+                        ));
+                    }
+                    self.apply_patch_result = Some(StreamApplyPatchResult {
+                        call_id: item.call_id.clone(),
+                    });
                     return Ok(Vec::new());
                 }
                 if item.kind == ITEM_TYPE_FUNCTION_CALL {
@@ -644,6 +696,79 @@ impl StreamDecoder {
                         "responses: response.output_item.done with a content part still open",
                     ));
                 }
+                if let Some(ap) = self.apply_patch_call.take() {
+                    if item.call_id != ap.call_id {
+                        return Err(Error::new(
+                            "responses: output_item.done does not match active apply_patch_call",
+                        ));
+                    }
+                    let status = crate::normalize::decode_apply_patch_call_status(
+                        &item.status,
+                        &format!("output[{output_index}]"),
+                        &mut self.losses,
+                    )?;
+                    let op = crate::normalize::decode_apply_patch_operation(
+                        item.operation.as_ref(),
+                        &format!("output[{output_index}].operation"),
+                        &mut self.losses,
+                    )?;
+                    let events = if let (Some(status), Some(op)) = (status, op) {
+                        let index = self.next_block_index;
+                        self.next_block_index += 1;
+                        self.tool_use_seen = true;
+                        vec![
+                            Event::ContentBlockStart {
+                                index,
+                                block: Block::ApplyPatchToolUse {
+                                    id: ap.call_id,
+                                    status,
+                                    operation: op,
+                                },
+                            },
+                            Event::ContentBlockStop { index },
+                        ]
+                    } else {
+                        Vec::new()
+                    };
+                    self.completed_items.push(item.clone());
+                    return self.close_stream_item(events);
+                }
+                if let Some(apr) = self.apply_patch_result.take() {
+                    if item.call_id != apr.call_id {
+                        return Err(Error::new(
+                            "responses: output_item.done does not match active apply_patch_call_output",
+                        ));
+                    }
+                    let status = crate::normalize::decode_apply_patch_result_status(
+                        &item.status,
+                        &format!("output[{output_index}]"),
+                        &mut self.losses,
+                    )?;
+                    let output = match &item.output {
+                        None => None,
+                        Some(OutputValue::Text(s)) => Some(s.clone()),
+                        Some(_) => return Err(Error::new("responses: output must be a string")),
+                    };
+                    let events = if let Some(status) = status {
+                        let index = self.next_block_index;
+                        self.next_block_index += 1;
+                        vec![
+                            Event::ContentBlockStart {
+                                index,
+                                block: Block::ApplyPatchToolResult {
+                                    tool_use_id: apr.call_id,
+                                    status,
+                                    output,
+                                },
+                            },
+                            Event::ContentBlockStop { index },
+                        ]
+                    } else {
+                        Vec::new()
+                    };
+                    self.completed_items.push(item.clone());
+                    return self.close_stream_item(events);
+                }
                 if let Some(mut fc) = self.function_call.take() {
                     let index = self.next_block_index;
                     self.next_block_index += 1;
@@ -744,6 +869,46 @@ impl StreamDecoder {
                     )));
                 };
                 validate_custom_terminal(response, &self.completed_custom_calls)?;
+                for it in &response.output {
+                    if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL
+                        || it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT
+                    {
+                        let prior = self.completed_items.iter().find(|p| p.id == it.id);
+                        let Some(prior) = prior else {
+                            return Err(Error::new(
+                                "responses: terminal apply patch snapshot mismatch",
+                            ));
+                        };
+                        if it.call_id != prior.call_id || it.status != prior.status {
+                            return Err(Error::new(
+                                "responses: terminal apply patch snapshot mismatch",
+                            ));
+                        }
+                        if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL {
+                            let (op1, op2) = (&it.operation, &prior.operation);
+                            let mismatch = match (op1, op2) {
+                                (Some(o1), Some(o2)) => {
+                                    o1.kind != o2.kind
+                                        || o1.path != o2.path
+                                        || (o1.kind != "delete_file" && o1.diff != o2.diff)
+                                }
+                                (None, None) => false,
+                                _ => true,
+                            };
+                            if mismatch {
+                                return Err(Error::new(
+                                    "responses: terminal apply patch operation mismatch",
+                                ));
+                            }
+                        } else {
+                            if it.output != prior.output {
+                                return Err(Error::new(
+                                    "responses: terminal apply patch output mismatch",
+                                ));
+                            }
+                        }
+                    }
+                }
                 let (stop, status_losses) = decode_status(response, self.tool_use_seen)?;
                 self.losses.extend(status_losses);
                 self.terminated = true;

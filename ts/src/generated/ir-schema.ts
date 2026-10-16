@@ -23,7 +23,23 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaBlock)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock;
+
+export type IrSchemaApplyPatchOperation = { readonly type: "create_file"; readonly path: string; readonly diff: string; } | { readonly type: "delete_file"; readonly path: string; } | { readonly type: "update_file"; readonly path: string; readonly diff: string; };
+
+export interface IrSchemaApplyPatchToolUseBlock {
+  readonly type: "apply_patch_tool_use";
+  readonly id: string;
+  readonly status: "in_progress" | "completed";
+  readonly operation: IrSchemaApplyPatchOperation;
+}
+
+export interface IrSchemaApplyPatchToolResultBlock {
+  readonly type: "apply_patch_tool_result";
+  readonly tool_use_id: string;
+  readonly status: "completed" | "failed";
+  readonly output?: string;
+}
 
 export interface IrSchemaCustomToolUseBlock {
   readonly type: "custom_tool_use";
@@ -77,9 +93,9 @@ export interface IrSchemaToolResultBlock {
   readonly is_error?: boolean;
 }
 
-export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; };
+export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; } | { readonly type: "apply_patch"; };
 
-export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom"; };
+export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom"; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; };
 
 export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
 

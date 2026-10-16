@@ -8,11 +8,18 @@ from typing import Any
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
+    LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
     TOOL_CHOICE_ANY,
     TOOL_CHOICE_AUTO,
     TOOL_CHOICE_NONE,
     TOOL_CHOICE_TOOL,
+    ApplyPatchCreateFileOperation,
+    ApplyPatchDeleteFileOperation,
+    ApplyPatchOperation,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
+    ApplyPatchUpdateFileOperation,
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
@@ -99,56 +106,62 @@ def decode_content_part(
         return [TextBlock(text=part.get("text", ""))], []
     if kind == PART_TYPE_INPUT_IMAGE:
         img_url = part.get("image_url", "")
-        block, img_loss = decode_image_url(img_url, f"{path}[{index}].image_url")
+        if isinstance(img_url, dict):
+            raw_url = img_url.get("url", "")
+        else:
+            raw_url = str(img_url) if img_url else ""
+        block, img_loss = decode_image_url(raw_url, f"{path}[{index}].image_url")
         if img_loss is not None:
             return [], [img_loss]
         return [block], []
+    if kind == PART_TYPE_OUTPUT_TEXT:
+        return [TextBlock(text=part.get("text", ""))], []
     return [], [
         loss(
             f"{path}[{index}]",
             "type",
             LOSS_UNSUPPORTED_SEMANTIC,
-            f"Responses input content part type {kind!r} has no IR equivalent",
+            f"Responses content part type {kind!r} has no IR equivalent",
         )
     ]
 
 
-def decode_image_url(raw: str, path: str) -> tuple[Block, Loss | None]:
+def decode_image_url(raw: str, path: str) -> tuple[ImageBlock, Loss | None]:
     if raw.startswith("https:"):
         if is_valid_https_url(raw):
             return ImageBlock(url=raw), None
-        return TextBlock(text=""), loss(
+        return ImageBlock(url=""), loss(
             path,
             "image_url",
             LOSS_UNSUPPORTED_SEMANTIC,
             "malformed https image URL has no IR equivalent",
         )
     if not raw.startswith("data:"):
-        return TextBlock(text=""), loss(
+        return ImageBlock(url=""), loss(
             path,
             "image_url",
             LOSS_UNSUPPORTED_SEMANTIC,
             "only https and base64 data image URLs are supported",
         )
-    data_part = raw[len("data:") :]
-    if "," not in data_part:
-        return TextBlock(text=""), loss(
+    without_prefix = raw[5:]
+    if "," not in without_prefix:
+        return ImageBlock(url=""), loss(
             path,
             "image_url",
             LOSS_UNSUPPORTED_SEMANTIC,
             "malformed data image URL has no IR equivalent",
         )
-    metadata, data = data_part.split(",", 1)
+    metadata, data = without_prefix.split(",", 1)
     if not metadata.endswith(";base64"):
-        return TextBlock(text=""), loss(
+        return ImageBlock(url=""), loss(
             path,
             "image_url",
             LOSS_UNSUPPORTED_SEMANTIC,
             "malformed data image URL has no IR equivalent",
         )
-    media_type = metadata[: -len(";base64")]
+    media_type = metadata[:-7]
     if not media_type.lower().startswith("image/") or media_type == "image/":
-        return TextBlock(text=""), loss(
+        return ImageBlock(url=""), loss(
             path,
             "image_url",
             LOSS_UNSUPPORTED_SEMANTIC,
@@ -157,9 +170,200 @@ def decode_image_url(raw: str, path: str) -> tuple[Block, Loss | None]:
     return ImageBlock(media_type=media_type, data=data), None
 
 
+def decode_apply_patch_operation(wire: Any, path: str) -> tuple[ApplyPatchOperation | None, Loss | None]:
+    if not isinstance(wire, dict):
+        raise ValueError(f"responses: {path}.operation is required")
+    kind = wire.get("type")
+    if not isinstance(kind, str) or not kind:
+        raise ValueError(f"responses: {path}.operation.type is required")
+    if kind not in ("create_file", "update_file", "delete_file"):
+        return None, loss(path, "operation", LOSS_UNSUPPORTED_SEMANTIC, f"unsupported operation type {kind!r}")
+    file_path = wire.get("path")
+    if not isinstance(file_path, str):
+        raise ValueError(f"responses: {path}.operation.path must be a string")
+    if kind in ("create_file", "update_file"):
+        diff = wire.get("diff")
+        if not isinstance(diff, str):
+            raise ValueError(f"responses: {path}.operation.diff is required for {kind}")
+        op_cls = ApplyPatchCreateFileOperation if kind == "create_file" else ApplyPatchUpdateFileOperation
+        return op_cls(path=file_path, diff=diff), None
+    if kind == "delete_file":
+        return ApplyPatchDeleteFileOperation(path=file_path), None
+    return None, loss(path, "operation", LOSS_UNSUPPORTED_SEMANTIC, f"unsupported operation type {kind!r}")
+
+
+def decode_apply_patch_call_status(status: Any, path: str) -> tuple[str | None, Loss | None]:
+    if not isinstance(status, str) or not status:
+        raise ValueError(f"responses: {path}.status is required")
+    if status in ("in_progress", "completed"):
+        return status, None
+    return None, loss(f"{path}.status", "status", LOSS_UNMAPPED_VALUE, f"unknown apply_patch_call status {status!r}")
+
+
+def decode_apply_patch_result_status(status: Any, path: str) -> tuple[str | None, Loss | None]:
+    if not isinstance(status, str) or not status:
+        raise ValueError(f"responses: {path}.status is required")
+    if status in ("completed", "failed"):
+        return status, None
+    return None, loss(f"{path}.status", "status", LOSS_UNMAPPED_VALUE, f"unknown apply_patch_call_output status {status!r}")
+
+
+def encode_apply_patch_operation(op: ApplyPatchOperation) -> dict[str, Any]:
+    if isinstance(op, (ApplyPatchCreateFileOperation, ApplyPatchUpdateFileOperation)):
+        return {"type": op.type, "path": op.path, "diff": op.diff}
+    if isinstance(op, ApplyPatchDeleteFileOperation):
+        return {"type": op.type, "path": op.path}
+    raise ValueError(f"responses: unknown apply patch operation {type(op)}")
+
+
+def precheck_apply_patch_pairs(
+    items: list[dict[str, Any]],
+) -> tuple[dict[int, Block], dict[int, Block], set[int], list[Loss]]:
+    decoded_calls: dict[int, Block] = {}
+    decoded_results: dict[int, Block] = {}
+    dropped: set[int] = set()
+    losses: list[Loss] = []
+
+    i = 0
+    while i < len(items):
+        item = items[i]
+        if not isinstance(item, dict):
+            i += 1
+            continue
+        if item.get("type") == "apply_patch_call_output":
+            raise ValueError(f"responses: input[{i}]: apply_patch tool result without preceding tool calls (INV-3)")
+        kind = item.get("type", "")
+        role = item.get("role", "")
+        is_assistant = (
+            (kind in ("", ITEM_TYPE_MESSAGE) and role == ROLE_ASSISTANT)
+            or kind
+            in (
+                ITEM_TYPE_FUNCTION_CALL,
+                ITEM_TYPE_CUSTOM_TOOL_CALL,
+                "apply_patch_call",
+                ITEM_TYPE_REASONING,
+            )
+        )
+        if not is_assistant:
+            i += 1
+            continue
+
+        calls: list[dict[str, Any]] = []
+        seen_call_ids: set[str] = set()
+        a_start = i
+        while a_start < len(items):
+            it = items[a_start]
+            if not isinstance(it, dict):
+                break
+            k = it.get("type", "")
+            r = it.get("role", "")
+            cur_kind = ""
+            if k == ITEM_TYPE_FUNCTION_CALL:
+                cur_kind = "function"
+            elif k == ITEM_TYPE_CUSTOM_TOOL_CALL:
+                cur_kind = "custom"
+            elif k == "apply_patch_call":
+                cur_kind = "apply_patch"
+            elif k == ITEM_TYPE_REASONING or (k in ("", ITEM_TYPE_MESSAGE) and r == ROLE_ASSISTANT):
+                pass
+            else:
+                break
+            if cur_kind:
+                cid = it.get("call_id", "")
+                if cur_kind == "apply_patch" and not cid:
+                    raise ValueError(f"responses: input[{a_start}]: apply_patch tool call requires nonempty call_id (INV-3)")
+                if cid in seen_call_ids:
+                    raise ValueError(f"responses: input[{a_start}]: duplicate call_id {cid!r} in turn (INV-3)")
+                seen_call_ids.add(cid)
+                calls.append({"call_id": cid, "kind": cur_kind, "index": a_start})
+            a_start += 1
+
+        results: list[dict[str, Any]] = []
+        o_start = a_start
+        while o_start < len(items):
+            it = items[o_start]
+            if not isinstance(it, dict):
+                break
+            k = it.get("type", "")
+            matched_kind = ""
+            if k == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
+                matched_kind = "function"
+            elif k == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT:
+                matched_kind = "custom"
+            elif k == "apply_patch_call_output":
+                matched_kind = "apply_patch"
+            else:
+                break
+            cid = it.get("call_id", "")
+            if matched_kind == "apply_patch" and not cid:
+                raise ValueError(f"responses: input[{o_start}]: apply_patch tool result requires nonempty call_id (INV-3)")
+            results.append({"call_id": cid, "kind": matched_kind, "index": o_start})
+            o_start += 1
+
+        has_apply_patch = any(c["kind"] == "apply_patch" for c in calls) or any(r["kind"] == "apply_patch" for r in results)
+
+        if has_apply_patch:
+            if len(calls) != len(results):
+                raise ValueError(f"responses: tool calls count ({len(calls)}) and results count ({len(results)}) mismatch (INV-3)")
+            for k in range(len(calls)):
+                if calls[k]["call_id"] != results[k]["call_id"] or calls[k]["kind"] != results[k]["kind"]:
+                    raise ValueError("responses: tool result identity/type/order mismatch (INV-3)")
+
+            for k in range(len(calls)):
+                if calls[k]["kind"] != "apply_patch":
+                    continue
+                c_idx = calls[k]["index"]
+                o_idx = results[k]["index"]
+                c_item = items[c_idx]
+                o_item = items[o_idx]
+
+                op, op_loss = decode_apply_patch_operation(c_item.get("operation"), f"input[{c_idx}]")
+                c_status, cs_loss = decode_apply_patch_call_status(c_item.get("status"), f"input[{c_idx}]")
+                r_status, rs_loss = decode_apply_patch_result_status(o_item.get("status"), f"input[{o_idx}]")
+                out = o_item.get("output")
+                if out is not None and not isinstance(out, str):
+                    raise ValueError(f"responses: input[{o_idx}].output must be a string")
+
+                has_call_loss = op_loss is not None or cs_loss is not None
+                has_res_loss = rs_loss is not None
+
+                if has_call_loss or has_res_loss:
+                    dropped.add(c_idx)
+                    dropped.add(o_idx)
+                    if has_call_loss:
+                        if op_loss is not None:
+                            losses.append(op_loss)
+                        if cs_loss is not None:
+                            losses.append(cs_loss)
+                    else:
+                        losses.append(loss(f"input[{c_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"))
+                    if has_res_loss:
+                        if rs_loss is not None:
+                            losses.append(rs_loss)
+                    else:
+                        losses.append(loss(f"input[{o_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"))
+                else:
+                    decoded_calls[c_idx] = ApplyPatchToolUseBlock(
+                        id=c_item.get("call_id", ""),
+                        status=c_status,
+                        operation=op,
+                    )
+                    decoded_results[o_idx] = ApplyPatchToolResultBlock(
+                        tool_use_id=o_item.get("call_id", ""),
+                        status=r_status,
+                        output=out,
+                    )
+
+        i = o_start
+
+    return decoded_calls, decoded_results, dropped, losses
+
+
 def decode_assistant_run(
     items: list[dict[str, Any]],
     start: int,
+    decoded_calls: dict[int, Block] | None = None,
+    dropped: set[int] | None = None,
 ) -> tuple[IrMessage | None, int, list[Loss]]:
     """N-R-5 merges assistant items and function-call items into one assistant message."""
     thinkings: list[Block] = []
@@ -187,6 +391,15 @@ def decode_assistant_run(
                     )
             index += 1
             continue
+        if kind == "apply_patch_call":
+            if dropped is not None and index in dropped:
+                index += 1
+                continue
+            if decoded_calls is not None and index in decoded_calls:
+                calls.append(decoded_calls[index])
+                index += 1
+                continue
+            raise ValueError(f"responses: input[{index}]: unpaired apply_patch_call (INV-3)")
         if kind == ITEM_TYPE_FUNCTION_CALL:
             calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
             index += 1
@@ -212,13 +425,31 @@ def decode_assistant_run(
     return IrMessage(role=IR_ROLE_ASSISTANT, content=content), index, losses
 
 
-def decode_output_run(items: list[dict[str, Any]], start: int) -> tuple[IrMessage, int, list[Loss]]:
+def decode_output_run(
+    items: list[dict[str, Any]],
+    start: int,
+    decoded_results: dict[int, Block] | None = None,
+    dropped: set[int] | None = None,
+) -> tuple[IrMessage | None, int, list[Loss]]:
     """Merge maximal function/custom result runs into a single user turn."""
     content: list[Block] = []
     losses: list[Loss] = []
     index = start
-    while index < len(items) and items[index].get("type") in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT):
+    while index < len(items) and items[index].get("type") in (
+        ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+        ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
+        "apply_patch_call_output",
+    ):
         item = items[index]
+        if item.get("type") == "apply_patch_call_output":
+            if dropped is not None and index in dropped:
+                index += 1
+                continue
+            if decoded_results is not None and index in decoded_results:
+                content.append(decoded_results[index])
+                index += 1
+                continue
+            raise ValueError(f"responses: input[{index}]: unpaired apply_patch_call_output (INV-3)")
         if item.get("type") == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
             content.append(ToolResultBlock(tool_use_id=item.get("call_id", ""), content=[TextBlock(text=item.get("output", ""))]))
         else:
@@ -249,7 +480,10 @@ def decode_output_run(items: list[dict[str, Any]], start: int) -> tuple[IrMessag
             else:
                 raise ValueError(f"responses: input[{index}].output must be a string or array")
         index += 1
+    if not content:
+        return None, index, losses
     return IrMessage(role=IR_ROLE_USER, content=content), index, losses
+
 
 def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
     """N-R-9 maps Responses tool choice forms to the IR modes."""
@@ -273,6 +507,8 @@ def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
     if isinstance(value, dict):
         kind = value.get("type", "")
         name = value.get("name", "")
+        if kind == "apply_patch":
+            return ToolChoice(mode=TOOL_CHOICE_TOOL, tool_type="apply_patch"), []
         if kind in (TOOL_TYPE_FUNCTION, TOOL_TYPE_CUSTOM) and name:
             return ToolChoice(mode=TOOL_CHOICE_TOOL, name=name, tool_type=kind), []
         return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "only named function or custom Responses tool_choice values are supported")]
@@ -296,6 +532,8 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[Any | None, Loss | No
     if choice.mode == TOOL_CHOICE_ANY:
         return RESP_TOOL_CHOICE_REQUIRED, None
     if choice.mode == TOOL_CHOICE_TOOL:
+        if choice.tool_type == "apply_patch":
+            return {"type": "apply_patch"}, None
         if choice.name:
             return {"type": TOOL_TYPE_CUSTOM if choice.tool_type == "custom" else TOOL_TYPE_FUNCTION, "name": choice.name}, None
         return None, loss(
@@ -371,7 +609,8 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
             )
             if img_loss is not None:
                 losses.append(img_loss)
-            elif part is not None:
+                continue
+            if part is not None:
                 has_image = True
                 parts.append(part)
         else:
@@ -380,13 +619,13 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                     f"{path}[{index}]",
                     "content",
                     LOSS_UNSUPPORTED_SEMANTIC,
-                    "this IR block cannot be rendered in a Responses user message",
+                    "this IR block cannot be rendered in a Responses user message item",
                 )
             )
 
-    if has_image:
-        return parts, losses
-    return "".join(text_chunks), losses
+    if len(text_chunks) <= 1 and not has_image:
+        return "".join(text_chunks), losses
+    return parts, losses
 
 
 def encode_user_message(
@@ -394,13 +633,13 @@ def encode_user_message(
     path: str,
 ) -> tuple[list[dict[str, Any]], list[Loss]]:
     normal: list[Block] = []
-    results: list[ToolResultBlock | CustomToolResultBlock] = []
+    results: list[ToolResultBlock | CustomToolResultBlock | ApplyPatchToolResultBlock] = []
     first_normal: int | None = None
     last_result: int | None = None
     losses: list[Loss] = []
 
     for pos, block in enumerate(message.content):
-        if isinstance(block, (ToolResultBlock, CustomToolResultBlock)):
+        if isinstance(block, (ToolResultBlock, CustomToolResultBlock, ApplyPatchToolResultBlock)):
             results.append(block)
             last_result = pos
         else:
@@ -420,6 +659,16 @@ def encode_user_message(
 
     items: list[dict[str, Any]] = []
     for index, res in enumerate(results):
+        if isinstance(res, ApplyPatchToolResultBlock):
+            item_out: dict[str, Any] = {
+                "type": "apply_patch_call_output",
+                "call_id": res.tool_use_id,
+                "status": res.status,
+            }
+            if res.output is not None:
+                item_out["output"] = res.output
+            items.append(item_out)
+            continue
         if isinstance(res, CustomToolResultBlock):
             if isinstance(res.output, str):
                 output = res.output
@@ -432,6 +681,8 @@ def encode_user_message(
                         part, img_loss = encode_image_block(inner.media_type, inner.data, inner.url, f"{path}.content[{index}].output[{c_idx}]")
                         if img_loss is not None: losses.append(img_loss)
                         elif part is not None: output.append(part)
+                    else:
+                        losses.append(loss(f"{path}.content[{index}].output[{c_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
             items.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, "call_id": res.tool_use_id, "output": output})
             continue
         out_chunks: list[str] = []
@@ -508,6 +759,13 @@ def encode_assistant_message(
                         "Responses reasoning input items carry no provider signature",
                     )
                 )
+        elif isinstance(block, ApplyPatchToolUseBlock):
+            calls.append({
+                "type": "apply_patch_call",
+                "call_id": block.id,
+                "status": block.status,
+                "operation": encode_apply_patch_operation(block.operation),
+            })
         elif isinstance(block, ToolUseBlock):
             calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "call_id": block.id, "name": block.name, "arguments": block.input})
         elif isinstance(block, CustomToolUseBlock):

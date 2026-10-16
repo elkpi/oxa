@@ -10,6 +10,8 @@ from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
     LOSS_UNMAPPED_FIELD,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -121,6 +123,9 @@ class StreamEncoder:
                     raise ValueError("chatcompletions: CustomToolUseBlock requires nonempty ID and name")
                 self._active = _StreamEncodeBlock(kind="custom", index=ev.index, tool_id=ev.block.id, tool_name=ev.block.name, tool_input=ev.block.input)
                 return [], []
+            if isinstance(ev.block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+                self._active = _StreamEncodeBlock(kind="apply_patch", index=ev.index)
+                return [], []
             if isinstance(ev.block, ToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("chatcompletions: ToolUseBlock requires nonempty ID and name")
@@ -160,6 +165,8 @@ class StreamEncoder:
                         )
                     ]
                 raise ValueError("chatcompletions: ThinkingBlock received non-thinking delta")
+            if self._active.kind == "apply_patch":
+                raise ValueError("chatcompletions: apply patch block does not accept deltas")
             if self._active.kind == "custom":
                 if not isinstance(ev.delta, CustomToolInputDelta):
                     raise ValueError("chatcompletions: CustomToolUseBlock received non-custom-input delta")
@@ -180,6 +187,8 @@ class StreamEncoder:
             active = self._active
             self._active = None
 
+            if active.kind == "apply_patch":
+                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool calls have no Chat Completions streaming mapping")]
             if active.kind == "custom":
                 if active.fragments and "".join(active.fragments) != active.tool_input:
                     raise ValueError("chatcompletions: CustomToolUseBlock input does not equal custom input deltas")

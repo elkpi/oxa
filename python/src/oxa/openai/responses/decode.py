@@ -14,6 +14,8 @@ from oxa.ir import (
     STOP_MAX_TOKENS,
     STOP_OTHER,
     STOP_TOOL_USE,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
@@ -65,12 +67,16 @@ from oxa.openai.responses.constants import (
 )
 from oxa.openai.responses.normalize import (
     content_system,
+    decode_apply_patch_call_status,
+    decode_apply_patch_operation,
+    decode_apply_patch_result_status,
     decode_assistant_run,
     decode_content,
     decode_image_url,
     decode_output_run,
     decode_tool_choice,
     loss,
+    precheck_apply_patch_pairs,
 )
 
 
@@ -124,6 +130,9 @@ def decode_request(
     tools: list[Tool] = []
     for index, tool in enumerate(wire.get("tools", [])):
         kind = tool.get("type", "")
+        if kind == "apply_patch":
+            tools.append(Tool(type="apply_patch"))
+            continue
         if kind == TOOL_TYPE_CUSTOM:
             fmt = decode_custom_tool_format(tool.get("format"), f"tools[{index}].format", losses) if "format" in tool else None
             tools.append(Tool(name=tool.get("name", ""), description=tool.get("description"), type="custom", format=fmt))
@@ -156,6 +165,9 @@ def decode_request(
     if isinstance(raw_input, str):
         req.messages.append(IrMessage(role=IR_ROLE_USER, content=[TextBlock(text=raw_input)]))
     elif isinstance(raw_input, list):
+        decoded_calls, decoded_results, dropped, pair_losses = precheck_apply_patch_pairs(raw_input)
+        losses.extend(pair_losses)
+
         index = 0
         while index < len(raw_input):
             item = raw_input[index]
@@ -189,22 +201,23 @@ def decode_request(
                     req.messages.append(IrMessage(role=IR_ROLE_USER, content=content))
                     index += 1
                 elif role == ROLE_ASSISTANT:
-                    msg, next_idx, run_losses = decode_assistant_run(raw_input, index)
+                    msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
                     if msg is not None:
                         req.messages.append(msg)
                     losses.extend(run_losses)
                     index = next_idx
                 else:
                     raise ValueError(f"responses: input[{index}]: unknown role {role!r}")
-            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_REASONING):
-                msg, next_idx, run_losses = decode_assistant_run(raw_input, index)
+            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING):
+                msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
                 if msg is not None:
                     req.messages.append(msg)
                 losses.extend(run_losses)
                 index = next_idx
-            elif kind in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT):
-                msg, next_idx, run_losses = decode_output_run(raw_input, index)
-                req.messages.append(msg)
+            elif kind in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, "apply_patch_call_output"):
+                msg, next_idx, run_losses = decode_output_run(raw_input, index, decoded_results, dropped)
+                if msg is not None:
+                    req.messages.append(msg)
                 losses.extend(run_losses)
                 index = next_idx
             else:
@@ -438,6 +451,38 @@ def decode_response(
                         "Responses reasoning encrypted_content has no IR equivalent in v2.",
                     )
                 )
+        elif kind == "apply_patch_call":
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                raise ValueError(f"responses: output[{item_index}].id is required")
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id:
+                raise ValueError(f"responses: output[{item_index}].call_id is required")
+            c_status, cs_loss = decode_apply_patch_call_status(item.get("status"), f"output[{item_index}]")
+            if cs_loss is not None:
+                losses.append(cs_loss)
+                continue
+            op, op_loss = decode_apply_patch_operation(item.get("operation"), f"output[{item_index}]")
+            if op_loss is not None:
+                losses.append(op_loss)
+                continue
+            calls.append(ApplyPatchToolUseBlock(id=call_id, status=c_status, operation=op))
+            has_tool_use = True
+        elif kind == "apply_patch_call_output":
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                raise ValueError(f"responses: output[{item_index}].id is required")
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id:
+                raise ValueError(f"responses: output[{item_index}].call_id is required")
+            r_status, rs_loss = decode_apply_patch_result_status(item.get("status"), f"output[{item_index}]")
+            if rs_loss is not None:
+                losses.append(rs_loss)
+                continue
+            out = item.get("output")
+            if out is not None and not isinstance(out, str):
+                raise ValueError(f"responses: output[{item_index}].output must be a string")
+            calls.append(ApplyPatchToolResultBlock(tool_use_id=call_id, status=r_status, output=out))
         elif kind == ITEM_TYPE_FUNCTION_CALL:
             calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
             has_tool_use = True
@@ -453,17 +498,20 @@ def decode_response(
             elif isinstance(output, list):
                 mapped: list[TextBlock | ImageBlock] = []
                 for part_index, part in enumerate(output):
-                    path=f"output[{item_index}].output[{part_index}]"
+                    path = f"output[{item_index}].output[{part_index}]"
                     if not isinstance(part, dict):
-                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported")); continue
-                    if part.get("type") == "input_text": mapped.append(TextBlock(text=part.get("text", "")))
+                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+                        continue
+                    if part.get("type") == "input_text":
+                        mapped.append(TextBlock(text=part.get("text", "")))
                     elif part.get("type") == "input_image":
                         image, img_loss = decode_image_url(part.get("image_url", ""), f"{path}.image_url")
                         if img_loss is None and isinstance(image, ImageBlock):
                             mapped.append(image)
                         elif img_loss is not None:
                             losses.append(img_loss)
-                    else: losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+                    else:
+                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
                 calls.append(CustomToolResultBlock(tool_use_id=item.get("call_id", ""), output=mapped))
             else:
                 raise ValueError(f"responses: output[{item_index}].output must be a string or array")
@@ -538,34 +586,37 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
     if status == STATUS_COMPLETED:
         return (STOP_TOOL_USE if has_tool_use else STOP_END_TURN), []
     if status == STATUS_INCOMPLETE:
-        details = wire.get("incomplete_details", {})
-        reason = details.get("reason", "")
+        reason = ""
+        inc = wire.get("incomplete_details")
+        if isinstance(inc, dict):
+            reason = inc.get("reason", "")
         if reason == INCOMPLETE_REASON_MAX_OUTPUT_TOKENS:
             return STOP_MAX_TOKENS, []
-        return (
-            STOP_OTHER,
-            [
-                loss(
-                    "incomplete_details.reason",
-                    "reason",
-                    LOSS_UNMAPPED_VALUE,
-                    f"Responses incomplete_details reason {reason!r} has no IR equivalent",
-                )
-            ],
-        )
+        return STOP_OTHER, [
+            loss(
+                "incomplete_details.reason",
+                "reason",
+                LOSS_UNMAPPED_VALUE,
+                f"Responses incomplete_details reason {reason!r} has no IR equivalent",
+            )
+        ]
     if status == STATUS_FAILED:
-        return (
-            STOP_OTHER,
-            [
-                loss(
-                    "error",
-                    "error",
-                    LOSS_UNSUPPORTED_SEMANTIC,
-                    "failed Responses response carries no error object",
-                )
-            ],
+        return STOP_OTHER, [
+            loss(
+                "error",
+                "error",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                "failed Responses response carries no error object",
+            )
+        ]
+    return STOP_OTHER, [
+        loss(
+            "status",
+            "status",
+            LOSS_UNMAPPED_VALUE,
+            f"Responses status {status!r} has no IR equivalent",
         )
-    return STOP_OTHER, []
+    ]
 
 
 def decode_request_json(raw_text: str, table: Table | None = None) -> tuple[Request, list[Loss]]:

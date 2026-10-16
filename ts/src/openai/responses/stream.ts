@@ -2,6 +2,7 @@ import { OxaError } from "../../error.js";
 import {
   encodeUsageInteger,
   parseUsageInteger,
+  type ApplyPatchOperation,
   type Block,
   type Event,
   type StopReason,
@@ -23,6 +24,7 @@ import {
 } from "../../json/wire-audit.js";
 import { RESPONSES_STREAM_EVENT } from "./audit.js";
 import type {
+  ApplyPatchOperationWire,
   ResponsesOutputItem,
   ResponsesOutputTextPart,
   ResponsesResponse,
@@ -49,6 +51,20 @@ interface CustomCallState {
   readonly fragments: string[];
   readonly snapshots: string[];
   sawDelta: boolean;
+}
+interface ApplyPatchCallState {
+  readonly itemId: string;
+  readonly outputIndex: number;
+  readonly callId: string;
+  readonly status: string;
+  readonly operation: ApplyPatchOperationWire;
+}
+interface ApplyPatchResultState {
+  readonly itemId: string;
+  readonly outputIndex: number;
+  readonly callId: string;
+  readonly status: string;
+  readonly output?: string | undefined;
 }
 
 type SkippedUnit =
@@ -86,6 +102,9 @@ export class ResponsesStreamDecoder {
   #nextContentIndex = 0;
   #functionCall: FunctionCallState | undefined;
   #customCall: CustomCallState | undefined;
+  #applyPatchCall: ApplyPatchCallState | undefined;
+  #applyPatchResult: ApplyPatchResultState | undefined;
+  readonly #completedItems = new Map<string, ResponsesOutputItem>();
   #toolUseSeen = false;
   #blockOpen = false;
   #blockIndex = 0;
@@ -114,6 +133,27 @@ export class ResponsesStreamDecoder {
   #feed(event: ResponsesStreamEvent): readonly Event[] {
     if (this.#flushed) this.#lifecycle("event fed after stream flush");
     if (this.#terminated) this.#lifecycle("event fed after terminal response");
+
+    if (
+      this.#customCall !== undefined &&
+      (event.type.startsWith("response.content_part.") ||
+        event.type.startsWith("response.output_text.") ||
+        event.type.startsWith("response.reasoning_summary_"))
+    ) {
+      this.#lifecycle("content event on custom tool item");
+    }
+    if (
+      (this.#applyPatchCall !== undefined ||
+        this.#applyPatchResult !== undefined) &&
+      (event.type.startsWith("response.content_part.") ||
+        event.type.startsWith("response.output_text.") ||
+        event.type.startsWith("response.reasoning_summary_") ||
+        event.type.startsWith("response.function_call_arguments.") ||
+        event.type.startsWith("response.custom_tool_call_input."))
+    ) {
+      this.#lifecycle("content or delta event on apply patch item");
+    }
+
     switch (event.type) {
       case "response.created":
         if (this.#started) this.#lifecycle("duplicate response.created");
@@ -208,12 +248,54 @@ export class ResponsesStreamDecoder {
     this.#nextContentIndex = 0;
     this.#functionCall = undefined;
     this.#customCall = undefined;
+    this.#applyPatchCall = undefined;
+    this.#applyPatchResult = undefined;
     if (event.item.type === "message" && event.item.role === "assistant")
       return [];
     if (event.item.type === "reasoning") {
       this.#reasoningOpen = true;
       this.#reasoningSummaryCount = 0;
       this.#reasoningSkippedIndex = undefined;
+      return [];
+    }
+    if (event.item.type === "apply_patch_call") {
+      const callId = event.item.call_id ?? "";
+      if (
+        this.#itemId === "" ||
+        callId === "" ||
+        event.item.status === undefined ||
+        event.item.operation === undefined
+      )
+        this.#lifecycle(
+          "apply_patch_call requires id, call_id, status, and operation",
+        );
+      this.#applyPatchCall = {
+        itemId: this.#itemId,
+        outputIndex: index,
+        callId,
+        status: event.item.status,
+        operation: event.item.operation,
+      };
+      return [];
+    }
+    if (event.item.type === "apply_patch_call_output") {
+      const callId = event.item.call_id ?? "";
+      if (
+        this.#itemId === "" ||
+        callId === "" ||
+        event.item.status === undefined
+      )
+        this.#lifecycle(
+          "apply_patch_call_output requires id, call_id, and status",
+        );
+      this.#applyPatchResult = {
+        itemId: this.#itemId,
+        outputIndex: index,
+        callId,
+        status: event.item.status,
+        output:
+          typeof event.item.output === "string" ? event.item.output : undefined,
+      };
       return [];
     }
     if (event.item.type === "custom_tool_call") {
@@ -299,13 +381,15 @@ export class ResponsesStreamDecoder {
   #reasoningTextDelta(event: ResponsesStreamEvent): readonly Event[] {
     this.#requireReasoningItem(event);
     const contentIndex = this.#contentIndexOf(event);
-    if (contentIndex === this.#reasoningSkippedIndex) return [];
+    if (this.#reasoningSkippedIndex === contentIndex) return [];
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
       this.#lifecycle(
-        "reasoning_summary_text.delta does not match the open summary part",
+        "reasoning_summary_text.delta does not match open content part",
       );
     if (this.#reasoningTextDoneSeen)
-      this.#lifecycle("reasoning_summary_text.delta after text.done");
+      this.#lifecycle(
+        "reasoning_summary_text.delta after reasoning_summary_text.done",
+      );
     if (event.delta === undefined)
       this.#lifecycle("response.reasoning_summary_text.delta without delta");
     return [
@@ -320,10 +404,10 @@ export class ResponsesStreamDecoder {
   #reasoningTextDone(event: ResponsesStreamEvent): readonly Event[] {
     this.#requireReasoningItem(event);
     const contentIndex = this.#contentIndexOf(event);
-    if (contentIndex === this.#reasoningSkippedIndex) return [];
+    if (this.#reasoningSkippedIndex === contentIndex) return [];
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
       this.#lifecycle(
-        "reasoning_summary_text.done does not match the open summary part",
+        "reasoning_summary_text.done does not match open content part",
       );
     if (this.#reasoningTextDoneSeen)
       this.#lifecycle("duplicate reasoning_summary_text.done");
@@ -333,16 +417,18 @@ export class ResponsesStreamDecoder {
 
   #reasoningPartDone(event: ResponsesStreamEvent): readonly Event[] {
     this.#requireReasoningItem(event);
-    if (event.part === undefined)
-      this.#lifecycle("response.reasoning_summary_part.done without part");
     const contentIndex = this.#contentIndexOf(event);
-    if (contentIndex === this.#reasoningSkippedIndex) {
+    if (this.#reasoningSkippedIndex === contentIndex) {
       this.#reasoningSkippedIndex = undefined;
       return [];
     }
     if (!this.#blockOpen || contentIndex !== this.#contentIndex)
       this.#lifecycle(
-        "reasoning_summary_part.done does not match the open summary part",
+        "reasoning_summary_part.done does not match open content part",
+      );
+    if (!this.#reasoningTextDoneSeen)
+      this.#lifecycle(
+        "reasoning_summary_part.done before reasoning_summary_text.done",
       );
     this.#blockOpen = false;
     this.#reasoningSummaryCount += 1;
@@ -352,19 +438,18 @@ export class ResponsesStreamDecoder {
   #requireReasoningItem(event: ResponsesStreamEvent): void {
     this.#requireActiveItem(event);
     if (!this.#reasoningOpen || this.#itemType !== "reasoning")
-      this.#lifecycle(`${event.type} outside an open reasoning output item`);
-    if (this.#functionCall !== undefined)
-      this.#lifecycle(`${event.type} on function_call item`);
+      this.#lifecycle(`${event.type} without an active reasoning item`);
   }
 
   #customInputDelta(event: ResponsesStreamEvent): readonly Event[] {
     const call = this.#requireCustomCall(event);
     if (typeof event.delta !== "string")
       this.#lifecycle("custom_tool_call_input.delta without string delta");
-    call.fragments.push(event.delta);
     call.sawDelta = true;
+    call.fragments.push(event.delta);
     return [];
   }
+
   #customInputDone(event: ResponsesStreamEvent): readonly Event[] {
     const call = this.#requireCustomCall(event);
     if (typeof event.input !== "string")
@@ -376,8 +461,9 @@ export class ResponsesStreamDecoder {
     call.snapshots.push(event.input);
     return [];
   }
+
   #argumentDelta(event: ResponsesStreamEvent): readonly Event[] {
-    if (this.#skipped !== undefined) {
+    if (this.#skipped?.kind === "item") {
       this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
@@ -393,7 +479,7 @@ export class ResponsesStreamDecoder {
   }
 
   #argumentDone(event: ResponsesStreamEvent): readonly Event[] {
-    if (this.#skipped !== undefined) {
+    if (this.#skipped?.kind === "item") {
       this.#requireSkippedDescendant(event, this.#skipped);
       return [];
     }
@@ -550,6 +636,84 @@ export class ResponsesStreamDecoder {
         "response.output_item.done with a content part still open",
       );
     let events: readonly Event[] = [];
+    if (this.#applyPatchCall !== undefined) {
+      const call = this.#applyPatchCall;
+      if (
+        event.item.call_id !== call.callId ||
+        event.item.status === undefined ||
+        event.item.operation === undefined
+      )
+        this.#lifecycle(
+          "response.output_item.done does not match active apply_patch_call",
+        );
+      const statusResult = decodeStreamApplyPatchCallStatus(
+        event.item.status,
+        `output[${index}]`,
+      );
+      const opResult = decodeStreamApplyPatchOperation(
+        event.item.operation,
+        `output[${index}].operation`,
+      );
+      if (statusResult.loss !== undefined || opResult.loss !== undefined) {
+        if (statusResult.loss !== undefined)
+          this.#losses.push(statusResult.loss);
+        if (opResult.loss !== undefined) this.#losses.push(opResult.loss);
+      } else {
+        const blockIndex = this.#nextBlockIndex++;
+        events = [
+          {
+            type: "content_block_start",
+            index: blockIndex,
+            block: {
+              type: "apply_patch_tool_use",
+              id: call.callId,
+              status: statusResult.status!,
+              operation: opResult.operation!,
+            },
+          },
+          { type: "content_block_stop", index: blockIndex },
+        ];
+        this.#toolUseSeen = true;
+      }
+      this.#completedItems.set(event.item.id!, event.item);
+      this.#applyPatchCall = undefined;
+    }
+    if (this.#applyPatchResult !== undefined) {
+      const result = this.#applyPatchResult;
+      if (
+        event.item.call_id !== result.callId ||
+        event.item.status === undefined
+      )
+        this.#lifecycle(
+          "response.output_item.done does not match active apply_patch_call_output",
+        );
+      const statusResult = decodeStreamApplyPatchResultStatus(
+        event.item.status,
+        `output[${index}]`,
+      );
+      if (statusResult.loss !== undefined) {
+        this.#losses.push(statusResult.loss);
+      } else {
+        const blockIndex = this.#nextBlockIndex++;
+        const output =
+          typeof event.item.output === "string" ? event.item.output : undefined;
+        events = [
+          {
+            type: "content_block_start",
+            index: blockIndex,
+            block: {
+              type: "apply_patch_tool_result",
+              tool_use_id: result.callId,
+              status: statusResult.status!,
+              ...(output !== undefined ? { output } : {}),
+            },
+          },
+          { type: "content_block_stop", index: blockIndex },
+        ];
+      }
+      this.#completedItems.set(event.item.id!, event.item);
+      this.#applyPatchResult = undefined;
+    }
     if (this.#customCall !== undefined) {
       const call = this.#customCall;
       const input = event.item.input;
@@ -650,6 +814,8 @@ export class ResponsesStreamDecoder {
     this.#skippedCallId = "";
     this.#functionCall = undefined;
     this.#customCall = undefined;
+    this.#applyPatchCall = undefined;
+    this.#applyPatchResult = undefined;
     return events;
   }
 
@@ -659,6 +825,50 @@ export class ResponsesStreamDecoder {
       this.#lifecycle(`${event.type} before output lifecycle completed`);
     if (event.response === undefined)
       this.#lifecycle(`${event.type} without response`);
+
+    for (const item of event.response.output) {
+      if (
+        item.type === "apply_patch_call" ||
+        item.type === "apply_patch_call_output"
+      ) {
+        const prior = this.#completedItems.get(item.id ?? "");
+        if (
+          prior === undefined ||
+          item.call_id !== prior.call_id ||
+          item.status !== prior.status
+        )
+          this.#lifecycle("terminal apply patch snapshot mismatch");
+        if (item.type === "apply_patch_call") {
+          if (
+            item.operation === undefined ||
+            prior.operation === undefined ||
+            item.operation.type !== prior.operation.type
+          )
+            this.#lifecycle("terminal apply patch operation mismatch");
+          if (
+            item.operation.type !== "create_file" &&
+            item.operation.type !== "update_file" &&
+            item.operation.type !== "delete_file"
+          ) {
+            if (
+              JSON.stringify(item.operation) !== JSON.stringify(prior.operation)
+            )
+              this.#lifecycle("terminal apply patch operation mismatch");
+          } else {
+            if (
+              item.operation.path !== prior.operation.path ||
+              (item.operation.type !== "delete_file" &&
+                item.operation.diff !== prior.operation.diff)
+            )
+              this.#lifecycle("terminal apply patch operation mismatch");
+          }
+        } else {
+          if (item.output !== prior.output)
+            this.#lifecycle("terminal apply patch output mismatch");
+        }
+      }
+    }
+
     const [stopReason, losses] = this.#decodeStatus(event.response);
     this.#losses.push(...losses);
     this.#terminated = true;
@@ -854,6 +1064,114 @@ export class ResponsesStreamDecoder {
   }
 }
 
+function decodeStreamApplyPatchOperation(
+  wire: any,
+  path: string,
+): { operation?: ApplyPatchOperation; loss?: Loss } {
+  if (wire === undefined || wire === null || typeof wire !== "object") {
+    throw new OxaError(
+      "type-violation",
+      `${path}.operation is missing or not an object`,
+    );
+  }
+  const type = wire.type;
+  if (typeof type !== "string") {
+    throw new OxaError(
+      "type-violation",
+      `${path}.operation requires string type`,
+    );
+  }
+  const filePath = wire.path;
+  switch (type) {
+    case "create_file":
+    case "update_file":
+      if (typeof filePath !== "string" || typeof wire.diff !== "string") {
+        throw new OxaError(
+          "type-violation",
+          `${path}.operation requires string diff for ${type}`,
+        );
+      }
+      return { operation: { type, path: filePath, diff: wire.diff } };
+    case "delete_file":
+      if (typeof filePath !== "string") {
+        throw new OxaError(
+          "type-violation",
+          `${path}.operation requires string path for delete_file`,
+        );
+      }
+      return { operation: { type, path: filePath } };
+    default:
+      return {
+        loss: {
+          path,
+          field: "operation",
+          reason: "unsupported-semantic",
+          detail: `unsupported operation type ${type}`,
+        },
+      };
+  }
+}
+
+function decodeStreamApplyPatchCallStatus(
+  status: any,
+  path: string,
+): { status?: "in_progress" | "completed"; loss?: Loss } {
+  if (typeof status !== "string") {
+    throw new OxaError(
+      "type-violation",
+      `${path}.status is invalid: ${status}`,
+    );
+  }
+  if (status === "in_progress" || status === "completed") {
+    return { status };
+  }
+  return {
+    loss: {
+      path: `${path}.status`,
+      field: "status",
+      reason: "unmapped-value",
+      detail: `unknown apply_patch_call status ${status}`,
+    },
+  };
+}
+
+function decodeStreamApplyPatchResultStatus(
+  status: any,
+  path: string,
+): { status?: "completed" | "failed"; loss?: Loss } {
+  if (typeof status !== "string") {
+    throw new OxaError(
+      "type-violation",
+      `${path}.status is invalid: ${status}`,
+    );
+  }
+  if (status === "completed" || status === "failed") {
+    return { status };
+  }
+  return {
+    loss: {
+      path: `${path}.status`,
+      field: "status",
+      reason: "unmapped-value",
+      detail: `unknown apply_patch_call_output status ${status}`,
+    },
+  };
+}
+
+function encodeApplyPatchOperation(
+  op: ApplyPatchOperation,
+): ApplyPatchOperationWire {
+  switch (op.type) {
+    case "create_file":
+    case "update_file":
+      return { type: op.type, path: op.path, diff: op.diff };
+    case "delete_file":
+      return { type: op.type, path: op.path };
+    default:
+      throw new OxaError("type-violation", "unknown apply patch operation");
+  }
+}
+
 export interface ResponsesStreamEncoderOptions {
   readonly modelMapper?: ModelMapper;
 }
@@ -886,6 +1204,18 @@ type EncoderItem =
       readonly callId: string;
       readonly name: string;
       readonly input: string;
+    }
+  | {
+      readonly kind: "apply_patch_call";
+      readonly id: string;
+      readonly outputIndex: number;
+      readonly block: Extract<Block, { type: "apply_patch_tool_use" }>;
+    }
+  | {
+      readonly kind: "apply_patch_call_output";
+      readonly id: string;
+      readonly outputIndex: number;
+      readonly block: Extract<Block, { type: "apply_patch_tool_result" }>;
     };
 
 type EncoderBlock =
@@ -912,6 +1242,16 @@ type EncoderBlock =
       readonly index: number;
       readonly input: string;
       readonly fragments: string[];
+    }
+  | {
+      readonly kind: "apply_patch_call";
+      readonly index: number;
+      readonly block: Extract<Block, { type: "apply_patch_tool_use" }>;
+    }
+  | {
+      readonly kind: "apply_patch_call_output";
+      readonly index: number;
+      readonly block: Extract<Block, { type: "apply_patch_tool_result" }>;
     };
 
 /** Incrementally converts IR events to typed Responses streaming events. */
@@ -927,6 +1267,8 @@ export class ResponsesStreamEncoder {
   #nextMessageItem = 0;
   #nextFunctionItem = 0;
   #nextCustomItem = 0;
+  #nextApplyPatchCallItem = 0;
+  #nextApplyPatchResultItem = 0;
   #nextReasoningItem = 0;
   #activeItem: EncoderItem | undefined;
   #activeBlock: EncoderBlock | undefined;
@@ -978,6 +1320,10 @@ export class ResponsesStreamEncoder {
       return this.#startText(event.index, event.block.text);
     if (event.block.type === "thinking")
       return this.#startThinking(event.index, event.block);
+    if (event.block.type === "apply_patch_tool_use")
+      return this.#startApplyPatchCall(event.index, event.block);
+    if (event.block.type === "apply_patch_tool_result")
+      return this.#startApplyPatchResult(event.index, event.block);
     if (event.block.type === "tool_use")
       return this.#startTool(
         event.index,
@@ -1168,6 +1514,76 @@ export class ResponsesStreamEncoder {
     return this.#result(events);
   }
 
+  #startApplyPatchCall(
+    index: number,
+    block: Extract<Block, { type: "apply_patch_tool_use" }>,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined) {
+      if (this.#activeItem.kind !== "message")
+        this.#lifecycle(
+          "apply patch block cannot open before the active call completes",
+        );
+      events.push(this.#closeMessageItem());
+    }
+    const ordinal = this.#nextApplyPatchCallItem++;
+    const item: Extract<EncoderItem, { kind: "apply_patch_call" }> = {
+      kind: "apply_patch_call",
+      id: `apc_${ordinal}`,
+      outputIndex: this.#nextOutputIndex++,
+      block,
+    };
+    this.#activeItem = item;
+    this.#activeBlock = { kind: "apply_patch_call", index, block };
+    events.push({
+      type: "response.output_item.added",
+      output_index: item.outputIndex,
+      item: {
+        type: "apply_patch_call",
+        id: item.id,
+        call_id: block.id,
+        status: "in_progress",
+        operation: encodeApplyPatchOperation(block.operation),
+      },
+    });
+    return this.#result(events);
+  }
+
+  #startApplyPatchResult(
+    index: number,
+    block: Extract<Block, { type: "apply_patch_tool_result" }>,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined) {
+      if (this.#activeItem.kind !== "message")
+        this.#lifecycle(
+          "apply patch result block cannot open before the active item completes",
+        );
+      events.push(this.#closeMessageItem());
+    }
+    const ordinal = this.#nextApplyPatchResultItem++;
+    const item: Extract<EncoderItem, { kind: "apply_patch_call_output" }> = {
+      kind: "apply_patch_call_output",
+      id: `apco_${ordinal}`,
+      outputIndex: this.#nextOutputIndex++,
+      block,
+    };
+    this.#activeItem = item;
+    this.#activeBlock = { kind: "apply_patch_call_output", index, block };
+    events.push({
+      type: "response.output_item.added",
+      output_index: item.outputIndex,
+      item: {
+        type: "apply_patch_call_output",
+        id: item.id,
+        call_id: block.tool_use_id,
+        status: block.status,
+        ...(block.output !== undefined ? { output: block.output } : {}),
+      },
+    });
+    return this.#result(events);
+  }
+
   #delta(
     event: Extract<Event, { type: "content_block_delta" }>,
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
@@ -1250,6 +1666,12 @@ export class ResponsesStreamEncoder {
         },
       ]);
     }
+    if (
+      this.#activeBlock.kind === "apply_patch_call" ||
+      this.#activeBlock.kind === "apply_patch_call_output"
+    ) {
+      this.#lifecycle("apply patch block does not accept deltas");
+    }
     if (event.delta.type !== "input_json_delta")
       this.#lifecycle("tool block received non-input-json delta");
     if (this.#activeItem.kind !== "function_call")
@@ -1273,6 +1695,10 @@ export class ResponsesStreamEncoder {
       this.#lifecycle("content block has no active item");
     if (this.#activeBlock.kind === "text") return this.#stopText();
     if (this.#activeBlock.kind === "thinking") return this.#stopThinking();
+    if (this.#activeBlock.kind === "apply_patch_call")
+      return this.#stopApplyPatchCall();
+    if (this.#activeBlock.kind === "apply_patch_call_output")
+      return this.#stopApplyPatchResult();
     if (this.#activeBlock.kind === "custom") return this.#stopCustomTool();
     return this.#stopTool();
   }
@@ -1399,6 +1825,60 @@ export class ResponsesStreamEncoder {
     return this.#result(events);
   }
 
+  #stopApplyPatchCall(): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (
+      this.#activeBlock?.kind !== "apply_patch_call" ||
+      this.#activeItem?.kind !== "apply_patch_call"
+    )
+      this.#lifecycle("apply patch call block without active call item");
+    const block = this.#activeBlock.block;
+    const item = this.#activeItem;
+    const completed: ResponsesOutputItem = {
+      type: "apply_patch_call",
+      id: item.id,
+      call_id: block.id,
+      status: block.status,
+      operation: encodeApplyPatchOperation(block.operation),
+    };
+    this.#completed.push(completed);
+    this.#activeBlock = undefined;
+    this.#activeItem = undefined;
+    return this.#result([
+      {
+        type: "response.output_item.done",
+        output_index: item.outputIndex,
+        item: completed,
+      },
+    ]);
+  }
+
+  #stopApplyPatchResult(): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (
+      this.#activeBlock?.kind !== "apply_patch_call_output" ||
+      this.#activeItem?.kind !== "apply_patch_call_output"
+    )
+      this.#lifecycle("apply patch result block without active result item");
+    const block = this.#activeBlock.block;
+    const item = this.#activeItem;
+    const completed: ResponsesOutputItem = {
+      type: "apply_patch_call_output",
+      id: item.id,
+      call_id: block.tool_use_id,
+      status: block.status,
+      ...(block.output !== undefined ? { output: block.output } : {}),
+    };
+    this.#completed.push(completed);
+    this.#activeBlock = undefined;
+    this.#activeItem = undefined;
+    return this.#result([
+      {
+        type: "response.output_item.done",
+        output_index: item.outputIndex,
+        item: completed,
+      },
+    ]);
+  }
+
   #stopTool(): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (
       this.#activeBlock?.kind !== "tool" ||
@@ -1460,7 +1940,7 @@ export class ResponsesStreamEncoder {
     const events: ResponsesStreamEvent[] = [];
     if (this.#activeItem !== undefined) {
       if (this.#activeItem.kind !== "message")
-        this.#lifecycle("message_delta with an uncompleted function_call item");
+        this.#lifecycle("message_delta with an uncompleted item");
       events.push(this.#closeMessageItem());
     }
     const result = this.#terminalEvent(stopReason, usage);
@@ -1584,7 +2064,7 @@ export class ResponsesStreamEncoder {
                   input_token_details: {
                     cached_tokens: encodeUsageInteger(
                       usage.input_tokens_details.cached_tokens,
-                      "usage.input_tokens_details.cached_tokens",
+                      "usage.input_token_details.cached_tokens",
                     ),
                   },
                 }),
@@ -1594,7 +2074,7 @@ export class ResponsesStreamEncoder {
                   output_token_details: {
                     reasoning_tokens: encodeUsageInteger(
                       usage.output_tokens_details.reasoning_tokens,
-                      "usage.output_tokens_details.reasoning_tokens",
+                      "usage.output_token_details.reasoning_tokens",
                     ),
                   },
                 }),

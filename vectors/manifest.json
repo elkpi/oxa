@@ -1,6 +1,19 @@
 {
   "vectors": [
     {
+      "name": "anthropic.nonstream.apply-patch-declaration-choice-loss-from-ir",
+      "file": "anthropic/nonstream/apply-patch-declaration-choice-loss-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "3b2e7e1eb9e8b7d0a2789a91ae3144f068a9d0a43f31b8bc93b8da9f780cd505"
+    },
+    {
       "name": "anthropic.nonstream.images-from-ir",
       "file": "anthropic/nonstream/images-from-ir.json",
       "tags": [
@@ -511,6 +524,19 @@
         "n-s-1"
       ],
       "sha256": "5753657ba13097eeb3694b0db6f93005e7dd3b973f10f6a626aa80391734c613"
+    },
+    {
+      "name": "chatcompletions.nonstream.apply-patch-declaration-choice-loss-from-ir",
+      "file": "chatcompletions/nonstream/apply-patch-declaration-choice-loss-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "d9f2260cac2af1cc7eb1c477b97885eaf86e9f25deb84640e90fa26f7e5158c3"
     },
     {
       "name": "chatcompletions.nonstream.images-from-ir",
@@ -1309,6 +1335,608 @@
         "N-R-12"
       ],
       "sha256": "708b4e9aaed24d5586089683a082a1a9746b2403f3ed13b65b596b6f30306297"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-create-file-completed-from-ir",
+      "file": "responses/nonstream/apply-patch-call-create-file-completed-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "56eb25a2b3db27f810b665049fc9eafac8b4a006bb482f79fe61bbfac4308488"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-create-file-completed-to-ir",
+      "file": "responses/nonstream/apply-patch-call-create-file-completed-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "30736c1ad09f68e2ba793cd04244f35f4b6eb4f9f48aac3c49925c345eb58eaf"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-create-file-in-progress-from-ir",
+      "file": "responses/nonstream/apply-patch-call-create-file-in-progress-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "6c845565e70c8ffe912a49a264e9bede9b5e6b234549b40a8cf11b3a6372b9df"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-create-file-in-progress-to-ir",
+      "file": "responses/nonstream/apply-patch-call-create-file-in-progress-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "e7ac386ede562ed16545d05ce0caedd071ddd4abab7ced7aeaf92da0374f4516"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-delete-file-completed-from-ir",
+      "file": "responses/nonstream/apply-patch-call-delete-file-completed-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "d11eef7db687848623076bb46c13ecea2ca3dc82840d3f20689ca1a87d287a46"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-delete-file-completed-to-ir",
+      "file": "responses/nonstream/apply-patch-call-delete-file-completed-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "ece9643ca51483718f3ac840fadeea40f8763983b70f4981c3f0cc0a9d1c9982"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-delete-file-in-progress-from-ir",
+      "file": "responses/nonstream/apply-patch-call-delete-file-in-progress-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "4c798628b054065745f56d8217c13c6e7746cd59a6464054064f05e7dad6be22"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-delete-file-in-progress-to-ir",
+      "file": "responses/nonstream/apply-patch-call-delete-file-in-progress-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "2f69b40e120a6d2b01f79a58c383bd109520f0e54fe2854977747237088b722f"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-update-file-completed-from-ir",
+      "file": "responses/nonstream/apply-patch-call-update-file-completed-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "e049a8a60f2f8c039777adcf44839b8ac768ae7991443d925c153e491472bd80"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-update-file-completed-to-ir",
+      "file": "responses/nonstream/apply-patch-call-update-file-completed-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "d71cecd8aa250f2a900ff797be28d816328434c274120644152b6647f66263ee"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-update-file-in-progress-from-ir",
+      "file": "responses/nonstream/apply-patch-call-update-file-in-progress-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "d84a376da5da54c1876457ca5687f0554bb688b907c0826a2ef9c5f9c2e2e521"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-call-update-file-in-progress-to-ir",
+      "file": "responses/nonstream/apply-patch-call-update-file-in-progress-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "869c8277d1da436763cb166f5bc8c39e8eed0f4d82bb815250c539acdd6b90bf"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-declaration-choice-from-ir",
+      "file": "responses/nonstream/apply-patch-declaration-choice-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "1e1c245dcc702dfcf63cb4e5f3cc087e027ab0785db053a0f9bebf350bb9c581"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-declaration-choice-to-ir",
+      "file": "responses/nonstream/apply-patch-declaration-choice-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "c6b97ebcfff53d6a055a8545be25e746c358c6571a9f617a1a11d605d807294c"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-declaration-extra-loss-to-ir",
+      "file": "responses/nonstream/apply-patch-declaration-extra-loss-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "a6fcf77c9cfea5fb91e6d1ac2295fd370938c399d84496a8b6beb8b709a35620"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-delete-extra-diff-loss-to-ir",
+      "file": "responses/nonstream/apply-patch-delete-extra-diff-loss-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "c53ed320697a2c22e41d26d2aececf25a137daa491018dd42fc943e99d2812fb"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-empty-diff-create-file-from-ir",
+      "file": "responses/nonstream/apply-patch-empty-diff-create-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "acff270be9296f26014e1847ae12602eb93676af998e5fdbdb4386b969138be6"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-empty-diff-create-file-to-ir",
+      "file": "responses/nonstream/apply-patch-empty-diff-create-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "10269c744e997a9ef6c8ab8eb8aee05dbaa30eb78056e3feb0a8ffc617b26934"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-empty-diff-update-file-from-ir",
+      "file": "responses/nonstream/apply-patch-empty-diff-update-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "7666af7d564c568fa1eb51cfbcbdfd7d1486599483e1569c1cb262f4b9969e98"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-empty-diff-update-file-to-ir",
+      "file": "responses/nonstream/apply-patch-empty-diff-update-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "84734a2f9f840cdcf8f58aefe8d35f7b568ea85382bf0e0c105e27cc54f88cb5"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-create-file-from-ir",
+      "file": "responses/nonstream/apply-patch-history-create-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "10c22607a4236da7817cbbbaaaf3d7131b117bae1a7d1379e7b4e67c3e70c4c2"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-create-file-to-ir",
+      "file": "responses/nonstream/apply-patch-history-create-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "a0d1788d1566b8b79c9437dae6128cb5ed47f05d701c619f8292c1a1e2f53884"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-delete-file-from-ir",
+      "file": "responses/nonstream/apply-patch-history-delete-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "7076b980c3818925c6b1137cf20176e31ba6a79ba3daed66ebfa9fafe4455c10"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-delete-file-to-ir",
+      "file": "responses/nonstream/apply-patch-history-delete-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "9b1fa9e72166e3830c21b55521d8af12cb07e87a295abe1d832c2d02d097cdf1"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-update-file-from-ir",
+      "file": "responses/nonstream/apply-patch-history-update-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "5d69ed43af84eb2caeebd859be11cd4ff8113f86ed2899e2caf146bbb34247e4"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-history-update-file-to-ir",
+      "file": "responses/nonstream/apply-patch-history-update-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "9608b4c5fae98881dfef0c224720c24ced1546381c6eb1aa0b469db9b2db5c07"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-mixed-custom-isolation-from-ir",
+      "file": "responses/nonstream/apply-patch-mixed-custom-isolation-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "fc50f9193596a24d28aa5d47fd54e0318bddd915aff6cd7ab14748565eb54a38"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-mixed-custom-isolation-to-ir",
+      "file": "responses/nonstream/apply-patch-mixed-custom-isolation-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "9753c03907ae57ad7d7a3f23006bbc19a3db4b8d34586424c66922d550968d81"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-null-output-to-ir",
+      "file": "responses/nonstream/apply-patch-null-output-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "65b4148149077d6120c64dd8d72bf8a706db18e7a15df4b9cb131479984d7309"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-absent-from-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-absent-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "a75db6d4f9ec5ca2ec44414ce005f7aa681f65c089ae44c3bd3de041e4f82cbb"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-absent-to-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-absent-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "01404de1784b3e29719897f47c18f81cc4f1bb5524e21ef161d962c7775b4cca"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-empty-from-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-empty-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "0b7a740e446ce2cbec5438a51ad44d58ea7e0d1ef3d73de9209ce8088835e83a"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-empty-to-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-empty-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "945ff13e525acde932036876b745638e995049cce22e4ab608796b51df9ebb05"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-text-from-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-text-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "68acb80a7b74151f33c15c4481e78e0ab682cffa3938226f67621237203041bb"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-completed-text-to-ir",
+      "file": "responses/nonstream/apply-patch-result-completed-text-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "078761012267ab7a7debb94631a9d92ef0e081a7552566796f7d7b9e135b213a"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-absent-from-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-absent-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "015b6277d7b0a6f901c38619ca8831a6784f8bddfcda4f0e4ef248dbc994000c"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-absent-to-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-absent-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "2d74d796ae0d46ae9c342db6d496b7428c4898988af9eba718f1987e71a9f34a"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-empty-from-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-empty-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "b61ef567c89c9968afebf8011399c5937ede619fb3a37c446b42413188b6d5a8"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-empty-to-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-empty-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "902991741dbf83163f7893200a6eddda4dd7a8d86418c18f67cc7bda1d97abbd"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-text-from-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-text-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "a44e519fbedc50f6b57feefc2794172f77e82fd7b1e299659167bdaaf05711b7"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-result-failed-text-to-ir",
+      "file": "responses/nonstream/apply-patch-result-failed-text-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5",
+        "response"
+      ],
+      "sha256": "10dd2ba67d60304a4ae3f5f0e29b567696261e357546e72d86c2994a5bec3311"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-unknown-call-status-pair-loss-to-ir",
+      "file": "responses/nonstream/apply-patch-unknown-call-status-pair-loss-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "ce85add45345196ab2718b2c7bf31d407ef7f493d8e37f64790815f07e355a97"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-unknown-operation-pair-loss-to-ir",
+      "file": "responses/nonstream/apply-patch-unknown-operation-pair-loss-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "1b54ad795e4192168dacc7472fff511ee4fa863cad454797171473e1a0e5e954"
+    },
+    {
+      "name": "responses.nonstream.apply-patch-unknown-result-status-pair-loss-to-ir",
+      "file": "responses/nonstream/apply-patch-unknown-result-status-pair-loss-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "8574e4349981376d7f60721eaedfc5346228d6dacd64519e03d36c144ba3e33f"
     },
     {
       "name": "responses.nonstream.custom-empty-output-list-from-ir",
@@ -2115,6 +2743,162 @@
         "N-R-12"
       ],
       "sha256": "e1f64d0b56b95cd57e3ae44c14836ec7973f8812bdb3e865f5bdb6bbae62d772"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-create-file-from-ir",
+      "file": "responses/stream/apply-patch-call-create-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "78e866c5c84d69be8f36989b123d647e9af8075c0527df3a779bc04659ebb626"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-create-file-to-ir",
+      "file": "responses/stream/apply-patch-call-create-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "0cb95570279a594e28ddf1fc84afd68b55dc159f3908dfdff49ed6b3309578b2"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-delete-file-from-ir",
+      "file": "responses/stream/apply-patch-call-delete-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "c4d037c90d5269ed1a2d4765f7316409f05de6c434639089ac82b7cfa0f74f4b"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-delete-file-to-ir",
+      "file": "responses/stream/apply-patch-call-delete-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "ef3d579aa97a01954ec32fc37efeacdd2a0271dccac8b3a46d95b6e5329e5644"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-update-file-from-ir",
+      "file": "responses/stream/apply-patch-call-update-file-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "302066daa6709dcc7672af79d41e028512eca90aa4b23c7d7ccbda51a3d61e78"
+    },
+    {
+      "name": "responses.stream.apply-patch-call-update-file-to-ir",
+      "file": "responses/stream/apply-patch-call-update-file-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "e691dd695479782d4c04b6fa32b41ddb3629700fcc0e2f6d015f2a7bb5eb8f1d"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-completed-absent-from-ir",
+      "file": "responses/stream/apply-patch-result-completed-absent-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "10a0abedeb47882c206595d01ecf6c1635040d8bd414c9606d0d22adb1dc162d"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-completed-absent-to-ir",
+      "file": "responses/stream/apply-patch-result-completed-absent-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "78474f161bb7bea69a824ba6e1a1449210e86e72338b85afd46b0957fc98757a"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-completed-text-from-ir",
+      "file": "responses/stream/apply-patch-result-completed-text-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "5dad64519aed1e87285329119668c583e2af3bb8ed51fe33a2a2cda88292e91f"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-completed-text-to-ir",
+      "file": "responses/stream/apply-patch-result-completed-text-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "bad4c321948a6be59324285325fa1898b0f40429425ddba64e8365a0c0c533da"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-failed-empty-from-ir",
+      "file": "responses/stream/apply-patch-result-failed-empty-from-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "68e7fb0859612b51ced88cfb7605d05775a23a2adb1e14f4f159d24df6ecab85"
+    },
+    {
+      "name": "responses.stream.apply-patch-result-failed-empty-to-ir",
+      "file": "responses/stream/apply-patch-result-failed-empty-to-ir.json",
+      "tags": [
+        "apply-patch",
+        "n-ap-1",
+        "n-ap-2",
+        "n-ap-3",
+        "n-ap-4",
+        "n-ap-5"
+      ],
+      "sha256": "a937fc40a582b75e494085ddfee67ebe128162a1ae0f903f50cf0e6c6bcb66f3"
     },
     {
       "name": "responses.stream.custom-input-fallback-to-ir",

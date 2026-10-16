@@ -294,6 +294,12 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "call_id", "name", "input", "id"}, nil, seen)
 			case ItemTypeCustomToolCallOutput:
 				return rawObjectSchema(t, []string{"type", "call_id", "output", "id"}, map[string]*rawJSONSchema{"output": rawCustomOutputSchema(seen)}, seen)
+			case ItemTypeApplyPatchCall:
+				return rawObjectSchema(t, []string{"type", "id", "call_id", "status", "operation"}, map[string]*rawJSONSchema{
+					"operation": rawApplyPatchOperationSchema(seen),
+				}, seen)
+			case ItemTypeApplyPatchCallOutput:
+				return rawObjectSchema(t, []string{"type", "id", "call_id", "status", "output"}, nil, seen)
 			case ItemTypeFunctionCall:
 				return rawObjectSchema(t, []string{"type", "call_id", "name", "arguments"}, nil, seen)
 			case ItemTypeFunctionCallOutput:
@@ -323,6 +329,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
+			if kind == ToolTypeApplyPatch {
+				return rawObjectSchema(t, []string{"type"}, nil, seen)
+			}
 			if kind == ToolTypeCustom {
 				return rawObjectSchema(t, []string{"type", "name", "description", "format"}, nil, seen)
 			}
@@ -352,6 +361,12 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
+			case ItemTypeApplyPatchCall:
+				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "operation"}, map[string]*rawJSONSchema{
+					"operation": rawApplyPatchOperationSchema(seen),
+				}, seen)
+			case ItemTypeApplyPatchCallOutput:
+				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "output"}, nil, seen)
 			case ItemTypeMessage:
 				return rawObjectSchema(t, []string{"type", "id", "status", "role", "content"}, nil, seen)
 			case ItemTypeCustomToolCall:
@@ -436,6 +451,10 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				if node == nil || node.kind != '{' {
 					return nil
 				}
+				kind, _ := rawJSONStringField(node, "type")
+				if kind == ToolTypeApplyPatch {
+					return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type"}, nil, seen)
+				}
 				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type", "name"}, nil, seen)
 			}}
 			schema.fields["reasoning"] = &rawJSONSchema{fields: map[string]*rawJSONSchema{"effort": nil, "summary": nil}}
@@ -451,6 +470,21 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	default:
 		return nil
 	}
+}
+
+func rawApplyPatchOperationSchema(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
+	t := reflect.TypeOf(ApplyPatchOperationWire{})
+	return &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
+		kind, _ := rawJSONStringField(node, "type")
+		switch kind {
+		case ir.ApplyPatchOperationCreateFile, ir.ApplyPatchOperationUpdateFile:
+			return rawObjectSchema(t, []string{"type", "path", "diff"}, nil, seen)
+		case ir.ApplyPatchOperationDeleteFile:
+			return rawObjectSchema(t, []string{"type", "path"}, nil, seen)
+		default:
+			return nil
+		}
+	}}
 }
 
 func rawCustomOutputSchema(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {

@@ -4,6 +4,7 @@ use serde_json::{Value, json};
 
 use oxa_ir::{
     Block, Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice, ToolChoiceMode,
+    ToolType,
 };
 
 use crate::types::{
@@ -318,24 +319,40 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
         ToolChoiceMode::Auto => (Some(json!(TOOL_CHOICE_AUTO)), None),
         ToolChoiceMode::None => (Some(json!(TOOL_CHOICE_NONE)), None),
         ToolChoiceMode::Any => (Some(json!(TOOL_CHOICE_REQUIRED)), None),
-        ToolChoiceMode::Tool => match choice.name.as_deref() {
-            Some(name) if !name.is_empty() => (
-                Some(json!({
-                    "type": TOOL_TYPE_FUNCTION,
-                    "function": { "name": name }
-                })),
-                None,
-            ),
-            _ => (
-                None,
-                Some(loss(
-                    "tool_choice",
-                    "tool_choice",
-                    LossReason::UnsupportedSemantic,
-                    "IR named tool choice has no function name",
-                )),
-            ),
-        },
+        ToolChoiceMode::Tool => {
+            if choice.tool_type == Some(ToolType::Custom)
+                || choice.tool_type == Some(ToolType::ApplyPatch)
+            {
+                (
+                    None,
+                    Some(loss(
+                        "tool_choice",
+                        "tool_choice",
+                        LossReason::UnsupportedSemantic,
+                        "custom and apply_patch tool choices have no Chat Completions equivalent",
+                    )),
+                )
+            } else {
+                match choice.name.as_deref() {
+                    Some(name) if !name.is_empty() => (
+                        Some(json!({
+                            "type": TOOL_TYPE_FUNCTION,
+                            "function": { "name": name }
+                        })),
+                        None,
+                    ),
+                    _ => (
+                        None,
+                        Some(loss(
+                            "tool_choice",
+                            "tool_choice",
+                            LossReason::UnsupportedSemantic,
+                            "IR named tool choice has no function name",
+                        )),
+                    ),
+                }
+            }
+        }
     }
 }
 
@@ -503,6 +520,18 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 "content",
                 LossReason::UnsupportedSemantic,
                 "IR custom_tool_use block cannot be rendered in a Chat Completions assistant message",
+            )),
+            Block::ApplyPatchToolUse { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "content",
+                LossReason::UnsupportedSemantic,
+                "IR apply_patch_tool_use block cannot be rendered in a Chat Completions assistant message",
+            )),
+            Block::ApplyPatchToolResult { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "content",
+                LossReason::UnsupportedSemantic,
+                "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message",
             )),
         }
     }

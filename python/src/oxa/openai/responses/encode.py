@@ -13,6 +13,8 @@ from oxa.ir import (
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     CustomToolResultBlock,
     CustomToolUseBlock,
     CustomToolFormatGrammar,
@@ -55,6 +57,7 @@ from oxa.openai.responses.constants import (
     TOOL_TYPE_CUSTOM,
 )
 from oxa.openai.responses.normalize import (
+    encode_apply_patch_operation,
     encode_assistant_message,
     encode_image_block,
     encode_tool_choice,
@@ -95,6 +98,9 @@ def encode_request(
     if req.tools:
         tools_wire: list[dict[str, Any]] = []
         for tool in req.tools:
+            if tool.type == "apply_patch":
+                tools_wire.append({"type": "apply_patch"})
+                continue
             if tool.type == "custom":
                 t_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": tool.name}
                 if tool.description is not None:
@@ -202,6 +208,8 @@ def encode_response(
     text_chunks: list[str] = []
     has_text = False
     calls: list[dict[str, Any]] = []
+    apc_index = 0
+    apco_index = 0
 
     for index, block in enumerate(resp.content):
         if isinstance(block, TextBlock):
@@ -224,6 +232,26 @@ def encode_response(
                         "Responses reasoning output items carry no provider signature",
                     )
                 )
+        elif isinstance(block, ApplyPatchToolUseBlock):
+            calls.append({
+                "type": "apply_patch_call",
+                "id": f"apc_{apc_index}",
+                "status": block.status,
+                "call_id": block.id,
+                "operation": encode_apply_patch_operation(block.operation),
+            })
+            apc_index += 1
+        elif isinstance(block, ApplyPatchToolResultBlock):
+            item = {
+                "type": "apply_patch_call_output",
+                "id": f"apco_{apco_index}",
+                "status": block.status,
+                "call_id": block.tool_use_id,
+            }
+            if block.output is not None:
+                item["output"] = block.output
+            calls.append(item)
+            apco_index += 1
         elif isinstance(block, ToolUseBlock):
             calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "id": "fc_abc123", "status": STATUS_COMPLETED, "call_id": block.id, "name": block.name, "arguments": block.input})
         elif isinstance(block, CustomToolUseBlock):

@@ -30,6 +30,7 @@ pub struct StreamEncoder {
     open_tool: bool,
     open_thinking: bool,
     open_custom: bool,
+    open_atomic: bool,
     custom_seen: bool,
     tool_seen: bool,
     thinking_input: String,
@@ -58,6 +59,7 @@ impl StreamEncoder {
             open_tool: false,
             open_thinking: false,
             open_custom: false,
+            open_atomic: false,
             custom_seen: false,
             tool_seen: false,
             thinking_input: String::new(),
@@ -218,6 +220,7 @@ impl StreamEncoder {
                         self.open_tool = false;
                         self.open_thinking = false;
                         self.open_custom = true;
+                        self.open_atomic = false;
                         self.custom_seen = true;
                         self.open_ir_index = *index;
                         Ok((
@@ -227,6 +230,30 @@ impl StreamEncoder {
                                 "type",
                                 LossReason::UnsupportedSemantic,
                                 "Anthropic Messages streaming does not support custom tools",
+                            )],
+                        ))
+                    }
+                    Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => {
+                        self.next_index += 1;
+                        self.block_open = true;
+                        self.open_tool = false;
+                        self.open_thinking = false;
+                        self.open_custom = false;
+                        self.open_atomic = true;
+                        self.custom_seen = true;
+                        self.open_ir_index = *index;
+                        let detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
+                            "Anthropic Messages streaming does not support apply_patch tools"
+                        } else {
+                            "apply_patch tools have no equivalent in Anthropic Messages"
+                        };
+                        Ok((
+                            Vec::new(),
+                            vec![loss(
+                                format!("events[{index}].block"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                detail,
                             )],
                         ))
                     }
@@ -241,7 +268,15 @@ impl StreamEncoder {
                         "anthropic: ContentBlockDelta out of grammar order",
                     ));
                 }
+                if self.open_atomic {
+                    return Err(Error::new("anthropic: atomic block does not accept deltas"));
+                }
                 if self.open_custom {
+                    if !matches!(delta, Delta::CustomToolInputDelta { .. }) {
+                        return Err(Error::new(
+                            "anthropic: CustomToolUseBlock received non-custom-input delta",
+                        ));
+                    }
                     return Ok((Vec::new(), Vec::new()));
                 }
                 match delta {
@@ -340,6 +375,11 @@ impl StreamEncoder {
                     return Err(Error::new(
                         "anthropic: ContentBlockStop out of grammar order",
                     ));
+                }
+                if self.open_atomic {
+                    self.block_open = false;
+                    self.open_atomic = false;
+                    return Ok((Vec::new(), Vec::new()));
                 }
                 if self.open_custom {
                     self.block_open = false;

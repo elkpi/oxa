@@ -352,7 +352,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}),
 					[]string{"type", "function"},
 					map[string]*rawJSONSchema{
-						"function": &rawJSONSchema{fields: map[string]*rawJSONSchema{"name": nil}},
+						"function": {fields: map[string]*rawJSONSchema{"name": nil}},
 					},
 					seen)
 			}}

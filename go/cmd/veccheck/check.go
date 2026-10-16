@@ -196,6 +196,8 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 
 			block := &openBlock{index: e.Index}
 			switch b := e.Block.(type) {
+			case ir.ApplyPatchToolUseBlock, ir.ApplyPatchToolResultBlock:
+				block.kind = "apply_patch"
 			case ir.TextBlock:
 				block.kind = "text"
 			case ir.ThinkingBlock:

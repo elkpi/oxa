@@ -39,6 +39,12 @@ export type ResponsesOutputContentPart =
   | ResponsesInputImagePart
   | ResponsesUnknownContentPart;
 
+export interface ApplyPatchOperationWire {
+  readonly type: string;
+  readonly path: string;
+  readonly diff?: string;
+}
+
 export interface ResponsesOutputItem {
   readonly type: string;
   readonly id?: string;
@@ -56,6 +62,7 @@ export interface ResponsesOutputItem {
   readonly output?: string | readonly ResponsesOutputContentPart[];
   readonly input?: string;
   readonly format?: Readonly<Record<string, unknown>>;
+  readonly operation?: ApplyPatchOperationWire;
 }
 
 export interface ResponsesResponse {

@@ -14,7 +14,11 @@ from oxa.ir import (
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     Loss,
     Request,
     Response,
@@ -23,6 +27,7 @@ from oxa.ir import (
     ResponseFormatJsonSchema,
     ResponseFormatText,
     ToolResultBlock,
+    ToolUseBlock,
 )
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
@@ -79,7 +84,7 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
-            if tool.type == "custom":
+            if tool.type in ("custom", "apply_patch"):
                 losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Chat Completions mapping"))
                 continue
             func: dict[str, Any] = {"name": tool.name}
@@ -118,8 +123,11 @@ def encode_request(
             last_result: int | None = None
 
             for pos, block in enumerate(message.content):
-                if isinstance(block, ToolResultBlock):
-                    results.append(block)
+                if isinstance(block, (ToolResultBlock, CustomToolResultBlock, ApplyPatchToolResultBlock)):
+                    if isinstance(block, ToolResultBlock):
+                        results.append(block)
+                    else:
+                        losses.append(loss(f"messages[{index}].content[{pos}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool results have no Chat Completions mapping"))
                     last_result = pos
                 else:
                     if first_normal is None:

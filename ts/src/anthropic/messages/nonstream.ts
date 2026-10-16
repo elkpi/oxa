@@ -284,7 +284,7 @@ export function encodeRequest(
   });
   const tools =
     request.tools?.flatMap((tool, index) => {
-      if (tool.type === "custom") {
+      if (tool.type === "custom" || tool.type === "apply_patch") {
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
         return [];
       }
@@ -565,7 +565,9 @@ function encodeContent(
       });
     } else if (
       block.type === "custom_tool_use" ||
-      block.type === "custom_tool_result"
+      block.type === "custom_tool_result" ||
+      block.type === "apply_patch_tool_use" ||
+      block.type === "apply_patch_tool_result"
     ) {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     }
@@ -625,7 +627,7 @@ function encodeToolChoice(
   if (value === undefined) return undefined;
   if (value.mode === "tool") {
     if (value.name === "") fail("tool_choice.name must not be empty");
-    if (value.tool_type === "custom") {
+    if (value.tool_type === "custom" || value.tool_type === "apply_patch") {
       losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
       return undefined;
     }

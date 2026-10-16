@@ -18,6 +18,7 @@ enum StreamBlockKind {
     Thinking,
     Tool,
     Custom,
+    Atomic,
 }
 
 struct StreamEncodeBlock {
@@ -194,6 +195,34 @@ impl StreamEncoder {
                             )],
                         ))
                     }
+                    Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => {
+                        self.active = Some(StreamEncodeBlock {
+                            kind: StreamBlockKind::Atomic,
+                            index: *index,
+                            tool_id: String::new(),
+                            tool_name: String::new(),
+                            tool_input: String::new(),
+                            fragments: Vec::new(),
+                            native_index: 0,
+                            tool_started: false,
+                            signature_seen: false,
+                        });
+                        self.custom_seen = true;
+                        let loss_detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
+                            "apply_patch tools are not implemented by this profile"
+                        } else {
+                            "apply_patch tool results are not implemented by this profile"
+                        };
+                        Ok((
+                            Vec::new(),
+                            vec![loss(
+                                format!("events[{index}].block"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                loss_detail,
+                            )],
+                        ))
+                    }
                     _ => Err(Error::new(
                         "chatcompletions: ContentBlockStart carries unsupported block",
                     )),
@@ -211,7 +240,17 @@ impl StreamEncoder {
                     ));
                 }
                 match active.kind {
-                    StreamBlockKind::Custom => Ok((Vec::new(), Vec::new())),
+                    StreamBlockKind::Atomic => Err(Error::new(
+                        "chatcompletions: atomic block does not accept deltas",
+                    )),
+                    StreamBlockKind::Custom => {
+                        if !matches!(delta, Delta::CustomToolInputDelta { .. }) {
+                            return Err(Error::new(
+                                "chatcompletions: CustomToolUseBlock received non-custom-input delta",
+                            ));
+                        }
+                        Ok((Vec::new(), Vec::new()))
+                    }
                     StreamBlockKind::Text => {
                         let Delta::TextDelta { text } = delta else {
                             return Err(Error::new(
@@ -287,7 +326,8 @@ impl StreamEncoder {
                         "chatcompletions: ContentBlockStop out of grammar order",
                     ));
                 }
-                if active.kind == StreamBlockKind::Custom {
+                if active.kind == StreamBlockKind::Custom || active.kind == StreamBlockKind::Atomic
+                {
                     return Ok((Vec::new(), Vec::new()));
                 }
                 if active.kind == StreamBlockKind::Tool {

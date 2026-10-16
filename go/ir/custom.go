@@ -153,6 +153,12 @@ func validateOpaqueString(raw json.RawMessage) error {
 }
 
 func validateTool(t Tool) error {
+	if t.Type == ToolTypeApplyPatch {
+		if t.Name != "" || t.Description != "" || len(t.InputSchema) > 0 || t.Format != nil {
+			return fmt.Errorf("ir: apply_patch declaration may contain only type")
+		}
+		return nil
+	}
 	if t.Type == ToolTypeCustom {
 		if t.Name == "" || len(t.InputSchema) != 0 {
 			return fmt.Errorf("ir: custom tool requires a name and cannot carry input_schema")
@@ -176,6 +182,12 @@ func validateToolChoice(t *ToolChoice) error {
 	if t == nil {
 		return nil
 	}
+	if t.ToolType == ToolTypeApplyPatch {
+		if t.Mode != ToolChoiceTool || t.Name != "" {
+			return fmt.Errorf("ir: apply_patch choice requires mode tool and no name")
+		}
+		return nil
+	}
 	if t.ToolType != "" && (t.Mode != ToolChoiceTool || (t.ToolType != ToolTypeFunction && t.ToolType != ToolTypeCustom)) {
 		return fmt.Errorf("ir: tool_type requires a named function/custom choice")
 	}
@@ -190,7 +202,7 @@ func ValidateCustomConversation(req *Request) error {
 	for _, m := range req.Messages {
 		for _, b := range m.Content {
 			switch b.(type) {
-			case CustomToolUseBlock, CustomToolResultBlock:
+			case CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock:
 				hasCustom = true
 			}
 		}
@@ -215,6 +227,10 @@ func ValidateCustomConversation(req *Request) error {
 				results = append(results, call{v.ToolUseID, "function"})
 			case CustomToolResultBlock:
 				results = append(results, call{v.ToolUseID, "custom"})
+			case ApplyPatchToolUseBlock:
+				calls = append(calls, call{v.ID, ToolTypeApplyPatch})
+			case ApplyPatchToolResultBlock:
+				results = append(results, call{v.ToolUseID, ToolTypeApplyPatch})
 			}
 		}
 		if len(results) > 0 || len(pending) > 0 {

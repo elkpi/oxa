@@ -73,6 +73,16 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
 
     let mut tools = Vec::new();
     for (index, tool) in wire.tools.iter().enumerate() {
+        if tool.kind == crate::types::TOOL_TYPE_APPLY_PATCH {
+            tools.push(oxa_ir::Tool {
+                tool_type: Some(ToolType::ApplyPatch),
+                name: String::new(),
+                description: None,
+                input_schema: None,
+                format: None,
+            });
+            continue;
+        }
         if tool.kind == TOOL_TYPE_CUSTOM {
             if tool.name.is_empty() {
                 return Err(Error::new(format!(
@@ -162,6 +172,10 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             content: vec![Block::Text { text: text.clone() }],
         }),
         Input::Items(items) => {
+            let (decoded_calls, decoded_results, dropped, pair_losses) =
+                crate::normalize::precheck_apply_patch_pairs(items)?;
+            losses.extend(pair_losses);
+
             let mut index = 0usize;
             while index < items.len() {
                 let item = &items[index];
@@ -203,7 +217,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             index += 1;
                         }
                         ROLE_ASSISTANT => {
-                            let (message, next, run_losses) = decode_assistant_run(items, index)?;
+                            let (message, next, run_losses) =
+                                decode_assistant_run(items, index, &decoded_calls, &dropped)?;
                             if let Some(message) = message {
                                 request.messages.push(message);
                             }
@@ -216,17 +231,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             )));
                         }
                     },
-                    ITEM_TYPE_FUNCTION_CALL | ITEM_TYPE_CUSTOM_TOOL_CALL | ITEM_TYPE_REASONING => {
-                        let (message, next, run_losses) = decode_assistant_run(items, index)?;
+                    ITEM_TYPE_FUNCTION_CALL
+                    | ITEM_TYPE_CUSTOM_TOOL_CALL
+                    | crate::types::ITEM_TYPE_APPLY_PATCH_CALL
+                    | ITEM_TYPE_REASONING => {
+                        let (message, next, run_losses) =
+                            decode_assistant_run(items, index, &decoded_calls, &dropped)?;
                         if let Some(message) = message {
                             request.messages.push(message);
                         }
                         losses.extend(run_losses);
                         index = next;
                     }
-                    ITEM_TYPE_FUNCTION_CALL_OUTPUT | ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => {
-                        let (message, next, output_losses) = decode_output_run(items, index)?;
-                        request.messages.push(message);
+                    ITEM_TYPE_FUNCTION_CALL_OUTPUT
+                    | ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT
+                    | crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT => {
+                        let (message, next, output_losses) =
+                            decode_output_run(items, index, &decoded_results, &dropped)?;
+                        if let Some(message) = message {
+                            request.messages.push(message);
+                        }
                         losses.extend(output_losses);
                         index = next;
                     }
@@ -363,7 +387,10 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
         m.content.iter().any(|b| {
             matches!(
                 b,
-                Block::CustomToolUse { .. } | Block::CustomToolResult { .. }
+                Block::CustomToolUse { .. }
+                    | Block::CustomToolResult { .. }
+                    | Block::ApplyPatchToolUse { .. }
+                    | Block::ApplyPatchToolResult { .. }
             )
         })
     });
@@ -375,14 +402,13 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
             "responses: conversation must begin with a user message",
         ));
     }
-    let mut pending: Vec<(String, bool)> = Vec::new();
+    let mut pending: Vec<(String, &'static str)> = Vec::new();
     for (mi, m) in req.messages.iter().enumerate() {
         if m.role == Role::Assistant {
             pending.clear();
             for b in &m.content {
                 match b {
-                    Block::ToolUse { id, name, .. } | Block::CustomToolUse { id, name, .. } => {
-                        let custom = matches!(b, Block::CustomToolUse { .. });
+                    Block::ToolUse { id, name, .. } => {
                         if id.is_empty() || name.is_empty() {
                             return Err(Error::new(format!(
                                 "responses: messages[{mi}] tool call requires nonempty id and name"
@@ -393,19 +419,50 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
                                 "responses: messages[{mi}] has duplicate tool call id {id:?}"
                             )));
                         }
-                        pending.push((id.clone(), custom));
+                        pending.push((id.clone(), "function"));
+                    }
+                    Block::CustomToolUse { id, name, .. } => {
+                        if id.is_empty() || name.is_empty() {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] tool call requires nonempty id and name"
+                            )));
+                        }
+                        if pending.iter().any(|(x, _)| x == id) {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] has duplicate tool call id {id:?}"
+                            )));
+                        }
+                        pending.push((id.clone(), "custom"));
+                    }
+                    Block::ApplyPatchToolUse { id, .. } => {
+                        if id.is_empty() {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] tool call requires nonempty id"
+                            )));
+                        }
+                        if pending.iter().any(|(x, _)| x == id) {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] has duplicate tool call id {id:?}"
+                            )));
+                        }
+                        pending.push((id.clone(), "apply_patch"));
                     }
                     _ => {}
                 }
             }
         } else {
-            let results: Vec<(&str, bool)> = m
+            let results: Vec<(&str, &'static str)> = m
                 .content
                 .iter()
                 .filter_map(|b| match b {
-                    Block::ToolResult { tool_use_id, .. } => Some((tool_use_id.as_str(), false)),
+                    Block::ToolResult { tool_use_id, .. } => {
+                        Some((tool_use_id.as_str(), "function"))
+                    }
                     Block::CustomToolResult { tool_use_id, .. } => {
-                        Some((tool_use_id.as_str(), true))
+                        Some((tool_use_id.as_str(), "custom"))
+                    }
+                    Block::ApplyPatchToolResult { tool_use_id, .. } => {
+                        Some((tool_use_id.as_str(), "apply_patch"))
                     }
                     _ => None,
                 })
@@ -416,8 +473,8 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
                         "responses: messages[{mi}] results do not match preceding calls"
                     )));
                 }
-                for ((id, custom), (got, kind)) in pending.iter().zip(results.iter()) {
-                    if id.as_str() != *got || custom != kind {
+                for ((id, kind), (got, r_kind)) in pending.iter().zip(results.iter()) {
+                    if id.as_str() != *got || kind != r_kind {
                         return Err(Error::new(format!(
                             "responses: messages[{mi}] result call id or category mismatch"
                         )));
@@ -636,6 +693,74 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     input: item.arguments.clone(),
                 });
                 has_tool_use = true;
+            }
+            crate::types::ITEM_TYPE_APPLY_PATCH_CALL => {
+                if item.id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].id is required"
+                    )));
+                }
+                if item.call_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].call_id is required"
+                    )));
+                }
+                let status = crate::normalize::decode_apply_patch_call_status(
+                    &item.status,
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                )?;
+                let Some(status) = status else {
+                    continue;
+                };
+                let op = crate::normalize::decode_apply_patch_operation(
+                    item.operation.as_ref(),
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                )?;
+                let Some(op) = op else {
+                    continue;
+                };
+                calls.push(Block::ApplyPatchToolUse {
+                    id: item.call_id.clone(),
+                    status,
+                    operation: op,
+                });
+                has_tool_use = true;
+            }
+            crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT => {
+                if item.id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].id is required"
+                    )));
+                }
+                if item.call_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].call_id is required"
+                    )));
+                }
+                let status = crate::normalize::decode_apply_patch_result_status(
+                    &item.status,
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                )?;
+                let Some(status) = status else {
+                    continue;
+                };
+                let output = match &item.output {
+                    None => None,
+                    Some(OutputValue::Text(s)) => Some(s.clone()),
+                    Some(_) => {
+                        return Err(Error::new(format!(
+                            "responses: output[{item_index}].output must be a string"
+                        )));
+                    }
+                };
+                calls.push(Block::ApplyPatchToolResult {
+                    tool_use_id: item.call_id.clone(),
+                    status,
+                    output,
+                });
             }
             ITEM_TYPE_CUSTOM_TOOL_CALL => {
                 let input = item.input.as_ref().ok_or_else(|| {

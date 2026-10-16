@@ -12,6 +12,8 @@ from enum import Enum
 
 from oxa.ir.constants import STOP_STOP_SEQUENCE
 from oxa.ir.types import (
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -116,6 +118,8 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                     _OpenTool(input=event.block.input, fragments=[], fragment_count=0,
                               custom=isinstance(event.block, CustomToolUseBlock)),
                 )
+            elif isinstance(event.block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+                open_block = (event.index, "atomic")
             else:
                 block_kind = getattr(event.block, "type", type(event.block).__name__)
                 raise Violation(
@@ -157,6 +161,8 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                     raise Violation(i, f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind")
                 kind.fragments.append(event.delta.text if kind.custom else event.delta.partial_json)
                 kind.fragment_count += 1
+            elif kind == "atomic":
+                raise Violation(i, "atomic block does not accept deltas")
 
         elif isinstance(event, ContentBlockStop):
             if open_block is None:

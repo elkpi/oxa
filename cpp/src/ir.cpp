@@ -125,13 +125,44 @@ json::Value dump_block(const Block& b) {
             out.set("output", std::move(output)); }
         return out;
     }
-    const auto& tr = std::get<ToolResultBlock>(b);
-    out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_RESULT)));
-    out.set("tool_use_id", json::Value::string(tr.tool_use_id));
-    json::Value content = json::Value::array();
-    for (const auto& inner : tr.content) content.push_back(dump_block(inner.block));
-    out.set("content", std::move(content));
-    if (tr.is_error) out.set("is_error", json::Value::boolean(true));
+    if (const auto* ap = std::get_if<ApplyPatchToolUseBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_APPLY_PATCH_TOOL_USE)));
+        out.set("id", json::Value::string(ap->id));
+        out.set("status", json::Value::string(ap->status));
+        json::Value op = json::Value::object();
+        if (const auto* cf = std::get_if<CreateFileOperation>(&ap->operation)) {
+            op.set("type", json::Value::string(std::string(APPLY_PATCH_OP_CREATE_FILE)));
+            op.set("path", json::Value::string(cf->path));
+            op.set("diff", json::Value::string(cf->diff));
+        } else if (const auto* df = std::get_if<DeleteFileOperation>(&ap->operation)) {
+            op.set("type", json::Value::string(std::string(APPLY_PATCH_OP_DELETE_FILE)));
+            op.set("path", json::Value::string(df->path));
+        } else if (const auto* uf = std::get_if<UpdateFileOperation>(&ap->operation)) {
+            op.set("type", json::Value::string(std::string(APPLY_PATCH_OP_UPDATE_FILE)));
+            op.set("path", json::Value::string(uf->path));
+            op.set("diff", json::Value::string(uf->diff));
+        }
+        out.set("operation", std::move(op));
+        return out;
+    }
+    if (const auto* apr = std::get_if<ApplyPatchToolResultBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT)));
+        out.set("tool_use_id", json::Value::string(apr->tool_use_id));
+        out.set("status", json::Value::string(apr->status));
+        if (apr->output.has_value()) {
+            out.set("output", json::Value::string(*apr->output));
+        }
+        return out;
+    }
+    if (const auto* tr = std::get_if<ToolResultBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_RESULT)));
+        out.set("tool_use_id", json::Value::string(tr->tool_use_id));
+        json::Value content = json::Value::array();
+        for (const auto& inner : tr->content) content.push_back(dump_block(inner.block));
+        out.set("content", std::move(content));
+        if (tr->is_error) out.set("is_error", json::Value::boolean(true));
+        return out;
+    }
     return out;
 }
 
@@ -210,6 +241,49 @@ StatusOr<Block> load_block(const json::Value& v) {
         } else return invalid_argument("custom_tool_result output must be a string or array");
         return Block(std::move(cr));
     }
+    if (kind == BLOCK_TYPE_APPLY_PATCH_TOOL_USE) {
+        ApplyPatchToolUseBlock ap;
+        OXA_ASSIGN_OR_RETURN(ap.id, require_string(v, "id", "apply_patch_tool_use block"));
+        OXA_ASSIGN_OR_RETURN(ap.status, require_string(v, "status", "apply_patch_tool_use block"));
+        if (ap.status != APPLY_PATCH_CALL_STATUS_IN_PROGRESS && ap.status != APPLY_PATCH_CALL_STATUS_COMPLETED) {
+            return invalid_argument("invalid apply_patch_tool_use status: " + ap.status);
+        }
+        OXA_ASSIGN_OR_RETURN(auto op_val, require_object(v, "operation", "apply_patch_tool_use block"));
+        const json::Value& op = op_val.get();
+        OXA_ASSIGN_OR_RETURN(std::string op_type, require_string(op, "type", "operation"));
+        if (op_type == APPLY_PATCH_OP_CREATE_FILE) {
+            OXA_ASSIGN_OR_RETURN(std::string path, require_string(op, "path", "create_file operation"));
+            OXA_ASSIGN_OR_RETURN(std::string diff, require_string(op, "diff", "create_file operation"));
+            ap.operation = CreateFileOperation{std::move(path), std::move(diff)};
+        } else if (op_type == APPLY_PATCH_OP_DELETE_FILE) {
+            OXA_ASSIGN_OR_RETURN(std::string path, require_string(op, "path", "delete_file operation"));
+            if (op.find("diff") != nullptr) {
+                return invalid_argument("delete_file operation must not carry diff");
+            }
+            ap.operation = DeleteFileOperation{std::move(path)};
+        } else if (op_type == APPLY_PATCH_OP_UPDATE_FILE) {
+            OXA_ASSIGN_OR_RETURN(std::string path, require_string(op, "path", "update_file operation"));
+            OXA_ASSIGN_OR_RETURN(std::string diff, require_string(op, "diff", "update_file operation"));
+            ap.operation = UpdateFileOperation{std::move(path), std::move(diff)};
+        } else {
+            return invalid_argument("unknown apply_patch operation type: " + op_type);
+        }
+        return Block(std::move(ap));
+    }
+    if (kind == BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT) {
+        ApplyPatchToolResultBlock apr;
+        OXA_ASSIGN_OR_RETURN(apr.tool_use_id, require_string(v, "tool_use_id", "apply_patch_tool_result block"));
+        OXA_ASSIGN_OR_RETURN(apr.status, require_string(v, "status", "apply_patch_tool_result block"));
+        if (apr.status != APPLY_PATCH_RESULT_STATUS_COMPLETED && apr.status != APPLY_PATCH_RESULT_STATUS_FAILED) {
+            return invalid_argument("invalid apply_patch_tool_result status: " + apr.status);
+        }
+        const json::Value* out_val = v.find("output");
+        if (out_val != nullptr && !out_val->is_null()) {
+            if (!out_val->is_string()) return invalid_argument("apply_patch_tool_result output must be a string");
+            apr.output = out_val->as_string();
+        }
+        return Block(std::move(apr));
+    }
     if (kind == BLOCK_TYPE_TOOL_RESULT) {
         ToolResultBlock tr;
         OXA_ASSIGN_OR_RETURN(tr.tool_use_id, require_string(v, "tool_use_id", "tool_result block"));
@@ -256,7 +330,9 @@ json::Value dump_request(const Request& r) {
         json::Value tools = json::Value::array();
         for (const auto& t : *r.tools) {
             json::Value tv = json::Value::object();
-            if (t.type == "custom") {
+            if (t.type == TOOL_TYPE_APPLY_PATCH) {
+                tv.set("type", json::Value::string(std::string(TOOL_TYPE_APPLY_PATCH)));
+            } else if (t.type == "custom") {
                 tv.set("type", json::Value::string("custom")); tv.set("name", json::Value::string(t.name));
                 if (t.has_description) tv.set("description", json::Value::string(t.description));
                 if (t.format.has_value()) tv.set("format", *t.format);
@@ -272,9 +348,13 @@ json::Value dump_request(const Request& r) {
     if (r.tool_choice.has_value()) {
         json::Value tc = json::Value::object();
         tc.set("mode", json::Value::string(r.tool_choice->mode));
-        if (r.tool_choice->mode == TOOL_CHOICE_TOOL && r.tool_choice->name.has_value()) {
-            tc.set("name", json::Value::string(*r.tool_choice->name));
-            if (r.tool_choice->tool_type.has_value()) tc.set("tool_type", json::Value::string(*r.tool_choice->tool_type));
+        if (r.tool_choice->mode == TOOL_CHOICE_TOOL) {
+            if (r.tool_choice->tool_type == TOOL_TYPE_APPLY_PATCH) {
+                tc.set("tool_type", json::Value::string(std::string(TOOL_TYPE_APPLY_PATCH)));
+            } else if (r.tool_choice->name.has_value()) {
+                tc.set("name", json::Value::string(*r.tool_choice->name));
+                if (r.tool_choice->tool_type.has_value()) tc.set("tool_type", json::Value::string(*r.tool_choice->tool_type));
+            }
         }
         out.set("tool_choice", std::move(tc));
     }
@@ -372,24 +452,32 @@ StatusOr<Request> load_request(const json::Value& v) {
                 if (!type->is_string()) return invalid_argument("tool type must be a string");
                 t.type = type->as_string();
             }
-            if (t.type != "function" && t.type != "custom") return invalid_argument("tool type must be function or custom");
-            OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
-            if (t.name.empty()) return invalid_argument("tool name must be non-empty");
-            const json::Value* desc = tv.find("description");
-            if (desc != nullptr) {
-                if (!desc->is_string()) return invalid_argument("tool description must be a string");
-                t.description = desc->as_string();
-                t.has_description = true;
-            }
-            const json::Value* format = tv.find("format");
-            const json::Value* input_schema = tv.find("input_schema");
-            if (t.type == "custom") {
-                if (input_schema != nullptr) return invalid_argument("custom tool must not carry input_schema");
-                if (format != nullptr) t.format = *format;
+            if (t.type != "function" && t.type != "custom" && t.type != TOOL_TYPE_APPLY_PATCH)
+                return invalid_argument("tool type must be function, custom, or apply_patch");
+            if (t.type == TOOL_TYPE_APPLY_PATCH) {
+                if (tv.find("name") != nullptr || tv.find("description") != nullptr ||
+                    tv.find("input_schema") != nullptr || tv.find("format") != nullptr) {
+                    return invalid_argument("apply_patch tool must carry only type: apply_patch");
+                }
             } else {
-                if (format != nullptr) return invalid_argument("function tool must not carry format");
-                OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
-                t.input_schema = is_val.get();
+                OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
+                if (t.name.empty()) return invalid_argument("tool name must be non-empty");
+                const json::Value* desc = tv.find("description");
+                if (desc != nullptr) {
+                    if (!desc->is_string()) return invalid_argument("tool description must be a string");
+                    t.description = desc->as_string();
+                    t.has_description = true;
+                }
+                const json::Value* format = tv.find("format");
+                const json::Value* input_schema = tv.find("input_schema");
+                if (t.type == "custom") {
+                    if (input_schema != nullptr) return invalid_argument("custom tool must not carry input_schema");
+                    if (format != nullptr) t.format = *format;
+                } else {
+                    if (format != nullptr) return invalid_argument("function tool must not carry format");
+                    OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
+                    t.input_schema = is_val.get();
+                }
             }
             out.push_back(std::move(t));
         }
@@ -407,12 +495,17 @@ StatusOr<Request> load_request(const json::Value& v) {
             choice.name = name->as_string();
         }
         if (const auto* tt = tc->find("tool_type"); tt != nullptr) {
-            if (!tt->is_string() || (tt->as_string() != "function" && tt->as_string() != "custom")) return invalid_argument("tool_choice tool_type must be function or custom");
+            if (!tt->is_string() || (tt->as_string() != "function" && tt->as_string() != "custom" && tt->as_string() != TOOL_TYPE_APPLY_PATCH))
+                return invalid_argument("tool_choice tool_type must be function, custom, or apply_patch");
             choice.tool_type = tt->as_string();
         }
         if (choice.mode != TOOL_CHOICE_TOOL && choice.tool_type.has_value()) return invalid_argument("tool_choice tool_type only applies to mode tool");
-        if (choice.mode == TOOL_CHOICE_TOOL && !choice.name.has_value()) {
-            return invalid_argument("tool_choice mode tool requires name");
+        if (choice.mode == TOOL_CHOICE_TOOL) {
+            if (choice.tool_type == TOOL_TYPE_APPLY_PATCH) {
+                if (choice.name.has_value()) return invalid_argument("apply_patch tool_choice must not carry name");
+            } else if (!choice.name.has_value()) {
+                return invalid_argument("tool_choice mode tool requires name");
+            }
         }
         r.tool_choice = std::move(choice);
     }
@@ -801,6 +894,7 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
     bool open_is_tool = false;
     bool open_is_custom_tool = false;
     bool open_is_thinking = false;
+    bool open_is_atomic = false;
     bool signature_seen = false;
     OpenTool tool;
 
@@ -836,17 +930,25 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                 open_is_tool = false;
                 open_is_custom_tool = false;
                 open_is_thinking = false;
+                open_is_atomic = false;
             } else if (std::holds_alternative<ThinkingBlock>(cbs->block)) {
                 open_is_tool = false;
                 open_is_custom_tool = false;
                 open_is_thinking = true;
+                open_is_atomic = false;
                 signature_seen = false;
             } else if (const auto* tu = std::get_if<ToolUseBlock>(&cbs->block)) {
-                open_is_tool = true; open_is_custom_tool = false; open_is_thinking = false;
+                open_is_tool = true; open_is_custom_tool = false; open_is_thinking = false; open_is_atomic = false;
                 tool = OpenTool{tu->input, "", 0, false};
             } else if (const auto* custom = std::get_if<CustomToolUseBlock>(&cbs->block)) {
-                open_is_tool = true; open_is_custom_tool = true; open_is_thinking = false;
+                open_is_tool = true; open_is_custom_tool = true; open_is_thinking = false; open_is_atomic = false;
                 tool = OpenTool{custom->input, "", 0, true};
+            } else if (const auto* ap = std::get_if<ApplyPatchToolUseBlock>(&cbs->block)) {
+                if (ap->id.empty()) return invalid_argument("apply_patch_tool_use requires nonempty id");
+                open_is_tool = false; open_is_custom_tool = false; open_is_thinking = false; open_is_atomic = true;
+            } else if (const auto* apr = std::get_if<ApplyPatchToolResultBlock>(&cbs->block)) {
+                if (apr->tool_use_id.empty()) return invalid_argument("apply_patch_tool_result requires nonempty tool_use_id");
+                open_is_tool = false; open_is_custom_tool = false; open_is_thinking = false; open_is_atomic = true;
             } else {
                 return invalid_argument(
                     "event " + std::to_string(i) +
@@ -857,6 +959,9 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
             if (!open) {
                 return invalid_argument("event " + std::to_string(i) +
                                         ": content_block_delta without an open block");
+            }
+            if (open_is_atomic) {
+                return invalid_argument("event " + std::to_string(i) + ": content_block_delta on atomic block");
             }
             if (cbd->index != open_index) {
                 return invalid_argument("event " + std::to_string(i) +

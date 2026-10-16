@@ -25,6 +25,10 @@ schema MUST agree (INV-9).
 Delta，扩展 Tool/ToolChoice 与 INV-1、INV-3、INV-4、INV-5。
 下文既有类型保持有效；IR 文档 contract 保持 `0.2.0`（兼容读取 `0.1.0`）。
 
+规范 2.3 的专用 Apply Patch 扩展见 [14](14-apply-patch.md)：新增
+`apply_patch_tool_use` / `apply_patch_tool_result`、三变体 Operation，以及无名称的专用
+Tool/ToolChoice。两类新块都可作为零 Delta 原子响应块；INV-3/4 包含其请求关联。
+
 ## 2. Conventions
 
 - **Type and field names.** Types are named in the Go reference style
@@ -36,8 +40,8 @@ Delta，扩展 Tool/ToolChoice 与 INV-1、INV-3、INV-4、INV-5。
   omitted, not set to `null`; `null` MUST NOT appear for any property
   defined in this document.
 - **Sealed unions.** Types marked *sealed* have an exhaustive variant set.
-  Adding a variant to a sealed union is a breaking spec change (a major
-  version bump once the spec reaches 1.0).
+  新增变体要求消费者更新穷尽匹配，但依项目版本政策，同一框架下的能力补充使用 minor；
+  只有大的架构重构升级 major。版本与兼容范围见 [README](README.md#versioning-policy)。
 - **Enums** are closed sets. Converters only ever emit in-set values.
   Inbound face values with no IR equivalent are mapped by the mapping
   documents (10–12), never by extending the set; the general escape hatch
@@ -97,6 +101,8 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
 | `CustomToolUseBlock` | `custom_tool_use` | 任意文本输入的自定义工具调用（2.2，见 spec/13） |
 | `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
+| `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
+| `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
 
 #### TextBlock
 
@@ -143,10 +149,10 @@ responsibility; consumers treat `data` as an opaque string.
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| `Name` | `name` | string | yes, non-empty | |
-| `Description` | `description` | string | no | |
-| `Type` | `type` | enum `function` \| `custom` | no | 缺省 function；旧 function 编码维持省略 |
-| `InputSchema` | `input_schema` | JSON object | iff function | a JSON-Schema-shaped object, carried verbatim; MUST NOT be analyzed or rewritten；custom MUST NOT 携带 |
+| `Name` | `name` | string | iff function/custom，非空 | apply_patch MUST 缺失 |
+| `Description` | `description` | string | no，限 function/custom | apply_patch MUST 缺失 |
+| `Type` | `type` | enum `function` \| `custom` \| `apply_patch` | no | 缺省 function；旧 function 编码维持省略 |
+| `InputSchema` | `input_schema` | JSON object | iff function | a JSON-Schema-shaped object, carried verbatim; MUST NOT be analyzed or rewritten；custom/apply_patch MUST NOT 携带 |
 | `Format` | `format` | `CustomToolFormat` | no，限 custom | text 或 grammar（syntax 为 lark/regex，definition 为不透明字符串）；见 spec/13 |
 
 ### 3.6 ToolChoice
@@ -154,8 +160,8 @@ responsibility; consumers treat `data` as an opaque string.
 | Go field | JSON property | Type | Required |
 |----------|---------------|------|----------|
 | `Mode` | `mode` | enum `auto` \| `any` \| `tool` \| `none` | yes |
-| `Name` | `name` | string | yes iff `Mode == "tool"`, else MUST be absent; non-empty |
-| `ToolType` | `tool_type` | enum `function` \| `custom` | no；仅 Mode 为 tool 时允许，缺省 function |
+| `Name` | `name` | string | named function/custom 的 mode=tool 要求非空；其他情况 MUST 缺失 |
+| `ToolType` | `tool_type` | enum `function` \| `custom` \| `apply_patch` | no；仅 Mode 为 tool 时允许，缺省 function；apply_patch 禁止 name |
 
 `tool` with `name` selects exactly one tool; the other modes carry no
 `name`.

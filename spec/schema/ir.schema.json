@@ -82,8 +82,49 @@
         { "$ref": "#/$defs/toolResultBlock" },
         { "$ref": "#/$defs/thinkingBlock" },
         { "$ref": "#/$defs/customToolUseBlock" },
-        { "$ref": "#/$defs/customToolResultBlock" }
+        { "$ref": "#/$defs/customToolResultBlock" },
+        { "$ref": "#/$defs/applyPatchToolUseBlock" },
+        { "$ref": "#/$defs/applyPatchToolResultBlock" }
       ]
+    },
+    "applyPatchOperation": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "type": { "const": "create_file" }, "path": { "type": "string" }, "diff": { "type": "string" } },
+          "required": ["type", "path", "diff"], "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "type": { "const": "delete_file" }, "path": { "type": "string" } },
+          "required": ["type", "path"], "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "type": { "const": "update_file" }, "path": { "type": "string" }, "diff": { "type": "string" } },
+          "required": ["type", "path", "diff"], "additionalProperties": false
+        }
+      ]
+    },
+    "applyPatchToolUseBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "apply_patch_tool_use" },
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["in_progress", "completed"] },
+        "operation": { "$ref": "#/$defs/applyPatchOperation" }
+      },
+      "required": ["type", "id", "status", "operation"], "additionalProperties": false
+    },
+    "applyPatchToolResultBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "apply_patch_tool_result" },
+        "tool_use_id": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["completed", "failed"] },
+        "output": { "type": "string" }
+      },
+      "required": ["type", "tool_use_id", "status"], "additionalProperties": false
     },
     "customToolUseBlock": {
       "type": "object",
@@ -256,11 +297,16 @@
           },
           "required": ["type", "name"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "type": { "const": "apply_patch" } },
+          "required": ["type"], "additionalProperties": false
         }
       ]
     },
     "toolChoice": {
-      "description": "Tool choice (spec/01 s3.6); name is required iff mode is \"tool\".",
+      "description": "Named function/custom choices require name; the dedicated apply_patch choice forbids name (spec/14).",
       "oneOf": [
         {
           "type": "object",
@@ -289,6 +335,11 @@
           },
           "required": ["mode", "name"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": { "mode": { "const": "tool" }, "tool_type": { "const": "apply_patch" } },
+          "required": ["mode", "tool_type"], "additionalProperties": false
         }
       ]
     },

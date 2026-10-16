@@ -28,6 +28,31 @@ const INPUT_PART: WireAuditSpec = {
 
 const INPUT_CONTENT: WireAuditSpec = { items: INPUT_PART };
 
+const APPLY_PATCH_OPERATION: WireAuditSpec = {
+  variant: (op) => {
+    switch (op.type) {
+      case "create_file":
+      case "update_file":
+        return {
+          fields: {
+            type: undefined,
+            path: undefined,
+            diff: undefined,
+          },
+        };
+      case "delete_file":
+        return {
+          fields: {
+            type: undefined,
+            path: undefined,
+          },
+        };
+      default:
+        return undefined;
+    }
+  },
+};
+
 const INPUT_ITEM: WireAuditSpec = {
   variant: (item) => {
     const type = item.type === undefined ? "message" : item.type;
@@ -35,6 +60,26 @@ const INPUT_ITEM: WireAuditSpec = {
       case "message":
         return {
           fields: { type: undefined, role: undefined, content: INPUT_CONTENT },
+        };
+      case "apply_patch_call":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            call_id: undefined,
+            operation: APPLY_PATCH_OPERATION,
+          },
+        };
+      case "apply_patch_call_output":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            call_id: undefined,
+            output: undefined,
+          },
         };
       case "function_call":
         return {
@@ -106,29 +151,36 @@ const CUSTOM_FORMAT: WireAuditSpec = {
 
 const TOOL: WireAuditSpec = {
   variant: (tool) =>
-    tool.type === "function"
+    tool.type === "apply_patch"
       ? {
           fields: {
             type: undefined,
-            name: undefined,
-            description: undefined,
-            parameters: undefined,
           },
         }
-      : tool.type === "custom"
+      : tool.type === "function"
         ? {
             fields: {
               type: undefined,
               name: undefined,
               description: undefined,
-              format: CUSTOM_FORMAT,
+              parameters: undefined,
             },
           }
-        : undefined,
+        : tool.type === "custom"
+          ? {
+              fields: {
+                type: undefined,
+                name: undefined,
+                description: undefined,
+                format: CUSTOM_FORMAT,
+              },
+            }
+          : undefined,
 };
 
 const TOOL_CHOICE: WireAuditSpec = {
   variant: (choice) => {
+    if (choice.type === "apply_patch") return { fields: { type: undefined } };
     if (choice.type === "function" || choice.type === "custom")
       return { fields: { type: undefined, name: undefined } };
     return undefined;
@@ -173,6 +225,26 @@ const RESPONSE_PART: WireAuditSpec = {
 const OUTPUT_ITEM: WireAuditSpec = {
   variant: (item) => {
     switch (item.type) {
+      case "apply_patch_call":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            call_id: undefined,
+            operation: APPLY_PATCH_OPERATION,
+          },
+        };
+      case "apply_patch_call_output":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            call_id: undefined,
+            output: undefined,
+          },
+        };
       case "message":
         return {
           fields: {
@@ -305,22 +377,25 @@ export const RESPONSES_STREAM_EVENT: WireAuditSpec = {
       case "response.reasoning_summary_part.added":
       case "response.reasoning_summary_part.done":
         return {
-          fields: { ...INDEXED_FIELDS, part: RESPONSE_PART },
+          fields: {
+            ...INDEXED_FIELDS,
+            part: RESPONSE_PART,
+          },
         };
       case "response.output_text.delta":
       case "response.reasoning_summary_text.delta":
-        return { fields: { ...INDEXED_FIELDS, delta: undefined } };
-      case "response.output_text.done":
-      case "response.reasoning_summary_text.done":
-        return { fields: { ...INDEXED_FIELDS, text: undefined } };
-      case "response.function_call_arguments.delta":
         return {
           fields: {
-            type: undefined,
-            item_id: undefined,
-            output_index: undefined,
+            ...INDEXED_FIELDS,
             delta: undefined,
-            sequence_number: undefined,
+          },
+        };
+      case "response.output_text.done":
+      case "response.reasoning_summary_text.done":
+        return {
+          fields: {
+            ...INDEXED_FIELDS,
+            text: undefined,
           },
         };
       case "response.custom_tool_call_input.delta":
@@ -340,6 +415,16 @@ export const RESPONSES_STREAM_EVENT: WireAuditSpec = {
             item_id: undefined,
             output_index: undefined,
             input: undefined,
+            sequence_number: undefined,
+          },
+        };
+      case "response.function_call_arguments.delta":
+        return {
+          fields: {
+            type: undefined,
+            item_id: undefined,
+            output_index: undefined,
+            delta: undefined,
             sequence_number: undefined,
           },
         };

@@ -17,6 +17,8 @@ from oxa.ir import (
     ContentBlockStart,
     ContentBlockStop,
     Event,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     CustomToolInputDelta,
     CustomToolUseBlock,
     InputJsonDelta,
@@ -64,7 +66,10 @@ from oxa.openai.responses.constants import (
     STATUS_IN_PROGRESS,
     STATUS_INCOMPLETE,
 )
-from oxa.openai.responses.normalize import loss
+from oxa.openai.responses.normalize import (
+    encode_apply_patch_operation,
+    loss,
+)
 
 
 @dataclass(slots=True)
@@ -109,9 +114,13 @@ class StreamEncoder:
         "_next_message_item",
         "_next_function_item",
         "_next_custom_item",
+        "_next_apply_patch_call_item",
+        "_next_apply_patch_result_item",
         "_next_reasoning_item",
         "_active_item",
         "_active_block",
+        "_active_apply_patch_call",
+        "_active_apply_patch_result",
         "_completed",
     )
 
@@ -127,9 +136,13 @@ class StreamEncoder:
         self._next_message_item = 0
         self._next_function_item = 0
         self._next_custom_item = 0
+        self._next_apply_patch_call_item = 0
+        self._next_apply_patch_result_item = 0
         self._next_reasoning_item = 0
         self._active_item: _StreamOutputItem | None = None
         self._active_block: _StreamEncodeBlock | None = None
+        self._active_apply_patch_call: ApplyPatchToolUseBlock | None = None
+        self._active_apply_patch_result: ApplyPatchToolResultBlock | None = None
         self._completed: list[dict[str, Any]] = []
 
     def apply(self, ev: Event) -> tuple[list[dict[str, Any]], list[Loss]]:
@@ -168,6 +181,10 @@ class StreamEncoder:
                 return self._start_text_block(ev.index, ev.block.text)
             if isinstance(ev.block, ThinkingBlock):
                 return self._start_thinking_block(ev.index, ev.block)
+            if isinstance(ev.block, ApplyPatchToolUseBlock):
+                return self._start_apply_patch_call_block(ev.index, ev.block)
+            if isinstance(ev.block, ApplyPatchToolResultBlock):
+                return self._start_apply_patch_result_block(ev.index, ev.block)
             if isinstance(ev.block, ToolUseBlock):
                 return self._start_function_call_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
             if isinstance(ev.block, CustomToolUseBlock):
@@ -179,6 +196,9 @@ class StreamEncoder:
                 raise ValueError("responses: ContentBlockDelta out of grammar order")
             active_item = self._active_item
             assert active_item is not None
+
+            if self._active_block.kind in ("apply_patch_call", "apply_patch_call_output"):
+                raise ValueError("responses: apply patch item does not accept deltas")
 
             if self._active_block.kind == "message":
                 if not isinstance(ev.delta, TextDelta):
@@ -236,6 +256,10 @@ class StreamEncoder:
                 return self._stop_text_block()
             if self._active_block.kind == "reasoning":
                 return self._stop_thinking_block()
+            if self._active_block.kind == "apply_patch_call":
+                return self._stop_apply_patch_call_block()
+            if self._active_block.kind == "apply_patch_call_output":
+                return self._stop_apply_patch_result_block()
             if self._active_block.kind == "custom_tool_call":
                 return self._stop_custom_tool_block()
             return self._stop_function_call_block()
@@ -492,6 +516,105 @@ class StreamEncoder:
         item = {"id": self._active_item.id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": self._active_item.call_id, "name": self._active_item.name, "input": block.tool_input}
         out.append({"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE, "item_id": self._active_item.id, "output_index": self._active_item.output_index, "input": block.tool_input})
         out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, "output_index": self._active_item.output_index, "item": item})
+        self._completed.append(item)
+        self._active_item = None
+        return out, []
+
+    def _start_apply_patch_call_block(self, index: int, block: ApplyPatchToolUseBlock) -> tuple[list[dict[str, Any]], list[Loss]]:
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind in ("message", "reasoning"):
+                out.append(self._close_message_item() if self._active_item.kind == "message" else self._close_reasoning_item())
+            else:
+                raise ValueError("responses: apply_patch_call cannot open before the active tool item completes")
+        item_id = f"apc_{self._next_apply_patch_call_item}"
+        self._next_apply_patch_call_item += 1
+        output_index = self._next_output_index
+        self._next_output_index += 1
+        item = _StreamOutputItem(kind="apply_patch_call", id=item_id, output_index=output_index, call_id=block.id)
+        self._active_item = item
+        self._active_block = _StreamEncodeBlock(index=index, kind="apply_patch_call", content_index=0)
+        self._active_apply_patch_call = block
+        out.append({
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+            "output_index": output_index,
+            "item": {
+                "id": item_id,
+                "type": "apply_patch_call",
+                "call_id": block.id,
+                "status": "in_progress",
+                "operation": encode_apply_patch_operation(block.operation),
+            },
+        })
+        return out, []
+
+    def _stop_apply_patch_call_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
+        block = self._active_apply_patch_call
+        self._active_apply_patch_call = None
+        self._active_block = None
+        item = {
+            "id": self._active_item.id,
+            "type": "apply_patch_call",
+            "call_id": block.id,
+            "status": block.status,
+            "operation": encode_apply_patch_operation(block.operation),
+        }
+        out = [{
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+            "output_index": self._active_item.output_index,
+            "item": item,
+        }]
+        self._completed.append(item)
+        self._active_item = None
+        return out, []
+
+    def _start_apply_patch_result_block(self, index: int, block: ApplyPatchToolResultBlock) -> tuple[list[dict[str, Any]], list[Loss]]:
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind in ("message", "reasoning"):
+                out.append(self._close_message_item() if self._active_item.kind == "message" else self._close_reasoning_item())
+            else:
+                raise ValueError("responses: apply_patch_call_output cannot open before the active tool item completes")
+        item_id = f"apco_{self._next_apply_patch_result_item}"
+        self._next_apply_patch_result_item += 1
+        output_index = self._next_output_index
+        self._next_output_index += 1
+        item = _StreamOutputItem(kind="apply_patch_call_output", id=item_id, output_index=output_index, call_id=block.tool_use_id)
+        self._active_item = item
+        self._active_block = _StreamEncodeBlock(index=index, kind="apply_patch_call_output", content_index=0)
+        self._active_apply_patch_result = block
+        added_item: dict[str, Any] = {
+            "id": item_id,
+            "type": "apply_patch_call_output",
+            "call_id": block.tool_use_id,
+            "status": block.status,
+        }
+        if block.output is not None:
+            added_item["output"] = block.output
+        out.append({
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+            "output_index": output_index,
+            "item": added_item,
+        })
+        return out, []
+
+    def _stop_apply_patch_result_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
+        block = self._active_apply_patch_result
+        self._active_apply_patch_result = None
+        self._active_block = None
+        item: dict[str, Any] = {
+            "id": self._active_item.id,
+            "type": "apply_patch_call_output",
+            "call_id": block.tool_use_id,
+            "status": block.status,
+        }
+        if block.output is not None:
+            item["output"] = block.output
+        out = [{
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+            "output_index": self._active_item.output_index,
+            "item": item,
+        }]
         self._completed.append(item)
         self._active_item = None
         return out, []

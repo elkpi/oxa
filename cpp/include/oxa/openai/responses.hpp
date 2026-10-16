@@ -20,6 +20,7 @@ inline constexpr std::string_view ROLE_DEVELOPER = "developer";
 
 inline constexpr std::string_view TOOL_TYPE_FUNCTION = "function";
 inline constexpr std::string_view TOOL_TYPE_CUSTOM = "custom";
+inline constexpr std::string_view TOOL_TYPE_APPLY_PATCH = "apply_patch";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_NONE = "none";
@@ -30,6 +31,8 @@ inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL = "function_call";
 inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL_OUTPUT = "function_call_output";
 inline constexpr std::string_view ITEM_TYPE_CUSTOM_TOOL_CALL = "custom_tool_call";
 inline constexpr std::string_view ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT = "custom_tool_call_output";
+inline constexpr std::string_view ITEM_TYPE_APPLY_PATCH_CALL = "apply_patch_call";
+inline constexpr std::string_view ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT = "apply_patch_call_output";
 inline constexpr std::string_view ITEM_TYPE_REASONING = "reasoning";
 
 inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
@@ -149,6 +152,40 @@ private:
     std::optional<StreamCustomToolCall> custom_tool_call_;
     Status require_custom_tool_call(const json::Value& ev, std::string_view event_type);
     StatusOr<std::vector<ir::Event>> replay_custom_tool_call(const StreamCustomToolCall& call);
+
+    struct StreamApplyPatchCall {
+        std::string item_id;
+        std::int64_t output_index = 0;
+        std::string call_id;
+        std::string status;
+        json::Value operation;
+    };
+    std::optional<StreamApplyPatchCall> apply_patch_call_;
+
+    struct StreamApplyPatchResult {
+        std::string item_id;
+        std::int64_t output_index = 0;
+        std::string call_id;
+        std::string status;
+        std::optional<std::string> output;
+    };
+    std::optional<StreamApplyPatchResult> apply_patch_result_;
+
+    struct CompletedApplyPatchCall {
+        std::string id;
+        std::string call_id;
+        std::string status;
+        json::Value operation;
+    };
+    std::vector<CompletedApplyPatchCall> completed_apply_patch_calls_;
+
+    struct CompletedApplyPatchResult {
+        std::string id;
+        std::string call_id;
+        std::string status;
+        std::optional<std::string> output;
+    };
+    std::vector<CompletedApplyPatchResult> completed_apply_patch_results_;
 };
 
 class StreamEncoder {
@@ -158,7 +195,7 @@ public:
     StatusOr<Conversion<std::vector<json::Value>>> apply(const ir::Event& event);
 
 private:
-    enum class OutputItemKind { Message, Reasoning, FunctionCall, CustomToolCall };
+    enum class OutputItemKind { Message, Reasoning, FunctionCall, CustomToolCall, ApplyPatchCall, ApplyPatchResult };
 
     struct StreamOutputItem {
         OutputItemKind kind;
@@ -194,6 +231,9 @@ private:
     std::int64_t next_function_item_ = 0;
     std::int64_t next_custom_item_ = 0;
     std::int64_t next_reasoning_item_ = 0;
+    std::int64_t next_apply_patch_call_item_ = 0;
+    std::int64_t next_apply_patch_result_item_ = 0;
+    std::optional<ir::Block> active_apply_patch_block_;
     std::optional<StreamOutputItem> active_item_;
     std::optional<StreamEncodeBlock> active_block_;
     std::vector<json::Value> completed_;
@@ -208,10 +248,14 @@ private:
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_function_call_block(std::int64_t index, const ir::ToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_custom_tool_call_block(std::int64_t index, const ir::CustomToolUseBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_apply_patch_call_block(std::int64_t index, const ir::ApplyPatchToolUseBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_apply_patch_result_block(std::int64_t index, const ir::ApplyPatchToolResultBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_text_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_thinking_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_function_call_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_custom_tool_call_block();
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_apply_patch_call_block();
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_apply_patch_result_block();
     StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> terminal(const ir::MessageDelta& delta);
 };
 

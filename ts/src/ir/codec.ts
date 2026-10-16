@@ -10,6 +10,7 @@ import {
 import { assertEventSequence } from "./checker.js";
 import {
   specVersion,
+  type ApplyPatchOperation,
   type Block,
   type Delta,
   type Event,
@@ -111,6 +112,20 @@ function decodeEvent(value: JsonValue): Event {
 }
 
 function encodeBlock(block: Block): JsonObject {
+  if (block.type === "apply_patch_tool_use")
+    return {
+      type: block.type,
+      id: block.id,
+      status: block.status,
+      operation: encodeApplyPatchOperation(block.operation),
+    };
+  if (block.type === "apply_patch_tool_result")
+    return {
+      type: block.type,
+      tool_use_id: block.tool_use_id,
+      status: block.status,
+      ...(block.output === undefined ? {} : { output: block.output }),
+    };
   if (block.type === "custom_tool_use")
     return {
       type: block.type,
@@ -137,8 +152,37 @@ function encodeBlock(block: Block): JsonObject {
     `codec does not yet encode block ${block.type}`,
   );
 }
+
+function encodeApplyPatchOperation(op: ApplyPatchOperation): JsonObject {
+  switch (op.type) {
+    case "create_file":
+    case "update_file":
+      return { type: op.type, path: op.path, diff: op.diff };
+    case "delete_file":
+      return { type: op.type, path: op.path };
+  }
+}
+
 function decodeBlock(value: JsonValue | undefined): Block {
   const block = object(value, "block");
+  if (block.type === "apply_patch_tool_use")
+    return {
+      type: block.type,
+      id: nonEmptyString(block.id, "block.id"),
+      status: decodeApplyPatchCallStatus(block.status, "block.status"),
+      operation: decodeApplyPatchOperation(block.operation, "block.operation"),
+    };
+  if (block.type === "apply_patch_tool_result") {
+    if (block.output !== undefined && typeof block.output !== "string") {
+      fail("apply_patch_tool_result output must be a string if defined");
+    }
+    return {
+      type: block.type,
+      tool_use_id: nonEmptyString(block.tool_use_id, "block.tool_use_id"),
+      status: decodeApplyPatchResultStatus(block.status, "block.status"),
+      ...(block.output === undefined ? {} : { output: block.output }),
+    };
+  }
   if (block.type === "custom_tool_use")
     return {
       type: block.type,
@@ -165,6 +209,57 @@ function decodeBlock(value: JsonValue | undefined): Block {
     };
   fail("unsupported block type");
 }
+
+function decodeApplyPatchOperation(
+  value: JsonValue | undefined,
+  path: string,
+): ApplyPatchOperation {
+  const op = object(value, path);
+  const type = string(op.type, `${path}.type`);
+  const filePath = string(op.path, `${path}.path`);
+  switch (type) {
+    case "create_file":
+    case "update_file":
+      return {
+        type,
+        path: filePath,
+        diff: string(op.diff, `${path}.diff`),
+      };
+    case "delete_file":
+      if (op.diff !== undefined) {
+        fail(`${path}: delete_file must not carry diff`);
+      }
+      return {
+        type,
+        path: filePath,
+      };
+    default:
+      fail(`unsupported apply_patch operation type: ${type}`);
+  }
+}
+
+function decodeApplyPatchCallStatus(
+  value: JsonValue | undefined,
+  path: string,
+): "in_progress" | "completed" {
+  const s = string(value, path);
+  if (s !== "in_progress" && s !== "completed") {
+    fail(`unknown apply_patch call status: ${s}`);
+  }
+  return s;
+}
+
+function decodeApplyPatchResultStatus(
+  value: JsonValue | undefined,
+  path: string,
+): "completed" | "failed" {
+  const s = string(value, path);
+  if (s !== "completed" && s !== "failed") {
+    fail(`unknown apply_patch result status: ${s}`);
+  }
+  return s;
+}
+
 function encodeDelta(delta: Delta): JsonObject {
   if (delta.type === "custom_tool_input_delta")
     return { type: delta.type, text: delta.text };
@@ -178,6 +273,7 @@ function encodeDelta(delta: Delta): JsonObject {
     return { type: "input_json_delta", partial_json: delta.partial_json };
   throw new OxaError("ir-invariant", "codec does not yet encode delta");
 }
+
 function decodeDelta(value: JsonValue | undefined): Delta {
   const delta = object(value, "delta");
   if (delta.type === "custom_tool_input_delta")

@@ -8,6 +8,8 @@ from typing import Any
 from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_RESULT,
     BLOCK_TYPE_CUSTOM_TOOL_USE,
+    BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
+    BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
@@ -31,6 +33,12 @@ from oxa.ir.constants import (
 )
 from oxa.ir.loss import Loss
 from oxa.ir.types import (
+    ApplyPatchCreateFileOperation,
+    ApplyPatchDeleteFileOperation,
+    ApplyPatchOperation,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
+    ApplyPatchUpdateFileOperation,
     Block,
     ContentBlockDelta,
     ContentBlockStart,
@@ -190,7 +198,71 @@ def dump_block(block: Block) -> dict[str, Any]:
         elif not isinstance(output, str):
             raise CodecError("custom_tool_result output must be a string or array")
         return {"type": BLOCK_TYPE_CUSTOM_TOOL_RESULT, "tool_use_id": block.tool_use_id, "output": output}
+    if isinstance(block, ApplyPatchToolUseBlock):
+        if not block.id:
+            raise CodecError("apply_patch_tool_use requires non-empty id")
+        return {
+            "type": BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
+            "id": block.id,
+            "status": block.status,
+            "operation": dump_apply_patch_operation(block.operation),
+        }
+    if isinstance(block, ApplyPatchToolResultBlock):
+        if not block.tool_use_id:
+            raise CodecError("apply_patch_tool_result requires non-empty tool_use_id")
+        res: dict[str, Any] = {
+            "type": BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+            "tool_use_id": block.tool_use_id,
+            "status": block.status,
+        }
+        if block.output is not None:
+            res["output"] = block.output
+        return res
     raise CodecError(f"unknown block type: {type(block)}")
+
+
+def dump_apply_patch_operation(op: ApplyPatchOperation) -> dict[str, Any]:
+    if isinstance(op, (ApplyPatchCreateFileOperation, ApplyPatchUpdateFileOperation)):
+        return {"type": op.type, "path": op.path, "diff": op.diff}
+    if isinstance(op, ApplyPatchDeleteFileOperation):
+        return {"type": op.type, "path": op.path}
+    raise CodecError(f"unknown apply patch operation: {type(op)}")
+
+
+def load_apply_patch_operation(data: dict[str, Any]) -> ApplyPatchOperation:
+    if not isinstance(data, dict):
+        raise CodecError("operation must be a dict")
+    kind = data.get("type")
+    path = data.get("path")
+    if not isinstance(path, str):
+        raise CodecError("operation path must be a string")
+    if kind == "create_file":
+        diff = data.get("diff")
+        if not isinstance(diff, str):
+            raise CodecError("create_file operation requires diff string")
+        return ApplyPatchCreateFileOperation(path=path, diff=diff)
+    if kind == "update_file":
+        diff = data.get("diff")
+        if not isinstance(diff, str):
+            raise CodecError("update_file operation requires diff string")
+        return ApplyPatchUpdateFileOperation(path=path, diff=diff)
+    if kind == "delete_file":
+        if "diff" in data:
+            raise CodecError("delete_file operation must not carry diff")
+        return ApplyPatchDeleteFileOperation(path=path)
+    raise CodecError(f"unknown apply patch operation type: {kind}")
+
+
+def load_apply_patch_call_status(status: Any) -> str:
+    if status not in ("in_progress", "completed"):
+        raise CodecError(f"invalid apply_patch_call status: {status}")
+    return status
+
+
+def load_apply_patch_result_status(status: Any) -> str:
+    if status not in ("completed", "failed"):
+        raise CodecError(f"invalid apply_patch_call_output status: {status}")
+    return status
 
 
 def load_block(data: dict[str, Any]) -> Block:
@@ -235,6 +307,27 @@ def load_block(data: dict[str, Any]) -> Block:
         elif not isinstance(output, str):
             raise CodecError("custom_tool_result output must be a string or array")
         return CustomToolResultBlock(tool_use_id=call_id, output=output)
+    if kind == BLOCK_TYPE_APPLY_PATCH_TOOL_USE:
+        call_id = data.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("apply_patch_tool_use requires non-empty id")
+        return ApplyPatchToolUseBlock(
+            id=call_id,
+            status=load_apply_patch_call_status(data.get("status")),
+            operation=load_apply_patch_operation(data.get("operation")),
+        )
+    if kind == BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT:
+        call_id = data.get("tool_use_id")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("apply_patch_tool_result requires non-empty tool_use_id")
+        output = data.get("output")
+        if output is not None and not isinstance(output, str):
+            raise CodecError("apply_patch_tool_result output must be a string")
+        return ApplyPatchToolResultBlock(
+            tool_use_id=call_id,
+            status=load_apply_patch_result_status(data.get("status")),
+            output=output,
+        )
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -354,7 +447,9 @@ def dump_request(req: Request) -> dict[str, Any]:
     if req.tools:
         tools_out: list[dict[str, Any]] = []
         for t in req.tools:
-            if t.type == "custom":
+            if t.type == "apply_patch":
+                t_dict: dict[str, Any] = {"type": "apply_patch"}
+            elif t.type == "custom":
                 if t.input_schema is not None:
                     raise CodecError("custom tool must not carry input_schema")
                 t_dict: dict[str, Any] = {"type": "custom", "name": t.name}
@@ -375,13 +470,14 @@ def dump_request(req: Request) -> dict[str, Any]:
     if req.tool_choice:
         tc_dict: dict[str, Any] = {"mode": req.tool_choice.mode}
         if req.tool_choice.mode == TOOL_CHOICE_TOOL:
-            if not req.tool_choice.name:
-                raise CodecError("tool choice in mode 'tool' requires name")
-            if not req.tool_choice.name or req.tool_choice.tool_type not in ("function", "custom"):
-                raise CodecError("tool choice in mode 'tool' requires name and function/custom tool_type")
-            tc_dict["name"] = req.tool_choice.name
-            if req.tool_choice.tool_type != "function":
-                tc_dict["tool_type"] = req.tool_choice.tool_type
+            if req.tool_choice.tool_type == "apply_patch":
+                tc_dict["tool_type"] = "apply_patch"
+            else:
+                if not req.tool_choice.name or req.tool_choice.tool_type not in ("function", "custom"):
+                    raise CodecError("tool choice in mode 'tool' requires name and function/custom tool_type")
+                tc_dict["name"] = req.tool_choice.name
+                if req.tool_choice.tool_type != "function":
+                    tc_dict["tool_type"] = req.tool_choice.tool_type
         elif req.tool_choice.tool_type != "function":
             raise CodecError("tool_choice.tool_type is only valid when mode is tool")
         out["tool_choice"] = tc_dict
@@ -507,7 +603,11 @@ def load_request(data: dict[str, Any] | str) -> Request:
         tools = []
         for t in raw["tools"]:
             tool_type = t.get("type", "function")
-            if tool_type == "custom":
+            if tool_type == "apply_patch":
+                if any(k in t for k in ("name", "description", "input_schema", "format")):
+                    raise CodecError("apply_patch declaration must only contain type")
+                tools.append(Tool(type="apply_patch"))
+            elif tool_type == "custom":
                 if "input_schema" in t:
                     raise CodecError("custom tool must not carry input_schema")
                 fmt = t.get("format")
@@ -524,11 +624,18 @@ def load_request(data: dict[str, Any] | str) -> Request:
         tc = raw["tool_choice"]
         mode, tool_type = tc["mode"], tc.get("tool_type", "function")
         if mode == TOOL_CHOICE_TOOL:
-            if tool_type not in ("function", "custom") or not tc.get("name"):
-                raise CodecError("tool choice mode 'tool' requires name and function/custom tool_type")
+            if tool_type == "apply_patch":
+                if "name" in tc:
+                    raise CodecError("apply_patch choice must not contain name")
+                tool_choice = ToolChoice(mode=mode, tool_type="apply_patch")
+            else:
+                if tool_type not in ("function", "custom") or not tc.get("name"):
+                    raise CodecError("tool choice mode 'tool' requires name and function/custom tool_type")
+                tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type)
         elif "tool_type" in tc:
             raise CodecError("tool_choice.tool_type is only valid when mode is tool")
-        tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type)
+        else:
+            tool_choice = ToolChoice(mode=mode)
 
     params: Params | None = None
     if "params" in raw:

@@ -18,7 +18,20 @@ BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
 BLOCK_TYPE_CUSTOM_TOOL_USE: Final = "custom_tool_use"
 BLOCK_TYPE_CUSTOM_TOOL_RESULT: Final = "custom_tool_result"
-BlockType = Literal["text", "thinking", "image", "tool_use", "tool_result", "custom_tool_use", "custom_tool_result"]
+BLOCK_TYPE_APPLY_PATCH_TOOL_USE: Final = "apply_patch_tool_use"
+BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT: Final = "apply_patch_tool_result"
+TOOL_TYPE_APPLY_PATCH: Final = "apply_patch"
+BlockType = Literal[
+    "text",
+    "thinking",
+    "image",
+    "tool_use",
+    "tool_result",
+    "custom_tool_use",
+    "custom_tool_result",
+    "apply_patch_tool_use",
+    "apply_patch_tool_result",
+]
 
 # Tool choice modes (spec/01 §3.6)
 TOOL_CHOICE_AUTO: Final = "auto"
@@ -95,6 +108,9 @@ __all__ = [
     "BLOCK_TYPE_TOOL_RESULT",
     "BLOCK_TYPE_CUSTOM_TOOL_USE",
     "BLOCK_TYPE_CUSTOM_TOOL_RESULT",
+    "BLOCK_TYPE_APPLY_PATCH_TOOL_USE",
+    "BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT",
+    "TOOL_TYPE_APPLY_PATCH",
     "BlockType",
     "TOOL_CHOICE_AUTO",
     "TOOL_CHOICE_ANY",

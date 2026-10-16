@@ -128,6 +128,7 @@ private:
     bool skipped_atomic_ = false;
     bool open_tool_ = false;
     bool open_thinking_ = false;
+    bool open_custom_ = false;
     bool tool_seen_ = false;
     std::string thinking_input_;
     std::optional<std::string> thinking_signature_;

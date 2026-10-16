@@ -29,6 +29,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 				losses = append(losses, loss(fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic, "custom tools are not implemented by this Chat Completions profile"))
 				continue
 			}
+			if tool.Type == ir.ToolTypeApplyPatch {
+				losses = append(losses, loss(fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic, "apply_patch tool declarations are not implemented by this Chat Completions profile"))
+				continue
+			}
 			out.Tools = append(out.Tools, ToolWire{
 				Type: ToolTypeFunction,
 				Function: FunctionWire{
@@ -74,6 +78,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			for k, block := range message.Content {
 				if _, custom := block.(ir.CustomToolResultBlock); custom {
 					losses = append(losses, loss(fmt.Sprintf("messages[%d].content[%d]", i, k), "content", ir.LossUnsupportedSemantic, "custom tool results are not implemented by this profile"))
+					continue
+				}
+				if _, patch := block.(ir.ApplyPatchToolResultBlock); patch {
+					losses = append(losses, loss(fmt.Sprintf("messages[%d].content[%d]", i, k), "content", ir.LossUnsupportedSemantic, "apply_patch tool results are not implemented by this profile"))
 					continue
 				}
 				if result, ok := block.(ir.ToolResultBlock); ok {
@@ -172,7 +180,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		hasCustom, hasFunction := false, false
 		for _, b := range resp.Content {
 			switch b.(type) {
-			case ir.CustomToolUseBlock:
+			case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
 				hasCustom = true
 			case ir.ToolUseBlock:
 				hasFunction = true

@@ -233,8 +233,8 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 	if choice == nil {
 		return nil, nil
 	}
-	if choice.ToolType == ir.ToolTypeCustom {
-		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "custom tool choice is not implemented by this profile"))
+	if choice.ToolType == ir.ToolTypeCustom || choice.ToolType == ir.ToolTypeApplyPatch {
+		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "tool choice is not implemented by this profile"))
 	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto, ir.ToolChoiceNone:
@@ -340,6 +340,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 				ID: value.ID, Type: ToolTypeFunction,
 				Function: FunctionWire{Name: value.Name, Arguments: arguments},
 			})
+		case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),
+			))
 		case ir.ImageBlock, ir.ToolResultBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,

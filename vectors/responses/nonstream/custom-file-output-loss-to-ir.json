@@ -1,0 +1,90 @@
+{
+  "name": "responses.nonstream.custom-file-output-loss-to-ir",
+  "description": "N-C-1 至 N-C-4：Custom Tools 显式类型、任意文本保真与调用关联。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "m",
+    "input": [
+      {
+        "role": "user",
+        "content": "go"
+      },
+      {
+        "type": "custom_tool_call",
+        "call_id": "call_empty",
+        "name": "code_exec",
+        "input": ""
+      },
+      {
+        "type": "custom_tool_call_output",
+        "call_id": "call_empty",
+        "output": [
+          {
+            "type": "input_file",
+            "file_id": "file_1"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "input[2].output[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "custom tool output content is not supported"
+    }
+  ],
+  "tags": [
+    "custom-tools",
+    "n-c-1",
+    "n-c-2",
+    "n-c-3",
+    "n-c-4"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "custom_tool_use",
+            "id": "call_empty",
+            "name": "code_exec",
+            "input": ""
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "custom_tool_result",
+            "tool_use_id": "call_empty",
+            "output": []
+          }
+        ]
+      }
+    ]
+  }
+}

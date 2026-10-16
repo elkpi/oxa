@@ -1311,6 +1311,212 @@
       "sha256": "708b4e9aaed24d5586089683a082a1a9746b2403f3ed13b65b596b6f30306297"
     },
     {
+      "name": "responses.nonstream.custom-empty-output-list-from-ir",
+      "file": "responses/nonstream/custom-empty-output-list-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "48bccc74609e895691fab9e75529e148e7bbf003a3a1031ac41f6d0122e3f6f5"
+    },
+    {
+      "name": "responses.nonstream.custom-empty-output-list-to-ir",
+      "file": "responses/nonstream/custom-empty-output-list-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "39d5043f337d3ac22c8cbbb22ff62003aa5eda4a6720d06c1150a2fa9f2e29ea"
+    },
+    {
+      "name": "responses.nonstream.custom-empty-output-string-from-ir",
+      "file": "responses/nonstream/custom-empty-output-string-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "f85e2af22a126aff47a05feec92ec85d8934d1de440cee051904552a96c9d1fe"
+    },
+    {
+      "name": "responses.nonstream.custom-empty-output-string-to-ir",
+      "file": "responses/nonstream/custom-empty-output-string-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "23aeb7a517dfc57a15f53dce2ea51222119681e91899154e6ef50146f8ab2604"
+    },
+    {
+      "name": "responses.nonstream.custom-file-output-loss-to-ir",
+      "file": "responses/nonstream/custom-file-output-loss-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "b4b6d421b71b2c9a16e07f60522eb7676e514400693aff39dc2f2cc59447dbba"
+    },
+    {
+      "name": "responses.nonstream.custom-format-0-from-ir",
+      "file": "responses/nonstream/custom-format-0-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "77f394d0a0e8e283a78f7cbf6022f755b28cb775e2263a093e55f10e8c3efb78"
+    },
+    {
+      "name": "responses.nonstream.custom-format-0-to-ir",
+      "file": "responses/nonstream/custom-format-0-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "1c02c29bd718b3eac2a33aa7296ed66055626f9fdba1c984f0b0c85c6662ac83"
+    },
+    {
+      "name": "responses.nonstream.custom-format-1-from-ir",
+      "file": "responses/nonstream/custom-format-1-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "0c9abca83a8cd5d7a77c034a1e59eab37fc7e28ecf1caaacd86ef1fdee7192b5"
+    },
+    {
+      "name": "responses.nonstream.custom-format-1-to-ir",
+      "file": "responses/nonstream/custom-format-1-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "77bbddbddf856161f1c3de62fd023e3e6214fae61e2c539dcdc58dfe14c39aee"
+    },
+    {
+      "name": "responses.nonstream.custom-format-2-from-ir",
+      "file": "responses/nonstream/custom-format-2-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "c2dcdb8ce945b402cb2cf1ad9a99615619f5754500edace2b3b0f601247dc0a1"
+    },
+    {
+      "name": "responses.nonstream.custom-format-2-to-ir",
+      "file": "responses/nonstream/custom-format-2-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "d56bc6c8d42dec4c38f6e67871175395aac6b2ae5611f5c3434ef20df8294e55"
+    },
+    {
+      "name": "responses.nonstream.custom-format-3-from-ir",
+      "file": "responses/nonstream/custom-format-3-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "ba8e32779cac2681e6c3e3b4ae3d6be7a09f1dec24cf2f94188e90f194040c94"
+    },
+    {
+      "name": "responses.nonstream.custom-format-3-to-ir",
+      "file": "responses/nonstream/custom-format-3-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "ae4e4c8458f4626dbcbe4d08e7828bb7f81a208a47f2e49bfab9f4db064e27f1"
+    },
+    {
+      "name": "responses.nonstream.custom-mixed-conversation-from-ir",
+      "file": "responses/nonstream/custom-mixed-conversation-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "9830528c1e70de597be48c6ccf30f6f9a707b38bd8c487fb8bdef945d28a7752"
+    },
+    {
+      "name": "responses.nonstream.custom-mixed-conversation-to-ir",
+      "file": "responses/nonstream/custom-mixed-conversation-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "83bc659e765f2b9487025c3546ca80728383b5cd808819a94040769ca8ced018"
+    },
+    {
+      "name": "responses.nonstream.custom-response-from-ir",
+      "file": "responses/nonstream/custom-response-from-ir.json",
+      "tags": [
+        "response",
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "c24d262b3cf09d069534967d0688ded8bf06284a6891ede05bf6273c55f669f0"
+    },
+    {
+      "name": "responses.nonstream.custom-response-to-ir",
+      "file": "responses/nonstream/custom-response-to-ir.json",
+      "tags": [
+        "response",
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "dc04a295397fd1de91d9687e1650ac3123a5ee1066dbe598d983b36e1d1d3c92"
+    },
+    {
       "name": "responses.nonstream.developer-empty-request-to-ir",
       "file": "responses/nonstream/developer-empty-request-to-ir.json",
       "tags": [
@@ -1909,6 +2115,42 @@
         "N-R-12"
       ],
       "sha256": "e1f64d0b56b95cd57e3ae44c14836ec7973f8812bdb3e865f5bdb6bbae62d772"
+    },
+    {
+      "name": "responses.stream.custom-input-fallback-to-ir",
+      "file": "responses/stream/custom-input-fallback-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "6eccd9526b238b8019eb4565206db3477c408121790ef7abc3d5efbd55e61b1c"
+    },
+    {
+      "name": "responses.stream.custom-input-from-ir",
+      "file": "responses/stream/custom-input-from-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "95ae69a3c6a14534c99340fa18d76c9b8caebb4a86a8dfe9058e4bfecf49bf84"
+    },
+    {
+      "name": "responses.stream.custom-input-to-ir",
+      "file": "responses/stream/custom-input-to-ir.json",
+      "tags": [
+        "custom-tools",
+        "n-c-1",
+        "n-c-2",
+        "n-c-3",
+        "n-c-4"
+      ],
+      "sha256": "9b6d7814dd9f54da1b651faba345b0d414c0b0e2fd5278ebc5c9c7ec6c92fcf2"
     },
     {
       "name": "responses.stream.m7-function-call-from-ir",

@@ -1,0 +1,74 @@
+{
+  "name": "responses.nonstream.custom-response-to-ir",
+  "description": "N-C-1 至 N-C-4：Custom Tools 显式类型、任意文本保真与调用关联。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "id": "resp_custom",
+    "object": "response",
+    "status": "completed",
+    "model": "m",
+    "output": [
+      {
+        "type": "custom_tool_call",
+        "id": "ctc_abc123",
+        "call_id": "call_custom",
+        "name": "code_exec",
+        "input": "print(\"你好\\world\")\r\nnot JSON\t\u0000"
+      },
+      {
+        "type": "custom_tool_call",
+        "id": "ctc_abc123",
+        "call_id": "call_empty",
+        "name": "code_exec",
+        "input": ""
+      }
+    ],
+    "usage": {
+      "input_tokens": 2,
+      "output_tokens": 3,
+      "total_tokens": 5
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "response",
+    "custom-tools",
+    "n-c-1",
+    "n-c-2",
+    "n-c-3",
+    "n-c-4"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_custom",
+    "model": "m",
+    "content": [
+      {
+        "type": "custom_tool_use",
+        "id": "call_custom",
+        "name": "code_exec",
+        "input": "print(\"你好\\world\")\r\nnot JSON\t\u0000"
+      },
+      {
+        "type": "custom_tool_use",
+        "id": "call_empty",
+        "name": "code_exec",
+        "input": ""
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 2,
+      "output_tokens": 3
+    }
+  }
+}

@@ -1,0 +1,124 @@
+{
+  "name": "responses.stream.custom-input-fallback-to-ir",
+  "description": "N-C-1 至 N-C-4：Custom Tools 显式类型、任意文本保真与调用关联。",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "events": [
+      {
+        "type": "response.created",
+        "response": {
+          "id": "resp_stream_custom",
+          "object": "response",
+          "status": "in_progress",
+          "model": "m",
+          "output": []
+        }
+      },
+      {
+        "type": "response.output_item.added",
+        "output_index": 0,
+        "item": {
+          "type": "custom_tool_call",
+          "id": "ctc_0",
+          "call_id": "call_custom",
+          "name": "code_exec",
+          "input": ""
+        }
+      },
+      {
+        "type": "response.output_item.done",
+        "output_index": 0,
+        "item": {
+          "type": "custom_tool_call",
+          "id": "ctc_0",
+          "call_id": "call_custom",
+          "name": "code_exec",
+          "input": "print(\"你好\")\r\nnot JSON"
+        }
+      },
+      {
+        "type": "response.completed",
+        "response": {
+          "id": "resp_stream_custom",
+          "object": "response",
+          "status": "completed",
+          "model": "m",
+          "output": [
+            {
+              "type": "custom_tool_call",
+              "id": "ctc_0",
+              "call_id": "call_custom",
+              "name": "code_exec",
+              "input": "print(\"你好\")\r\nnot JSON"
+            }
+          ],
+          "usage": {
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "total_tokens": 5
+          }
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "n-c-1",
+    "n-c-2",
+    "n-c-3",
+    "n-c-4"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      {
+        "type": "message_start",
+        "id": "resp_stream_custom",
+        "model": "m"
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "block": {
+          "type": "custom_tool_use",
+          "id": "call_custom",
+          "name": "code_exec",
+          "input": "print(\"你好\")\r\nnot JSON"
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "custom_tool_input_delta",
+          "text": "print(\"你好\")\r\nnot JSON"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "message_delta",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 2,
+          "output_tokens": 3
+        }
+      },
+      {
+        "type": "message_done"
+      }
+    ]
+  }
+}

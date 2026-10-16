@@ -95,9 +95,8 @@ function compareObject(
 }
 
 /**
- * Transitional equivalence for the Spec 2.0 rollout: baseline vectors pin the
- * 0.1.0 IR contract while dual-read encoders emit 0.2.0. Mirrors the Go
- * harness; tighten once every language implements 0.2.0.
+ * Transitional equivalence for legacy vectors while dual-read encoders emit
+ * the current IR version. Semantic shapes are compared separately.
  */
 function compareSpecVersion(
   expected: JsonValue,
@@ -105,8 +104,8 @@ function compareSpecVersion(
   path: string,
 ): string | undefined {
   if (
-    (expected === "0.1.0" || expected === "0.2.0") &&
-    (actual === "0.1.0" || actual === "0.2.0")
+    ["0.1.0", "0.2.0"].includes(expected as string) &&
+    ["0.1.0", "0.2.0"].includes(actual as string)
   )
     return undefined;
   return compareValue(expected, actual, path);

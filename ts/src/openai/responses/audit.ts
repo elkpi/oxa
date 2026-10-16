@@ -19,7 +19,9 @@ const INPUT_PART: WireAuditSpec = {
     if (part.type === "input_text")
       return { fields: { type: undefined, text: undefined } };
     if (part.type === "input_image")
-      return { fields: { type: undefined, image_url: undefined } };
+      return {
+        fields: { type: undefined, image_url: undefined, detail: undefined },
+      };
     return undefined;
   },
 };
@@ -55,6 +57,23 @@ const INPUT_ITEM: WireAuditSpec = {
             output: undefined,
           },
         };
+      case "custom_tool_call":
+        return {
+          fields: {
+            type: undefined,
+            call_id: undefined,
+            name: undefined,
+            input: undefined,
+          },
+        };
+      case "custom_tool_call_output":
+        return {
+          fields: {
+            type: undefined,
+            call_id: undefined,
+            output: { items: INPUT_PART },
+          },
+        };
       case "reasoning":
         return {
           fields: {
@@ -70,25 +89,48 @@ const INPUT_ITEM: WireAuditSpec = {
   },
 };
 
+const CUSTOM_FORMAT: WireAuditSpec = {
+  variant: (format) =>
+    format.type === "text"
+      ? { fields: { type: undefined } }
+      : format.type === "grammar"
+        ? {
+            fields: {
+              type: undefined,
+              syntax: undefined,
+              definition: undefined,
+            },
+          }
+        : undefined,
+};
+
 const TOOL: WireAuditSpec = {
-  variant: (tool) => {
-    if (tool.type !== "function") return undefined;
-    return {
-      fields: {
-        type: undefined,
-        name: undefined,
-        description: undefined,
-        parameters: undefined,
-      },
-    };
-  },
+  variant: (tool) =>
+    tool.type === "function"
+      ? {
+          fields: {
+            type: undefined,
+            name: undefined,
+            description: undefined,
+            parameters: undefined,
+          },
+        }
+      : tool.type === "custom"
+        ? {
+            fields: {
+              type: undefined,
+              name: undefined,
+              description: undefined,
+              format: CUSTOM_FORMAT,
+            },
+          }
+        : undefined,
 };
 
 const TOOL_CHOICE: WireAuditSpec = {
   variant: (choice) => {
-    if (choice.type === "function") {
+    if (choice.type === "function" || choice.type === "custom")
       return { fields: { type: undefined, name: undefined } };
-    }
     return undefined;
   },
 };
@@ -111,6 +153,12 @@ const FORMAT: WireAuditSpec = {
 
 const RESPONSE_PART: WireAuditSpec = {
   variant: (part) => {
+    if (part.type === "input_text")
+      return { fields: { type: undefined, text: undefined } };
+    if (part.type === "input_image")
+      return {
+        fields: { type: undefined, image_url: undefined, detail: undefined },
+      };
     if (part.type !== "output_text") return undefined;
     return {
       fields: {
@@ -144,6 +192,25 @@ const OUTPUT_ITEM: WireAuditSpec = {
             call_id: undefined,
             name: undefined,
             arguments: undefined,
+          },
+        };
+      case "custom_tool_call":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            call_id: undefined,
+            name: undefined,
+            input: undefined,
+          },
+        };
+      case "custom_tool_call_output":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            call_id: undefined,
+            output: { items: INPUT_PART },
           },
         };
       case "reasoning":
@@ -253,6 +320,26 @@ export const RESPONSES_STREAM_EVENT: WireAuditSpec = {
             item_id: undefined,
             output_index: undefined,
             delta: undefined,
+            sequence_number: undefined,
+          },
+        };
+      case "response.custom_tool_call_input.delta":
+        return {
+          fields: {
+            type: undefined,
+            item_id: undefined,
+            output_index: undefined,
+            delta: undefined,
+            sequence_number: undefined,
+          },
+        };
+      case "response.custom_tool_call_input.done":
+        return {
+          fields: {
+            type: undefined,
+            item_id: undefined,
+            output_index: undefined,
+            input: undefined,
             sequence_number: undefined,
           },
         };

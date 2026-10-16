@@ -24,7 +24,7 @@ test("IR request decoding rejects empty message content", () => {
   );
 });
 
-test("emits 0.2.0 while accepting a 0.1.0 IR request", () => {
+test("emits 0.2.0 while accepting 0.1.0 IR requests", () => {
   const request = {
     model: "m",
     messages: [
@@ -36,6 +36,10 @@ test("emits 0.2.0 while accepting a 0.1.0 IR request", () => {
   };
   assert.deepEqual(
     decodeRequest({ specVersion: "0.1.0", ...request }),
+    request,
+  );
+  assert.deepEqual(
+    decodeRequest({ specVersion: "0.2.0", ...request }),
     request,
   );
   assert.equal(encodeRequest(request).specVersion, "0.2.0");

@@ -23,7 +23,27 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaBlock)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock;
+
+export interface IrSchemaCustomToolUseBlock {
+  readonly type: "custom_tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: string;
+}
+
+export interface IrSchemaCustomToolResultBlock {
+  readonly type: "custom_tool_result";
+  readonly tool_use_id: string;
+  readonly output: string | readonly (IrSchemaTextBlock | IrSchemaImageBlock)[];
+}
+
+export interface IrSchemaCustomToolInputDelta {
+  readonly type: "custom_tool_input_delta";
+  readonly text: string;
+}
+
+export type IrSchemaCustomToolFormat = { readonly type: "text"; } | { readonly type: "grammar"; readonly syntax: "lark" | "regex"; readonly definition: string; };
 
 export interface IrSchemaTextBlock {
   readonly type: "text";
@@ -57,13 +77,9 @@ export interface IrSchemaToolResultBlock {
   readonly is_error?: boolean;
 }
 
-export interface IrSchemaTool {
-  readonly name: string;
-  readonly description?: string;
-  readonly input_schema: {  };
-}
+export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; };
 
-export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; };
+export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom"; };
 
 export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
 
@@ -141,7 +157,7 @@ export interface IrSchemaMessageDone {
   readonly type: "message_done";
 }
 
-export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta | IrSchemaThinkingDelta | IrSchemaSignatureDelta;
+export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta | IrSchemaThinkingDelta | IrSchemaSignatureDelta | IrSchemaCustomToolInputDelta;
 
 export interface IrSchemaTextDelta {
   readonly type: "text_delta";

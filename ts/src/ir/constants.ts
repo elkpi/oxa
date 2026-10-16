@@ -12,6 +12,8 @@ export const BLOCK_TYPE_IMAGE = "image" as const;
 export const BLOCK_TYPE_TOOL_USE = "tool_use" as const;
 export const BLOCK_TYPE_TOOL_RESULT = "tool_result" as const;
 export const BLOCK_TYPE_THINKING = "thinking" as const;
+export const BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use" as const;
+export const BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result" as const;
 
 // Tool choice modes (spec/01 §3.6)
 export const TOOL_CHOICE_AUTO = "auto" as const;
@@ -38,6 +40,8 @@ export const EVENT_TYPE_MESSAGE_DONE = "message_done" as const;
 // Streaming delta types (spec/01 §5.2)
 export const DELTA_TYPE_TEXT_DELTA = "text_delta" as const;
 export const DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta" as const;
+export const DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA =
+  "custom_tool_input_delta" as const;
 export const DELTA_TYPE_THINKING_DELTA = "thinking_delta" as const;
 export const DELTA_TYPE_SIGNATURE_DELTA = "signature_delta" as const;
 

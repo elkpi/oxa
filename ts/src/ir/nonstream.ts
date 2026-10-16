@@ -35,13 +35,27 @@ export function encodeRequest(request: Request): JsonObject {
     ...(request.tools === undefined || request.tools.length === 0
       ? {}
       : {
-          tools: request.tools.map((tool) => ({
-            name: tool.name,
-            ...(tool.description === undefined
-              ? {}
-              : { description: tool.description }),
-            input_schema: tool.input_schema,
-          })),
+          tools: request.tools.map((tool) =>
+            tool.type === "custom"
+              ? {
+                  type: "custom",
+                  name: tool.name,
+                  ...(tool.description === undefined
+                    ? {}
+                    : { description: tool.description }),
+                  ...(tool.format === undefined
+                    ? {}
+                    : { format: encodeCustomToolFormat(tool.format) }),
+                }
+              : {
+                  ...(tool.type === undefined ? {} : { type: "function" }),
+                  name: tool.name,
+                  ...(tool.description === undefined
+                    ? {}
+                    : { description: tool.description }),
+                  input_schema: tool.input_schema,
+                },
+          ),
         }),
     ...(request.tool_choice === undefined
       ? {}
@@ -87,16 +101,33 @@ export function decodeRequest(document: JsonValue): Request {
       : {
           tools: array(root.tools, "request.tools").map((value) => {
             const tool = object(value, "request.tool");
+            const type =
+              tool.type === undefined
+                ? "function"
+                : string(tool.type, "request.tool.type");
+            const name = nonEmptyString(tool.name, "request.tool.name");
+            const description =
+              tool.description === undefined
+                ? undefined
+                : string(tool.description, "request.tool.description");
+            if (type === "custom") {
+              if (tool.input_schema !== undefined)
+                fail("custom tool must not contain input_schema");
+              return {
+                type,
+                name,
+                ...(description === undefined ? {} : { description }),
+                ...(tool.format === undefined
+                  ? {}
+                  : { format: decodeCustomToolFormat(tool.format) }),
+              };
+            }
+            if (type !== "function" || tool.format !== undefined)
+              fail("invalid function tool shape");
             return {
-              name: string(tool.name, "request.tool.name"),
-              ...(tool.description === undefined
-                ? {}
-                : {
-                    description: string(
-                      tool.description,
-                      "request.tool.description",
-                    ),
-                  }),
+              ...(tool.type === undefined ? {} : { type: "function" as const }),
+              name,
+              ...(description === undefined ? {} : { description }),
               input_schema: object(
                 tool.input_schema,
                 "request.tool.input_schema",
@@ -126,6 +157,18 @@ export function validateRequest(request: Request): void {
     const message = request.messages[index]!;
     if (message.content.length === 0)
       invalid("messages[" + index + "].content must not be empty");
+    for (const block of message.content) {
+      if (
+        (block.type === "tool_use" || block.type === "custom_tool_use") &&
+        (block.id === "" || block.name === "")
+      )
+        invalid("tool call id and name must not be empty");
+      if (
+        (block.type === "tool_result" || block.type === "custom_tool_result") &&
+        block.tool_use_id === ""
+      )
+        invalid("tool result tool_use_id must not be empty");
+    }
     validateToolTurn(request.messages, index);
   }
 }
@@ -134,7 +177,10 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
   const message = messages[index]!;
   const toolUses =
     message.role === "assistant"
-      ? message.content.filter((block) => block.type === "tool_use")
+      ? message.content.filter(
+          (block) =>
+            block.type === "tool_use" || block.type === "custom_tool_use",
+        )
       : [];
   const toolResults = topLevelToolResults(message.content);
 
@@ -150,7 +196,9 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
       followingResults.length !== toolUses.length ||
       toolUses.some(
         (toolUse, toolIndex) =>
-          followingResults[toolIndex]?.tool_use_id !== toolUse.id,
+          followingResults[toolIndex]?.tool_use_id !== toolUse.id ||
+          (toolUse.type === "custom_tool_use") !==
+            (followingResults[toolIndex]?.type === "custom_tool_result"),
       )
     )
       invalid(
@@ -163,7 +211,10 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
     if (
       preceding === undefined ||
       preceding.role !== "assistant" ||
-      !preceding.content.some((block) => block.type === "tool_use")
+      !preceding.content.some(
+        (block) =>
+          block.type === "tool_use" || block.type === "custom_tool_use",
+      )
     )
       invalid("INV-3: orphan or split tool results");
   }
@@ -171,8 +222,14 @@ function validateToolTurn(messages: Request["messages"], index: number): void {
 
 function topLevelToolResults(
   content: readonly Block[],
-): readonly Extract<Block, { readonly type: "tool_result" }>[] {
-  const results: Extract<Block, { readonly type: "tool_result" }>[] = [];
+): readonly (
+  | Extract<Block, { readonly type: "tool_result" }>
+  | Extract<Block, { readonly type: "custom_tool_result" }>
+)[] {
+  const results: (
+    | Extract<Block, { readonly type: "tool_result" }>
+    | Extract<Block, { readonly type: "custom_tool_result" }>
+  )[] = [];
   collectToolResults(content, 0, results);
   return results;
 }
@@ -180,14 +237,19 @@ function topLevelToolResults(
 function collectToolResults(
   content: readonly Block[],
   depth: number,
-  results: Extract<Block, { readonly type: "tool_result" }>[],
+  results: (
+    | Extract<Block, { readonly type: "tool_result" }>
+    | Extract<Block, { readonly type: "custom_tool_result" }>
+  )[],
 ): void {
   for (const block of content) {
-    if (block.type !== "tool_result") continue;
+    if (block.type !== "tool_result" && block.type !== "custom_tool_result")
+      continue;
     if (depth > 0)
       invalid("INV-3: nested tool results cannot answer a tool use");
     results.push(block);
-    collectToolResults(block.content, depth + 1, results);
+    if (block.type === "tool_result")
+      collectToolResults(block.content, depth + 1, results);
   }
 }
 
@@ -252,6 +314,22 @@ function encodeBlock(block: Block): JsonObject {
         name: block.name,
         input: block.input,
       };
+    case "custom_tool_use":
+      return {
+        type: block.type,
+        id: block.id,
+        name: block.name,
+        input: block.input,
+      };
+    case "custom_tool_result":
+      return {
+        type: block.type,
+        tool_use_id: block.tool_use_id,
+        output:
+          typeof block.output === "string"
+            ? block.output
+            : block.output.map(encodeCustomOutput),
+      };
     case "tool_result":
       return {
         type: "tool_result",
@@ -293,10 +371,28 @@ function decodeBlock(value: JsonValue): Block {
     case "tool_use":
       return {
         type: "tool_use",
-        id: string(block.id, "block.id"),
-        name: string(block.name, "block.name"),
+        id: nonEmptyString(block.id, "block.id"),
+        name: nonEmptyString(block.name, "block.name"),
         input: string(block.input, "block.input") as JsonText,
       };
+    case "custom_tool_use":
+      return {
+        type: block.type,
+        id: nonEmptyString(block.id, "block.id"),
+        name: nonEmptyString(block.name, "block.name"),
+        input: string(block.input, "block.input"),
+      };
+    case "custom_tool_result": {
+      const output = block.output;
+      return {
+        type: block.type,
+        tool_use_id: nonEmptyString(block.tool_use_id, "block.tool_use_id"),
+        output:
+          typeof output === "string"
+            ? output
+            : array(output, "block.output").map(decodeCustomOutput),
+      };
+    }
     case "tool_result":
       return {
         type: "tool_result",
@@ -311,6 +407,41 @@ function decodeBlock(value: JsonValue): Block {
   }
 }
 
+function encodeCustomOutput(
+  block: import("./types.js").TextBlock | import("./types.js").ImageBlock,
+): JsonObject {
+  return block.type === "text"
+    ? { type: "text", text: block.text }
+    : {
+        type: "image",
+        ...(block.media_type === undefined
+          ? {}
+          : { media_type: block.media_type }),
+        ...(block.data === undefined ? {} : { data: block.data }),
+        ...(block.url === undefined ? {} : { url: block.url }),
+      };
+}
+function decodeCustomOutput(
+  value: JsonValue,
+): import("./types.js").TextBlock | import("./types.js").ImageBlock {
+  const b = object(value, "block.output[]");
+  if (b.type === "text")
+    return { type: "text", text: string(b.text, "block.output[].text") };
+  if (b.type === "image")
+    return {
+      type: "image",
+      ...(b.media_type === undefined
+        ? {}
+        : { media_type: string(b.media_type, "block.output[].media_type") }),
+      ...(b.data === undefined
+        ? {}
+        : { data: string(b.data, "block.output[].data") }),
+      ...(b.url === undefined
+        ? {}
+        : { url: string(b.url, "block.output[].url") }),
+    };
+  fail("custom tool output only supports text and image blocks");
+}
 function encodeParams(params: Params): JsonObject {
   return {
     ...(params.temperature === undefined
@@ -333,6 +464,30 @@ function encodeParams(params: Params): JsonObject {
   };
 }
 
+function encodeCustomToolFormat(
+  format: import("./types.js").CustomToolFormat,
+): JsonObject {
+  return format.type === "text"
+    ? { type: "text" }
+    : { type: "grammar", syntax: format.syntax, definition: format.definition };
+}
+function decodeCustomToolFormat(
+  value: JsonValue,
+): import("./types.js").CustomToolFormat {
+  const f = object(value, "tool.format");
+  if (f.type === "text") return { type: "text" };
+  if (f.type === "grammar") {
+    const syntax = string(f.syntax, "tool.format.syntax");
+    if (syntax !== "lark" && syntax !== "regex")
+      fail("tool.format.syntax is unsupported");
+    return {
+      type: "grammar",
+      syntax,
+      definition: string(f.definition, "tool.format.definition"),
+    };
+  }
+  fail("tool.format.type is unsupported");
+}
 function encodeResponseFormat(format: ResponseFormat): JsonObject {
   switch (format.type) {
     case "text":
@@ -541,12 +696,28 @@ function decodeOutputTokensDetails(
 function decodeToolChoice(value: JsonValue): ToolChoice {
   const choice = object(value, "request.tool_choice");
   const mode = string(choice.mode, "request.tool_choice.mode");
-  if (mode === "tool")
+  if (mode === "tool") {
+    const toolType =
+      choice.tool_type === undefined
+        ? undefined
+        : string(choice.tool_type, "request.tool_choice.tool_type");
+    if (
+      toolType !== undefined &&
+      toolType !== "function" &&
+      toolType !== "custom"
+    )
+      fail("request.tool_choice.tool_type is unsupported");
     return {
       mode,
-      name: string(choice.name, "request.tool_choice.name"),
+      name: nonEmptyString(choice.name, "request.tool_choice.name"),
+      ...(toolType === undefined ? {} : { tool_type: toolType }),
     };
-  if (mode === "auto" || mode === "any" || mode === "none") return { mode };
+  }
+  if (mode === "auto" || mode === "any" || mode === "none") {
+    if (choice.tool_type !== undefined)
+      fail("tool_type is only valid for mode:tool");
+    return { mode };
+  }
   fail("request.tool_choice.mode is unsupported");
 }
 

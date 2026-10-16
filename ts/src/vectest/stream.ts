@@ -21,10 +21,17 @@ interface NormalizedToolUseBlock {
   readonly name: string;
   readonly input: string;
 }
+interface NormalizedCustomToolUseBlock {
+  readonly type: "custom_tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: string;
+}
 type NormalizedBlock =
   | NormalizedTextBlock
   | NormalizedThinkingBlock
-  | NormalizedToolUseBlock;
+  | NormalizedToolUseBlock
+  | NormalizedCustomToolUseBlock;
 interface NormalizedStream {
   readonly id: string;
   readonly model: string;
@@ -127,6 +134,13 @@ function normalize(stream: EventStream): NormalizedStream {
           name: open!.block.name,
           input: open!.block.input,
         });
+      } else if (open!.block.type === "custom_tool_use") {
+        blocks.push({
+          type: "custom_tool_use",
+          id: open!.block.id,
+          name: open!.block.name,
+          input: open!.block.input,
+        });
       } else {
         throw new Error(`unsupported normalized block ${open!.block.type}`);
       }
@@ -157,6 +171,16 @@ function compareBlock(
     if (expected.id !== actual.id) return "tool id differs";
     if (expected.name !== actual.name) return "tool name differs";
     return expected.input === actual.input ? undefined : "tool input differs";
+  }
+  if (
+    expected.type === "custom_tool_use" &&
+    actual.type === "custom_tool_use"
+  ) {
+    if (expected.id !== actual.id) return "custom tool id differs";
+    if (expected.name !== actual.name) return "custom tool name differs";
+    return expected.input === actual.input
+      ? undefined
+      : "custom tool input differs";
   }
   return "block differs";
 }

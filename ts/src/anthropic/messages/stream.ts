@@ -468,10 +468,17 @@ export interface AnthropicStreamEncoderOptions {
 }
 
 type EncoderBlock =
-  | { readonly kind: "text"; readonly index: number }
+  | { readonly kind: "text"; readonly index: number; readonly irIndex: number }
+  | {
+      readonly kind: "custom";
+      readonly index: number;
+      readonly irIndex: number;
+      readonly blockType: "custom_tool_use" | "custom_tool_result";
+    }
   | {
       readonly kind: "thinking";
       readonly index: number;
+      readonly irIndex: number;
       thinking: string;
       signature: string | undefined;
       sawThinkingDelta: boolean;
@@ -480,6 +487,7 @@ type EncoderBlock =
   | {
       readonly kind: "tool";
       readonly index: number;
+      readonly irIndex: number;
       readonly input: string;
       readonly fragments: string[];
     };
@@ -491,6 +499,8 @@ export class AnthropicStreamEncoder {
   #messageDeltaSeen = false;
   #done = false;
   #nextIndex = 0;
+  #skippedBlocks = 0;
+  #toolSeen = false;
   #openBlock: EncoderBlock | undefined;
 
   constructor(options: AnthropicStreamEncoderOptions = {}) {
@@ -546,13 +556,18 @@ export class AnthropicStreamEncoder {
       this.#lifecycle(
         `content_block_start index ${event.index}, want ${this.#nextIndex}`,
       );
+    const nativeIndex = event.index - this.#skippedBlocks;
     this.#nextIndex += 1;
     if (event.block.type === "text") {
-      this.#openBlock = { kind: "text", index: event.index };
+      this.#openBlock = {
+        kind: "text",
+        index: nativeIndex,
+        irIndex: event.index,
+      };
       return this.#result([
         {
           type: "content_block_start",
-          index: event.index,
+          index: nativeIndex,
           content_block: {
             type: "text",
             ...(event.block.text === "" ? {} : { text: event.block.text }),
@@ -563,7 +578,8 @@ export class AnthropicStreamEncoder {
     if (event.block.type === "thinking") {
       this.#openBlock = {
         kind: "thinking",
-        index: event.index,
+        index: nativeIndex,
+        irIndex: event.index,
         thinking: event.block.thinking,
         signature: event.block.signature,
         sawThinkingDelta: false,
@@ -572,7 +588,7 @@ export class AnthropicStreamEncoder {
       return this.#result([
         {
           type: "content_block_start",
-          index: event.index,
+          index: nativeIndex,
           content_block: { type: "thinking" },
         },
       ]);
@@ -582,16 +598,18 @@ export class AnthropicStreamEncoder {
         this.#lifecycle("tool_use requires nonempty id and name");
       if (typeof event.block.input !== "string")
         this.#lifecycle("tool_use input must be opaque JSON text");
+      this.#toolSeen = true;
       this.#openBlock = {
         kind: "tool",
-        index: event.index,
+        index: nativeIndex,
+        irIndex: event.index,
         input: event.block.input,
         fragments: [],
       };
       return this.#result([
         {
           type: "content_block_start",
-          index: event.index,
+          index: nativeIndex,
           content_block: {
             type: "tool_use",
             id: event.block.id,
@@ -601,21 +619,65 @@ export class AnthropicStreamEncoder {
         },
       ]);
     }
+    if (
+      event.block.type === "custom_tool_use" ||
+      event.block.type === "custom_tool_result"
+    ) {
+      if (
+        event.block.type === "custom_tool_use" &&
+        (event.block.id === "" || event.block.name === "")
+      )
+        this.#lifecycle("custom_tool_use requires nonempty id and name");
+      if (
+        event.block.type === "custom_tool_result" &&
+        event.block.tool_use_id === ""
+      )
+        this.#lifecycle("custom_tool_result requires nonempty tool_use_id");
+      this.#skippedBlocks++;
+      this.#openBlock = {
+        kind: "custom",
+        index: nativeIndex,
+        irIndex: event.index,
+        blockType: event.block.type,
+      };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${event.index}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+          },
+        ],
+      };
+    }
     this.#lifecycle(`unsupported content block ${event.block.type}`);
   }
 
   #blockDelta(
     event: Extract<Event, { type: "content_block_delta" }>,
   ): ConversionResult<readonly AnthropicStreamEvent[]> {
-    if (this.#openBlock === undefined || event.index !== this.#openBlock.index)
+    if (
+      this.#openBlock === undefined ||
+      event.index !== this.#openBlock.irIndex
+    )
       this.#lifecycle("content_block_delta out of grammar order");
+    if (this.#openBlock.kind === "custom") {
+      if (
+        this.#openBlock.blockType !== "custom_tool_use" ||
+        event.delta.type !== "custom_tool_input_delta" ||
+        typeof event.delta.text !== "string"
+      )
+        this.#lifecycle("delta does not match skipped custom block");
+      return this.#result([]);
+    }
     if (this.#openBlock.kind === "text") {
       if (event.delta.type !== "text_delta")
         this.#lifecycle("text block received non-text delta");
       return this.#result([
         {
           type: "content_block_delta",
-          index: event.index,
+          index: this.#openBlock.index,
           delta: { type: "text_delta", text: event.delta.text },
         },
       ]);
@@ -628,7 +690,7 @@ export class AnthropicStreamEncoder {
         return this.#result([
           {
             type: "content_block_delta",
-            index: event.index,
+            index: this.#openBlock.index,
             delta: { type: "thinking_delta", thinking: event.delta.text },
           },
         ]);
@@ -641,7 +703,7 @@ export class AnthropicStreamEncoder {
         return this.#result([
           {
             type: "content_block_delta",
-            index: event.index,
+            index: this.#openBlock.index,
             delta: {
               type: "signature_delta",
               signature: event.delta.signature,
@@ -658,35 +720,39 @@ export class AnthropicStreamEncoder {
     return this.#result([
       {
         type: "content_block_delta",
-        index: event.index,
+        index: this.#openBlock.index,
         delta: { type: "input_json_delta", partial_json: fragment },
       },
     ]);
   }
 
   #blockStop(index: number): ConversionResult<readonly AnthropicStreamEvent[]> {
-    if (this.#openBlock === undefined || index !== this.#openBlock.index)
+    if (this.#openBlock === undefined || index !== this.#openBlock.irIndex)
       this.#lifecycle("content_block_stop out of grammar order");
     const block = this.#openBlock;
+    if (block.kind === "custom") {
+      this.#openBlock = undefined;
+      return this.#result([]);
+    }
     if (block.kind === "text") {
       this.#openBlock = undefined;
-      return this.#result([{ type: "content_block_stop", index }]);
+      return this.#result([{ type: "content_block_stop", index: block.index }]);
     }
     if (block.kind === "thinking") {
       const events: AnthropicStreamEvent[] = [];
       if (!block.sawThinkingDelta && block.thinking !== "")
         events.push({
           type: "content_block_delta",
-          index,
+          index: block.index,
           delta: { type: "thinking_delta", thinking: block.thinking },
         });
       if (!block.sawSignatureDelta && block.signature !== undefined)
         events.push({
           type: "content_block_delta",
-          index,
+          index: block.index,
           delta: { type: "signature_delta", signature: block.signature },
         });
-      events.push({ type: "content_block_stop", index });
+      events.push({ type: "content_block_stop", index: block.index });
       this.#openBlock = undefined;
       return this.#result(events);
     }
@@ -703,7 +769,7 @@ export class AnthropicStreamEncoder {
       this.#lifecycle(
         "tool_use input does not equal concatenated input_json_delta fragments",
       );
-    events.push({ type: "content_block_stop", index });
+    events.push({ type: "content_block_stop", index: block.index });
     this.#openBlock = undefined;
     return this.#result(events);
   }
@@ -717,7 +783,17 @@ export class AnthropicStreamEncoder {
       this.#messageDeltaSeen
     )
       this.#lifecycle("message_delta out of grammar order");
-    if (event.stop_reason === "other")
+    let stopReason = event.stop_reason;
+    const losses: Loss[] = [];
+    if (stopReason === "tool_use" && !this.#toolSeen) {
+      stopReason = "end_turn";
+      losses.push({
+        path: "stop_reason",
+        field: "stop_reason",
+        reason: "degraded",
+      });
+    }
+    if (stopReason === "other")
       this.#lifecycle("stop reason other has no Anthropic equivalent");
     if (
       event.stop_reason === "stop_sequence" &&
@@ -734,38 +810,41 @@ export class AnthropicStreamEncoder {
       "usage.output_tokens",
     );
     this.#messageDeltaSeen = true;
-    return this.#result([
-      {
-        type: "message_delta",
-        delta: {
-          stop_reason: event.stop_reason,
-          ...(event.stop_reason === "stop_sequence" &&
-          event.stop_sequence !== undefined
-            ? { stop_sequence: event.stop_sequence }
-            : {}),
+    return {
+      value: [
+        {
+          type: "message_delta",
+          delta: {
+            stop_reason: stopReason,
+            ...(stopReason === "stop_sequence" &&
+            event.stop_sequence !== undefined
+              ? { stop_sequence: event.stop_sequence }
+              : {}),
+          },
+          usage: {
+            input_tokens: inputTokens,
+            output_tokens: outputTokens,
+            ...(event.usage.cache_read_input_tokens === undefined
+              ? {}
+              : {
+                  cache_read_input_tokens: encodeUsageInteger(
+                    event.usage.cache_read_input_tokens,
+                    "usage.cache_read_input_tokens",
+                  ),
+                }),
+            ...(event.usage.cache_creation_input_tokens === undefined
+              ? {}
+              : {
+                  cache_creation_input_tokens: encodeUsageInteger(
+                    event.usage.cache_creation_input_tokens,
+                    "usage.cache_creation_input_tokens",
+                  ),
+                }),
+          },
         },
-        usage: {
-          input_tokens: inputTokens,
-          output_tokens: outputTokens,
-          ...(event.usage.cache_read_input_tokens === undefined
-            ? {}
-            : {
-                cache_read_input_tokens: encodeUsageInteger(
-                  event.usage.cache_read_input_tokens,
-                  "usage.cache_read_input_tokens",
-                ),
-              }),
-          ...(event.usage.cache_creation_input_tokens === undefined
-            ? {}
-            : {
-                cache_creation_input_tokens: encodeUsageInteger(
-                  event.usage.cache_creation_input_tokens,
-                  "usage.cache_creation_input_tokens",
-                ),
-              }),
-        },
-      },
-    ]);
+      ],
+      losses,
+    };
   }
 
   #result<T>(value: T): ConversionResult<T> {

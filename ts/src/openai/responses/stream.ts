@@ -41,6 +41,15 @@ interface FunctionCallState {
   readonly fragments: string[];
   argumentsDone: boolean;
 }
+interface CustomCallState {
+  readonly itemId: string;
+  readonly outputIndex: number;
+  readonly callId: string;
+  readonly name: string;
+  readonly fragments: string[];
+  readonly snapshots: string[];
+  sawDelta: boolean;
+}
 
 type SkippedUnit =
   | {
@@ -76,6 +85,7 @@ export class ResponsesStreamDecoder {
   #outputIndex = 0;
   #nextContentIndex = 0;
   #functionCall: FunctionCallState | undefined;
+  #customCall: CustomCallState | undefined;
   #toolUseSeen = false;
   #blockOpen = false;
   #blockIndex = 0;
@@ -127,6 +137,10 @@ export class ResponsesStreamDecoder {
         return this.#reasoningTextDone(event);
       case "response.reasoning_summary_part.done":
         return this.#reasoningPartDone(event);
+      case "response.custom_tool_call_input.delta":
+        return this.#customInputDelta(event);
+      case "response.custom_tool_call_input.done":
+        return this.#customInputDone(event);
       case "response.function_call_arguments.delta":
         return this.#argumentDelta(event);
       case "response.function_call_arguments.done":
@@ -187,18 +201,37 @@ export class ResponsesStreamDecoder {
     this.#nextOutputIndex += 1;
     this.#itemOpen = true;
     this.#itemType = event.item.type;
-    this.#itemId = event.item.id ?? "";
+    this.#itemId = event.item.id ?? event.item_id ?? "";
     this.#outputIndex = index;
     this.#skipped = undefined;
     this.#skippedCallId = "";
     this.#nextContentIndex = 0;
     this.#functionCall = undefined;
+    this.#customCall = undefined;
     if (event.item.type === "message" && event.item.role === "assistant")
       return [];
     if (event.item.type === "reasoning") {
       this.#reasoningOpen = true;
       this.#reasoningSummaryCount = 0;
       this.#reasoningSkippedIndex = undefined;
+      return [];
+    }
+    if (event.item.type === "custom_tool_call") {
+      const callId = event.item.call_id ?? "";
+      const name = event.item.name ?? "";
+      if (callId === "" || name === "" || event.item.input !== "")
+        this.#lifecycle(
+          "custom_tool_call added requires id, call_id, name, and input empty string",
+        );
+      this.#customCall = {
+        itemId: this.#itemId,
+        outputIndex: index,
+        callId,
+        name,
+        fragments: [],
+        snapshots: [],
+        sawDelta: false,
+      };
       return [];
     }
     if (event.item.type === "function_call") {
@@ -324,6 +357,25 @@ export class ResponsesStreamDecoder {
       this.#lifecycle(`${event.type} on function_call item`);
   }
 
+  #customInputDelta(event: ResponsesStreamEvent): readonly Event[] {
+    const call = this.#requireCustomCall(event);
+    if (typeof event.delta !== "string")
+      this.#lifecycle("custom_tool_call_input.delta without string delta");
+    call.fragments.push(event.delta);
+    call.sawDelta = true;
+    return [];
+  }
+  #customInputDone(event: ResponsesStreamEvent): readonly Event[] {
+    const call = this.#requireCustomCall(event);
+    if (typeof event.input !== "string")
+      this.#lifecycle(
+        "custom_tool_call_input.done without string input snapshot",
+      );
+    if (call.snapshots.some((snapshot) => snapshot !== event.input))
+      this.#lifecycle("conflicting custom_tool_call_input.done snapshots");
+    call.snapshots.push(event.input);
+    return [];
+  }
   #argumentDelta(event: ResponsesStreamEvent): readonly Event[] {
     if (this.#skipped !== undefined) {
       this.#requireSkippedDescendant(event, this.#skipped);
@@ -475,8 +527,12 @@ export class ResponsesStreamDecoder {
       this.#lifecycle("response.output_item.done does not match the open item");
     if (
       event.item === undefined ||
-      event.item.id !== this.#itemId ||
-      event.item.type !== this.#itemType
+      event.item.type !== this.#itemType ||
+      (this.#itemType !== "custom_tool_call"
+        ? event.item.id !== this.#itemId
+        : event.item.id !== undefined &&
+          this.#itemId !== "" &&
+          event.item.id !== this.#itemId)
     )
       this.#lifecycle("response.output_item.done does not match the open item");
     if (
@@ -494,6 +550,45 @@ export class ResponsesStreamDecoder {
         "response.output_item.done with a content part still open",
       );
     let events: readonly Event[] = [];
+    if (this.#customCall !== undefined) {
+      const call = this.#customCall;
+      const input = event.item.input;
+      if (
+        event.item.call_id !== call.callId ||
+        event.item.name !== call.name ||
+        typeof input !== "string"
+      )
+        this.#lifecycle(
+          "response.output_item.done does not match the active custom_tool_call",
+        );
+      if (call.snapshots.some((snapshot) => snapshot !== input))
+        this.#lifecycle("custom tool input snapshots conflict");
+      const fragments = call.sawDelta ? call.fragments : [input];
+      if (fragments.join("") !== input)
+        this.#lifecycle(
+          "custom tool input does not equal concatenated delta fragments",
+        );
+      const blockIndex = this.#nextBlockIndex++;
+      events = [
+        {
+          type: "content_block_start",
+          index: blockIndex,
+          block: {
+            type: "custom_tool_use",
+            id: call.callId,
+            name: call.name,
+            input,
+          },
+        },
+        ...fragments.map((text) => ({
+          type: "content_block_delta" as const,
+          index: blockIndex,
+          delta: { type: "custom_tool_input_delta" as const, text },
+        })),
+        { type: "content_block_stop", index: blockIndex },
+      ];
+      this.#toolUseSeen = true;
+    }
     if (this.#functionCall !== undefined) {
       const call = this.#functionCall;
       const arguments_ = call.fragments.join("");
@@ -554,6 +649,7 @@ export class ResponsesStreamDecoder {
     this.#itemId = "";
     this.#skippedCallId = "";
     this.#functionCall = undefined;
+    this.#customCall = undefined;
     return events;
   }
 
@@ -651,11 +747,26 @@ export class ResponsesStreamDecoder {
   #requireActiveItem(event: ResponsesStreamEvent): void {
     this.#requireStarted(event.type);
     if (
+      this.#customCall !== undefined &&
+      this.#itemId === "" &&
+      event.item_id !== undefined
+    )
+      this.#itemId = event.item_id;
+    if (
       !this.#itemOpen ||
       this.#outputIndexOf(event) !== this.#outputIndex ||
-      event.item_id !== this.#itemId
+      (this.#itemId === ""
+        ? event.item_id === undefined || event.item_id === ""
+        : event.item_id !== this.#itemId)
     )
       this.#lifecycle(`${event.type} does not match the open output item`);
+  }
+
+  #requireCustomCall(event: ResponsesStreamEvent): CustomCallState {
+    this.#requireActiveItem(event);
+    if (this.#customCall === undefined)
+      this.#lifecycle(`${event.type} without an active custom_tool_call item`);
+    return this.#customCall;
   }
 
   #requireFunctionCall(event: ResponsesStreamEvent): FunctionCallState {
@@ -767,6 +878,14 @@ type EncoderItem =
       readonly outputIndex: number;
       readonly callId: string;
       readonly name: string;
+    }
+  | {
+      readonly kind: "custom_tool_call";
+      readonly id: string;
+      readonly outputIndex: number;
+      readonly callId: string;
+      readonly name: string;
+      readonly input: string;
     };
 
 type EncoderBlock =
@@ -787,6 +906,12 @@ type EncoderBlock =
       readonly index: number;
       readonly input: string;
       readonly fragments: string[];
+    }
+  | {
+      readonly kind: "custom";
+      readonly index: number;
+      readonly input: string;
+      readonly fragments: string[];
     };
 
 /** Incrementally converts IR events to typed Responses streaming events. */
@@ -801,6 +926,7 @@ export class ResponsesStreamEncoder {
   #nextOutputIndex = 0;
   #nextMessageItem = 0;
   #nextFunctionItem = 0;
+  #nextCustomItem = 0;
   #nextReasoningItem = 0;
   #activeItem: EncoderItem | undefined;
   #activeBlock: EncoderBlock | undefined;
@@ -854,6 +980,13 @@ export class ResponsesStreamEncoder {
       return this.#startThinking(event.index, event.block);
     if (event.block.type === "tool_use")
       return this.#startTool(
+        event.index,
+        event.block.id,
+        event.block.name,
+        event.block.input,
+      );
+    if (event.block.type === "custom_tool_use")
+      return this.#startCustomTool(
         event.index,
         event.block.id,
         event.block.name,
@@ -994,6 +1127,47 @@ export class ResponsesStreamEncoder {
     return this.#result(events);
   }
 
+  #startCustomTool(
+    index: number,
+    callId: string,
+    name: string,
+    input: string,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (callId === "" || name === "")
+      this.#lifecycle("custom_tool_use requires nonempty id and name");
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined) {
+      if (this.#activeItem.kind !== "message")
+        this.#lifecycle(
+          "custom tool block cannot open before the active call completes",
+        );
+      events.push(this.#closeMessageItem());
+    }
+    const ordinal = this.#nextCustomItem++;
+    const item: Extract<EncoderItem, { kind: "custom_tool_call" }> = {
+      kind: "custom_tool_call",
+      id: `ctc_${ordinal}`,
+      outputIndex: this.#nextOutputIndex++,
+      callId,
+      name,
+      input,
+    };
+    this.#activeItem = item;
+    this.#activeBlock = { kind: "custom", index, input, fragments: [] };
+    events.push({
+      type: "response.output_item.added",
+      output_index: item.outputIndex,
+      item: {
+        type: "custom_tool_call",
+        id: item.id,
+        call_id: callId,
+        name,
+        input: "",
+      },
+    });
+    return this.#result(events);
+  }
+
   #delta(
     event: Extract<Event, { type: "content_block_delta" }>,
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
@@ -1056,6 +1230,26 @@ export class ResponsesStreamEncoder {
       }
       this.#lifecycle("thinking block received non-thinking delta");
     }
+    if (this.#activeBlock.kind === "custom") {
+      if (
+        event.delta.type !== "custom_tool_input_delta" ||
+        typeof event.delta.text !== "string"
+      )
+        this.#lifecycle(
+          "custom tool block received invalid custom-input delta",
+        );
+      if (this.#activeItem.kind !== "custom_tool_call")
+        this.#lifecycle("custom tool block has non-custom item");
+      this.#activeBlock.fragments.push(event.delta.text);
+      return this.#result([
+        {
+          type: "response.custom_tool_call_input.delta",
+          item_id: this.#activeItem.id,
+          output_index: this.#activeItem.outputIndex,
+          delta: event.delta.text,
+        },
+      ]);
+    }
     if (event.delta.type !== "input_json_delta")
       this.#lifecycle("tool block received non-input-json delta");
     if (this.#activeItem.kind !== "function_call")
@@ -1079,6 +1273,7 @@ export class ResponsesStreamEncoder {
       this.#lifecycle("content block has no active item");
     if (this.#activeBlock.kind === "text") return this.#stopText();
     if (this.#activeBlock.kind === "thinking") return this.#stopThinking();
+    if (this.#activeBlock.kind === "custom") return this.#stopCustomTool();
     return this.#stopTool();
   }
 
@@ -1154,6 +1349,54 @@ export class ResponsesStreamEncoder {
         part,
       },
     ]);
+  }
+
+  #stopCustomTool(): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (
+      this.#activeBlock?.kind !== "custom" ||
+      this.#activeItem?.kind !== "custom_tool_call"
+    )
+      this.#lifecycle("custom tool block without active custom call");
+    const block = this.#activeBlock;
+    const item = this.#activeItem;
+    const events: ResponsesStreamEvent[] = [];
+    if (block.fragments.length === 0) {
+      block.fragments.push(block.input);
+      events.push({
+        type: "response.custom_tool_call_input.delta",
+        item_id: item.id,
+        output_index: item.outputIndex,
+        delta: block.input,
+      });
+    }
+    if (block.fragments.join("") !== block.input)
+      this.#lifecycle(
+        "custom_tool_use input does not equal concatenated custom_input_delta fragments",
+      );
+    const completed: ResponsesOutputItem = {
+      type: "custom_tool_call",
+      id: item.id,
+      call_id: item.callId,
+      name: item.name,
+      input: block.input,
+    };
+    events.push(
+      {
+        type: "response.custom_tool_call_input.done",
+        item_id: item.id,
+        output_index: item.outputIndex,
+        input: block.input,
+      },
+      {
+        type: "response.output_item.done",
+        output_index: item.outputIndex,
+        item: completed,
+      },
+    );
+    this.#completed.push(completed);
+    this.#activeBlock = undefined;
+    this.#activeItem = undefined;
+    return this.#result(events);
   }
 
   #stopTool(): ConversionResult<readonly ResponsesStreamEvent[]> {

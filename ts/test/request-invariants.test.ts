@@ -235,6 +235,22 @@ function blockDocument(block: Block): JsonObject {
         ...(block.data === undefined ? {} : { data: block.data }),
         ...(block.url === undefined ? {} : { url: block.url }),
       };
+    case "custom_tool_use":
+      return {
+        type: block.type,
+        id: block.id,
+        name: block.name,
+        input: block.input,
+      };
+    case "custom_tool_result":
+      return {
+        type: block.type,
+        tool_use_id: block.tool_use_id,
+        output:
+          typeof block.output === "string"
+            ? block.output
+            : block.output.map(blockDocument),
+      };
     case "tool_use":
       return {
         type: "tool_use",

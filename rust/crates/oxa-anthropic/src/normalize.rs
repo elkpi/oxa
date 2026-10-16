@@ -1,6 +1,8 @@
 //! Normalization rules N-AN-1 through N-AN-6 (spec/12 §5) and the shared
 //! INV-1 input helpers.
 
+use std::collections::BTreeSet;
+
 use serde_json::value::RawValue;
 
 use oxa_ir::{Block, Loss, LossReason, SystemBlock, ToolChoice, ToolChoiceMode};
@@ -12,6 +14,17 @@ use crate::types::{
     SystemBlockWire, TOOL_CHOICE_TYPE_ANY, TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE,
     TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
 };
+
+pub(crate) fn extract_custom_input(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    let obj = value.as_object()?;
+    if obj.len() == 1
+        && let Some(serde_json::Value::String(s)) = obj.get("input")
+    {
+        return Some(s.clone());
+    }
+    None
+}
 
 pub(crate) fn loss(
     path: impl Into<String>,
@@ -118,6 +131,8 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
 pub(crate) fn decode_content(
     content: Option<&ContentValue>,
     path: &str,
+    custom_tools: &BTreeSet<String>,
+    custom_call_ids: &mut BTreeSet<String>,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Err(Error::new(format!("anthropic: {path} is missing")));
@@ -129,7 +144,7 @@ pub(crate) fn decode_content(
             let mut losses = Vec::new();
             for (index, block) in blocks.iter().enumerate() {
                 let (decoded, block_losses, mapped) =
-                    decode_block(block, &format!("{path}[{index}]"))?;
+                    decode_block(block, &format!("{path}[{index}]"), custom_tools, custom_call_ids)?;
                 if mapped {
                     out.extend(decoded);
                 }
@@ -146,6 +161,8 @@ pub(crate) fn decode_content(
 pub(crate) fn decode_block(
     wire: &BlockWire,
     path: &str,
+    custom_tools: &BTreeSet<String>,
+    custom_call_ids: &mut BTreeSet<String>,
 ) -> Result<(Vec<Block>, Vec<Loss>, bool), Error> {
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
@@ -212,11 +229,21 @@ pub(crate) fn decode_block(
             }
             let raw = wire.input.as_deref().map(RawValue::get).unwrap_or_default();
             require_json_object(raw, &format!("{path}.input"))?;
-            block = Some(Block::ToolUse {
-                id: wire.id.clone(),
-                name: wire.name.clone(),
-                input: input_to_ir_string(wire.input.as_deref().expect("input checked above")),
-            });
+            let custom_input = extract_custom_input(raw);
+            if custom_tools.contains(&wire.name) || custom_input.is_some() {
+                custom_call_ids.insert(wire.id.clone());
+                block = Some(Block::CustomToolUse {
+                    id: wire.id.clone(),
+                    name: wire.name.clone(),
+                    input: custom_input.unwrap_or_default(),
+                });
+            } else {
+                block = Some(Block::ToolUse {
+                    id: wire.id.clone(),
+                    name: wire.name.clone(),
+                    input: input_to_ir_string(wire.input.as_deref().expect("input checked above")),
+                });
+            }
         }
         BLOCK_TYPE_TOOL_RESULT => {
             if wire.tool_use_id.is_empty() {
@@ -224,14 +251,30 @@ pub(crate) fn decode_block(
                     "anthropic: {path}.tool_use_id is required"
                 )));
             }
-            let (content, content_losses) =
-                decode_content(wire.content.as_ref(), &format!("{path}.content"))?;
-            losses.extend(content_losses);
-            block = Some(Block::ToolResult {
-                tool_use_id: wire.tool_use_id.clone(),
-                content,
-                is_error: wire.is_error.then_some(true),
-            });
+            if custom_call_ids.contains(&wire.tool_use_id) {
+                let output = match wire.content.as_ref() {
+                    Some(ContentValue::Text(t)) => oxa_ir::CustomToolOutput::Text(t.clone()),
+                    _ => {
+                        let (content, content_losses) =
+                            decode_content(wire.content.as_ref(), &format!("{path}.content"), custom_tools, custom_call_ids)?;
+                        losses.extend(content_losses);
+                        oxa_ir::CustomToolOutput::Content(content)
+                    }
+                };
+                block = Some(Block::CustomToolResult {
+                    tool_use_id: wire.tool_use_id.clone(),
+                    output,
+                });
+            } else {
+                let (content, content_losses) =
+                    decode_content(wire.content.as_ref(), &format!("{path}.content"), custom_tools, custom_call_ids)?;
+                losses.extend(content_losses);
+                block = Some(Block::ToolResult {
+                    tool_use_id: wire.tool_use_id.clone(),
+                    content,
+                    is_error: wire.is_error.then_some(true),
+                });
+            }
         }
         other => {
             losses.push(loss(
@@ -257,6 +300,7 @@ pub(crate) fn decode_block(
 /// Decodes the wire tool_choice object (N-AN-6).
 pub(crate) fn decode_tool_choice(
     choice: Option<&ToolChoiceWire>,
+    custom_tools: &BTreeSet<String>,
 ) -> Result<(Option<ToolChoice>, Vec<Loss>), Error> {
     let Some(choice) = choice else {
         return Ok((None, Vec::new()));
@@ -291,10 +335,15 @@ pub(crate) fn decode_tool_choice(
                     "anthropic: tool_choice.name is required for type tool",
                 ));
             }
+            let tool_type = if custom_tools.contains(&choice.name) {
+                Some(oxa_ir::ToolType::Custom)
+            } else {
+                None
+            };
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Tool,
                 name: Some(choice.name.clone()),
-                tool_type: None,
+                tool_type,
             });
         }
         other => losses.push(loss(
@@ -322,9 +371,7 @@ pub(crate) fn encode_tool_choice(
     let Some(choice) = choice else {
         return Ok((None, Vec::new()));
     };
-    if choice.tool_type == Some(oxa_ir::ToolType::Custom)
-        || choice.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
-    {
+    if choice.tool_type == Some(oxa_ir::ToolType::ApplyPatch) {
         return Ok((
             None,
             vec![loss(

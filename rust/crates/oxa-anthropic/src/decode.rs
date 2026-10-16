@@ -1,5 +1,7 @@
 //! Face → IR conversions (spec/12 §4).
 
+use std::collections::BTreeSet;
+
 use oxa_ir::{
     Loss, LossReason, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
     StopReason, Usage,
@@ -12,6 +14,15 @@ use crate::types::{
     ROLE_ASSISTANT, ROLE_USER, Request, Response, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
     STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE,
 };
+
+fn is_custom_tool_input_schema(schema: &serde_json::Value) -> bool {
+    let Some(obj) = schema.as_object() else { return false; };
+    if obj.get("type").and_then(|v| v.as_str()) != Some("object") { return false; }
+    let Some(props) = obj.get("properties").and_then(|v| v.as_object()) else { return false; };
+    if props.len() != 1 { return false; }
+    let Some(input_prop) = props.get("input").and_then(|v| v.as_object()) else { return false; };
+    input_prop.get("type").and_then(|v| v.as_str()) == Some("string")
+}
 
 /// Converts an Anthropic Messages wire request to the IR (face → IR). The
 /// mapping is near-identity: system (string or block array) becomes the IR
@@ -45,6 +56,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         params: None,
         metadata: None,
     };
+    let mut custom_tools = BTreeSet::new();
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
@@ -53,6 +65,17 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 &schema,
                 &format!("tools[{index}].input_schema"),
             )?;
+            if is_custom_tool_input_schema(&tool.input_schema) {
+                custom_tools.insert(tool.name.clone());
+                tools.push(oxa_ir::Tool {
+                    tool_type: Some(oxa_ir::ToolType::Custom),
+                    name: tool.name.clone(),
+                    description: non_empty(tool.description.clone()),
+                    input_schema: None,
+                    format: None,
+                });
+                continue;
+            }
             tools.push(oxa_ir::Tool {
                 tool_type: None,
                 name: tool.name.clone(),
@@ -65,7 +88,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             req.tools = Some(tools);
         }
     }
-    let (choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref())?;
+    let (choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref(), &custom_tools)?;
     req.tool_choice = choice;
     losses.extend(choice_losses);
 
@@ -73,6 +96,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     losses.extend(system_losses);
     req.system = system;
 
+    let mut custom_call_ids = BTreeSet::new();
     for (index, message) in wire.messages.iter().enumerate() {
         let role = match message.role.as_str() {
             ROLE_USER => oxa_ir::Role::User,
@@ -86,6 +110,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         let (blocks, block_losses) = decode_content(
             message.content.as_ref(),
             &format!("messages[{index}].content"),
+            &custom_tools,
+            &mut custom_call_ids,
         )?;
         losses.extend(block_losses);
         req.messages.push(oxa_ir::Message {
@@ -146,7 +172,12 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let mut losses = Vec::new();
     let mut content = Vec::new();
     for (index, block) in wire.content.iter().enumerate() {
-        let (decoded, block_losses, mapped) = decode_block(block, &format!("content[{index}]"))?;
+        let (decoded, block_losses, mapped) = decode_block(
+            block,
+            &format!("content[{index}]"),
+            &BTreeSet::new(),
+            &mut BTreeSet::new(),
+        )?;
         if mapped {
             content.extend(decoded);
         }

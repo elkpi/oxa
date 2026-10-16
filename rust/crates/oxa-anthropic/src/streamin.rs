@@ -331,10 +331,47 @@ impl StreamDecoder {
                     )));
                 }
                 if self.open_tool {
-                    let (input, deltas) = if !self.tool_parts.is_empty() {
-                        let full_input = self.tool_parts.concat();
-                        let deltas = self
-                            .tool_parts
+                    let full_input = if !self.tool_parts.is_empty() {
+                        self.tool_parts.concat()
+                    } else {
+                        if self.tool_input.is_empty() {
+                            return Err(Error::new("anthropic: tool_use input is required"));
+                        }
+                        self.tool_input.clone()
+                    };
+
+                    let custom_input = crate::normalize::extract_custom_input(&full_input);
+                    if let Some(custom_text) = custom_input {
+                        let id = std::mem::take(&mut self.tool_id);
+                        let name = std::mem::take(&mut self.tool_name);
+                        let events = vec![
+                            Event::ContentBlockStart {
+                                index: self.open_ir_index,
+                                block: Block::CustomToolUse {
+                                    id,
+                                    name,
+                                    input: custom_text.clone(),
+                                },
+                            },
+                            Event::ContentBlockDelta {
+                                index: self.open_ir_index,
+                                delta: Delta::CustomToolInputDelta {
+                                    text: custom_text,
+                                },
+                            },
+                            Event::ContentBlockStop {
+                                index: self.open_ir_index,
+                            },
+                        ];
+                        self.block_open = false;
+                        self.open_tool = false;
+                        self.tool_input.clear();
+                        self.tool_parts.clear();
+                        return Ok(events);
+                    }
+
+                    let deltas = if !self.tool_parts.is_empty() {
+                        self.tool_parts
                             .iter()
                             .map(|part| Event::ContentBlockDelta {
                                 index: self.open_ir_index,
@@ -342,20 +379,14 @@ impl StreamDecoder {
                                     partial_json: part.clone(),
                                 },
                             })
-                            .collect::<Vec<_>>();
-                        (full_input, deltas)
+                            .collect::<Vec<_>>()
                     } else {
-                        if self.tool_input.is_empty() {
-                            return Err(Error::new("anthropic: tool_use input is required"));
-                        }
-                        let full_input = self.tool_input.clone();
-                        let deltas = vec![Event::ContentBlockDelta {
+                        vec![Event::ContentBlockDelta {
                             index: self.open_ir_index,
                             delta: Delta::InputJsonDelta {
                                 partial_json: full_input.clone(),
                             },
-                        }];
-                        (full_input, deltas)
+                        }]
                     };
 
                     let mut events = vec![Event::ContentBlockStart {
@@ -363,7 +394,7 @@ impl StreamDecoder {
                         block: Block::ToolUse {
                             id: std::mem::take(&mut self.tool_id),
                             name: std::mem::take(&mut self.tool_name),
-                            input,
+                            input: full_input,
                         },
                     }];
                     events.extend(deltas);

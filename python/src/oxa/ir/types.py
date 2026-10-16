@@ -11,6 +11,9 @@ from oxa.ir.constants import (
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
+    BLOCK_TYPE_CUSTOM_TOOL_USE,
+    BLOCK_TYPE_CUSTOM_TOOL_RESULT,
+    DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
@@ -81,7 +84,24 @@ class ToolResultBlock:
     type: str = field(default=BLOCK_TYPE_TOOL_RESULT, init=False)
 
 
-Block = TextBlock | ThinkingBlock | ImageBlock | ToolUseBlock | ToolResultBlock
+@dataclass(frozen=True, slots=True)
+class CustomToolUseBlock:
+    """An invocation of an opaque-text custom tool (spec/13)."""
+    id: str
+    name: str
+    input: str
+    type: str = field(default=BLOCK_TYPE_CUSTOM_TOOL_USE, init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class CustomToolResultBlock:
+    """A custom tool result with string or text/image-list output."""
+    tool_use_id: str
+    output: str | list[TextBlock | ImageBlock]
+    type: str = field(default=BLOCK_TYPE_CUSTOM_TOOL_RESULT, init=False)
+
+
+Block = TextBlock | ThinkingBlock | ImageBlock | ToolUseBlock | ToolResultBlock | CustomToolUseBlock | CustomToolResultBlock
 SystemBlock = TextBlock
 
 # ---- Request Components ---------------------------------------------------
@@ -96,6 +116,21 @@ class Message:
 
 
 @dataclass(frozen=True, slots=True)
+class CustomToolFormatText:
+    type: str = field(default="text", init=False)
+
+
+@dataclass(frozen=True, slots=True)
+class CustomToolFormatGrammar:
+    syntax: str
+    definition: str
+    type: str = field(default="grammar", init=False)
+
+
+CustomToolFormat = CustomToolFormatText | CustomToolFormatGrammar
+
+
+@dataclass(frozen=True, slots=True)
 class Tool:
     """A tool definition (spec/01 §3.5).
 
@@ -103,8 +138,10 @@ class Tool:
     """
 
     name: str
-    input_schema: dict[str, Any]
+    input_schema: dict[str, Any] | None = None
     description: str | None = None
+    type: str = "function"
+    format: CustomToolFormat | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +153,7 @@ class ToolChoice:
 
     mode: str
     name: str | None = None
+    tool_type: str = "function"
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +278,13 @@ class InputJsonDelta:
 
 
 @dataclass(frozen=True, slots=True)
+class CustomToolInputDelta:
+    """An opaque text fragment for a custom-tool input (spec/13)."""
+    text: str
+    type: str = field(default=DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA, init=False)
+
+
+@dataclass(frozen=True, slots=True)
 class ThinkingDelta:
     """A reasoning-text fragment (spec/01 §5.2)."""
 
@@ -255,7 +300,7 @@ class SignatureDelta:
     type: str = field(default=DELTA_TYPE_SIGNATURE_DELTA, init=False)
 
 
-Delta = TextDelta | InputJsonDelta | ThinkingDelta | SignatureDelta
+Delta = TextDelta | InputJsonDelta | ThinkingDelta | SignatureDelta | CustomToolInputDelta
 
 
 @dataclass(frozen=True, slots=True)

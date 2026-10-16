@@ -7,6 +7,7 @@ from typing import Any
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
+    LOSS_UNSUPPORTED_SEMANTIC,
     LOSS_UNMAPPED_VALUE,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
@@ -75,25 +76,25 @@ def encode_request(
         "messages": [],
     }
 
+    tools_wire: list[dict[str, Any]] = []
     if req.tools:
-        tools_wire: list[dict[str, Any]] = []
-        for tool in req.tools:
-            func: dict[str, Any] = {
-                "name": tool.name,
-            }
+        for index, tool in enumerate(req.tools):
+            if tool.type == "custom":
+                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Chat Completions mapping"))
+                continue
+            func: dict[str, Any] = {"name": tool.name}
             if tool.description:
                 func["description"] = tool.description
             if tool.input_schema is not None:
                 func["parameters"] = tool.input_schema
-            tools_wire.append(
-                {
-                    "type": TOOL_TYPE_FUNCTION,
-                    "function": func,
-                }
-            )
-        out["tools"] = tools_wire
+            tools_wire.append({"type": TOOL_TYPE_FUNCTION, "function": func})
+        if tools_wire:
+            out["tools"] = tools_wire
 
     choice_wire, choice_loss = encode_tool_choice(req.tool_choice)
+    if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
+        choice_wire = None
+        choice_loss = loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "all declarations for the required tool choice were dropped")
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     if choice_loss is not None:
@@ -197,7 +198,9 @@ def encode_response(
 
     msg, msg_losses = encode_assistant_message(resp.content, "content")
     losses.extend(msg_losses)
-
+    if resp.stop_reason == STOP_TOOL_USE and not msg.get("tool_calls"):
+        finish_reason, finish_loss = encode_finish_reason(STOP_END_TURN)
+        losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because the target cannot retain custom tool calls"))
     model = resp.model
     if table is not None:
         model = table.map(model)

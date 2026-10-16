@@ -22,7 +22,14 @@ from oxa.anthropic.messages.constants import (
     TYPE_MESSAGE,
 )
 from oxa.anthropic.messages.encode import encode_stop_reason
+from oxa.anthropic.messages.normalize import loss
 from oxa.ir import (
+    LOSS_DEGRADED,
+    LOSS_UNSUPPORTED_SEMANTIC,
+    STOP_END_TURN,
+    STOP_TOOL_USE,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -52,6 +59,12 @@ class StreamEncoder:
         "_started",
         "_open_index",
         "_open_tool",
+        "_open_custom",
+        "_custom_input",
+        "_custom_parts",
+        "_tool_seen",
+        "_native_index",
+        "_next_native_index",
         "_open_thinking",
         "_thinking_input",
         "_thinking_signature",
@@ -70,6 +83,12 @@ class StreamEncoder:
         self._started = False
         self._open_index = -1
         self._open_tool = False
+        self._open_custom = False
+        self._custom_input = ""
+        self._custom_parts: list[str] = []
+        self._tool_seen = False
+        self._native_index = -1
+        self._next_native_index = 0
         self._open_thinking = False
         self._thinking_input = ""
         self._thinking_signature: str | None = None
@@ -112,6 +131,8 @@ class StreamEncoder:
 
             if isinstance(ev.block, TextBlock):
                 self._open_index = ev.index
+                self._native_index = self._next_native_index
+                self._next_native_index += 1
                 self._open_tool = False
                 content_block = {"type": BLOCK_TYPE_TEXT}
                 if ev.block.text:
@@ -119,13 +140,15 @@ class StreamEncoder:
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
-                        "index": ev.index,
+                        "index": self._native_index,
                         "content_block": content_block,
                     }
                 ], []
 
             if isinstance(ev.block, ThinkingBlock):
                 self._open_index = ev.index
+                self._native_index = self._next_native_index
+                self._next_native_index += 1
                 self._open_tool = False
                 self._open_thinking = True
                 self._thinking_input = ev.block.thinking
@@ -135,22 +158,35 @@ class StreamEncoder:
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
-                        "index": ev.index,
+                        "index": self._native_index,
                         "content_block": {"type": BLOCK_TYPE_THINKING},
                     }
                 ], []
+
+            if isinstance(ev.block, CustomToolUseBlock):
+                if not ev.block.id or not ev.block.name:
+                    raise ValueError("anthropic: CustomToolUseBlock requires nonempty ID and name")
+                self._open_index = ev.index
+                self._native_index = -1
+                self._open_custom = True
+                self._custom_input = ev.block.input
+                self._custom_parts.clear()
+                return [], []
 
             if isinstance(ev.block, ToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("anthropic: ToolUseBlock requires nonempty ID and name")
                 self._open_index = ev.index
+                self._native_index = self._next_native_index
+                self._next_native_index += 1
                 self._open_tool = True
+                self._tool_seen = True
                 self._tool_input = ev.block.input
                 self._tool_parts.clear()
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
-                        "index": ev.index,
+                        "index": self._native_index,
                         "content_block": {
                             "type": BLOCK_TYPE_TOOL_USE,
                             "id": ev.block.id,
@@ -166,6 +202,12 @@ class StreamEncoder:
             if self._open_index != ev.index:
                 raise ValueError("anthropic: ContentBlockDelta out of grammar order")
 
+            if self._open_custom:
+                if not isinstance(ev.delta, CustomToolInputDelta):
+                    raise ValueError("anthropic: CustomToolUseBlock received non-custom-input delta")
+                self._custom_parts.append(ev.delta.text)
+                return [], []
+
             if self._open_tool:
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("anthropic: ToolUseBlock received non-input-json delta")
@@ -173,7 +215,7 @@ class StreamEncoder:
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                        "index": ev.index,
+                        "index": self._native_index,
                         "delta": {
                             "type": DELTA_TYPE_INPUT_JSON_DELTA,
                             "partial_json": ev.delta.partial_json,
@@ -189,7 +231,7 @@ class StreamEncoder:
                     return [
                         {
                             "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": ev.index,
+                            "index": self._native_index,
                             "delta": {
                                 "type": DELTA_TYPE_THINKING_DELTA,
                                 "thinking": ev.delta.text,
@@ -203,7 +245,7 @@ class StreamEncoder:
                     return [
                         {
                             "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": ev.index,
+                            "index": self._native_index,
                             "delta": {
                                 "type": DELTA_TYPE_SIGNATURE_DELTA,
                                 "signature": ev.delta.signature,
@@ -217,7 +259,7 @@ class StreamEncoder:
             return [
                 {
                     "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                    "index": ev.index,
+                    "index": self._native_index,
                     "delta": {
                         "type": DELTA_TYPE_TEXT_DELTA,
                         "text": ev.delta.text,
@@ -235,7 +277,7 @@ class StreamEncoder:
                     events.append(
                         {
                             "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": ev.index,
+                            "index": self._native_index,
                             "delta": {
                                 "type": DELTA_TYPE_THINKING_DELTA,
                                 "thinking": self._thinking_input,
@@ -246,7 +288,7 @@ class StreamEncoder:
                     events.append(
                         {
                             "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": ev.index,
+                            "index": self._native_index,
                             "delta": {
                                 "type": DELTA_TYPE_SIGNATURE_DELTA,
                                 "signature": self._thinking_signature,
@@ -259,12 +301,22 @@ class StreamEncoder:
                 self._thinking_parts.clear()
                 self._signature_seen = False
 
+            if self._open_custom:
+                if self._custom_parts and "".join(self._custom_parts) != self._custom_input:
+                    raise ValueError("anthropic: CustomToolUseBlock input does not equal custom input deltas")
+                self._open_custom = False
+                self._custom_input = ""
+                self._custom_parts.clear()
+                self._open_index = -1
+                self._native_index = -1
+                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic streaming mapping")]
+
             if self._open_tool:
                 if not self._tool_parts:
                     events.append(
                         {
                             "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": ev.index,
+                            "index": self._native_index,
                             "delta": {
                                 "type": DELTA_TYPE_INPUT_JSON_DELTA,
                                 "partial_json": self._tool_input,
@@ -284,15 +336,21 @@ class StreamEncoder:
             events.append(
                 {
                     "type": EVENT_TYPE_CONTENT_BLOCK_STOP,
-                    "index": ev.index,
+                    "index": self._native_index,
                 }
             )
+            self._native_index = -1
             return events, []
 
         if isinstance(ev, MessageDelta):
             if not self._started or self._open_index >= 0:
                 raise ValueError("anthropic: MessageDelta out of grammar order")
-            reason, seq = encode_stop_reason(ev.stop_reason, ev.stop_sequence)
+            stop_reason = ev.stop_reason
+            losses: list[Loss] = []
+            if stop_reason == STOP_TOOL_USE and not self._tool_seen:
+                stop_reason = STOP_END_TURN
+                losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because no native function call was retained"))
+            reason, seq = encode_stop_reason(stop_reason, ev.stop_sequence)
             self._delta_seen = True
             delta_dict: dict[str, Any] = {"stop_reason": reason}
             if seq is not None:
@@ -311,7 +369,7 @@ class StreamEncoder:
                     "delta": delta_dict,
                     "usage": usage,
                 }
-            ], []
+            ], losses
 
         if isinstance(ev, MessageDone):
             if not self._delta_seen:

@@ -9,6 +9,8 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -36,6 +38,8 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_FAILED,
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA,
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE,
     EVENT_TYPE_RESPONSE_INCOMPLETE,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
@@ -46,6 +50,7 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE,
     ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL,
     ITEM_TYPE_FUNCTION_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
@@ -62,6 +67,14 @@ class _StreamFunctionCall:
     name: str
     fragments: list[str] = field(default_factory=list)
     arguments_done: bool = False
+
+
+@dataclass(slots=True)
+class _StreamCustomToolCall:
+    call_id: str
+    name: str
+    fragments: list[str] = field(default_factory=list)
+    snapshots: list[str] = field(default_factory=list)
 
 
 class StreamDecoder:
@@ -83,6 +96,7 @@ class StreamDecoder:
         "_output_index",
         "_next_content_index",
         "_function_call",
+        "_custom_tool_call",
         "_tool_use_seen",
         "_block_open",
         "_skipped_part",
@@ -107,6 +121,7 @@ class StreamDecoder:
         self._output_index = 0
         self._next_content_index = 0
         self._function_call: _StreamFunctionCall | None = None
+        self._custom_tool_call: _StreamCustomToolCall | None = None
         self._tool_use_seen = False
         self._block_open = False
         self._skipped_part = False
@@ -164,6 +179,7 @@ class StreamDecoder:
             self._skipped_call_id = ""
             self._next_content_index = 0
             self._function_call = None
+            self._custom_tool_call = None
 
             if item_type == ITEM_TYPE_MESSAGE and item.get("role") == ROLE_ASSISTANT:
                 return []
@@ -180,6 +196,14 @@ class StreamDecoder:
                     name=name,
                     fragments=[item.get("arguments", "")],
                 )
+                return []
+            if item_type == ITEM_TYPE_CUSTOM_TOOL_CALL:
+                call_id, name = item.get("call_id", ""), item.get("name", "")
+                if not self._item_id or not call_id or not name:
+                    raise ValueError("responses: custom_tool_call item requires id, call_id, and name")
+                if not isinstance(item.get("input"), str) or item["input"] != "":
+                    raise ValueError("responses: custom_tool_call added item requires input as an empty string")
+                self._custom_tool_call = _StreamCustomToolCall(call_id=call_id, name=name)
                 return []
 
             self._skipped_item = True
@@ -261,6 +285,31 @@ class StreamDecoder:
                     "responses: response.function_call_arguments.done does not match the active function call"
                 )
             fc.arguments_done = True
+            return []
+
+        if kind == EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA:
+            self._require_custom_tool_call(ev, kind)
+            call = self._custom_tool_call
+            assert call is not None
+            if "delta" not in ev or not isinstance(ev["delta"], str):
+                raise ValueError("responses: custom_tool_call_input.delta requires string delta")
+            if call.snapshots:
+                raise ValueError("responses: custom_tool_call_input.delta after input.done")
+            call.fragments.append(ev["delta"])
+            return []
+
+        if kind == EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE:
+            self._require_custom_tool_call(ev, kind)
+            call = self._custom_tool_call
+            assert call is not None
+            snapshot = ev.get("input")
+            if not isinstance(snapshot, str):
+                raise ValueError("responses: custom_tool_call_input.done requires string input")
+            if call.snapshots and call.snapshots[0] != snapshot:
+                raise ValueError("responses: conflicting custom_tool_call_input.done snapshots")
+            if call.fragments and "".join(call.fragments) != snapshot:
+                raise ValueError("responses: custom_tool_call_input.done does not match input deltas")
+            call.snapshots.append(snapshot)
             return []
 
         if kind == EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA:
@@ -489,6 +538,29 @@ class StreamDecoder:
                 events.append(ContentBlockStop(index=idx))
                 self._tool_use_seen = True
 
+            if self._custom_tool_call is not None:
+                cc = self._custom_tool_call
+                if item.get("call_id") != cc.call_id or item.get("name") != cc.name:
+                    raise ValueError("responses: output_item.done does not match the active custom_tool_call")
+                final_input = item.get("input")
+                if not isinstance(final_input, str):
+                    raise ValueError("responses: custom_tool_call output_item.done requires string input")
+                if any(snapshot != final_input for snapshot in cc.snapshots):
+                    raise ValueError("responses: conflicting custom_tool_call input snapshots")
+                if cc.fragments:
+                    if "".join(cc.fragments) != final_input:
+                        raise ValueError("responses: custom_tool_call deltas do not match the final input snapshot")
+                    fragments = cc.fragments
+                else:
+                    fragments = [final_input]
+                idx = self._next_block_index
+                self._next_block_index += 1
+                events.append(ContentBlockStart(index=idx, block=CustomToolUseBlock(id=cc.call_id, name=cc.name, input=final_input)))
+                events.extend(ContentBlockDelta(index=idx, delta=CustomToolInputDelta(text=part)) for part in fragments)
+                events.append(ContentBlockStop(index=idx))
+                self._custom_tool_call = None
+                self._tool_use_seen = True
+
             self._item_open = False
             self._item_type = ""
             self._item_id = ""
@@ -588,6 +660,11 @@ class StreamDecoder:
         item_id = ev.get("item_id", "")
         if not self._item_open or out_idx != self._output_index or item_id != self._item_id:
             raise ValueError(f"responses: {event_type} does not match the open output item")
+
+    def _require_custom_tool_call(self, ev: dict[str, Any], event_type: str) -> None:
+        self._require_active_item(ev, event_type)
+        if self._custom_tool_call is None:
+            raise ValueError(f"responses: {event_type} without an active custom_tool_call item")
 
     def _require_function_call(self, ev: dict[str, Any], event_type: str) -> None:
         self._require_active_item(ev, event_type)

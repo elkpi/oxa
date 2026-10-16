@@ -15,6 +15,8 @@ from oxa.ir.types import (
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     EventStream,
     InputJsonDelta,
     MessageDelta,
@@ -52,6 +54,7 @@ class _OpenTool:
     input: str
     fragments: list[str]
     fragment_count: int
+    custom: bool = False
 
 
 @dataclass(slots=True)
@@ -107,14 +110,11 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                 open_block = (event.index, "text")
             elif isinstance(event.block, ThinkingBlock):
                 open_block = (event.index, _OpenThinking())
-            elif isinstance(event.block, ToolUseBlock):
+            elif isinstance(event.block, (ToolUseBlock, CustomToolUseBlock)):
                 open_block = (
                     event.index,
-                    _OpenTool(
-                        input=event.block.input,
-                        fragments=[],
-                        fragment_count=0,
-                    ),
+                    _OpenTool(input=event.block.input, fragments=[], fragment_count=0,
+                              custom=isinstance(event.block, CustomToolUseBlock)),
                 )
             else:
                 block_kind = getattr(event.block, "type", type(event.block).__name__)
@@ -152,12 +152,10 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                         f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind",
                     )
             elif isinstance(kind, _OpenTool):
-                if not isinstance(event.delta, InputJsonDelta):
-                    raise Violation(
-                        i,
-                        f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind",
-                    )
-                kind.fragments.append(event.delta.partial_json)
+                expected = CustomToolInputDelta if kind.custom else InputJsonDelta
+                if not isinstance(event.delta, expected):
+                    raise Violation(i, f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind")
+                kind.fragments.append(event.delta.text if kind.custom else event.delta.partial_json)
                 kind.fragment_count += 1
 
         elif isinstance(event, ContentBlockStop):
@@ -213,9 +211,10 @@ def _validate_tool_input(i: int, tool: _OpenTool, allow_synthesized: bool) -> No
     if tool.fragment_count == 0:
         if not tool.input or allow_synthesized:
             return
+        delta_name = "custom_tool_input_delta" if tool.custom else "input_json_delta"
         raise Violation(
             i,
-            "tool block input without input_json_delta fragments; only encoder shorthand may synthesize them",
+            f"tool block input without {delta_name} fragments; only encoder shorthand may synthesize them",
         )
     concatenated = "".join(tool.fragments)
     if tool.input != concatenated:

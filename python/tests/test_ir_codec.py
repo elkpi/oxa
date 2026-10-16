@@ -270,6 +270,28 @@ class CodecTest(unittest.TestCase):
         with self.assertRaises(CodecError):
             load_request(raw)
 
+    def test_custom_tool_shapes_round_trip_opaque_text_and_format(self) -> None:
+        from oxa.ir import CustomToolInputDelta, dump_delta, load_delta
+
+        raw = {
+            "specVersion": "0.2.0",
+            "model": "m",
+            "messages": [
+                {"role": "assistant", "content": [
+                    {"type": "custom_tool_use", "id": "ct_1", "name": "exec", "input": "not JSON\r\n\u0000"},
+                ]},
+                {"role": "user", "content": [
+                    {"type": "custom_tool_result", "tool_use_id": "ct_1", "output": ""},
+                ]},
+            ],
+            "tools": [{"type": "custom", "name": "exec", "format": {"type": "grammar", "syntax": "regex", "definition": "(?s)^.+\n$"}}],
+            "tool_choice": {"mode": "tool", "name": "exec", "tool_type": "custom"},
+        }
+        request = load_request(raw)
+        self.assertEqual(dump_request(request), raw)
+        self.assertEqual(request.messages[0].content[0].input, "not JSON\r\n\u0000")
+        self.assertEqual(dump_delta(load_delta({"type": "custom_tool_input_delta", "text": ""})), {"type": "custom_tool_input_delta", "text": ""})
+
     def test_loss_round_trip(self) -> None:
         loss = Loss(
             path="messages[0].content[1]",

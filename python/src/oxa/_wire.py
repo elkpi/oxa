@@ -116,6 +116,11 @@ def _audit(wire: dict[str, Any], face: str, kind: str, document: RawDocument | N
             positions[path] = len(positions)
         if not shape:
             return
+        if shape == "custom_output":
+            if isinstance(value, list):
+                for index, child in enumerate(value):
+                    visit(child, "custom_output_part", path + (index,))
+            return
         if shape.endswith("[]"):
             if isinstance(value, list):
                 for index, child in enumerate(value):

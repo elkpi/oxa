@@ -8,6 +8,7 @@ ROLE_ASSISTANT: Final = "assistant"
 ROLE_DEVELOPER: Final = "developer"
 
 TOOL_TYPE_FUNCTION: Final = "function"
+TOOL_TYPE_CUSTOM: Final = "custom"
 
 TOOL_CHOICE_AUTO: Final = "auto"
 TOOL_CHOICE_NONE: Final = "none"
@@ -16,6 +17,8 @@ TOOL_CHOICE_REQUIRED: Final = "required"
 ITEM_TYPE_MESSAGE: Final = "message"
 ITEM_TYPE_FUNCTION_CALL: Final = "function_call"
 ITEM_TYPE_FUNCTION_CALL_OUTPUT: Final = "function_call_output"
+ITEM_TYPE_CUSTOM_TOOL_CALL: Final = "custom_tool_call"
+ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT: Final = "custom_tool_call_output"
 ITEM_TYPE_REASONING: Final = "reasoning"
 
 PART_TYPE_INPUT_TEXT: Final = "input_text"
@@ -46,6 +49,8 @@ EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA: Final = "response.reasoning_su
 EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE: Final = "response.reasoning_summary_text.done"
 EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA: Final = "response.function_call_arguments.delta"
 EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE: Final = "response.function_call_arguments.done"
+EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA: Final = "response.custom_tool_call_input.delta"
+EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE: Final = "response.custom_tool_call_input.done"
 EVENT_TYPE_RESPONSE_COMPLETED: Final = "response.completed"
 EVENT_TYPE_RESPONSE_INCOMPLETE: Final = "response.incomplete"
 EVENT_TYPE_RESPONSE_FAILED: Final = "response.failed"
@@ -56,12 +61,15 @@ __all__ = [
     "ROLE_ASSISTANT",
     "ROLE_DEVELOPER",
     "TOOL_TYPE_FUNCTION",
+    "TOOL_TYPE_CUSTOM",
     "TOOL_CHOICE_AUTO",
     "TOOL_CHOICE_NONE",
     "TOOL_CHOICE_REQUIRED",
     "ITEM_TYPE_MESSAGE",
     "ITEM_TYPE_FUNCTION_CALL",
     "ITEM_TYPE_FUNCTION_CALL_OUTPUT",
+    "ITEM_TYPE_CUSTOM_TOOL_CALL",
+    "ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT",
     "ITEM_TYPE_REASONING",
     "PART_TYPE_INPUT_TEXT",
     "PART_TYPE_OUTPUT_TEXT",
@@ -86,6 +94,8 @@ __all__ = [
     "EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE",
     "EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA",
     "EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE",
+    "EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA",
+    "EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE",
     "EVENT_TYPE_RESPONSE_COMPLETED",
     "EVENT_TYPE_RESPONSE_INCOMPLETE",
     "EVENT_TYPE_RESPONSE_FAILED",

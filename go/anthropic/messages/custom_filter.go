@@ -53,6 +53,15 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 			f.fragments = nil
 			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "custom tool calls are not supported by this target profile"}}, nil
 		}
+		if b, ok := e.Block.(ir.ApplyPatchToolUseBlock); ok {
+			if b.ID == "" || b.Status == "" || b.Operation == nil {
+				return fail()
+			}
+			f.custom = true
+			f.dropped = true
+			f.fragments = nil
+			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool calls are not supported by this target profile"}}, nil
+		}
 		if _, ok := e.Block.(ir.ToolUseBlock); ok {
 			f.functionSeen = true
 		}

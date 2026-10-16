@@ -695,11 +695,21 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 has_tool_use = true;
             }
             crate::types::ITEM_TYPE_APPLY_PATCH_CALL => {
+                if item.id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].id is required"
+                    )));
+                }
+                if item.call_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].call_id is required"
+                    )));
+                }
                 let status = crate::normalize::decode_apply_patch_call_status(
                     &item.status,
                     &format!("output[{item_index}]"),
                     &mut losses,
-                );
+                )?;
                 let Some(status) = status else {
                     continue;
                 };
@@ -719,11 +729,21 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 has_tool_use = true;
             }
             crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT => {
+                if item.id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].id is required"
+                    )));
+                }
+                if item.call_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].call_id is required"
+                    )));
+                }
                 let status = crate::normalize::decode_apply_patch_result_status(
                     &item.status,
                     &format!("output[{item_index}]"),
                     &mut losses,
-                );
+                )?;
                 let Some(status) = status else {
                     continue;
                 };

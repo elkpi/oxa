@@ -706,33 +706,30 @@ impl StreamDecoder {
                         &item.status,
                         &format!("output[{output_index}]"),
                         &mut self.losses,
-                    )
-                    .ok_or_else(|| {
-                        Error::new(format!(
-                            "responses: invalid apply_patch_call status: {:?}",
-                            item.status
-                        ))
-                    })?;
+                    )?;
                     let op = crate::normalize::decode_apply_patch_operation(
                         item.operation.as_ref(),
                         &format!("output[{output_index}].operation"),
                         &mut self.losses,
-                    )?
-                    .ok_or_else(|| Error::new("responses: invalid apply_patch_call operation"))?;
-                    let index = self.next_block_index;
-                    self.next_block_index += 1;
-                    let events = vec![
-                        Event::ContentBlockStart {
-                            index,
-                            block: Block::ApplyPatchToolUse {
-                                id: ap.call_id,
-                                status,
-                                operation: op,
+                    )?;
+                    let events = if let (Some(status), Some(op)) = (status, op) {
+                        let index = self.next_block_index;
+                        self.next_block_index += 1;
+                        self.tool_use_seen = true;
+                        vec![
+                            Event::ContentBlockStart {
+                                index,
+                                block: Block::ApplyPatchToolUse {
+                                    id: ap.call_id,
+                                    status,
+                                    operation: op,
+                                },
                             },
-                        },
-                        Event::ContentBlockStop { index },
-                    ];
-                    self.tool_use_seen = true;
+                            Event::ContentBlockStop { index },
+                        ]
+                    } else {
+                        Vec::new()
+                    };
                     self.completed_items.push(item.clone());
                     return self.close_stream_item(events);
                 }
@@ -746,31 +743,29 @@ impl StreamDecoder {
                         &item.status,
                         &format!("output[{output_index}]"),
                         &mut self.losses,
-                    )
-                    .ok_or_else(|| {
-                        Error::new(format!(
-                            "responses: invalid apply_patch_call_output status: {:?}",
-                            item.status
-                        ))
-                    })?;
+                    )?;
                     let output = match &item.output {
                         None => None,
                         Some(OutputValue::Text(s)) => Some(s.clone()),
                         Some(_) => return Err(Error::new("responses: output must be a string")),
                     };
-                    let index = self.next_block_index;
-                    self.next_block_index += 1;
-                    let events = vec![
-                        Event::ContentBlockStart {
-                            index,
-                            block: Block::ApplyPatchToolResult {
-                                tool_use_id: apr.call_id,
-                                status,
-                                output,
+                    let events = if let Some(status) = status {
+                        let index = self.next_block_index;
+                        self.next_block_index += 1;
+                        vec![
+                            Event::ContentBlockStart {
+                                index,
+                                block: Block::ApplyPatchToolResult {
+                                    tool_use_id: apr.call_id,
+                                    status,
+                                    output,
+                                },
                             },
-                        },
-                        Event::ContentBlockStop { index },
-                    ];
+                            Event::ContentBlockStop { index },
+                        ]
+                    } else {
+                        Vec::new()
+                    };
                     self.completed_items.push(item.clone());
                     return self.close_stream_item(events);
                 }
@@ -890,7 +885,17 @@ impl StreamDecoder {
                             ));
                         }
                         if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL {
-                            if it.operation != prior.operation {
+                            let (op1, op2) = (&it.operation, &prior.operation);
+                            let mismatch = match (op1, op2) {
+                                (Some(o1), Some(o2)) => {
+                                    o1.kind != o2.kind
+                                        || o1.path != o2.path
+                                        || (o1.kind != "delete_file" && o1.diff != o2.diff)
+                                }
+                                (None, None) => false,
+                                _ => true,
+                            };
+                            if mismatch {
                                 return Err(Error::new(
                                     "responses: terminal apply patch operation mismatch",
                                 ));

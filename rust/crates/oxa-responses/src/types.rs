@@ -135,10 +135,10 @@ impl Default for Input {
 pub struct ApplyPatchOperationWire {
     #[serde(rename = "type")]
     pub kind: String,
-    #[serde(rename = "path", default)]
-    pub path: String,
+    #[serde(rename = "path", default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<serde_json::Value>,
     #[serde(rename = "diff", default, skip_serializing_if = "Option::is_none")]
-    pub diff: Option<String>,
+    pub diff: Option<serde_json::Value>,
 }
 
 /// One Responses input item.

@@ -14,6 +14,7 @@ type customStreamFilter struct {
 	outputIndex  int
 	open         bool
 	custom       bool
+	atomic       bool
 	input        string
 	fragments    []string
 	dropped      bool
@@ -41,6 +42,7 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 		f.open = true
 		f.nextIndex++
 		f.custom = false
+		f.atomic = false
 		if b, ok := e.Block.(ir.CustomToolUseBlock); ok {
 			if b.ID == "" || b.Name == "" || len(b.Input) == 0 || b.Input[0] != '"' {
 				return fail()
@@ -57,10 +59,19 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 			if b.ID == "" || b.Status == "" || b.Operation == nil {
 				return fail()
 			}
-			f.custom = true
+			f.atomic = true
 			f.dropped = true
 			f.fragments = nil
 			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool calls are not supported by this target profile"}}, nil
+		}
+		if b, ok := e.Block.(ir.ApplyPatchToolResultBlock); ok {
+			if b.ToolUseID == "" || b.Status == "" {
+				return fail()
+			}
+			f.atomic = true
+			f.dropped = true
+			f.fragments = nil
+			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool results are not supported by this target profile"}}, nil
 		}
 		if _, ok := e.Block.(ir.ToolUseBlock); ok {
 			f.functionSeen = true
@@ -69,6 +80,9 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 		return e, nil, nil
 	case ir.ContentBlockDelta:
 		if f.phase != 1 || !f.open || e.Index != f.nextIndex-1 {
+			return fail()
+		}
+		if f.atomic {
 			return fail()
 		}
 		if f.custom {
@@ -90,6 +104,10 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 			return fail()
 		}
 		f.open = false
+		if f.atomic {
+			f.atomic = false
+			return nil, nil, nil
+		}
 		if f.custom {
 			if len(f.fragments) > 0 && strings.Join(f.fragments, "") != f.input {
 				return nil, nil, fmt.Errorf("custom stream filter: input fragment mismatch")

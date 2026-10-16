@@ -1,6 +1,6 @@
 # 13 — Custom Tools（规范 2.2）
 
-Status: normative，尚未发布。本文扩展 spec/01、spec/11 和 spec/20 的 Custom Tools 规则；不包含专用 Apply Patch。
+Status: normative. 本文扩展 spec/01、spec/11 和 spec/20 的 Custom Tools 规则；不包含专用 Apply Patch。
 
 ## 1. IR 契约 — N-C-1
 

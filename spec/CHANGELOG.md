@@ -5,7 +5,7 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.2.0 - Unreleased
+## 2.2.0 - 2026-10-16
 
 ### Added
 

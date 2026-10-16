@@ -32,7 +32,7 @@ const customResponse: Response = {
   usage,
 };
 
-test("Chat and Anthropic drop custom declarations and choices with explicit losses", () => {
+test("Chat and Anthropic support custom declarations, choices and responses", () => {
   const request = decodeIrRequest({
     specVersion: "0.2.0",
     model: "m",
@@ -40,6 +40,38 @@ test("Chat and Anthropic drop custom declarations and choices with explicit loss
     tools: [{ type: "custom", name: "run" }],
     params: { max_tokens: integer(32n) },
     tool_choice: { mode: "tool", name: "run", tool_type: "custom" },
+  });
+  const chatReq = encodeChatRequest(request);
+  assert.equal(chatReq.losses.length, 0);
+  assert.ok(chatReq.value.tools !== undefined);
+  assert.ok(chatReq.value.tool_choice !== undefined);
+
+  const anthropicReq = encodeAnthropicRequest(request);
+  assert.equal(anthropicReq.losses.length, 0);
+  assert.ok(anthropicReq.value.tools !== undefined);
+  assert.ok(anthropicReq.value.tool_choice !== undefined);
+
+  const chat = encodeChatResponse(customResponse);
+  assert.equal(
+    (chat.value.choices as readonly { finish_reason: string }[])[0]
+      ?.finish_reason,
+    "tool_calls",
+  );
+  assert.equal(chat.losses.length, 0);
+
+  const anthropic = encodeAnthropicResponse(customResponse);
+  assert.equal(anthropic.value.stop_reason, "tool_use");
+  assert.equal(anthropic.losses.length, 0);
+});
+
+test("Chat and Anthropic drop apply_patch declarations and choices with explicit losses", () => {
+  const request = decodeIrRequest({
+    specVersion: "0.2.0",
+    model: "m",
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+    tools: [{ type: "apply_patch" }],
+    params: { max_tokens: integer(32n) },
+    tool_choice: { mode: "tool", tool_type: "apply_patch" },
   });
   for (const encoded of [
     encodeChatRequest(request),
@@ -52,72 +84,20 @@ test("Chat and Anthropic drop custom declarations and choices with explicit loss
     assert.equal(encoded.value.tools, undefined);
     assert.equal(encoded.value.tool_choice, undefined);
   }
-  const chat = encodeChatResponse(customResponse);
-  assert.equal(
-    (chat.value.choices as readonly { finish_reason: string }[])[0]
-      ?.finish_reason,
-    "stop",
-  );
-  assert.ok(chat.losses.some((loss) => loss.reason === "degraded"));
-  const anthropic = encodeAnthropicResponse(customResponse);
-  assert.equal(anthropic.value.stop_reason, "end_turn");
-  assert.ok(anthropic.losses.some((loss) => loss.reason === "degraded"));
-
-  const mixed = decodeIrRequest({
-    specVersion: "0.2.0",
-    model: "m",
-    messages: [
-      { role: "user", content: [{ type: "text", text: "go" }] },
-      {
-        role: "assistant",
-        content: [
-          { type: "custom_tool_use", id: "custom", name: "run", input: "" },
-          { type: "tool_use", id: "function", name: "lookup", input: "{}" },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "custom_tool_result",
-            tool_use_id: "custom",
-            output: "dropped",
-          },
-          {
-            type: "tool_result",
-            tool_use_id: "function",
-            content: [{ type: "text", text: "kept" }],
-          },
-        ],
-      },
-    ],
-  });
-  const downgraded = encodeChatRequest(mixed);
-  assert.deepEqual(
-    (downgraded.value.messages as readonly { role: string }[]).map(
-      ({ role }) => role,
-    ),
-    ["user", "assistant", "tool"],
-  );
-  assert.equal(
-    downgraded.losses.filter((loss) => loss.reason === "unsupported-semantic")
-      .length,
-    2,
-  );
 });
 
-test("unsupported-target stream encoders absorb custom deltas and compact retained indexes", () => {
+test("unsupported-target stream encoders absorb apply_patch deltas and compact retained indexes", () => {
   const events: Event[] = [
     { type: "message_start", id: "r", model: "m" },
     {
       type: "content_block_start",
       index: 0,
-      block: { type: "custom_tool_use", id: "c", name: "run", input: "x" },
-    },
-    {
-      type: "content_block_delta",
-      index: 0,
-      delta: { type: "custom_tool_input_delta", text: "x" },
+      block: {
+        type: "apply_patch_tool_use",
+        id: "p",
+        status: "in_progress",
+        operation: { type: "create_file", path: "a.txt", diff: "" },
+      },
     },
     { type: "content_block_stop", index: 0 },
     {
@@ -191,13 +171,18 @@ test("unsupported-target stream encoders absorb custom deltas and compact retain
   );
 });
 
-test("custom-only unsupported streams normalize tool_use to end_turn with degraded loss", () => {
+test("apply_patch only unsupported streams normalize tool_use to end_turn with degraded loss", () => {
   const events: Event[] = [
     { type: "message_start", id: "r", model: "m" },
     {
       type: "content_block_start",
       index: 0,
-      block: { type: "custom_tool_use", id: "c", name: "run", input: "" },
+      block: {
+        type: "apply_patch_tool_use",
+        id: "p",
+        status: "in_progress",
+        operation: { type: "create_file", path: "a.txt", diff: "" },
+      },
     },
     { type: "content_block_stop", index: 0 },
     { type: "message_delta", stop_reason: "tool_use", usage },

@@ -5,6 +5,16 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.3.0 - 2026-10-16
+
+### Added
+
+- [14 — Apply Patch](14-apply-patch.md) 定义专用的 `apply_patch` Tool/ToolChoice 声明、三种扁平 Operation 联合体、`ApplyPatchToolUseBlock` 与 `ApplyPatchToolResultBlock`。
+- 请求端成对关联校验（N-AP-3, INV-3）与成对语义过滤；未知操作类型或未知状态成对丢弃并记录对应 loss，杜绝悬垂引用。
+- Responses 原子项流式生命周期（N-AP-4），added 时暂存快照，done 时验证并回放单组 block start/stop，活跃期间严禁任何增量。
+- Chat Completions 与 Anthropic Messages 面对 Apply Patch 的规范降级（N-AP-5），记录 `unsupported-semantic` loss 并正确降级 `stop_reason` 至 `end_turn`。
+- 新增 58 条 Apply Patch 黄金向量，全仓库向量总数达到 263 条；IR contract 保持 `0.2.0`（兼容读取 `0.1.0`）。
+
 ## 2.2.0 - 2026-10-16
 
 ### Added

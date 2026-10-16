@@ -1,6 +1,6 @@
 # 14 — Apply Patch（规范 2.3）
 
-Status: normative，未发布。扩展 spec/01、spec/11、spec/20；IR contract 保持 `0.2.0`，兼容读取 `0.1.0`。本规范只转换数据，MUST NOT 读取文件、执行补丁、清理路径或验证 diff 能否应用。
+Status: normative. 扩展 spec/01、spec/11、spec/20；IR contract 保持 `0.2.0`，兼容读取 `0.1.0`。本规范只转换数据，MUST NOT 读取文件、执行补丁、清理路径或验证 diff 能否应用。
 
 ## 1. 专用声明与选择 — N-AP-1
 

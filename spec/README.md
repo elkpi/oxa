@@ -8,14 +8,14 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.3.0（未发布）**。IR contract 保持 **0.2.0**。
+Current spec version: **2.3.0**。IR contract 保持 **0.2.0**。
 Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)。
 
-上一冻结规范版本为 **2.1.0**。Go, TypeScript, Rust, Python, and C++ share
-one golden suite of **205 vectors**, covering reasoning, usage granularity,
-structured-output format mapping, Responses developer instructions, and Custom Tools.
-Implementation release **v2.2.0 is published**; the latest published
-coordinated release is **v2.2.0**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+上一冻结规范版本为 **2.2.0**。Go, TypeScript, Rust, Python, and C++ share
+one golden suite of **263 vectors**, covering reasoning, usage granularity,
+structured-output format mapping, Responses developer instructions, Custom Tools, and Apply Patch.
+Implementation release **v2.3.0 is published**; the latest published
+coordinated release is **v2.3.0**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 
@@ -84,6 +84,7 @@ Read the documents in this order:
 | [11](11-mapping-openai-responses.md) | Responses face mapping | ready |
 | [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
 | [13](13-custom-tools.md) | Custom Tools：IR、Responses、流式与降级 | ready |
+| [14](14-apply-patch.md) | Apply Patch：专用类型、Operation 联合体、流式与目标降级 | ready |
 | [20](20-streaming-semantics.md) | streaming semantics | ready |
 | [90](90-glossary.md) | glossary | ready |
 

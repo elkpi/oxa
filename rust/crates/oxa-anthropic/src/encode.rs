@@ -65,17 +65,62 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(tools) = &req.tools {
         let mut wire_tools = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
-            let schema = serde_json::to_string(&tool.input_schema).unwrap_or_default();
+            if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
+                losses.push(loss(
+                    format!("tools[{index}]"),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    "Anthropic Messages has no native custom tool mapping",
+                ));
+                continue;
+            }
+            let schema_val = tool
+                .input_schema
+                .as_ref()
+                .unwrap_or(&serde_json::Value::Null);
+            let schema = serde_json::to_string(schema_val).unwrap_or_default();
             require_json_object(&schema, &format!("tools[{index}].input_schema"))?;
             wire_tools.push(ToolWire {
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
-                input_schema: tool.input_schema.clone(),
+                input_schema: schema_val.clone(),
             });
         }
-        out.tools = Some(wire_tools);
+        if !wire_tools.is_empty() {
+            out.tools = Some(wire_tools);
+        }
     }
-    let (choice, choice_losses) = encode_tool_choice(req.tool_choice.as_ref())?;
+    let (mut choice, choice_losses) = encode_tool_choice(req.tool_choice.as_ref())?;
+    if req.tool_choice.as_ref().is_some_and(|c| {
+        c.mode == oxa_ir::ToolChoiceMode::Tool && c.tool_type == Some(oxa_ir::ToolType::Custom)
+    }) {
+        choice = None;
+        losses.push(loss(
+            "tool_choice",
+            "tool_choice",
+            LossReason::UnsupportedSemantic,
+            "Anthropic has no native custom tool choice mapping",
+        ));
+    }
+    if req
+        .tool_choice
+        .as_ref()
+        .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
+        && req.tools.as_ref().is_some_and(|ts| {
+            !ts.is_empty()
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::Custom))
+        })
+    {
+        choice = None;
+        losses.push(loss(
+            "tool_choice",
+            "tool_choice",
+            LossReason::UnsupportedSemantic,
+            "all declared tools were dropped because Anthropic does not support custom tools",
+        ));
+    }
     out.tool_choice = choice;
     losses.extend(choice_losses);
 
@@ -97,6 +142,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             };
             ContentValue::Text(text.clone())
         } else {
+            let mut blocks = blocks;
+            if blocks.is_empty() {
+                blocks.push(BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    text: String::new(),
+                    ..BlockWire::default()
+                });
+            }
             ContentValue::Blocks(blocks)
         };
         out.messages.push(Message {
@@ -242,6 +295,16 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             ))
         }
         Block::ToolResult { .. } => encode_tool_result_block(block, path),
+        Block::CustomToolUse { .. } | Block::CustomToolResult { .. } => Ok((
+            BlockWire::default(),
+            vec![loss(
+                path,
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic has no native custom tool block mapping",
+            )],
+            false,
+        )),
     }
 }
 
@@ -407,7 +470,22 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         }
         losses.extend(block_losses);
     }
-    let (reason, seq) = encode_stop_reason(resp.stop_reason, resp.stop_sequence.as_deref())?;
+    let has_native_call = resp
+        .content
+        .iter()
+        .any(|block| matches!(block, Block::ToolUse { .. }));
+    let effective_stop = if resp.stop_reason == StopReason::ToolUse && !has_native_call {
+        losses.push(loss(
+            "stop_reason",
+            "stop_reason",
+            LossReason::Degraded,
+            "custom tool calls were dropped; stop_reason was degraded to end_turn",
+        ));
+        StopReason::EndTurn
+    } else {
+        resp.stop_reason
+    };
+    let (reason, seq) = encode_stop_reason(effective_stop, resp.stop_sequence.as_deref())?;
     out.stop_reason = reason.to_string();
     if let Some(s) = seq {
         out.stop_sequence = s;

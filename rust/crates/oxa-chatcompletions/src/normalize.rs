@@ -236,6 +236,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Auto,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -243,6 +244,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::None,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -250,6 +252,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Any,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -278,6 +281,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                     Some(ToolChoice {
                         mode: ToolChoiceMode::Tool,
                         name: Some(name.to_string()),
+                        tool_type: None,
                     }),
                     Vec::new(),
                 )
@@ -488,11 +492,17 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 LossReason::UnsupportedSemantic,
                 "IR image block cannot be rendered in a Chat Completions assistant message",
             )),
-            Block::ToolResult { .. } => losses.push(loss(
+            Block::ToolResult { .. } | Block::CustomToolResult { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
                 LossReason::UnsupportedSemantic,
                 "IR tool_result block cannot be rendered in a Chat Completions assistant message",
+            )),
+            Block::CustomToolUse { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "content",
+                LossReason::UnsupportedSemantic,
+                "IR custom_tool_use block cannot be rendered in a Chat Completions assistant message",
             )),
         }
     }

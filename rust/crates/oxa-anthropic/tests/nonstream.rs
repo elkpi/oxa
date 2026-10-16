@@ -131,6 +131,7 @@ fn tool_choice_named_requires_a_name() {
         tool_choice: Some(oxa_ir::ToolChoice {
             mode: oxa_ir::ToolChoiceMode::Tool,
             name: None,
+            tool_type: None,
         }),
         params: Some(oxa_ir::Params {
             temperature: None,

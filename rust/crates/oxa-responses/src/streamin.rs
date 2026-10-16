@@ -10,16 +10,18 @@ use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
     EVENT_TYPE_RESPONSE_COMPLETED, EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED,
-    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED, EVENT_TYPE_RESPONSE_FAILED,
-    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
-    EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
-    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
-    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA, EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE,
+    EVENT_TYPE_RESPONSE_FAILED, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA,
+    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE, EVENT_TYPE_RESPONSE_INCOMPLETE,
+    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
-    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, ITEM_TYPE_FUNCTION_CALL,
-    ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, PART_TYPE_OUTPUT_TEXT,
-    ROLE_ASSISTANT, StreamEvent,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, ITEM_TYPE_CUSTOM_TOOL_CALL,
+    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
 };
 
 struct StreamFunctionCall {
@@ -27,9 +29,19 @@ struct StreamFunctionCall {
     name: String,
     fragments: Vec<String>,
     arguments_done: bool,
+    custom: bool,
+    snapshot: Option<String>,
 }
 
 /// Incrementally converts an OpenAI Responses event stream into IR events.
+#[derive(Clone)]
+struct CompletedCustomCall {
+    _item_id: String,
+    call_id: String,
+    name: String,
+    input: String,
+}
+
 pub struct StreamDecoder {
     config: Config,
     losses: Vec<Loss>,
@@ -46,6 +58,7 @@ pub struct StreamDecoder {
     output_index: i64,
     next_content_index: i64,
     function_call: Option<StreamFunctionCall>,
+    completed_custom_calls: Vec<CompletedCustomCall>,
     tool_use_seen: bool,
     encrypted_content_loss_recorded: bool,
     block_open: bool,
@@ -88,6 +101,7 @@ impl StreamDecoder {
             output_index: 0,
             next_content_index: 0,
             function_call: None,
+            completed_custom_calls: Vec::new(),
             tool_use_seen: false,
             encrypted_content_loss_recorded: false,
             block_open: false,
@@ -168,6 +182,29 @@ impl StreamDecoder {
                         name: item.name.clone(),
                         fragments: vec![item.arguments.clone()],
                         arguments_done: false,
+                        custom: false,
+                        snapshot: None,
+                    });
+                    return Ok(Vec::new());
+                }
+                if item.kind == ITEM_TYPE_CUSTOM_TOOL_CALL {
+                    if item.id.is_empty() || item.call_id.is_empty() || item.name.is_empty() {
+                        return Err(Error::new(
+                            "responses: custom_tool_call item requires id, call_id, and name",
+                        ));
+                    }
+                    if item.input.as_deref() != Some("") {
+                        return Err(Error::new(
+                            "responses: custom_tool_call added item must carry input empty string",
+                        ));
+                    }
+                    self.function_call = Some(StreamFunctionCall {
+                        call_id: item.call_id.clone(),
+                        name: item.name.clone(),
+                        fragments: Vec::new(),
+                        arguments_done: false,
+                        custom: true,
+                        snapshot: None,
                     });
                     return Ok(Vec::new());
                 }
@@ -238,6 +275,42 @@ impl StreamDecoder {
                     },
                 }])
             }
+            EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA => {
+                self.require_custom_tool_call(ev, EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA)?;
+                let fragment = ev.delta.as_ref().ok_or_else(|| {
+                    Error::new("responses: custom input delta missing delta field")
+                })?;
+                let call = self.function_call.as_mut().expect("validated custom call");
+                if call.arguments_done {
+                    return Err(Error::new("responses: custom input delta after input.done"));
+                }
+                call.fragments.push(fragment.clone());
+                Ok(Vec::new())
+            }
+            EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE => {
+                self.require_custom_tool_call(ev, EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE)?;
+                let snapshot = ev.input.as_ref().ok_or_else(|| {
+                    Error::new("responses: custom input.done missing input field")
+                })?;
+                let call = self.function_call.as_mut().expect("validated custom call");
+                if !call.fragments.is_empty() && call.fragments.concat() != *snapshot {
+                    return Err(Error::new(
+                        "responses: custom input.done snapshot does not match input deltas",
+                    ));
+                }
+                if call
+                    .snapshot
+                    .as_ref()
+                    .is_some_and(|previous| previous != snapshot)
+                {
+                    return Err(Error::new(
+                        "responses: conflicting custom input.done snapshots",
+                    ));
+                }
+                call.snapshot = Some(snapshot.clone());
+                call.arguments_done = true;
+                Ok(Vec::new())
+            }
             EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA => {
                 if self.skipped_item {
                     self.require_active_item(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA)?;
@@ -245,6 +318,11 @@ impl StreamDecoder {
                 }
                 self.require_function_call(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA)?;
                 let fc = self.function_call.as_mut().unwrap();
+                if fc.custom {
+                    return Err(Error::new(
+                        "responses: function arguments event on custom_tool_call item",
+                    ));
+                }
                 if fc.arguments_done {
                     return Err(Error::new(
                         "responses: response.function_call_arguments.delta after arguments.done",
@@ -260,6 +338,11 @@ impl StreamDecoder {
                 }
                 self.require_function_call(ev, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE)?;
                 let fc = self.function_call.as_mut().unwrap();
+                if fc.custom {
+                    return Err(Error::new(
+                        "responses: function arguments event on custom_tool_call item",
+                    ));
+                }
                 if fc.arguments_done {
                     return Err(Error::new(
                         "responses: duplicate response.function_call_arguments.done",
@@ -561,8 +644,58 @@ impl StreamDecoder {
                         "responses: response.output_item.done with a content part still open",
                     ));
                 }
-                let mut events = Vec::new();
-                if let Some(fc) = self.function_call.take() {
+                if let Some(mut fc) = self.function_call.take() {
+                    let index = self.next_block_index;
+                    self.next_block_index += 1;
+                    if fc.custom {
+                        let input = item.input.as_ref().ok_or_else(|| {
+                            Error::new("responses: custom_tool_call output_item.done missing input")
+                        })?;
+                        if item.call_id != fc.call_id || item.name != fc.name {
+                            return Err(Error::new(
+                                "responses: output_item.done does not match active custom_tool_call",
+                            ));
+                        }
+                        if fc
+                            .snapshot
+                            .as_ref()
+                            .is_some_and(|snapshot| snapshot != input)
+                        {
+                            return Err(Error::new(
+                                "responses: custom input.done and item.done snapshots conflict",
+                            ));
+                        }
+                        if fc.fragments.is_empty() {
+                            fc.fragments.push(input.clone());
+                        } else if fc.fragments.concat() != *input {
+                            return Err(Error::new(
+                                "responses: custom item.done input does not match input deltas",
+                            ));
+                        }
+                        self.completed_custom_calls.push(CompletedCustomCall {
+                            _item_id: item.id.clone(),
+                            call_id: fc.call_id.clone(),
+                            name: fc.name.clone(),
+                            input: input.clone(),
+                        });
+                        let mut events = vec![Event::ContentBlockStart {
+                            index,
+                            block: Block::CustomToolUse {
+                                id: fc.call_id,
+                                name: fc.name,
+                                input: input.clone(),
+                            },
+                        }];
+                        for fragment in fc.fragments {
+                            events.push(Event::ContentBlockDelta {
+                                index,
+                                delta: Delta::CustomToolInputDelta { text: fragment },
+                            });
+                        }
+                        events.push(Event::ContentBlockStop { index });
+                        self.tool_use_seen = true;
+                        return self.close_stream_item(events);
+                    }
                     let joined = fc.fragments.concat();
                     if item.call_id != fc.call_id
                         || item.name != fc.name
@@ -572,16 +705,14 @@ impl StreamDecoder {
                             "responses: response.output_item.done does not match the active function call",
                         ));
                     }
-                    let index = self.next_block_index;
-                    self.next_block_index += 1;
-                    events.push(Event::ContentBlockStart {
+                    let mut events = vec![Event::ContentBlockStart {
                         index,
                         block: Block::ToolUse {
                             id: fc.call_id,
                             name: fc.name,
                             input: joined,
                         },
-                    });
+                    }];
                     for fragment in fc.fragments {
                         events.push(Event::ContentBlockDelta {
                             index,
@@ -592,14 +723,9 @@ impl StreamDecoder {
                     }
                     events.push(Event::ContentBlockStop { index });
                     self.tool_use_seen = true;
+                    return self.close_stream_item(events);
                 }
-                self.item_open = false;
-                self.item_type.clear();
-                self.item_id.clear();
-                self.skipped_call_id.clear();
-                self.skipped_item = false;
-                self.function_call = None;
-                Ok(events)
+                self.close_stream_item(Vec::new())
             }
             EVENT_TYPE_RESPONSE_COMPLETED
             | EVENT_TYPE_RESPONSE_INCOMPLETE
@@ -617,6 +743,7 @@ impl StreamDecoder {
                         ev.kind
                     )));
                 };
+                validate_custom_terminal(response, &self.completed_custom_calls)?;
                 let (stop, status_losses) = decode_status(response, self.tool_use_seen)?;
                 self.losses.extend(status_losses);
                 self.terminated = true;
@@ -698,6 +825,26 @@ impl StreamDecoder {
         }
     }
 
+    fn close_stream_item(&mut self, events: Vec<Event>) -> Result<Vec<Event>, Error> {
+        self.item_open = false;
+        self.item_type.clear();
+        self.item_id.clear();
+        self.skipped_call_id.clear();
+        self.skipped_item = false;
+        self.function_call = None;
+        Ok(events)
+    }
+
+    fn require_custom_tool_call(&self, ev: &StreamEvent, event_type: &str) -> Result<(), Error> {
+        self.require_active_item(ev, event_type)?;
+        if !self.function_call.as_ref().is_some_and(|call| call.custom) {
+            return Err(Error::new(format!(
+                "responses: {event_type} without an active custom_tool_call item"
+            )));
+        }
+        Ok(())
+    }
+
     fn record_encrypted_content_loss(&mut self, output_index: i64, encrypted_content: &str) {
         if encrypted_content.is_empty() || self.encrypted_content_loss_recorded {
             return;
@@ -760,6 +907,33 @@ impl StreamDecoder {
     pub fn losses(&self) -> &[Loss] {
         &self.losses
     }
+}
+
+fn validate_custom_terminal(
+    response: &crate::types::Response,
+    expected: &[CompletedCustomCall],
+) -> Result<(), Error> {
+    let got: Vec<_> = response
+        .output
+        .iter()
+        .filter(|item| item.kind == ITEM_TYPE_CUSTOM_TOOL_CALL)
+        .collect();
+    if got.len() != expected.len() {
+        return Err(Error::new(
+            "responses: terminal output custom_tool_call snapshot count does not match completed items",
+        ));
+    }
+    for (item, saved) in got.iter().zip(expected.iter()) {
+        let input = item.input.as_ref().ok_or_else(|| {
+            Error::new("responses: terminal custom_tool_call snapshot is missing input")
+        })?;
+        if item.call_id != saved.call_id || item.name != saved.name || *input != saved.input {
+            return Err(Error::new(
+                "responses: terminal custom_tool_call snapshot does not match by call_id, name, and input",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn unsupported_item_loss(output_index: i64, item_type: &str) -> Loss {

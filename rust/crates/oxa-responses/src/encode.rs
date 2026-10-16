@@ -1,8 +1,8 @@
 //! IR → face conversions (spec/11 §4).
 
 use oxa_ir::{
-    Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    ResponseFormat, StopReason, Usage,
+    Block, CustomToolOutput, Loss, LossReason, ReasoningEffort, Request as IrRequest,
+    Response as IrResponse, ResponseFormat, StopReason, ToolType, Usage,
 };
 
 use crate::config::Config;
@@ -10,10 +10,12 @@ use crate::error::Error;
 use crate::normalize::{encode_assistant_message, encode_tool_choice, encode_user_message, loss};
 use crate::types::{
     ContentValue, ERROR_CODE_REFUSAL, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
-    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input,
-    InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire,
-    PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response, STATUS_COMPLETED,
-    STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, TextParams, ToolDef, UsageWire,
+    ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input, InputTokenDetailsWire,
+    OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire, OutputValue,
+    PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response,
+    STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
+    TextParams, ToolDef, UsageWire,
 };
 
 /// Converts an IR request to a Responses wire request (IR → face). System
@@ -21,6 +23,23 @@ use crate::types::{
 /// content renders as the `input` string shorthand (N-R-1 and N-R-2).
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
     let mut losses = Vec::new();
+    for (message_index, message) in req.messages.iter().enumerate() {
+        for (block_index, block) in message.content.iter().enumerate() {
+            match block {
+                Block::CustomToolUse { id, name, .. } if id.is_empty() || name.is_empty() => {
+                    return Err(Error::new(format!(
+                        "responses: messages[{message_index}].content[{block_index}] custom_tool_use requires id and name"
+                    )));
+                }
+                Block::CustomToolResult { tool_use_id, .. } if tool_use_id.is_empty() => {
+                    return Err(Error::new(format!(
+                        "responses: messages[{message_index}].content[{block_index}].tool_use_id is required"
+                    )));
+                }
+                _ => {}
+            }
+        }
+    }
     if req
         .metadata
         .as_ref()
@@ -47,16 +66,74 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.instructions = Some(instructions);
     }
     if let Some(tools) = &req.tools {
-        out.tools = tools
-            .iter()
-            .map(|tool| ToolDef {
-                kind: TOOL_TYPE_FUNCTION.to_string(),
-                name: tool.name.clone(),
-                description: tool.description.clone().unwrap_or_default(),
-                parameters: tool.input_schema.clone(),
-                strict: None,
-            })
-            .collect();
+        for (index, tool) in tools.iter().enumerate() {
+            if tool.tool_type == Some(ToolType::Custom) {
+                if tool.name.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: tools[{index}].name is required for custom tool"
+                    )));
+                }
+                let format_value = match &tool.format {
+                    None => None,
+                    Some(format)
+                        if format.format_type == "text"
+                            && format.syntax.is_none()
+                            && format.definition.is_none() =>
+                    {
+                        Some(serde_json::json!({"type":"text"}))
+                    }
+                    Some(format)
+                        if format.format_type == "grammar"
+                            && matches!(format.syntax.as_deref(), Some("lark" | "regex"))
+                            && format.definition.is_some() =>
+                    {
+                        Some(serde_json::to_value(format).unwrap_or(serde_json::Value::Null))
+                    }
+                    Some(_) => {
+                        losses.push(loss(
+                            format!("tools[{index}].format"),
+                            "format",
+                            LossReason::UnsupportedSemantic,
+                            "custom tool format is not supported",
+                        ));
+                        None
+                    }
+                };
+                out.tools.push(ToolDef {
+                    kind: TOOL_TYPE_CUSTOM.to_string(),
+                    name: tool.name.clone(),
+                    description: tool.description.clone().unwrap_or_default(),
+                    parameters: None,
+                    format: format_value,
+                    strict: None,
+                });
+                if tool.input_schema.is_some() {
+                    losses.push(loss(
+                        format!("tools[{index}].input_schema"),
+                        "input_schema",
+                        LossReason::UnmappedField,
+                        "custom tools do not carry input_schema",
+                    ));
+                }
+            } else {
+                out.tools.push(ToolDef {
+                    kind: TOOL_TYPE_FUNCTION.to_string(),
+                    name: tool.name.clone(),
+                    description: tool.description.clone().unwrap_or_default(),
+                    parameters: Some(tool.input_schema.clone().unwrap_or(serde_json::Value::Null)),
+                    format: None,
+                    strict: None,
+                });
+                if tool.format.is_some() {
+                    losses.push(loss(
+                        format!("tools[{index}].format"),
+                        "format",
+                        LossReason::UnsupportedSemantic,
+                        "function tool format has no Responses function equivalent",
+                    ));
+                }
+            }
+        }
     }
     let (choice, choice_loss) = encode_tool_choice(req.tool_choice.as_ref());
     out.tool_choice = choice;
@@ -209,6 +286,41 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 arguments: input.clone(),
                 ..OutputItem::default()
             }),
+            Block::CustomToolUse { id, name, input } => {
+                if id.is_empty() || name.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: content[{index}] custom_tool_use requires id and name"
+                    )));
+                }
+                calls.push(OutputItem {
+                    kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
+                    id: "ctc_abc123".to_string(),
+                    call_id: id.clone(),
+                    name: name.clone(),
+                    input: Some(input.clone()),
+                    ..OutputItem::default()
+                });
+            }
+            Block::CustomToolResult {
+                tool_use_id,
+                output,
+            } => {
+                if tool_use_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: content[{index}].tool_use_id is required"
+                    )));
+                }
+                calls.push(OutputItem {
+                    kind: ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT.to_string(),
+                    call_id: tool_use_id.clone(),
+                    output: Some(encode_custom_output(
+                        output,
+                        &format!("content[{index}]"),
+                        &mut losses,
+                    )),
+                    ..OutputItem::default()
+                });
+            }
             Block::Image { .. } | Block::ToolResult { .. } => losses.push(loss(
                 format!("content[{index}]"),
                 "content",
@@ -305,6 +417,50 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         },
         losses,
     ))
+}
+
+fn encode_custom_output(
+    output: &CustomToolOutput,
+    path: &str,
+    losses: &mut Vec<Loss>,
+) -> OutputValue {
+    match output {
+        CustomToolOutput::Text(s) => OutputValue::Text(s.clone()),
+        CustomToolOutput::Content(blocks) => {
+            let mut parts = Vec::new();
+            for (i, b) in blocks.iter().enumerate() {
+                match b {
+                    Block::Text { text } => parts.push(crate::types::ContentPart {
+                        kind: PART_TYPE_INPUT_TEXT.to_string(),
+                        text: text.clone(),
+                        image_url: String::new(),
+                        detail: None,
+                        file_id: None,
+                    }),
+                    Block::Image {
+                        media_type,
+                        data,
+                        url,
+                    } => match crate::normalize::encode_image_block(
+                        media_type.as_deref(),
+                        data.as_deref(),
+                        url.as_deref(),
+                        &format!("{path}.output[{i}]"),
+                    ) {
+                        Ok(part) => parts.push(part),
+                        Err(loss) => losses.push(loss),
+                    },
+                    _ => losses.push(loss(
+                        format!("{path}.output[{i}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "custom tool output content is not supported",
+                    )),
+                }
+            }
+            OutputValue::Parts(parts)
+        }
+    }
 }
 
 fn validate_usage(usage: &Usage) -> Result<(), Error> {

@@ -27,7 +27,7 @@ impl std::fmt::Display for Error {
             Error::MissingSpecVersion => write!(f, "IR document carries no specVersion"),
             Error::SpecVersionMismatch(got) => write!(
                 f,
-                "IR document specVersion {got:?}, want \"0.1.0\" or {SPEC_VERSION:?}"
+                "IR document specVersion {got:?}, want \"0.1.0\" or \"0.2.0\""
             ),
         }
     }
@@ -66,12 +66,7 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     let document: Value = serde_json::from_str(json)?;
     match document.get("specVersion") {
         None => Err(Error::MissingSpecVersion),
-        Some(v)
-            if v == &Value::String("0.1.0".to_string())
-                || v == &Value::String(SPEC_VERSION.to_string()) =>
-        {
-            Ok(T::deserialize(&document)?)
-        }
+        Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(T::deserialize(&document)?),
         Some(other) => Err(Error::SpecVersionMismatch(
             other.as_str().unwrap_or_default().to_string(),
         )),

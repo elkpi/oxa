@@ -97,6 +97,22 @@ pub enum Block {
         #[serde(rename = "input")]
         input: String,
     },
+    #[serde(rename = "custom_tool_use")]
+    CustomToolUse {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "name")]
+        name: String,
+        #[serde(rename = "input")]
+        input: String,
+    },
+    #[serde(rename = "custom_tool_result")]
+    CustomToolResult {
+        #[serde(rename = "tool_use_id")]
+        tool_use_id: String,
+        #[serde(rename = "output")]
+        output: CustomToolOutput,
+    },
     #[serde(rename = "tool_result")]
     ToolResult {
         #[serde(rename = "tool_use_id")]
@@ -108,10 +124,12 @@ pub enum Block {
     },
 }
 
-/// A tool definition (spec/01 §3.5). `input_schema` is a JSON-Schema-shaped
-/// object carried verbatim; implementations MUST NOT analyze or rewrite it.
+/// A function or custom tool definition (spec/01 §3.5). Absent `tool_type`
+/// means the legacy function declaration and retains its historical JSON shape.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Tool {
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub tool_type: Option<ToolType>,
     #[serde(rename = "name")]
     pub name: String,
     #[serde(
@@ -120,17 +138,57 @@ pub struct Tool {
         skip_serializing_if = "Option::is_none"
     )]
     pub description: Option<String>,
-    #[serde(rename = "input_schema")]
-    pub input_schema: Value,
+    #[serde(
+        rename = "input_schema",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub input_schema: Option<Value>,
+    #[serde(rename = "format", default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<CustomToolFormat>,
 }
 
-/// Tool choice (spec/01 §3.6). `name` is present iff mode is `tool`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ToolType {
+    #[serde(rename = "function")]
+    Function,
+    #[serde(rename = "custom")]
+    Custom,
+}
+
+/// Custom format descriptor. Unknown type/syntax values deserialize so face
+/// converters can report an unsupported-semantic loss instead of rewriting it.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CustomToolFormat {
+    #[serde(rename = "type")]
+    pub format_type: String,
+    #[serde(rename = "syntax", default, skip_serializing_if = "Option::is_none")]
+    pub syntax: Option<String>,
+    #[serde(
+        rename = "definition",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub definition: Option<String>,
+}
+
+/// Custom result output preserves string-versus-list representation.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum CustomToolOutput {
+    Text(String),
+    Content(Vec<Block>),
+}
+
+/// Tool choice (spec/01 §3.6). `name`/`tool_type` are present iff mode is `tool`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ToolChoice {
     #[serde(rename = "mode")]
     pub mode: ToolChoiceMode,
     #[serde(rename = "name", default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(rename = "tool_type", default, skip_serializing_if = "Option::is_none")]
+    pub tool_type: Option<ToolType>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

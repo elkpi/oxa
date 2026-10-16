@@ -70,6 +70,11 @@ pub enum Delta {
         #[serde(rename = "partial_json")]
         partial_json: String,
     },
+    #[serde(rename = "custom_tool_input_delta")]
+    CustomToolInputDelta {
+        #[serde(rename = "text")]
+        text: String,
+    },
     #[serde(rename = "thinking_delta")]
     ThinkingDelta {
         #[serde(rename = "text")]

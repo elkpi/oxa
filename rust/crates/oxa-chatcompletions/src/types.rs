@@ -12,6 +12,7 @@ pub const ROLE_ASSISTANT: &str = "assistant";
 pub const ROLE_TOOL: &str = "tool";
 
 pub const TOOL_TYPE_FUNCTION: &str = "function";
+pub const TOOL_TYPE_CUSTOM: &str = "custom";
 
 pub const CONTENT_PART_TYPE_TEXT: &str = "text";
 pub const CONTENT_PART_TYPE_IMAGE_URL: &str = "image_url";
@@ -82,8 +83,41 @@ pub struct Request {
 pub struct ToolWire {
     #[serde(rename = "type")]
     pub kind: String,
-    #[serde(rename = "function")]
-    pub function: FunctionWire,
+    #[serde(rename = "function", skip_serializing_if = "Option::is_none")]
+    pub function: Option<FunctionWire>,
+    #[serde(rename = "custom", skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomToolWire>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomToolWire {
+    #[serde(rename = "name")]
+    pub name: String,
+    #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(rename = "format", skip_serializing_if = "Option::is_none")]
+    pub format: Option<CustomFormatWire>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomFormatWire {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "syntax", skip_serializing_if = "Option::is_none")]
+    pub syntax: Option<String>,
+    #[serde(rename = "definition", skip_serializing_if = "Option::is_none")]
+    pub definition: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CustomCallWire {
+    #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(rename = "input", skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
 }
 
 /// A Chat Completions function definition or call payload. `parameters` is a
@@ -131,8 +165,10 @@ pub struct ToolCall {
     pub id: String,
     #[serde(rename = "type")]
     pub kind: String,
-    #[serde(rename = "function")]
-    pub function: FunctionWire,
+    #[serde(rename = "function", skip_serializing_if = "Option::is_none")]
+    pub function: Option<FunctionWire>,
+    #[serde(rename = "custom", skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomCallWire>,
 }
 
 /// One element of a parts-array message content.
@@ -290,6 +326,8 @@ pub struct ToolCallDelta {
     pub kind: Option<String>,
     #[serde(rename = "function", skip_serializing_if = "Option::is_none")]
     pub function: Option<FunctionDelta>,
+    #[serde(rename = "custom", skip_serializing_if = "Option::is_none")]
+    pub custom: Option<CustomCallWire>,
 }
 
 /// The incremental function payload of a tool call.

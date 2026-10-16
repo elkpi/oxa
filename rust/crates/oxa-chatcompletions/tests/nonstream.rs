@@ -636,5 +636,8 @@ fn tool_argument_text_is_preserved_verbatim() {
     let (wire, _) = encode_request(&req, &Config::default()).expect("encode");
     let assistant = &wire.messages[1];
     let calls = assistant.tool_calls.as_ref().expect("tool calls");
-    assert_eq!(calls[0].function.arguments, r#"{"x":1e+01,"y":"café"}"#);
+    assert_eq!(
+        calls[0].function.as_ref().unwrap().arguments,
+        r#"{"x":1e+01,"y":"café"}"#
+    );
 }

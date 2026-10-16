@@ -414,6 +414,7 @@ fn stream_decoder_errors() {
                     id: Some("call_1".to_string()),
                     kind: Some("function".to_string()),
                     function: None,
+                    custom: None,
                 }]),
                 ..Default::default()
             },

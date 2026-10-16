@@ -35,6 +35,7 @@
   "expected_losses": [],
   "tags": [
     "custom-tools",
+    "response",
     "n-an-13"
   ],
   "expected_ir": {

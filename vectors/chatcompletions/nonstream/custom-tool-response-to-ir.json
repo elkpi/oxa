@@ -41,6 +41,7 @@
   "expected_losses": [],
   "tags": [
     "custom-tools",
+    "response",
     "n-cc-14"
   ],
   "expected_ir": {

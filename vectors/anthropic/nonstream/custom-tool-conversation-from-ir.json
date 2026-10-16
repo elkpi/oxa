@@ -91,7 +91,12 @@
     "messages": [
       {
         "role": "user",
-        "content": "run code"
+        "content": [
+          {
+            "type": "text",
+            "text": "run code"
+          }
+        ]
       },
       {
         "role": "assistant",

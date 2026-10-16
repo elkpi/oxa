@@ -142,14 +142,7 @@
             "delta": {},
             "finish_reason": "tool_calls"
           }
-        ]
-      },
-      {
-        "id": "chatcmpl-stream-1",
-        "object": "chat.completion.chunk",
-        "created": 0,
-        "model": "m",
-        "choices": [],
+        ],
         "usage": {
           "prompt_tokens": 10,
           "completion_tokens": 5,

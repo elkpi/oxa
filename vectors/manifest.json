@@ -20,7 +20,7 @@
         "custom-tools",
         "n-an-13"
       ],
-      "sha256": "0ed970af6e9f1f54d63732c1dd367e913ff461cc0ca61e8a2def88b2e49e3b33"
+      "sha256": "aaafd1082e2ccc17cf2eb54d7f5cc824e81abedc4917ebb8d9619bc9d403629c"
     },
     {
       "name": "anthropic.nonstream.custom-tool-conversation-to-ir",
@@ -54,18 +54,20 @@
       "file": "anthropic/nonstream/custom-tool-response-from-ir.json",
       "tags": [
         "custom-tools",
+        "response",
         "n-an-13"
       ],
-      "sha256": "e11257cbf9603f85f011efe3c768939d1a57aa944bb57b6c801b8286b1a22624"
+      "sha256": "7278dd9316ad3de11543d6dc3ad7d26896dcc0afd70afe0bd6a52233e0a8e3bb"
     },
     {
       "name": "anthropic.nonstream.custom-tool-response-to-ir",
       "file": "anthropic/nonstream/custom-tool-response-to-ir.json",
       "tags": [
         "custom-tools",
+        "response",
         "n-an-13"
       ],
-      "sha256": "0a9ac94f74dad75ee60e17155466352c10c435feae5c7ecd07190d4c9ea0cac9"
+      "sha256": "00ded273aea9a0e77ec696b8f1e3c741562743a68519d3a2e8dda3790b5904d5"
     },
     {
       "name": "anthropic.nonstream.images-from-ir",
@@ -505,7 +507,7 @@
         "stream",
         "n-an-13"
       ],
-      "sha256": "488b9fc8b9219f9f66bdda7e1f59cadda80993139cdb88d05a4f5ba6e3530ebb"
+      "sha256": "02a47a3b85c8e6d4140029fbe15d3734155d3407b779aecacf1efce25b24bd19"
     },
     {
       "name": "anthropic.stream.custom-tool-call-to-ir",
@@ -653,18 +655,20 @@
       "file": "chatcompletions/nonstream/custom-tool-response-from-ir.json",
       "tags": [
         "custom-tools",
+        "response",
         "n-cc-14"
       ],
-      "sha256": "3237213dbf067686891b4ba7d80133ffc82fc441c51ef514148aa17bae2c1d5a"
+      "sha256": "e1a101215bc554a478634962f879bb161d6dd6ffc5f9d51d5b4a9fca9ae594d8"
     },
     {
       "name": "chatcompletions.nonstream.custom-tool-response-to-ir",
       "file": "chatcompletions/nonstream/custom-tool-response-to-ir.json",
       "tags": [
         "custom-tools",
+        "response",
         "n-cc-14"
       ],
-      "sha256": "8dbc3fcdb2151db8d4cb7f2c6b78f65d3dc2c27e87f5341afecfb1c98ca55cc6"
+      "sha256": "dce0199bb2c5024662121327e1a9b607adf512d228cb6d01706ff0bdc20299e5"
     },
     {
       "name": "chatcompletions.nonstream.images-from-ir",
@@ -1154,7 +1158,7 @@
         "stream",
         "n-cc-14"
       ],
-      "sha256": "aee81a2b7b439296a081f0443e37b390b79644d73c829ee50c6146949cef5e87"
+      "sha256": "e8ded3cb22d39bbd1b01962c85cde8ffdb345797d89be2330d8f64be065a4db0"
     },
     {
       "name": "chatcompletions.stream.custom-tool-call-to-ir",
@@ -1164,7 +1168,7 @@
         "stream",
         "n-cc-14"
       ],
-      "sha256": "c52556edadc34e7c4e22b7c75c6e23ab9670e43f9dcadacca5a7215b11dfcab6"
+      "sha256": "0850dab362aeaf025883dec82f30ee75272aa235da7a0a5d0ca7596d361e23c2"
     },
     {
       "name": "chatcompletions.stream.m7-tool-calls-from-ir",
@@ -1424,7 +1428,7 @@
         "request",
         "n-an-13"
       ],
-      "sha256": "0e5a6d739863fff288c4354c32fa81bb9154250ba55f6e18df10c12e88cb418f"
+      "sha256": "f5367e0ce54d925add9afb635f5532195bc22dfe7079f7965cf54b7d2331b4e1"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-request",
@@ -1471,7 +1475,7 @@
         "request",
         "n-cc-14"
       ],
-      "sha256": "3f40c7350738d228cd0e0ab36d184b32a90afe815464d2fab98663625b1574ff"
+      "sha256": "2c4e219e4eaf52c5179b0e43708b5f8972be4384ea52d7a984af2e015f2361c3"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-request",

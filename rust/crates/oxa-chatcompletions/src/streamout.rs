@@ -171,7 +171,7 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
-                    Block::CustomToolUse { .. } => {
+                    Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. } => {
                         self.active = Some(StreamEncodeBlock {
                             kind: StreamBlockKind::Custom,
                             index: *index,
@@ -184,13 +184,18 @@ impl StreamEncoder {
                             signature_seen: false,
                         });
                         self.custom_seen = true;
+                        let loss_detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
+                            "apply_patch tools are not implemented by this profile"
+                        } else {
+                            "Chat Completions streaming does not support custom tools"
+                        };
                         Ok((
                             Vec::new(),
                             vec![loss(
                                 format!("events[{index}].block"),
                                 "type",
                                 LossReason::UnsupportedSemantic,
-                                "Chat Completions streaming does not support custom tools",
+                                loss_detail,
                             )],
                         ))
                     }

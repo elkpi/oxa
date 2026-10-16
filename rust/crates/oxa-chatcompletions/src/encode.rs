@@ -50,6 +50,15 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 ));
                 continue;
             }
+            if tool.tool_type == Some(oxa_ir::ToolType::ApplyPatch) {
+                losses.push(loss(
+                    format!("tools[{index}]"),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    "apply_patch tool declarations are not implemented by this Chat Completions profile",
+                ));
+                continue;
+            }
             supported.push(ToolWire {
                 kind: TOOL_TYPE_FUNCTION.to_string(),
                 function: FunctionWire {
@@ -69,17 +78,6 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         }
     }
     let (mut choice, choice_loss) = encode_tool_choice(req.tool_choice.as_ref());
-    if req.tool_choice.as_ref().is_some_and(|c| {
-        c.mode == oxa_ir::ToolChoiceMode::Tool && c.tool_type == Some(oxa_ir::ToolType::Custom)
-    }) {
-        choice = None;
-        losses.push(loss(
-            "tool_choice",
-            "tool_choice",
-            LossReason::UnsupportedSemantic,
-            "Chat Completions has no native custom tool choice mapping",
-        ));
-    }
     if req
         .tool_choice
         .as_ref()
@@ -88,7 +86,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             !ts.is_empty()
                 && ts
                     .iter()
-                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::Custom))
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::Custom) || t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
         })
     {
         choice = None;
@@ -133,7 +131,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 for (position, block) in message.content.iter().enumerate() {
                     if matches!(
                         block,
-                        Block::ToolResult { .. } | Block::CustomToolResult { .. }
+                        Block::ToolResult { .. }
+                            | Block::CustomToolResult { .. }
+                            | Block::ApplyPatchToolResult { .. }
                     ) {
                         results.push((position, block.clone()));
                         last_result = Some(position);
@@ -165,6 +165,15 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                             "type",
                             LossReason::UnsupportedSemantic,
                             "Chat Completions has no native custom tool result mapping",
+                        ));
+                        continue;
+                    }
+                    if matches!(result, Block::ApplyPatchToolResult { .. }) {
+                        losses.push(loss(
+                            format!("messages[{index}].content[{position}]"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            "apply_patch tool results are not implemented by this profile",
                         ));
                         continue;
                     }
@@ -272,12 +281,18 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .content
         .iter()
         .any(|b| matches!(b, Block::ToolUse { .. }));
-    let effective_stop = if resp.stop_reason == StopReason::ToolUse && !has_native_call {
+    let has_custom = resp.content.iter().any(|b| {
+        matches!(
+            b,
+            Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. }
+        )
+    });
+    let effective_stop = if resp.stop_reason == StopReason::ToolUse && has_custom && !has_native_call {
         losses.push(loss(
             "stop_reason",
             "stop_reason",
             LossReason::Degraded,
-            "custom tool calls were dropped; stop_reason was degraded to end_turn",
+            "custom calls were dropped; tool_use normalized to end_turn",
         ));
         StopReason::EndTurn
     } else {

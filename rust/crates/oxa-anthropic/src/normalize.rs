@@ -322,6 +322,17 @@ pub(crate) fn encode_tool_choice(
     let Some(choice) = choice else {
         return Ok((None, Vec::new()));
     };
+    if choice.tool_type == Some(oxa_ir::ToolType::Custom) || choice.tool_type == Some(oxa_ir::ToolType::ApplyPatch) {
+        return Ok((
+            None,
+            vec![loss(
+                "tool_choice",
+                "tool_choice",
+                LossReason::UnsupportedSemantic,
+                "tool choice has no equivalent",
+            )],
+        ));
+    }
     let wire = match choice.mode {
         ToolChoiceMode::Auto => ToolChoiceWire {
             kind: TOOL_CHOICE_TYPE_AUTO.to_string(),

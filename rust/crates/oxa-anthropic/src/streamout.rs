@@ -212,7 +212,7 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    Block::CustomToolUse { .. } => {
+                    Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
@@ -220,13 +220,18 @@ impl StreamEncoder {
                         self.open_custom = true;
                         self.custom_seen = true;
                         self.open_ir_index = *index;
+                        let detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
+                            "Anthropic Messages streaming does not support apply_patch tools"
+                        } else {
+                            "Anthropic Messages streaming does not support custom tools"
+                        };
                         Ok((
                             Vec::new(),
                             vec![loss(
                                 format!("events[{index}].block"),
                                 "type",
                                 LossReason::UnsupportedSemantic,
-                                "Anthropic Messages streaming does not support custom tools",
+                                detail,
                             )],
                         ))
                     }

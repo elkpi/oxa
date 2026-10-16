@@ -113,6 +113,24 @@ pub enum Block {
         #[serde(rename = "output")]
         output: CustomToolOutput,
     },
+    #[serde(rename = "apply_patch_tool_use")]
+    ApplyPatchToolUse {
+        #[serde(rename = "id")]
+        id: String,
+        #[serde(rename = "status")]
+        status: ApplyPatchCallStatus,
+        #[serde(rename = "operation")]
+        operation: ApplyPatchOperation,
+    },
+    #[serde(rename = "apply_patch_tool_result")]
+    ApplyPatchToolResult {
+        #[serde(rename = "tool_use_id")]
+        tool_use_id: String,
+        #[serde(rename = "status")]
+        status: ApplyPatchResultStatus,
+        #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
+        output: Option<String>,
+    },
     #[serde(rename = "tool_result")]
     ToolResult {
         #[serde(rename = "tool_use_id")]
@@ -130,7 +148,7 @@ pub enum Block {
 pub struct Tool {
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub tool_type: Option<ToolType>,
-    #[serde(rename = "name")]
+    #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
     #[serde(
         rename = "description",
@@ -154,6 +172,48 @@ pub enum ToolType {
     Function,
     #[serde(rename = "custom")]
     Custom,
+    #[serde(rename = "apply_patch")]
+    ApplyPatch,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApplyPatchCallStatus {
+    #[serde(rename = "in_progress")]
+    InProgress,
+    #[serde(rename = "completed")]
+    Completed,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ApplyPatchResultStatus {
+    #[serde(rename = "completed")]
+    Completed,
+    #[serde(rename = "failed")]
+    Failed,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ApplyPatchOperation {
+    #[serde(rename = "create_file")]
+    CreateFile {
+        #[serde(rename = "path")]
+        path: String,
+        #[serde(rename = "diff")]
+        diff: String,
+    },
+    #[serde(rename = "delete_file")]
+    DeleteFile {
+        #[serde(rename = "path")]
+        path: String,
+    },
+    #[serde(rename = "update_file")]
+    UpdateFile {
+        #[serde(rename = "path")]
+        path: String,
+        #[serde(rename = "diff")]
+        diff: String,
+    },
 }
 
 /// Custom format descriptor. Unknown type/syntax values deserialize so face

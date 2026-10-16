@@ -47,6 +47,7 @@ enum OpenBlock {
     Thinking { signature_seen: bool },
     Tool(OpenTool),
     CustomTool(OpenTool),
+    Atomic,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -119,6 +120,24 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                                 fragment_count: 0,
                             }),
                         )
+                    }
+                    Block::ApplyPatchToolUse { id, .. } => {
+                        if id.is_empty() {
+                            return Err(violate(
+                                i,
+                                "apply_patch_tool_use requires nonempty id",
+                            ));
+                        }
+                        (*index, OpenBlock::Atomic)
+                    }
+                    Block::ApplyPatchToolResult { tool_use_id, .. } => {
+                        if tool_use_id.is_empty() {
+                            return Err(violate(
+                                i,
+                                "apply_patch_tool_result requires nonempty tool_use_id",
+                            ));
+                        }
+                        (*index, OpenBlock::Atomic)
                     }
                     other => {
                         return Err(violate(
@@ -286,6 +305,8 @@ fn block_kind(block: &Block) -> &'static str {
         Block::ToolUse { .. } => "tool_use",
         Block::CustomToolUse { .. } => "custom_tool_use",
         Block::CustomToolResult { .. } => "custom_tool_result",
+        Block::ApplyPatchToolUse { .. } => "apply_patch_tool_use",
+        Block::ApplyPatchToolResult { .. } => "apply_patch_tool_result",
         Block::ToolResult { .. } => "tool_result",
     }
 }

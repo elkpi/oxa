@@ -510,7 +510,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
 
     const bool all_tools_custom = req.tools.has_value() && !req.tools->empty() &&
-        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) { return tool.type == "custom"; });
+        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) {
+            return tool.type == "custom" || tool.type == ir::TOOL_TYPE_APPLY_PATCH;
+        });
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
@@ -518,6 +520,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             if (t.type == "custom") {
                 losses.push_back(make_cc_loss("tools[" + std::to_string(ti) + "]", "type",
                     ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+                continue;
+            }
+            if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
+                losses.push_back(make_cc_loss("tools[" + std::to_string(ti) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool declarations are not implemented by this Chat Completions profile"));
                 continue;
             }
             json::Value tw = json::Value::object();
@@ -533,7 +540,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tw.set("function", std::move(fn));
             tools_arr.push_back(std::move(tw));
         }
-        out.set("tools", std::move(tools_arr));
+        if (!tools_arr.as_array().empty()) {
+            out.set("tools", std::move(tools_arr));
+        }
     }
 
     if (req.tool_choice.has_value()) {
@@ -544,10 +553,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             out.set("tool_choice", json::Value::string("none"));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
             if (all_tools_custom) losses.push_back(make_cc_loss("tool_choice", "tool_choice",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "required choice was omitted because all tools are unsupported custom tools"));
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
             else out.set("tool_choice", json::Value::string("required"));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
-            if (tc.tool_type.has_value() && *tc.tool_type == "custom") {
+            if (tc.tool_type.has_value() && *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH) {
+                losses.push_back(make_cc_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "apply_patch tool choice is not implemented by this Chat Completions profile"));
+            } else if (tc.tool_type.has_value() && *tc.tool_type == "custom") {
                 losses.push_back(make_cc_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "Chat Completions has no native custom tool choice mapping"));
             } else if (tc.name.has_value() && !tc.name->empty()) {
@@ -609,6 +621,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "custom_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+                } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b)) {
+                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_use block cannot be rendered in a Chat Completions assistant message"));
+                } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
+                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message"));
                 } else {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -639,6 +657,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "custom_tool_result", ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+                } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
+                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
                 } else {
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);
@@ -893,6 +914,12 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
             losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "custom_tool_result",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+        } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b)) {
+            losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "content",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_use block cannot be rendered in a Chat Completions assistant message"));
+        } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
+            losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "content",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message"));
         } else {
             losses.push_back(make_cc_loss(
                 "content[" + std::to_string(i) + "]", "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1212,8 +1239,16 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
             (void)custom;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "block",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions streaming does not support custom tools"));
+            ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedCustom; act.index = cbs->index;
+            active_ = std::move(act);
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
+            (void)ap;
+            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools are not implemented by this profile"));
             ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedCustom; act.index = cbs->index;
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};

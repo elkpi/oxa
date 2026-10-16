@@ -452,6 +452,12 @@ def decode_response(
                     )
                 )
         elif kind == "apply_patch_call":
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                raise ValueError(f"responses: output[{item_index}].id is required")
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id:
+                raise ValueError(f"responses: output[{item_index}].call_id is required")
             c_status, cs_loss = decode_apply_patch_call_status(item.get("status"), f"output[{item_index}]")
             if cs_loss is not None:
                 losses.append(cs_loss)
@@ -460,9 +466,15 @@ def decode_response(
             if op_loss is not None:
                 losses.append(op_loss)
                 continue
-            calls.append(ApplyPatchToolUseBlock(id=item.get("call_id", ""), status=c_status, operation=op))
+            calls.append(ApplyPatchToolUseBlock(id=call_id, status=c_status, operation=op))
             has_tool_use = True
         elif kind == "apply_patch_call_output":
+            item_id = item.get("id")
+            if not isinstance(item_id, str) or not item_id:
+                raise ValueError(f"responses: output[{item_index}].id is required")
+            call_id = item.get("call_id")
+            if not isinstance(call_id, str) or not call_id:
+                raise ValueError(f"responses: output[{item_index}].call_id is required")
             r_status, rs_loss = decode_apply_patch_result_status(item.get("status"), f"output[{item_index}]")
             if rs_loss is not None:
                 losses.append(rs_loss)
@@ -470,7 +482,7 @@ def decode_response(
             out = item.get("output")
             if out is not None and not isinstance(out, str):
                 raise ValueError(f"responses: output[{item_index}].output must be a string")
-            calls.append(ApplyPatchToolResultBlock(tool_use_id=item.get("call_id", ""), status=r_status, output=out))
+            calls.append(ApplyPatchToolResultBlock(tool_use_id=call_id, status=r_status, output=out))
         elif kind == ITEM_TYPE_FUNCTION_CALL:
             calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
             has_tool_use = True

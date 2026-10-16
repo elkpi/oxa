@@ -570,16 +570,18 @@ class StreamDecoder:
                 if item.get("call_id") != ap.call_id:
                     raise ValueError("responses: output_item.done call_id does not match active apply_patch_call")
                 status, s_loss = decode_apply_patch_call_status(item.get("status"), f"output[{output_index}]")
-                if s_loss is not None:
-                    raise ValueError(f"responses: {s_loss.detail}")
                 op, op_loss = decode_apply_patch_operation(item.get("operation"), f"output[{output_index}].operation")
-                if op_loss is not None:
-                    raise ValueError(f"responses: {op_loss.detail}")
-                idx = self._next_block_index
-                self._next_block_index += 1
-                events.append(ContentBlockStart(index=idx, block=ApplyPatchToolUseBlock(id=ap.call_id, status=status, operation=op)))
-                events.append(ContentBlockStop(index=idx))
-                self._tool_use_seen = True
+                if s_loss is not None or op_loss is not None:
+                    if s_loss is not None:
+                        self._losses.append(s_loss)
+                    if op_loss is not None:
+                        self._losses.append(op_loss)
+                else:
+                    idx = self._next_block_index
+                    self._next_block_index += 1
+                    events.append(ContentBlockStart(index=idx, block=ApplyPatchToolUseBlock(id=ap.call_id, status=status, operation=op)))
+                    events.append(ContentBlockStop(index=idx))
+                    self._tool_use_seen = True
                 self._completed_items[item.get("id", "")] = item
 
             if self._apply_patch_result is not None:
@@ -588,15 +590,16 @@ class StreamDecoder:
                 if item.get("call_id") != apr.call_id:
                     raise ValueError("responses: output_item.done call_id does not match active apply_patch_call_output")
                 status, s_loss = decode_apply_patch_result_status(item.get("status"), f"output[{output_index}]")
-                if s_loss is not None:
-                    raise ValueError(f"responses: {s_loss.detail}")
-                idx = self._next_block_index
-                self._next_block_index += 1
                 out = item.get("output")
                 if out is not None and not isinstance(out, str):
                     raise ValueError("responses: apply_patch_call_output output must be a string")
-                events.append(ContentBlockStart(index=idx, block=ApplyPatchToolResultBlock(tool_use_id=apr.call_id, status=status, output=out)))
-                events.append(ContentBlockStop(index=idx))
+                if s_loss is not None:
+                    self._losses.append(s_loss)
+                else:
+                    idx = self._next_block_index
+                    self._next_block_index += 1
+                    events.append(ContentBlockStart(index=idx, block=ApplyPatchToolResultBlock(tool_use_id=apr.call_id, status=status, output=out)))
+                    events.append(ContentBlockStop(index=idx))
                 self._completed_items[item.get("id", "")] = item
 
             if self._function_call is not None:
@@ -687,8 +690,18 @@ class StreamDecoder:
                     if prior is None or item.get("call_id") != prior.get("call_id") or item.get("status") != prior.get("status"):
                         raise ValueError("responses: terminal apply patch snapshot mismatch")
                     if itype == "apply_patch_call":
-                        if item.get("operation") != prior.get("operation"):
+                        op1 = item.get("operation")
+                        op2 = prior.get("operation")
+                        if not isinstance(op1, dict) or not isinstance(op2, dict) or op1.get("type") != op2.get("type"):
                             raise ValueError("responses: terminal apply patch operation mismatch")
+                        if op1.get("type") not in ("create_file", "update_file", "delete_file"):
+                            if op1 != op2:
+                                raise ValueError("responses: terminal apply patch operation mismatch")
+                        else:
+                            if op1.get("path") != op2.get("path"):
+                                raise ValueError("responses: terminal apply patch operation mismatch")
+                            if op1.get("type") != "delete_file" and op1.get("diff") != op2.get("diff"):
+                                raise ValueError("responses: terminal apply patch operation mismatch")
                     else:
                         if item.get("output") != prior.get("output"):
                             raise ValueError("responses: terminal apply patch output mismatch")

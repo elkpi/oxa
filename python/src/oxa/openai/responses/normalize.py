@@ -172,8 +172,10 @@ def decode_image_url(raw: str, path: str) -> tuple[ImageBlock, Loss | None]:
 
 def decode_apply_patch_operation(wire: Any, path: str) -> tuple[ApplyPatchOperation | None, Loss | None]:
     if not isinstance(wire, dict):
-        return None, loss(path, "operation", LOSS_UNSUPPORTED_SEMANTIC, "operation is required")
+        raise ValueError(f"responses: {path}.operation is required")
     kind = wire.get("type")
+    if not isinstance(kind, str) or not kind:
+        raise ValueError(f"responses: {path}.operation.type is required")
     if kind not in ("create_file", "update_file", "delete_file"):
         return None, loss(path, "operation", LOSS_UNSUPPORTED_SEMANTIC, f"unsupported operation type {kind!r}")
     file_path = wire.get("path")
@@ -191,12 +193,16 @@ def decode_apply_patch_operation(wire: Any, path: str) -> tuple[ApplyPatchOperat
 
 
 def decode_apply_patch_call_status(status: Any, path: str) -> tuple[str | None, Loss | None]:
+    if not isinstance(status, str) or not status:
+        raise ValueError(f"responses: {path}.status is required")
     if status in ("in_progress", "completed"):
         return status, None
     return None, loss(f"{path}.status", "status", LOSS_UNMAPPED_VALUE, f"unknown apply_patch_call status {status!r}")
 
 
 def decode_apply_patch_result_status(status: Any, path: str) -> tuple[str | None, Loss | None]:
+    if not isinstance(status, str) or not status:
+        raise ValueError(f"responses: {path}.status is required")
     if status in ("completed", "failed"):
         return status, None
     return None, loss(f"{path}.status", "status", LOSS_UNMAPPED_VALUE, f"unknown apply_patch_call_output status {status!r}")
@@ -224,6 +230,8 @@ def precheck_apply_patch_pairs(
         if not isinstance(item, dict):
             i += 1
             continue
+        if item.get("type") == "apply_patch_call_output":
+            raise ValueError(f"responses: input[{i}]: apply_patch tool result without preceding tool calls (INV-3)")
         kind = item.get("type", "")
         role = item.get("role", "")
         is_assistant = (
@@ -241,6 +249,7 @@ def precheck_apply_patch_pairs(
             continue
 
         calls: list[dict[str, Any]] = []
+        seen_call_ids: set[str] = set()
         a_start = i
         while a_start < len(items):
             it = items[a_start]
@@ -248,16 +257,25 @@ def precheck_apply_patch_pairs(
                 break
             k = it.get("type", "")
             r = it.get("role", "")
+            cur_kind = ""
             if k == ITEM_TYPE_FUNCTION_CALL:
-                calls.append({"call_id": it.get("call_id", ""), "kind": "function", "index": a_start})
+                cur_kind = "function"
             elif k == ITEM_TYPE_CUSTOM_TOOL_CALL:
-                calls.append({"call_id": it.get("call_id", ""), "kind": "custom", "index": a_start})
+                cur_kind = "custom"
             elif k == "apply_patch_call":
-                calls.append({"call_id": it.get("call_id", ""), "kind": "apply_patch", "index": a_start})
+                cur_kind = "apply_patch"
             elif k == ITEM_TYPE_REASONING or (k in ("", ITEM_TYPE_MESSAGE) and r == ROLE_ASSISTANT):
                 pass
             else:
                 break
+            if cur_kind:
+                cid = it.get("call_id", "")
+                if cur_kind == "apply_patch" and not cid:
+                    raise ValueError(f"responses: input[{a_start}]: apply_patch tool call requires nonempty call_id (INV-3)")
+                if cid in seen_call_ids:
+                    raise ValueError(f"responses: input[{a_start}]: duplicate call_id {cid!r} in turn (INV-3)")
+                seen_call_ids.add(cid)
+                calls.append({"call_id": cid, "kind": cur_kind, "index": a_start})
             a_start += 1
 
         results: list[dict[str, Any]] = []
@@ -267,67 +285,74 @@ def precheck_apply_patch_pairs(
             if not isinstance(it, dict):
                 break
             k = it.get("type", "")
+            matched_kind = ""
             if k == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
-                results.append({"call_id": it.get("call_id", ""), "kind": "function", "index": o_start})
+                matched_kind = "function"
             elif k == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT:
-                results.append({"call_id": it.get("call_id", ""), "kind": "custom", "index": o_start})
+                matched_kind = "custom"
             elif k == "apply_patch_call_output":
-                results.append({"call_id": it.get("call_id", ""), "kind": "apply_patch", "index": o_start})
+                matched_kind = "apply_patch"
             else:
                 break
+            cid = it.get("call_id", "")
+            if matched_kind == "apply_patch" and not cid:
+                raise ValueError(f"responses: input[{o_start}]: apply_patch tool result requires nonempty call_id (INV-3)")
+            results.append({"call_id": cid, "kind": matched_kind, "index": o_start})
             o_start += 1
 
-        if calls and len(calls) == len(results):
-            matched = True
+        has_apply_patch = any(c["kind"] == "apply_patch" for c in calls) or any(r["kind"] == "apply_patch" for r in results)
+
+        if has_apply_patch:
+            if len(calls) != len(results):
+                raise ValueError(f"responses: tool calls count ({len(calls)}) and results count ({len(results)}) mismatch (INV-3)")
             for k in range(len(calls)):
                 if calls[k]["call_id"] != results[k]["call_id"] or calls[k]["kind"] != results[k]["kind"]:
-                    matched = False
-                    break
-            if matched:
-                for k in range(len(calls)):
-                    if calls[k]["kind"] != "apply_patch":
-                        continue
-                    c_idx = calls[k]["index"]
-                    o_idx = results[k]["index"]
-                    c_item = items[c_idx]
-                    o_item = items[o_idx]
+                    raise ValueError("responses: tool result identity/type/order mismatch (INV-3)")
 
-                    op, op_loss = decode_apply_patch_operation(c_item.get("operation"), f"input[{c_idx}]")
-                    c_status, cs_loss = decode_apply_patch_call_status(c_item.get("status"), f"input[{c_idx}]")
-                    r_status, rs_loss = decode_apply_patch_result_status(o_item.get("status"), f"input[{o_idx}]")
-                    out = o_item.get("output")
-                    if out is not None and not isinstance(out, str):
-                        raise ValueError(f"responses: input[{o_idx}].output must be a string")
+            for k in range(len(calls)):
+                if calls[k]["kind"] != "apply_patch":
+                    continue
+                c_idx = calls[k]["index"]
+                o_idx = results[k]["index"]
+                c_item = items[c_idx]
+                o_item = items[o_idx]
 
-                    has_call_loss = op_loss is not None or cs_loss is not None
-                    has_res_loss = rs_loss is not None
+                op, op_loss = decode_apply_patch_operation(c_item.get("operation"), f"input[{c_idx}]")
+                c_status, cs_loss = decode_apply_patch_call_status(c_item.get("status"), f"input[{c_idx}]")
+                r_status, rs_loss = decode_apply_patch_result_status(o_item.get("status"), f"input[{o_idx}]")
+                out = o_item.get("output")
+                if out is not None and not isinstance(out, str):
+                    raise ValueError(f"responses: input[{o_idx}].output must be a string")
 
-                    if has_call_loss or has_res_loss:
-                        dropped.add(c_idx)
-                        dropped.add(o_idx)
-                        if has_call_loss:
-                            if op_loss is not None:
-                                losses.append(op_loss)
-                            if cs_loss is not None:
-                                losses.append(cs_loss)
-                        else:
-                            losses.append(loss(f"input[{c_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"))
-                        if has_res_loss:
-                            if rs_loss is not None:
-                                losses.append(rs_loss)
-                        else:
-                            losses.append(loss(f"input[{o_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"))
+                has_call_loss = op_loss is not None or cs_loss is not None
+                has_res_loss = rs_loss is not None
+
+                if has_call_loss or has_res_loss:
+                    dropped.add(c_idx)
+                    dropped.add(o_idx)
+                    if has_call_loss:
+                        if op_loss is not None:
+                            losses.append(op_loss)
+                        if cs_loss is not None:
+                            losses.append(cs_loss)
                     else:
-                        decoded_calls[c_idx] = ApplyPatchToolUseBlock(
-                            id=c_item.get("call_id", ""),
-                            status=c_status,
-                            operation=op,
-                        )
-                        decoded_results[o_idx] = ApplyPatchToolResultBlock(
-                            tool_use_id=o_item.get("call_id", ""),
-                            status=r_status,
-                            output=out,
-                        )
+                        losses.append(loss(f"input[{c_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"))
+                    if has_res_loss:
+                        if rs_loss is not None:
+                            losses.append(rs_loss)
+                    else:
+                        losses.append(loss(f"input[{o_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"))
+                else:
+                    decoded_calls[c_idx] = ApplyPatchToolUseBlock(
+                        id=c_item.get("call_id", ""),
+                        status=c_status,
+                        operation=op,
+                    )
+                    decoded_results[o_idx] = ApplyPatchToolResultBlock(
+                        tool_use_id=o_item.get("call_id", ""),
+                        status=r_status,
+                        output=out,
+                    )
 
         i = o_start
 
@@ -374,19 +399,7 @@ def decode_assistant_run(
                 calls.append(decoded_calls[index])
                 index += 1
                 continue
-            c_status, cs_loss = decode_apply_patch_call_status(item.get("status"), f"input[{index}]")
-            if cs_loss is not None:
-                losses.append(cs_loss)
-                index += 1
-                continue
-            op, op_loss = decode_apply_patch_operation(item.get("operation"), f"input[{index}]")
-            if op_loss is not None:
-                losses.append(op_loss)
-                index += 1
-                continue
-            calls.append(ApplyPatchToolUseBlock(id=item.get("call_id", ""), status=c_status, operation=op))
-            index += 1
-            continue
+            raise ValueError(f"responses: input[{index}]: unpaired apply_patch_call (INV-3)")
         if kind == ITEM_TYPE_FUNCTION_CALL:
             calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
             index += 1
@@ -436,17 +449,7 @@ def decode_output_run(
                 content.append(decoded_results[index])
                 index += 1
                 continue
-            r_status, rs_loss = decode_apply_patch_result_status(item.get("status"), f"input[{index}]")
-            if rs_loss is not None:
-                losses.append(rs_loss)
-                index += 1
-                continue
-            out = item.get("output")
-            if out is not None and not isinstance(out, str):
-                raise ValueError(f"responses: input[{index}].output must be a string")
-            content.append(ApplyPatchToolResultBlock(tool_use_id=item.get("call_id", ""), status=r_status, output=out))
-            index += 1
-            continue
+            raise ValueError(f"responses: input[{index}]: unpaired apply_patch_call_output (INV-3)")
         if item.get("type") == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
             content.append(ToolResultBlock(tool_use_id=item.get("call_id", ""), content=[TextBlock(text=item.get("output", ""))]))
         else:

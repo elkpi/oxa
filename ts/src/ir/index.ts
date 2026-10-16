@@ -11,6 +11,8 @@ export {
   BLOCK_TYPE_IMAGE,
   BLOCK_TYPE_CUSTOM_TOOL_USE,
   BLOCK_TYPE_CUSTOM_TOOL_RESULT,
+  BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
+  BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
   BLOCK_TYPE_TEXT,
   BLOCK_TYPE_THINKING,
   BLOCK_TYPE_TOOL_RESULT,
@@ -51,6 +53,12 @@ export {
 } from "./usage.js";
 export {
   specVersion,
+  type ApplyPatchCreateFileOperation,
+  type ApplyPatchDeleteFileOperation,
+  type ApplyPatchOperation,
+  type ApplyPatchToolResultBlock,
+  type ApplyPatchToolUseBlock,
+  type ApplyPatchUpdateFileOperation,
   type Block,
   type CustomToolInputDelta,
   type CustomToolResultBlock,

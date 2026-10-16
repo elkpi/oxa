@@ -65,6 +65,39 @@ export interface ToolResultBlock {
   readonly content: readonly Block[];
   readonly is_error?: boolean;
 }
+
+export interface ApplyPatchCreateFileOperation {
+  readonly type: "create_file";
+  readonly path: string;
+  readonly diff: string;
+}
+export interface ApplyPatchDeleteFileOperation {
+  readonly type: "delete_file";
+  readonly path: string;
+}
+export interface ApplyPatchUpdateFileOperation {
+  readonly type: "update_file";
+  readonly path: string;
+  readonly diff: string;
+}
+export type ApplyPatchOperation =
+  | ApplyPatchCreateFileOperation
+  | ApplyPatchDeleteFileOperation
+  | ApplyPatchUpdateFileOperation;
+
+export interface ApplyPatchToolUseBlock {
+  readonly type: "apply_patch_tool_use";
+  readonly id: string;
+  readonly status: "in_progress" | "completed";
+  readonly operation: ApplyPatchOperation;
+}
+export interface ApplyPatchToolResultBlock {
+  readonly type: "apply_patch_tool_result";
+  readonly tool_use_id: string;
+  readonly status: "completed" | "failed";
+  readonly output?: string;
+}
+
 export type Block =
   | TextBlock
   | ThinkingBlock
@@ -72,7 +105,9 @@ export type Block =
   | ToolUseBlock
   | ToolResultBlock
   | CustomToolUseBlock
-  | CustomToolResultBlock;
+  | CustomToolResultBlock
+  | ApplyPatchToolUseBlock
+  | ApplyPatchToolResultBlock;
 export interface TextDelta {
   readonly type: "text_delta";
   readonly text: string;
@@ -162,6 +197,13 @@ export type Tool =
       readonly description?: string;
       readonly input_schema?: never;
       readonly format?: CustomToolFormat;
+    }
+  | {
+      readonly type: "apply_patch";
+      readonly name?: never;
+      readonly description?: never;
+      readonly input_schema?: never;
+      readonly format?: never;
     };
 export type ToolChoice =
   | { readonly mode: "auto" | "any" | "none" }
@@ -169,6 +211,11 @@ export type ToolChoice =
       readonly mode: "tool";
       readonly name: string;
       readonly tool_type?: "function" | "custom";
+    }
+  | {
+      readonly mode: "tool";
+      readonly tool_type: "apply_patch";
+      readonly name?: never;
     };
 export interface ResponseFormatText {
   readonly type: "text";

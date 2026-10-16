@@ -264,5 +264,19 @@ function blockDocument(block: Block): JsonObject {
         tool_use_id: block.tool_use_id,
         content: block.content.map(blockDocument),
       };
+    case "apply_patch_tool_use":
+      return {
+        type: block.type,
+        id: block.id,
+        status: block.status,
+        operation: { ...block.operation },
+      };
+    case "apply_patch_tool_result":
+      return {
+        type: block.type,
+        tool_use_id: block.tool_use_id,
+        status: block.status,
+        ...(block.output !== undefined ? { output: block.output } : {}),
+      };
   }
 }

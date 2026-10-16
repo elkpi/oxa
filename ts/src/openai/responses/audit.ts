@@ -180,8 +180,7 @@ const TOOL: WireAuditSpec = {
 
 const TOOL_CHOICE: WireAuditSpec = {
   variant: (choice) => {
-    if (choice.type === "apply_patch")
-      return { fields: { type: undefined } };
+    if (choice.type === "apply_patch") return { fields: { type: undefined } };
     if (choice.type === "function" || choice.type === "custom")
       return { fields: { type: undefined, name: undefined } };
     return undefined;

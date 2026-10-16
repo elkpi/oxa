@@ -223,9 +223,7 @@ function compareBlock(
       return "apply_patch op type differs";
     if (expected.operation.path !== actual.operation.path)
       return "apply_patch op path differs";
-    if (
-      (expected.operation as any).diff !== (actual.operation as any).diff
-    )
+    if ((expected.operation as any).diff !== (actual.operation as any).diff)
       return "apply_patch op diff differs";
     return undefined;
   }

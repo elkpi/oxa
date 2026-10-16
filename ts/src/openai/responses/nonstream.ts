@@ -145,8 +145,12 @@ function decodeRequestObject(
     });
   } else {
     const items = array(wire.input, "input");
-    const { decodedCalls, decodedResults, dropped, losses: pairLosses } =
-      precheckApplyPatchPairs(items);
+    const {
+      decodedCalls,
+      decodedResults,
+      dropped,
+      losses: pairLosses,
+    } = precheckApplyPatchPairs(items);
     losses.push(...pairLosses);
 
     for (let index = 0; index < items.length; ) {
@@ -601,12 +605,16 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
               if (callOpResult.loss) losses.push(callOpResult.loss);
               if (callStatusResult.loss) losses.push(callStatusResult.loss);
             } else {
-              losses.push(loss(`input[${cIdx}]`, "type", "unsupported-semantic"));
+              losses.push(
+                loss(`input[${cIdx}]`, "type", "unsupported-semantic"),
+              );
             }
             if (hasResLoss) {
               if (resStatusResult.loss) losses.push(resStatusResult.loss);
             } else {
-              losses.push(loss(`input[${oIdx}]`, "type", "unsupported-semantic"));
+              losses.push(
+                loss(`input[${oIdx}]`, "type", "unsupported-semantic"),
+              );
             }
           } else {
             decodedCalls.set(cIdx, {

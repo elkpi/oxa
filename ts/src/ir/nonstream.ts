@@ -163,10 +163,7 @@ export function decodeRequest(document: JsonValue): Request {
       : {
           metadata: Object.fromEntries(
             Object.entries(object(root.metadata, "request.metadata")).map(
-              ([key, value]) => [
-                key,
-                string(value, `request.metadata.${key}`),
-              ],
+              ([key, value]) => [key, string(value, `request.metadata.${key}`)],
             ),
           ),
         }),
@@ -331,7 +328,9 @@ export function decodeResponse(document: JsonValue): Response {
     ) as Response["stop_reason"],
     ...(root.stop_sequence === undefined
       ? {}
-      : { stop_sequence: string(root.stop_sequence, "response.stop_sequence") }),
+      : {
+          stop_sequence: string(root.stop_sequence, "response.stop_sequence"),
+        }),
     usage: decodeUsage(root.usage),
   };
 }
@@ -472,7 +471,10 @@ function decodeBlock(value: JsonValue): Block {
         type: block.type,
         id: nonEmptyString(block.id, "block.id"),
         status: decodeApplyPatchCallStatus(block.status, "block.status"),
-        operation: decodeApplyPatchOperation(block.operation, "block.operation"),
+        operation: decodeApplyPatchOperation(
+          block.operation,
+          "block.operation",
+        ),
       };
     case "apply_patch_tool_result": {
       if (block.output !== undefined && typeof block.output !== "string") {
@@ -574,7 +576,9 @@ function decodeCustomOutput(
       type: "image",
       ...(block.media_type === undefined
         ? {}
-        : { media_type: string(block.media_type, "block.output[].media_type") }),
+        : {
+            media_type: string(block.media_type, "block.output[].media_type"),
+          }),
       ...(block.data === undefined
         ? {}
         : { data: string(block.data, "block.output[].data") }),
@@ -877,7 +881,10 @@ function documentRoot(document: JsonValue): JsonObject {
   return root;
 }
 
-function array(value: JsonValue | undefined, name: string): readonly JsonValue[] {
+function array(
+  value: JsonValue | undefined,
+  name: string,
+): readonly JsonValue[] {
   if (!isJsonArray(value)) fail(`${name} must be an array`);
   return value;
 }
@@ -930,14 +937,12 @@ function finiteNumber(value: JsonValue | undefined, name: string): number {
   return result;
 }
 
-function reasoningEffort(value: JsonValue, name: string): import("./types.js").ReasoningEffort {
+function reasoningEffort(
+  value: JsonValue,
+  name: string,
+): import("./types.js").ReasoningEffort {
   const str = string(value, name);
-  if (
-    str !== "minimal" &&
-    str !== "low" &&
-    str !== "medium" &&
-    str !== "high"
-  )
+  if (str !== "minimal" && str !== "low" && str !== "medium" && str !== "high")
     fail(`${name} must be minimal, low, medium, or high`);
   return str;
 }

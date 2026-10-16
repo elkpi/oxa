@@ -15,7 +15,8 @@ export const BLOCK_TYPE_THINKING = "thinking" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result" as const;
 export const BLOCK_TYPE_APPLY_PATCH_TOOL_USE = "apply_patch_tool_use" as const;
-export const BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT = "apply_patch_tool_result" as const;
+export const BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT =
+  "apply_patch_tool_result" as const;
 
 // Tool choice modes (spec/01 §3.6)
 export const TOOL_CHOICE_AUTO = "auto" as const;

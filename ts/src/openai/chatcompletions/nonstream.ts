@@ -677,11 +677,7 @@ function encodeToolResult(
     if (block.type === "text") content += block.text;
     else
       losses.push(
-        loss(
-          `${path}.content[${index}]`,
-          "content",
-          "unsupported-semantic",
-        ),
+        loss(`${path}.content[${index}]`, "content", "unsupported-semantic"),
       );
   }
   if (result.is_error === true)
@@ -855,10 +851,7 @@ function decodeUsageDetails(usage: JsonObject): {
   };
 }
 
-function decodeImage(
-  image: JsonObject,
-  path: string,
-): ImageBlock | undefined {
+function decodeImage(image: JsonObject, path: string): ImageBlock | undefined {
   const url = string(image.url, `${path}.url`);
   if (url.startsWith("https:")) {
     try {

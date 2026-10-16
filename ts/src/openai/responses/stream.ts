@@ -280,7 +280,11 @@ export class ResponsesStreamDecoder {
     }
     if (event.item.type === "apply_patch_call_output") {
       const callId = event.item.call_id ?? "";
-      if (this.#itemId === "" || callId === "" || event.item.status === undefined)
+      if (
+        this.#itemId === "" ||
+        callId === "" ||
+        event.item.status === undefined
+      )
         this.#lifecycle(
           "apply_patch_call_output requires id, call_id, and status",
         );
@@ -1084,7 +1088,10 @@ function decodeStreamApplyPatchCallStatus(
   path: string,
 ): "in_progress" | "completed" {
   if (status !== "in_progress" && status !== "completed") {
-    throw new OxaError("type-violation", `${path}.status is invalid: ${status}`);
+    throw new OxaError(
+      "type-violation",
+      `${path}.status is invalid: ${status}`,
+    );
   }
   return status;
 }
@@ -1094,7 +1101,10 @@ function decodeStreamApplyPatchResultStatus(
   path: string,
 ): "completed" | "failed" {
   if (status !== "completed" && status !== "failed") {
-    throw new OxaError("type-violation", `${path}.status is invalid: ${status}`);
+    throw new OxaError(
+      "type-violation",
+      `${path}.status is invalid: ${status}`,
+    );
   }
   return status;
 }

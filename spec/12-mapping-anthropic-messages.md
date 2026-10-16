@@ -209,6 +209,14 @@ Each rule has a stable ID usable as a vector tag.
   tools or mutate `tools`/`tool_choice`; instead, exactly one `unmapped-field`
   loss is recorded:
   `{path: "params.response_format", field: "response_format", reason: "unmapped-field", detail: "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."}`.
+- **N-AN-13 (custom tool structured wrapper mapping).** Anthropic Messages supports
+  Custom Tools via a canonical single-property wrapper (spec/13, since 2.3.1).
+  On encode, an IR `Tool{Type: "custom", Name, Description, Format}` renders as a
+  tool with `input_schema: {"type":"object","properties":{"input":{"type":"string"}},"required":["input"],"additionalProperties":false}`.
+  An IR `CustomToolUseBlock` renders as a `tool_use` content block with `input: {"input": "<raw_text>"}`.
+  An IR `CustomToolResultBlock` renders as a standard `tool_result` content block.
+  On decode, a `tool_use` is decoded to `CustomToolUseBlock` when its declaration matches a custom tool,
+  or when its input matches the single-field `{"input": "<string>"}` shape without conflicting declaration.
 
 ## 8. Loss Catalog
 

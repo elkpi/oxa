@@ -1,5 +1,6 @@
 import {
   assertEventSequence,
+  type ApplyPatchOperation,
   type Block,
   type EventStream,
   type MessageDelta,
@@ -27,11 +28,25 @@ interface NormalizedCustomToolUseBlock {
   readonly name: string;
   readonly input: string;
 }
+interface NormalizedApplyPatchToolUseBlock {
+  readonly type: "apply_patch_tool_use";
+  readonly id: string;
+  readonly status: string;
+  readonly operation: ApplyPatchOperation;
+}
+interface NormalizedApplyPatchToolResultBlock {
+  readonly type: "apply_patch_tool_result";
+  readonly tool_use_id: string;
+  readonly status: string;
+  readonly output?: string;
+}
 type NormalizedBlock =
   | NormalizedTextBlock
   | NormalizedThinkingBlock
   | NormalizedToolUseBlock
-  | NormalizedCustomToolUseBlock;
+  | NormalizedCustomToolUseBlock
+  | NormalizedApplyPatchToolUseBlock
+  | NormalizedApplyPatchToolResultBlock;
 interface NormalizedStream {
   readonly id: string;
   readonly model: string;
@@ -141,6 +156,22 @@ function normalize(stream: EventStream): NormalizedStream {
           name: open!.block.name,
           input: open!.block.input,
         });
+      } else if (open!.block.type === "apply_patch_tool_use") {
+        blocks.push({
+          type: "apply_patch_tool_use",
+          id: open!.block.id,
+          status: open!.block.status,
+          operation: open!.block.operation,
+        });
+      } else if (open!.block.type === "apply_patch_tool_result") {
+        blocks.push({
+          type: "apply_patch_tool_result",
+          tool_use_id: open!.block.tool_use_id,
+          status: open!.block.status,
+          ...(open!.block.output !== undefined
+            ? { output: open!.block.output }
+            : {}),
+        });
       } else {
         throw new Error(`unsupported normalized block ${open!.block.type}`);
       }
@@ -181,6 +212,34 @@ function compareBlock(
     return expected.input === actual.input
       ? undefined
       : "custom tool input differs";
+  }
+  if (
+    expected.type === "apply_patch_tool_use" &&
+    actual.type === "apply_patch_tool_use"
+  ) {
+    if (expected.id !== actual.id) return "apply_patch tool id differs";
+    if (expected.status !== actual.status) return "apply_patch status differs";
+    if (expected.operation.type !== actual.operation.type)
+      return "apply_patch op type differs";
+    if (expected.operation.path !== actual.operation.path)
+      return "apply_patch op path differs";
+    if (
+      (expected.operation as any).diff !== (actual.operation as any).diff
+    )
+      return "apply_patch op diff differs";
+    return undefined;
+  }
+  if (
+    expected.type === "apply_patch_tool_result" &&
+    actual.type === "apply_patch_tool_result"
+  ) {
+    if (expected.tool_use_id !== actual.tool_use_id)
+      return "apply_patch result tool_use_id differs";
+    if (expected.status !== actual.status)
+      return "apply_patch result status differs";
+    if (expected.output !== actual.output)
+      return "apply_patch result output differs";
+    return undefined;
   }
   return "block differs";
 }

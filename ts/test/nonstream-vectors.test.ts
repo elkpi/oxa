@@ -42,10 +42,10 @@ test("runs every Chat Completions non-stream vector", () => {
   for (const vector of vectors) {
     const input = object(vector.document.input, `${vector.name}.input`);
     const expectedLosses = losses(vector.document.expected_losses, vector.name);
-    const isRequest = strings(
+    const isRequest = !strings(
       vector.document.tags,
       `${vector.name}.tags`,
-    ).includes("request");
+    ).includes("response");
     const conversion = vector.document.conversion;
 
     const result =

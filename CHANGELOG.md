@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.3.0] - 2026-10-16
+
+### Added
+
+- OpenAI Responses Apply Patch 端到端实现（N-AP-1 ~ N-AP-5）：支持 `apply_patch` 专用声明、选择、调用与结果项。
+- 引入强类型 `ApplyPatchOperation` 判别联合体（`create_file`、`delete_file`、`update_file`），严格禁止对 `delete_file` 附带 diff，保证 `path` 与 `diff` 不透明文本保真。
+- 引入 `ApplyPatchToolUseBlock` 与 `ApplyPatchToolResultBlock`，解耦调用状态（`in_progress` / `completed`）与结果状态（`completed` / `failed`）。
+- 实现同轮次请求项成对关联校验（N-AP-3, INV-3）与成对语义过滤；未知操作类型或未知状态成对丢弃并记录对应 loss，杜绝悬垂引用。
+- 实现 Responses Apply Patch 原子项流式生命周期（N-AP-4），added 时暂存快照，done 时验证并回放单组 block start/stop，严禁虚假增量。
+- 实现 Chat Completions 与 Anthropic Messages 面对 Apply Patch 的规范降级（N-AP-5），记录 `unsupported-semantic` loss 并正确降级 `stop_reason` 至 `end_turn`。
+- 新增 58 条 Apply Patch 黄金向量，全仓库向量总数达到 263 条，覆盖 Go、TypeScript、Python、Rust、C++ 五门参考语言。
+
+### Changed
+
+- 版本号升级为 `v2.3.0`（次版本迭代），IR contract 维持 `0.2.0`（双向兼容读取 `0.1.0`）。
+- Go、TypeScript、Python、Rust、C++ 五语言实现包版本统一升级为 `2.3.0`。
+
 ## [v2.2.0] - 2026-10-16
 
 ### Added

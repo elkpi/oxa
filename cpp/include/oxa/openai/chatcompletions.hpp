@@ -88,6 +88,7 @@ private:
         std::string name;
         std::string arguments;
         std::vector<std::string> fragments;
+        std::string tool_type = "function";
     };
     std::map<std::int64_t, ToolAccum> tools_;
     std::int64_t next_block_index_ = 0;
@@ -110,7 +111,7 @@ private:
     std::size_t next_native_tool_ = 0;
 
     struct ActiveBlock {
-        enum class Kind { Text, Thinking, Tool, SkippedCustom, SkippedAtomic } kind;
+        enum class Kind { Text, Thinking, Tool, CustomTool, SkippedCustom, SkippedAtomic } kind;
         std::int64_t index = 0;
         std::string tool_id;
         std::string tool_name;

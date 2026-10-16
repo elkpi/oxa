@@ -173,6 +173,18 @@ std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_tool_calls(
         const auto& tc = arr[i];
         const auto* type_val = tc.find("type");
         std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+        if (kind == "custom") {
+            std::string id;
+            if (const auto* id_val = tc.find("id"); id_val && id_val->is_string()) id = id_val->as_string();
+            std::string name;
+            std::string input;
+            if (const auto* cu = tc.find("custom"); cu && cu->is_object()) {
+                if (const auto* nv = cu->find("name"); nv && nv->is_string()) name = nv->as_string();
+                if (const auto* iv = cu->find("input"); iv && iv->is_string()) input = iv->as_string();
+            }
+            blocks.push_back(ir::CustomToolUseBlock{std::move(id), std::move(name), std::move(input)});
+            continue;
+        }
         if (kind != "function") {
             losses.push_back(make_cc_loss(
                 path + "[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -214,6 +226,12 @@ std::pair<std::optional<ir::ToolChoice>, std::vector<ir::Loss>> decode_tool_choi
         const auto* type_val = tc->find("type");
         std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
         std::string name;
+        if (const auto* cu = tc->find("custom"); cu && cu->is_object()) {
+            if (const auto* nv = cu->find("name"); nv && nv->is_string()) name = nv->as_string();
+        }
+        if (kind == "custom" && !name.empty()) {
+            return {ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name, std::string("custom")}, {}};
+        }
         if (const auto* fn = tc->find("function"); fn && fn->is_object()) {
             if (const auto* nv = fn->find("name"); nv && nv->is_string()) name = nv->as_string();
         }
@@ -296,6 +314,26 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             const auto& t = tarr[i];
             const auto* type_val = t.find("type");
             std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+            if (kind == "custom") {
+                ir::Tool tool;
+                tool.type = "custom";
+                if (const auto* cu = t.find("custom"); cu && cu->is_object()) {
+                    if (const auto* nv = cu->find("name"); nv && nv->is_string()) tool.name = nv->as_string();
+                    if (const auto* dv = cu->find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
+                        tool.description = dv->as_string();
+                        tool.has_description = true;
+                    }
+                    if (const auto* fv = cu->find("format"); fv && fv->is_object()) {
+                        tool.format = *fv;
+                    } else {
+                        json::Value def_fmt = json::Value::object();
+                        def_fmt.set("type", json::Value::string("text"));
+                        tool.format = std::move(def_fmt);
+                    }
+                }
+                tools.push_back(std::move(tool));
+                continue;
+            }
             if (kind != "function") {
                 losses.push_back(make_cc_loss(
                     "tools[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -329,6 +367,24 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         return invalid_argument("chatcompletions: request missing messages array");
     }
     const auto& marr = msgs_val->as_array();
+
+    std::set<std::string> custom_call_ids;
+    for (const auto& m : marr) {
+        const auto* rv = m.find("role");
+        if (rv && rv->is_string() && rv->as_string() == "assistant") {
+            if (const auto* tcs = m.find("tool_calls"); tcs && tcs->is_array()) {
+                for (const auto& tc : tcs->as_array()) {
+                    const auto* ty = tc.find("type");
+                    if (ty && ty->is_string() && ty->as_string() == "custom") {
+                        if (const auto* idv = tc.find("id"); idv && idv->is_string()) {
+                            custom_call_ids.insert(idv->as_string());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     std::size_t index = 0;
     while (index < marr.size()) {
         const auto& m = marr[index];
@@ -348,14 +404,30 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(cur.find("content"), content_path));
                 losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
 
-                ir::ToolResultBlock tr;
+                std::string cid;
                 if (const auto* tcid = cur.find("tool_call_id"); tcid && tcid->is_string()) {
-                    tr.tool_use_id = tcid->as_string();
+                    cid = tcid->as_string();
                 }
-                for (auto& b : c_res.first) {
-                    tr.content.push_back(ir::BlockHolder{std::move(b)});
+
+                if (custom_call_ids.count(cid)) {
+                    ir::CustomToolResultBlock ctr;
+                    ctr.tool_use_id = std::move(cid);
+                    if (const auto* cv = cur.find("content"); cv && cv->is_string()) {
+                        ctr.output = cv->as_string();
+                    } else {
+                        std::vector<ir::BlockHolder> holders;
+                        for (auto& b : c_res.first) holders.push_back(ir::BlockHolder{std::move(b)});
+                        ctr.output = std::move(holders);
+                    }
+                    tr_blocks.push_back(std::move(ctr));
+                } else {
+                    ir::ToolResultBlock tr;
+                    tr.tool_use_id = std::move(cid);
+                    for (auto& b : c_res.first) {
+                        tr.content.push_back(ir::BlockHolder{std::move(b)});
+                    }
+                    tr_blocks.push_back(std::move(tr));
                 }
-                tr_blocks.push_back(std::move(tr));
 
                 if (cur.find("function_call") != nullptr) {
                     losses.push_back(make_cc_loss(
@@ -509,17 +581,31 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
 
-    const bool all_tools_custom = req.tools.has_value() && !req.tools->empty() &&
+    const bool all_tools_dropped = req.tools.has_value() && !req.tools->empty() &&
         std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) {
-            return tool.type == "custom" || tool.type == ir::TOOL_TYPE_APPLY_PATCH;
+            return tool.type == ir::TOOL_TYPE_APPLY_PATCH;
         });
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
             const auto& t = (*req.tools)[ti];
             if (t.type == "custom") {
-                losses.push_back(make_cc_loss("tools[" + std::to_string(ti) + "]", "type",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+                json::Value tw = json::Value::object();
+                tw.set("type", json::Value::string("custom"));
+                json::Value c = json::Value::object();
+                c.set("name", json::Value::string(t.name));
+                if (t.has_description && !t.description.empty()) {
+                    c.set("description", json::Value::string(t.description));
+                }
+                if (t.format.has_value()) {
+                    c.set("format", *t.format);
+                } else {
+                    json::Value def_fmt = json::Value::object();
+                    def_fmt.set("type", json::Value::string("text"));
+                    c.set("format", std::move(def_fmt));
+                }
+                tw.set("custom", std::move(c));
+                tools_arr.push_back(std::move(tw));
                 continue;
             }
             if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
@@ -552,7 +638,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         } else if (tc.mode == ir::TOOL_CHOICE_NONE) {
             out.set("tool_choice", json::Value::string("none"));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
-            if (all_tools_custom) losses.push_back(make_cc_loss("tool_choice", "tool_choice",
+            if (all_tools_dropped) losses.push_back(make_cc_loss("tool_choice", "tool_choice",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
             else out.set("tool_choice", json::Value::string("required"));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
@@ -560,8 +646,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 losses.push_back(make_cc_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "apply_patch tool choice is not implemented by this Chat Completions profile"));
             } else if (tc.tool_type.has_value() && *tc.tool_type == "custom") {
-                losses.push_back(make_cc_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "Chat Completions has no native custom tool choice mapping"));
+                if (tc.name.has_value() && !tc.name->empty()) {
+                    json::Value tco = json::Value::object();
+                    tco.set("type", json::Value::string("custom"));
+                    json::Value cu = json::Value::object();
+                    cu.set("name", json::Value::string(*tc.name));
+                    tco.set("custom", std::move(cu));
+                    out.set("tool_choice", std::move(tco));
+                }
             } else if (tc.name.has_value() && !tc.name->empty()) {
                 json::Value tco = json::Value::object();
                 tco.set("type", json::Value::string("function"));
@@ -618,9 +710,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     fn.set("arguments", json::Value::string(tu->input));
                     tcw.set("function", std::move(fn));
                     tc_arr.push_back(std::move(tcw));
-                } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
-                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "custom_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+                } else if (const auto* ctu = std::get_if<ir::CustomToolUseBlock>(&b)) {
+                    json::Value tcw = json::Value::object();
+                    tcw.set("id", json::Value::string(ctu->id));
+                    tcw.set("type", json::Value::string("custom"));
+                    json::Value cu = json::Value::object();
+                    cu.set("name", json::Value::string(ctu->name));
+                    cu.set("input", json::Value::string(ctu->input));
+                    tcw.set("custom", std::move(cu));
+                    tc_arr.push_back(std::move(tcw));
                 } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "content", ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_use block cannot be rendered in a Chat Completions assistant message"));
@@ -644,19 +742,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             messages_arr.push_back(std::move(am));
         } else {
             // User turn: split tool results and normal blocks (N-CC-9 hoisting)
-            std::vector<const ir::ToolResultBlock*> results;
+            std::vector<const ir::Block*> results;
             std::vector<const ir::Block*> normal;
             std::optional<std::size_t> first_normal;
             std::optional<std::size_t> last_result;
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
-                if (const auto* tr = std::get_if<ir::ToolResultBlock>(&b)) {
-                    results.push_back(tr);
+                if (std::holds_alternative<ir::ToolResultBlock>(b) || std::holds_alternative<ir::CustomToolResultBlock>(b)) {
+                    results.push_back(&b);
                     last_result = bi;
-                } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
-                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "custom_tool_result", ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
                 } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
@@ -673,7 +768,26 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             }
 
             for (std::size_t ri = 0; ri < results.size(); ++ri) {
-                const auto* tr = results[ri];
+                const auto* rb = results[ri];
+                if (const auto* ctr = std::get_if<ir::CustomToolResultBlock>(rb)) {
+                    json::Value tm = json::Value::object();
+                    tm.set("role", json::Value::string("tool"));
+                    tm.set("tool_call_id", json::Value::string(ctr->tool_use_id));
+                    if (const auto* s = std::get_if<std::string>(&ctr->output)) {
+                        tm.set("content", json::Value::string(*s));
+                    } else if (const auto* vec = std::get_if<std::vector<ir::BlockHolder>>(&ctr->output)) {
+                        std::string res_txt;
+                        for (const auto& inner : *vec) {
+                            if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
+                                res_txt += itb->text;
+                            }
+                        }
+                        tm.set("content", json::Value::string(std::move(res_txt)));
+                    }
+                    messages_arr.push_back(std::move(tm));
+                    continue;
+                }
+                const auto* tr = std::get_if<ir::ToolResultBlock>(rb);
                 json::Value tm = json::Value::object();
                 tm.set("role", json::Value::string("tool"));
                 tm.set("tool_call_id", json::Value::string(tr->tool_use_id));
@@ -908,12 +1022,15 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             fn.set("arguments", json::Value::string(tu->input));
             tcw.set("function", std::move(fn));
             tc_arr.push_back(std::move(tcw));
-        } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
-            losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "custom_tool_use",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
-        } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
-            losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "custom_tool_result",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions has no native custom tool mapping"));
+        } else if (const auto* ctu = std::get_if<ir::CustomToolUseBlock>(&b)) {
+            json::Value tcw = json::Value::object();
+            tcw.set("id", json::Value::string(ctu->id));
+            tcw.set("type", json::Value::string("custom"));
+            json::Value cu = json::Value::object();
+            cu.set("name", json::Value::string(ctu->name));
+            cu.set("input", json::Value::string(ctu->input));
+            tcw.set("custom", std::move(cu));
+            tc_arr.push_back(std::move(tcw));
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b)) {
             losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "content",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_use block cannot be rendered in a Chat Completions assistant message"));
@@ -1048,6 +1165,17 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             auto& record = tools_[idx];
             record.index = idx;
             if (const auto* idv = tc.find("id"); idv && idv->is_string()) record.id = idv->as_string();
+            std::string t_type = "function";
+            if (const auto* tv = tc.find("type"); tv && tv->is_string()) t_type = tv->as_string();
+            if (t_type == "custom" || tc.find("custom")) record.tool_type = "custom";
+            if (const auto* cu = tc.find("custom"); cu && cu->is_object()) {
+                if (const auto* nv = cu->find("name"); nv && nv->is_string()) record.name += nv->as_string();
+                if (const auto* iv = cu->find("input"); iv && iv->is_string()) {
+                    std::string a = iv->as_string();
+                    record.arguments += a;
+                    record.fragments.push_back(std::move(a));
+                }
+            }
             if (const auto* fn = tc.find("function"); fn && fn->is_object()) {
                 if (const auto* nv = fn->find("name"); nv && nv->is_string()) record.name += nv->as_string();
                 if (const auto* av = fn->find("arguments"); av && av->is_string()) {
@@ -1116,13 +1244,23 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::flush() {
 
     for (auto& [_, call] : tools_) {
         std::int64_t idx = next_block_index_++;
-        events.push_back(ir::ContentBlockStart{
-            idx, ir::ToolUseBlock{call.id, call.name, call.arguments}});
-        for (const auto& frag : call.fragments) {
-            events.push_back(ir::ContentBlockDelta{
-                idx, ir::InputJsonDelta{frag}});
+        if (call.tool_type == "custom") {
+            events.push_back(ir::ContentBlockStart{
+                idx, ir::CustomToolUseBlock{call.id, call.name, call.arguments}});
+            for (const auto& frag : call.fragments) {
+                events.push_back(ir::ContentBlockDelta{
+                    idx, ir::CustomToolInputDelta{frag}});
+            }
+            events.push_back(ir::ContentBlockStop{idx});
+        } else {
+            events.push_back(ir::ContentBlockStart{
+                idx, ir::ToolUseBlock{call.id, call.name, call.arguments}});
+            for (const auto& frag : call.fragments) {
+                events.push_back(ir::ContentBlockDelta{
+                    idx, ir::InputJsonDelta{frag}});
+            }
+            events.push_back(ir::ContentBlockStop{idx});
         }
-        events.push_back(ir::ContentBlockStop{idx});
     }
 
     auto [stop_reason, fr_loss] = decode_finish_reason(finish_reason_);
@@ -1238,10 +1376,17 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
-            (void)custom;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions streaming does not support custom tools"));
-            ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedCustom; act.index = cbs->index;
+            if (custom->id.empty() || custom->name.empty()) {
+                return invalid_argument("chatcompletions: CustomToolUseBlock requires nonempty ID and name");
+            }
+            tool_seen_ = true;
+            ActiveBlock act;
+            act.kind = ActiveBlock::Kind::CustomTool;
+            act.index = cbs->index;
+            act.tool_id = custom->id;
+            act.tool_name = custom->name;
+            act.tool_input = custom->input;
+            act.native_index = next_native_tool_++;
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
@@ -1271,9 +1416,27 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (active_->kind == ActiveBlock::Kind::SkippedAtomic) {
             return invalid_argument("chatcompletions: atomic block does not accept deltas");
         }
-        if (active_->kind == ActiveBlock::Kind::SkippedCustom) {
-            if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
-                return invalid_argument("chatcompletions: custom tool block received wrong delta type");
+        if (active_->kind == ActiveBlock::Kind::CustomTool) {
+            const auto* ctd = std::get_if<ir::CustomToolInputDelta>(&cbd->delta);
+            if (!ctd) return invalid_argument("chatcompletions: CustomToolUseBlock received non-custom delta");
+            active_->fragments.push_back(ctd->text);
+
+            json::Value tc_delta = json::Value::object();
+            tc_delta.set("index", json::Value::integer(static_cast<std::int64_t>(active_->native_index)));
+            json::Value cobj = json::Value::object();
+            cobj.set("input", json::Value::string(ctd->text));
+            if (!active_->tool_started) {
+                active_->tool_started = true;
+                tc_delta.set("id", json::Value::string(active_->tool_id));
+                tc_delta.set("type", json::Value::string("custom"));
+                cobj.set("name", json::Value::string(active_->tool_name));
+            }
+            tc_delta.set("custom", std::move(cobj));
+            json::Value tcs = json::Value::array();
+            tcs.push_back(std::move(tc_delta));
+            json::Value delta = json::Value::object();
+            delta.set("tool_calls", std::move(tcs));
+            pending_tools_.push_back(make_base_chunk(std::move(delta)));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (active_->kind == ActiveBlock::Kind::Text) {
@@ -1334,6 +1497,32 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             return invalid_argument("chatcompletions: ContentBlockStop out of grammar order");
         }
         if (active_->kind == ActiveBlock::Kind::SkippedCustom || active_->kind == ActiveBlock::Kind::SkippedAtomic) {
+            active_.reset();
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (active_->kind == ActiveBlock::Kind::CustomTool) {
+            if (active_->fragments.empty()) {
+                active_->fragments.push_back(active_->tool_input);
+                json::Value delta = json::Value::object();
+                json::Value tcs = json::Value::array();
+                json::Value tc = json::Value::object();
+                tc.set("index", json::Value::integer(static_cast<std::int64_t>(active_->native_index)));
+                tc.set("id", json::Value::string(active_->tool_id));
+                tc.set("type", json::Value::string("custom"));
+                json::Value cobj = json::Value::object();
+                cobj.set("name", json::Value::string(active_->tool_name));
+                cobj.set("input", json::Value::string(active_->tool_input));
+                tc.set("custom", std::move(cobj));
+                tcs.push_back(std::move(tc));
+                delta.set("tool_calls", std::move(tcs));
+                pending_tools_.push_back(make_base_chunk(std::move(delta)));
+            } else {
+                std::string joined;
+                for (const auto& f : active_->fragments) joined += f;
+                if (joined != active_->tool_input) {
+                    return invalid_argument("chatcompletions: CustomToolUseBlock input does not equal concatenated fragments");
+                }
+            }
             active_.reset();
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }

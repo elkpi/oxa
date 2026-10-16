@@ -216,6 +216,10 @@ std::pair<std::optional<ir::ToolChoice>, std::vector<ir::Loss>> decode_tool_choi
     if (tc->is_object()) {
         const auto* type_val = tc->find("type");
         std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+        if (kind == "apply_patch") {
+            ir::ToolChoice choice{std::string(ir::TOOL_CHOICE_TOOL), std::nullopt, "apply_patch"};
+            return {std::move(choice), {}};
+        }
         std::string name;
         if (const auto* nv = tc->find("name"); nv && nv->is_string()) name = nv->as_string();
         if ((kind == "function" || kind == "custom") && !name.empty()) {
@@ -296,6 +300,224 @@ std::vector<ir::Block> decode_reasoning_summary(
     return blocks;
 }
 
+StatusOr<std::optional<ir::ApplyPatchOperation>> decode_apply_patch_operation(
+    const json::Value* op, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (!op || !op->is_object()) {
+        losses.push_back(make_resp_loss(path, "operation", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "operation must be an object"));
+        return std::optional<ir::ApplyPatchOperation>{};
+    }
+    const auto* type_val = op->find("type");
+    std::string op_type = type_val && type_val->is_string() ? type_val->as_string() : "";
+    if (op_type == "create_file") {
+        const auto* path_val = op->find("path");
+        const auto* diff_val = op->find("diff");
+        if (!path_val || !path_val->is_string() || !diff_val || !diff_val->is_string()) {
+            return invalid_argument("create_file requires string path and diff");
+        }
+        return std::optional<ir::ApplyPatchOperation>{ir::CreateFileOperation{path_val->as_string(), diff_val->as_string()}};
+    }
+    if (op_type == "delete_file") {
+        const auto* path_val = op->find("path");
+        if (!path_val || !path_val->is_string()) {
+            return invalid_argument("delete_file requires string path");
+        }
+        return std::optional<ir::ApplyPatchOperation>{ir::DeleteFileOperation{path_val->as_string()}};
+    }
+    if (op_type == "update_file") {
+        const auto* path_val = op->find("path");
+        const auto* diff_val = op->find("diff");
+        if (!path_val || !path_val->is_string() || !diff_val || !diff_val->is_string()) {
+            return invalid_argument("update_file requires string path and diff");
+        }
+        return std::optional<ir::ApplyPatchOperation>{ir::UpdateFileOperation{path_val->as_string(), diff_val->as_string()}};
+    }
+    losses.push_back(make_resp_loss(path, "operation", ir::LOSS_UNSUPPORTED_SEMANTIC,
+        "unknown apply_patch operation type: " + op_type));
+    return std::optional<ir::ApplyPatchOperation>{};
+}
+
+std::optional<std::string> decode_apply_patch_call_status(
+    std::string_view status, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (status == "in_progress") return "in_progress";
+    if (status == "completed") return "completed";
+    losses.push_back(make_resp_loss(path + ".status", "status", ir::LOSS_UNMAPPED_VALUE,
+        "unknown apply_patch_call status: " + std::string(status)));
+    return std::nullopt;
+}
+
+std::optional<std::string> decode_apply_patch_result_status(
+    std::string_view status, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (status == "completed") return "completed";
+    if (status == "failed") return "failed";
+    losses.push_back(make_resp_loss(path + ".status", "status", ir::LOSS_UNMAPPED_VALUE,
+        "unknown apply_patch_call_output status: " + std::string(status)));
+    return std::nullopt;
+}
+
+json::Value encode_apply_patch_operation(const ir::ApplyPatchOperation& op) {
+    json::Value out = json::Value::object();
+    if (const auto* cf = std::get_if<ir::CreateFileOperation>(&op)) {
+        out.set("type", json::Value::string("create_file"));
+        out.set("path", json::Value::string(cf->path));
+        out.set("diff", json::Value::string(cf->diff));
+    } else if (const auto* df = std::get_if<ir::DeleteFileOperation>(&op)) {
+        out.set("type", json::Value::string("delete_file"));
+        out.set("path", json::Value::string(df->path));
+    } else if (const auto* uf = std::get_if<ir::UpdateFileOperation>(&op)) {
+        out.set("type", json::Value::string("update_file"));
+        out.set("path", json::Value::string(uf->path));
+        out.set("diff", json::Value::string(uf->diff));
+    }
+    return out;
+}
+
+struct PrecheckApplyPatchResult {
+    std::map<std::size_t, ir::Block> decoded_calls;
+    std::map<std::size_t, ir::Block> decoded_results;
+    std::set<std::size_t> dropped;
+    std::vector<ir::Loss> losses;
+};
+
+StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<json::Value>& items) {
+    PrecheckApplyPatchResult res;
+    std::size_t i = 0;
+    while (i < items.size()) {
+        const auto& item = items[i];
+        const auto* type_val = item.find("type");
+        std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+        const auto* role_val = item.find("role");
+        std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
+
+        bool is_assistant = ((kind.empty() || kind == "message") && role == "assistant") ||
+                            kind == "function_call" || kind == "custom_tool_call" ||
+                            kind == "apply_patch_call" || kind == "reasoning";
+
+        if (!is_assistant) {
+            ++i;
+            continue;
+        }
+
+        struct CallInfo {
+            std::string call_id;
+            std::string cat;
+            std::size_t index = 0;
+        };
+        std::vector<CallInfo> calls;
+        std::size_t a_start = i;
+        while (a_start < items.size()) {
+            const auto& it = items[a_start];
+            const auto* it_type = it.find("type");
+            std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
+            const auto* it_role = it.find("role");
+            std::string it_role_str = it_role && it_role->is_string() ? it_role->as_string() : "";
+
+            if (it_kind == "function_call") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                calls.push_back({id, "function", a_start});
+            } else if (it_kind == "custom_tool_call") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                calls.push_back({id, "custom", a_start});
+            } else if (it_kind == "apply_patch_call") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                calls.push_back({id, "apply_patch", a_start});
+            } else if (it_kind == "reasoning" || ((it_kind.empty() || it_kind == "message") && it_role_str == "assistant")) {
+                // continues assistant turn
+            } else {
+                break;
+            }
+            ++a_start;
+        }
+
+        std::vector<CallInfo> results;
+        std::size_t o_start = a_start;
+        while (o_start < items.size()) {
+            const auto& it = items[o_start];
+            const auto* it_type = it.find("type");
+            std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
+
+            if (it_kind == "function_call_output") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                results.push_back({id, "function", o_start});
+            } else if (it_kind == "custom_tool_call_output") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                results.push_back({id, "custom", o_start});
+            } else if (it_kind == "apply_patch_call_output") {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                results.push_back({id, "apply_patch", o_start});
+            } else {
+                break;
+            }
+            ++o_start;
+        }
+
+        if (!calls.empty() && calls.size() == results.size()) {
+            bool matched = true;
+            for (std::size_t k = 0; k < calls.size(); ++k) {
+                if (calls[k].call_id != results[k].call_id || calls[k].cat != results[k].cat) {
+                    matched = false;
+                    break;
+                }
+            }
+            if (matched) {
+                for (std::size_t k = 0; k < calls.size(); ++k) {
+                    if (calls[k].cat != "apply_patch") continue;
+                    std::size_t c_idx = calls[k].index;
+                    std::size_t o_idx = results[k].index;
+                    const auto& c_item = items[c_idx];
+                    const auto& o_item = items[o_idx];
+
+                    std::vector<ir::Loss> call_losses;
+                    OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(c_item.find("operation"), "input[" + std::to_string(c_idx) + "]", call_losses));
+                    const auto* st_val = c_item.find("status");
+                    std::string c_status_str = st_val && st_val->is_string() ? st_val->as_string() : "";
+                    auto call_status = decode_apply_patch_call_status(c_status_str, "input[" + std::to_string(c_idx) + "]", call_losses);
+
+                    std::vector<ir::Loss> res_losses;
+                    const auto* ost_val = o_item.find("status");
+                    std::string o_status_str = ost_val && ost_val->is_string() ? ost_val->as_string() : "";
+                    auto res_status = decode_apply_patch_result_status(o_status_str, "input[" + std::to_string(o_idx) + "]", res_losses);
+
+                    std::optional<std::string> output_str;
+                    if (const auto* ov = o_item.find("output"); ov != nullptr && !ov->is_null()) {
+                        if (!ov->is_string()) return invalid_argument("responses: input[" + std::to_string(o_idx) + "].output must be a string");
+                        output_str = ov->as_string();
+                    }
+
+                    const bool has_call_loss = !call_losses.empty();
+                    const bool has_res_loss = !res_losses.empty();
+
+                    if (has_call_loss || has_res_loss) {
+                        res.dropped.insert(c_idx);
+                        res.dropped.insert(o_idx);
+                        if (has_call_loss) {
+                            res.losses.insert(res.losses.end(), call_losses.begin(), call_losses.end());
+                        } else {
+                            res.losses.push_back(make_resp_loss("input[" + std::to_string(c_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"));
+                        }
+                        if (has_res_loss) {
+                            res.losses.insert(res.losses.end(), res_losses.begin(), res_losses.end());
+                        } else {
+                            res.losses.push_back(make_resp_loss("input[" + std::to_string(o_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"));
+                        }
+                    } else if (op.has_value() && call_status.has_value() && res_status.has_value()) {
+                        res.decoded_calls.emplace(c_idx, ir::ApplyPatchToolUseBlock{calls[k].call_id, *call_status, *op});
+                        res.decoded_results.emplace(o_idx, ir::ApplyPatchToolResultBlock{results[k].call_id, *res_status, output_str});
+                    }
+                }
+            }
+        }
+        i = o_start;
+    }
+    return res;
+}
+
 }  // namespace
 
 static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Value& wire,
@@ -333,6 +555,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             const auto& t = tools_val->as_array()[i];
             const auto* type_val = t.find("type");
             std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+            if (kind == "apply_patch") {
+                ir::Tool tool;
+                tool.type = "apply_patch";
+                tools.push_back(std::move(tool));
+                continue;
+            }
             if (kind != "function" && kind != "custom") {
                 losses.push_back(make_resp_loss("tools[" + std::to_string(i) + "]", "type",
                     ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses tool type \"" + kind + "\" has no IR equivalent"));
@@ -384,6 +612,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), {ir::TextBlock{inp->as_string()}}});
     } else if (inp->is_array()) {
         const auto& items = inp->as_array();
+        OXA_ASSIGN_OR_RETURN(auto precheck, precheck_apply_patch_pairs(items));
+        losses.insert(losses.end(), precheck.losses.begin(), precheck.losses.end());
         std::size_t index = 0;
         while (index < items.size()) {
             const auto& item = items[index];
@@ -434,6 +664,17 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                             ++index;
                             continue;
                         }
+                        if (ckind == "apply_patch_call") {
+                            if (precheck.dropped.count(index)) {
+                                ++index;
+                                continue;
+                            }
+                            if (precheck.decoded_calls.count(index)) {
+                                call_blocks.push_back(precheck.decoded_calls.at(index));
+                            }
+                            ++index;
+                            continue;
+                        }
                         if (ckind == "function_call" || ckind == "custom_tool_call") {
                             OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(cur, ckind == "custom_tool_call"));
                             call_blocks.push_back(std::move(call));
@@ -463,7 +704,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 } else {
                     return invalid_argument("responses: input[" + std::to_string(index) + "]: unknown role \"" + role + "\"");
                 }
-            } else if (kind == "function_call" || kind == "custom_tool_call" || kind == "reasoning") {
+            } else if (kind == "function_call" || kind == "custom_tool_call" || kind == "reasoning" || kind == "apply_patch_call") {
                 // Standalone reasoning/function_call items start an assistant run
                 std::vector<ir::Block> text_blocks;
                 std::vector<ir::Block> call_blocks;
@@ -475,6 +716,17 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         auto blocks = decode_reasoning_summary(cur, index, losses);
                         text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                            std::make_move_iterator(blocks.end()));
+                        ++index;
+                        continue;
+                    }
+                    if (ckind == "apply_patch_call") {
+                        if (precheck.dropped.count(index)) {
+                            ++index;
+                            continue;
+                        }
+                        if (precheck.decoded_calls.count(index)) {
+                            call_blocks.push_back(precheck.decoded_calls.at(index));
+                        }
                         ++index;
                         continue;
                     }
@@ -504,14 +756,25 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (!text_blocks.empty()) {
                     req.messages.push_back(ir::Message{std::string(ir::ROLE_ASSISTANT), std::move(text_blocks)});
                 }
-            } else if (kind == "function_call_output" || kind == "custom_tool_call_output") {
+            } else if (kind == "function_call_output" || kind == "custom_tool_call_output" || kind == "apply_patch_call_output") {
                 // Mixed result runs retain the source order and the call category.
                 std::vector<ir::Block> tr_blocks;
                 while (index < items.size()) {
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
-                    if (ckind != "function_call_output" && ckind != "custom_tool_call_output") break;
+                    if (ckind != "function_call_output" && ckind != "custom_tool_call_output" && ckind != "apply_patch_call_output") break;
+                    if (ckind == "apply_patch_call_output") {
+                        if (precheck.dropped.count(index)) {
+                            ++index;
+                            continue;
+                        }
+                        if (precheck.decoded_results.count(index)) {
+                            tr_blocks.push_back(precheck.decoded_results.at(index));
+                        }
+                        ++index;
+                        continue;
+                    }
                     const auto* cid = cur.find("call_id");
                     if (!cid || !cid->is_string() || cid->as_string().empty())
                         return invalid_argument("responses: call output requires non-empty call_id");
@@ -529,7 +792,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     }
                     ++index;
                 }
-                req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(tr_blocks)});
+                if (!tr_blocks.empty()) {
+                    req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(tr_blocks)});
+                }
             } else {
                 losses.push_back(make_resp_loss(
                     "input[" + std::to_string(index) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -650,7 +915,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         json::Value tools_arr = json::Value::array();
         for (const auto& t : *req.tools) {
             json::Value tw = json::Value::object();
-            if (t.type == "custom") {
+            if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
+                tw.set("type", json::Value::string("apply_patch"));
+            } else if (t.type == "custom") {
                 tw.set("type", json::Value::string("custom"));
                 tw.set("name", json::Value::string(t.name));
                 if (t.has_description) tw.set("description", json::Value::string(t.description));
@@ -675,7 +942,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
             out.set("tool_choice", json::Value::string("required"));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
-            if (tc.name.has_value() && !tc.name->empty()) {
+            if (tc.tool_type.has_value() && *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH) {
+                json::Value tco = json::Value::object();
+                tco.set("type", json::Value::string("apply_patch"));
+                out.set("tool_choice", std::move(tco));
+            } else if (tc.name.has_value() && !tc.name->empty()) {
                 json::Value tco = json::Value::object();
                 const bool custom = tc.tool_type.has_value() && *tc.tool_type == "custom";
                 tco.set("type", json::Value::string(custom ? "custom" : "function"));
@@ -701,7 +972,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
                 if (std::holds_alternative<ir::ToolResultBlock>(b) ||
-                    std::holds_alternative<ir::CustomToolResultBlock>(b)) {
+                    std::holds_alternative<ir::CustomToolResultBlock>(b) ||
+                    std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     results.push_back(&b);
                     last_result = bi;
                 } else {
@@ -719,7 +991,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (std::size_t ri = 0; ri < results.size(); ++ri) {
                 const auto& result = *results[ri];
                 json::Value item = json::Value::object();
-                if (const auto* custom = std::get_if<ir::CustomToolResultBlock>(&result)) {
+                if (const auto* ap = std::get_if<ir::ApplyPatchToolResultBlock>(&result)) {
+                    item.set("type", json::Value::string("apply_patch_call_output"));
+                    item.set("call_id", json::Value::string(ap->tool_use_id));
+                    item.set("status", json::Value::string(ap->status));
+                    if (ap->output.has_value()) {
+                        item.set("output", json::Value::string(*ap->output));
+                    }
+                } else if (const auto* custom = std::get_if<ir::CustomToolResultBlock>(&result)) {
                     item.set("type", json::Value::string("custom_tool_call_output"));
                     item.set("call_id", json::Value::string(custom->tool_use_id));
                     if (const auto* text = std::get_if<std::string>(&custom->output)) item.set("output", json::Value::string(*text));
@@ -810,6 +1089,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     a_txt += tb->text;
                     has_text = true;
+                } else if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&b)) {
+                    json::Value item = json::Value::object();
+                    item.set("type", json::Value::string("apply_patch_call"));
+                    item.set("call_id", json::Value::string(ap->id));
+                    item.set("status", json::Value::string(ap->status));
+                    item.set("operation", encode_apply_patch_operation(ap->operation));
+                    fc_items.push_back(std::move(item));
                 } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
                     json::Value fc = json::Value::object();
                     fc.set("type", json::Value::string("function_call"));
@@ -981,6 +1267,37 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                     return invalid_argument("responses: custom_tool_call_output requires non-empty call_id and output");
                 OXA_ASSIGN_OR_RETURN(auto decoded, decode_custom_output(*output, item_path + ".output", losses));
                 resp.content.push_back(ir::CustomToolResultBlock{cid->as_string(), std::move(decoded)});
+            } else if (kind == "apply_patch_call") {
+                const auto* cid = item.find("call_id");
+                std::string call_id = cid && cid->is_string() ? cid->as_string() : "";
+                const auto* st_val = item.find("status");
+                std::string st = st_val && st_val->is_string() ? st_val->as_string() : "";
+                std::vector<ir::Loss> item_losses;
+                auto call_status = decode_apply_patch_call_status(st, item_path, item_losses);
+                OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(item.find("operation"), item_path + ".operation", item_losses));
+                if (!item_losses.empty()) {
+                    losses.insert(losses.end(), item_losses.begin(), item_losses.end());
+                } else if (call_status.has_value() && op.has_value()) {
+                    resp.content.push_back(ir::ApplyPatchToolUseBlock{std::move(call_id), *call_status, *op});
+                    has_tool_use = true;
+                }
+            } else if (kind == "apply_patch_call_output") {
+                const auto* cid = item.find("call_id");
+                std::string call_id = cid && cid->is_string() ? cid->as_string() : "";
+                const auto* st_val = item.find("status");
+                std::string st = st_val && st_val->is_string() ? st_val->as_string() : "";
+                std::vector<ir::Loss> item_losses;
+                auto res_status = decode_apply_patch_result_status(st, item_path, item_losses);
+                std::optional<std::string> output;
+                if (const auto* ov = item.find("output"); ov != nullptr && !ov->is_null()) {
+                    if (!ov->is_string()) return invalid_argument("responses: " + item_path + ".output must be a string");
+                    output = ov->as_string();
+                }
+                if (!item_losses.empty()) {
+                    losses.insert(losses.end(), item_losses.begin(), item_losses.end());
+                } else if (res_status.has_value()) {
+                    resp.content.push_back(ir::ApplyPatchToolResultBlock{std::move(call_id), *res_status, std::move(output)});
+                }
             } else {
                 losses.push_back(make_resp_loss(
                     item_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1034,6 +1351,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
     std::string text;
     bool has_text = false;
+    std::size_t next_apc = 0;
+    std::size_t next_apco = 0;
     json::Value reasoning_parts = json::Value::array();
     std::vector<json::Value> calls;
 
@@ -1093,6 +1412,24 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                     parts.push_back(std::move(part));
                 }
                 result.set("output", std::move(parts));
+            }
+            calls.push_back(std::move(result));
+        } else if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&b)) {
+            json::Value call = json::Value::object();
+            call.set("type", json::Value::string("apply_patch_call"));
+            call.set("id", json::Value::string("apc_" + std::to_string(next_apc++)));
+            call.set("call_id", json::Value::string(ap->id));
+            call.set("status", json::Value::string(ap->status));
+            call.set("operation", encode_apply_patch_operation(ap->operation));
+            calls.push_back(std::move(call));
+        } else if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&b)) {
+            json::Value result = json::Value::object();
+            result.set("type", json::Value::string("apply_patch_call_output"));
+            result.set("id", json::Value::string("apco_" + std::to_string(next_apco++)));
+            result.set("call_id", json::Value::string(apr->tool_use_id));
+            result.set("status", json::Value::string(apr->status));
+            if (apr->output.has_value()) {
+                result.set("output", json::Value::string(*apr->output));
             }
             calls.push_back(std::move(result));
         } else {
@@ -1315,6 +1652,8 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         next_content_index_ = 0;
         function_call_ = std::nullopt;
         custom_tool_call_ = std::nullopt;
+        apply_patch_call_ = std::nullopt;
+        apply_patch_result_ = std::nullopt;
 
         std::string role;
         if (const auto* rv = item->find("role"); rv && rv->is_string()) role = rv->as_string();
@@ -1351,6 +1690,32 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             if (item_id_.empty() || call_id.empty() || name.empty() || !input || !input->is_string() || !input->as_string().empty())
                 return invalid_argument("responses: custom_tool_call added item requires id, call_id, name, and input empty string");
             custom_tool_call_ = StreamCustomToolCall{item_id_, out_idx, call_id, name, "", {}, std::nullopt};
+            return events;
+        }
+        if (ikind == "apply_patch_call") {
+            std::string call_id, status;
+            if (const auto* cid = item->find("call_id"); cid && cid->is_string()) call_id = cid->as_string();
+            if (const auto* st = item->find("status"); st && st->is_string()) status = st->as_string();
+            const auto* op = item->find("operation");
+            if (item_id_.empty() || call_id.empty() || status.empty() || !op || !op->is_object()) {
+                return invalid_argument("responses: apply_patch_call requires id, call_id, status, and operation");
+            }
+            apply_patch_call_ = StreamApplyPatchCall{item_id_, out_idx, call_id, status, *op};
+            return events;
+        }
+        if (ikind == "apply_patch_call_output") {
+            std::string call_id, status;
+            if (const auto* cid = item->find("call_id"); cid && cid->is_string()) call_id = cid->as_string();
+            if (const auto* st = item->find("status"); st && st->is_string()) status = st->as_string();
+            if (item_id_.empty() || call_id.empty() || status.empty()) {
+                return invalid_argument("responses: apply_patch_call_output requires id, call_id, and status");
+            }
+            std::optional<std::string> output;
+            if (const auto* ov = item->find("output"); ov != nullptr && !ov->is_null()) {
+                if (!ov->is_string()) return invalid_argument("responses: apply_patch_call_output output must be a string");
+                output = ov->as_string();
+            }
+            apply_patch_result_ = StreamApplyPatchResult{item_id_, out_idx, call_id, status, output};
             return events;
         }
 
@@ -1695,6 +2060,50 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             OXA_ASSIGN_OR_RETURN(events, replay_custom_tool_call(*custom_tool_call_));
             tool_use_seen_ = true;
             custom_tool_call_ = std::nullopt;
+        }
+        if (apply_patch_call_.has_value()) {
+            std::string cid;
+            if (const auto* cv = item->find("call_id"); cv && cv->is_string()) cid = cv->as_string();
+            if (cid != apply_patch_call_->call_id) {
+                return invalid_argument("responses: response.output_item.done does not match the active apply patch call");
+            }
+            std::string st;
+            if (const auto* sv = item->find("status"); sv && sv->is_string()) st = sv->as_string();
+            auto call_status = decode_apply_patch_call_status(st, "output[" + std::to_string(output_index_) + "]", losses_);
+            if (!call_status.has_value()) {
+                return invalid_argument("responses: invalid apply_patch_call status: " + st);
+            }
+            OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(item->find("operation"), "output[" + std::to_string(output_index_) + "].operation", losses_));
+            if (!op.has_value()) {
+                return invalid_argument("responses: invalid apply_patch_call operation");
+            }
+            std::int64_t b_idx = next_block_index_++;
+            events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolUseBlock{cid, *call_status, *op}});
+            events.push_back(ir::ContentBlockStop{b_idx});
+            tool_use_seen_ = true;
+            apply_patch_call_ = std::nullopt;
+        }
+        if (apply_patch_result_.has_value()) {
+            std::string cid;
+            if (const auto* cv = item->find("call_id"); cv && cv->is_string()) cid = cv->as_string();
+            if (cid != apply_patch_result_->call_id) {
+                return invalid_argument("responses: response.output_item.done does not match the active apply patch result");
+            }
+            std::string st;
+            if (const auto* sv = item->find("status"); sv && sv->is_string()) st = sv->as_string();
+            auto res_status = decode_apply_patch_result_status(st, "output[" + std::to_string(output_index_) + "]", losses_);
+            if (!res_status.has_value()) {
+                return invalid_argument("responses: invalid apply_patch_call_output status: " + st);
+            }
+            std::optional<std::string> output;
+            if (const auto* ov = item->find("output"); ov != nullptr && !ov->is_null()) {
+                if (!ov->is_string()) return invalid_argument("responses: apply_patch_call_output output must be a string");
+                output = ov->as_string();
+            }
+            std::int64_t b_idx = next_block_index_++;
+            events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolResultBlock{cid, *res_status, output}});
+            events.push_back(ir::ContentBlockStop{b_idx});
+            apply_patch_result_ = std::nullopt;
         }
 
         item_open_ = false;
@@ -2197,6 +2606,150 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
 }
 
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_apply_patch_call_block(
+    std::int64_t index, const ir::ApplyPatchToolUseBlock& block) {
+    if (block.id.empty()) {
+        return invalid_argument("responses: ApplyPatchToolUseBlock requires nonempty ID");
+    }
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) {
+            out.push_back(close_message_item());
+        } else if (active_item_->kind == OutputItemKind::Reasoning) {
+            out.push_back(close_reasoning_item());
+        } else {
+            return invalid_argument("responses: ApplyPatchToolUseBlock cannot open before active item completes");
+        }
+    }
+    std::string item_id = "apc_" + std::to_string(next_apply_patch_call_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item;
+    item.kind = OutputItemKind::ApplyPatchCall;
+    item.id = item_id;
+    item.output_index = output_index;
+    item.call_id = block.id;
+    active_item_ = std::move(item);
+
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::ApplyPatchCall;
+    active_block_ = std::move(eb);
+    active_apply_patch_block_ = block;
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value wire = json::Value::object();
+    wire.set("id", json::Value::string(item_id));
+    wire.set("type", json::Value::string("apply_patch_call"));
+    wire.set("call_id", json::Value::string(block.id));
+    wire.set("status", json::Value::string("in_progress"));
+    wire.set("operation", encode_apply_patch_operation(block.operation));
+    event.set("item", std::move(wire));
+    out.push_back(std::move(event));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_apply_patch_call_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::ApplyPatchCall) {
+        return invalid_argument("responses: apply_patch_call stop without active item");
+    }
+    const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&*active_apply_patch_block_);
+    if (!ap) return invalid_argument("responses: missing active apply_patch_call block");
+
+    active_block_ = std::nullopt;
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(active_item_->id));
+    completed.set("type", json::Value::string("apply_patch_call"));
+    completed.set("call_id", json::Value::string(ap->id));
+    completed.set("status", json::Value::string(ap->status));
+    completed.set("operation", encode_apply_patch_operation(ap->operation));
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.done"));
+    event.set("output_index", json::Value::integer(active_item_->output_index));
+    event.set("item", completed);
+
+    completed_.push_back(std::move(completed));
+    active_item_ = std::nullopt;
+    active_apply_patch_block_ = std::nullopt;
+    return std::make_pair(std::vector<json::Value>{std::move(event)}, std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_apply_patch_result_block(
+    std::int64_t index, const ir::ApplyPatchToolResultBlock& block) {
+    if (block.tool_use_id.empty()) {
+        return invalid_argument("responses: ApplyPatchToolResultBlock requires nonempty tool_use_id");
+    }
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) {
+            out.push_back(close_message_item());
+        } else if (active_item_->kind == OutputItemKind::Reasoning) {
+            out.push_back(close_reasoning_item());
+        } else {
+            return invalid_argument("responses: ApplyPatchToolResultBlock cannot open before active item completes");
+        }
+    }
+    std::string item_id = "apco_" + std::to_string(next_apply_patch_result_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item;
+    item.kind = OutputItemKind::ApplyPatchResult;
+    item.id = item_id;
+    item.output_index = output_index;
+    item.call_id = block.tool_use_id;
+    active_item_ = std::move(item);
+
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::ApplyPatchResult;
+    active_block_ = std::move(eb);
+    active_apply_patch_block_ = block;
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value wire = json::Value::object();
+    wire.set("id", json::Value::string(item_id));
+    wire.set("type", json::Value::string("apply_patch_call_output"));
+    wire.set("call_id", json::Value::string(block.tool_use_id));
+    wire.set("status", json::Value::string(block.status));
+    if (block.output.has_value()) {
+        wire.set("output", json::Value::string(*block.output));
+    }
+    event.set("item", std::move(wire));
+    out.push_back(std::move(event));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_apply_patch_result_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::ApplyPatchResult) {
+        return invalid_argument("responses: apply_patch_call_output stop without active item");
+    }
+    const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&*active_apply_patch_block_);
+    if (!apr) return invalid_argument("responses: missing active apply_patch_call_output block");
+
+    active_block_ = std::nullopt;
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(active_item_->id));
+    completed.set("type", json::Value::string("apply_patch_call_output"));
+    completed.set("call_id", json::Value::string(apr->tool_use_id));
+    completed.set("status", json::Value::string(apr->status));
+    if (apr->output.has_value()) {
+        completed.set("output", json::Value::string(*apr->output));
+    }
+
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.done"));
+    event.set("output_index", json::Value::integer(active_item_->output_index));
+    event.set("item", completed);
+
+    completed_.push_back(std::move(completed));
+    active_item_ = std::nullopt;
+    active_apply_patch_block_ = std::nullopt;
+    return std::make_pair(std::vector<json::Value>{std::move(event)}, std::vector<ir::Loss>{});
+}
+
 StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> StreamEncoder::terminal(const ir::MessageDelta& delta) {
     json::Value resp = json::Value::object();
     resp.set("id", json::Value::string(id_));
@@ -2309,12 +2862,23 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_custom_tool_call_block(cbs->index, *custom));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_apply_patch_call_block(cbs->index, *ap));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_apply_patch_result_block(cbs->index, *apr));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         return invalid_argument("responses: ContentBlockStart carries unsupported block");
     }
 
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
         if (!active_block_.has_value() || cbd->index != active_block_->index) {
             return invalid_argument("responses: ContentBlockDelta out of grammar order");
+        }
+        if (active_block_->kind == OutputItemKind::ApplyPatchCall || active_block_->kind == OutputItemKind::ApplyPatchResult) {
+            return invalid_argument("responses: apply patch item does not accept deltas");
         }
         if (active_block_->kind == OutputItemKind::Message) {
             const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
@@ -2391,6 +2955,14 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, stop_custom_tool_call_block());
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (active_block_->kind == OutputItemKind::ApplyPatchCall) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_apply_patch_call_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (active_block_->kind == OutputItemKind::ApplyPatchResult) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_apply_patch_result_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         OXA_ASSIGN_OR_RETURN(auto res, stop_function_call_block());
         return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
     }
@@ -2406,7 +2978,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             } else if (active_item_->kind == OutputItemKind::Reasoning) {
                 out.push_back(close_reasoning_item());
             } else {
-                return invalid_argument("responses: MessageDelta with an uncompleted function_call item");
+                return invalid_argument("responses: MessageDelta with an uncompleted item");
             }
         }
         OXA_ASSIGN_OR_RETURN(auto res, terminal(*md));

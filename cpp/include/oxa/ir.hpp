@@ -71,6 +71,20 @@ inline constexpr std::string_view LOSS_UNMAPPED_VALUE = "unmapped-value";
 inline constexpr std::string_view LOSS_UNSUPPORTED_SEMANTIC = "unsupported-semantic";
 inline constexpr std::string_view LOSS_DEGRADED = "degraded";
 
+inline constexpr std::string_view TOOL_TYPE_APPLY_PATCH = "apply_patch";
+inline constexpr std::string_view BLOCK_TYPE_APPLY_PATCH_TOOL_USE = "apply_patch_tool_use";
+inline constexpr std::string_view BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT = "apply_patch_tool_result";
+
+inline constexpr std::string_view APPLY_PATCH_CALL_STATUS_IN_PROGRESS = "in_progress";
+inline constexpr std::string_view APPLY_PATCH_CALL_STATUS_COMPLETED = "completed";
+
+inline constexpr std::string_view APPLY_PATCH_RESULT_STATUS_COMPLETED = "completed";
+inline constexpr std::string_view APPLY_PATCH_RESULT_STATUS_FAILED = "failed";
+
+inline constexpr std::string_view APPLY_PATCH_OP_CREATE_FILE = "create_file";
+inline constexpr std::string_view APPLY_PATCH_OP_DELETE_FILE = "delete_file";
+inline constexpr std::string_view APPLY_PATCH_OP_UPDATE_FILE = "update_file";
+
 // ---- blocks (spec/01 §3.4) ------------------------------------------------
 
 struct TextBlock {
@@ -108,8 +122,37 @@ struct CustomToolResultBlock {
     std::variant<std::string, std::vector<struct BlockHolder>> output;
 };
 
+struct CreateFileOperation {
+    std::string path;
+    std::string diff;
+};
+
+struct DeleteFileOperation {
+    std::string path;
+};
+
+struct UpdateFileOperation {
+    std::string path;
+    std::string diff;
+};
+
+using ApplyPatchOperation = std::variant<CreateFileOperation, DeleteFileOperation, UpdateFileOperation>;
+
+struct ApplyPatchToolUseBlock {
+    std::string id;
+    std::string status;
+    ApplyPatchOperation operation;
+};
+
+struct ApplyPatchToolResultBlock {
+    std::string tool_use_id;
+    std::string status;
+    std::optional<std::string> output;
+};
+
 using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock,
-                           CustomToolUseBlock, CustomToolResultBlock>;
+                           CustomToolUseBlock, CustomToolResultBlock,
+                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock>;
 
 struct BlockHolder {
     Block block;

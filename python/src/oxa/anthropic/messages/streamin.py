@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from oxa._wire import RawDocument, audit_feed
-
 import json
 from typing import Any
 
+from oxa._wire import RawDocument, audit_feed
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
@@ -30,6 +29,8 @@ from oxa.ir import (
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     Event,
     InputJsonDelta,
     Loss,
@@ -333,6 +334,42 @@ class StreamDecoder:
                             index=self._open_ir_index, delta=InputJsonDelta(partial_json=full_input)
                         )
                     ]
+
+                custom_input: str | None = None
+                try:
+                    parsed = json.loads(full_input)
+                    if (
+                        isinstance(parsed, dict)
+                        and list(parsed.keys()) == ["input"]
+                        and isinstance(parsed["input"], str)
+                    ):
+                        custom_input = parsed["input"]
+                except Exception:
+                    pass
+
+                if custom_input is not None:
+                    events = [
+                        ContentBlockStart(
+                            index=self._open_ir_index,
+                            block=CustomToolUseBlock(
+                                id=self._tool_id,
+                                name=self._tool_name,
+                                input=custom_input,
+                            ),
+                        ),
+                        ContentBlockDelta(
+                            index=self._open_ir_index,
+                            delta=CustomToolInputDelta(text=custom_input),
+                        ),
+                        ContentBlockStop(index=self._open_ir_index),
+                    ]
+                    self._block_open = False
+                    self._open_tool = False
+                    self._tool_id = ""
+                    self._tool_name = ""
+                    self._tool_input = ""
+                    self._tool_parts.clear()
+                    return events
 
                 events: list[Event] = [
                     ContentBlockStart(

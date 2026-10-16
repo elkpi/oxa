@@ -32,16 +32,16 @@ from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
-    ApplyPatchToolResultBlock,
-    ApplyPatchToolUseBlock,
-    CustomToolResultBlock,
-    CustomToolUseBlock,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
+    ApplyPatchToolResultBlock,
+    ApplyPatchToolUseBlock,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     ImageBlock,
     Loss,
     Request,
@@ -91,11 +91,24 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
-            if tool.type in ("custom", "apply_patch"):
-                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Anthropic mapping"))
+            if tool.type == "custom":
+                t_dict = {
+                    "name": tool.name,
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}},
+                        "required": ["input"],
+                    },
+                }
+                if tool.description:
+                    t_dict["description"] = tool.description
+                tools_wire.append(t_dict)
+                continue
+            if tool.type == "apply_patch":
+                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool declarations have no Anthropic mapping"))
                 continue
             require_json_object(tool.input_schema, f"tools[{index}].input_schema")
-            t_dict: dict[str, Any] = {
+            t_dict = {
                 "name": tool.name,
                 "input_schema": tool.input_schema,
             }
@@ -236,8 +249,59 @@ def encode_request_block(
     if isinstance(block, ImageBlock):
         return encode_image_block(block.media_type, block.data, block.url, path)
 
-    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
-        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
+    if isinstance(block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no Anthropic mapping")], False
+
+    if isinstance(block, CustomToolUseBlock):
+        if not block.id:
+            raise ValueError(f"anthropic: {path}.id is required")
+        if not block.name:
+            raise ValueError(f"anthropic: {path}.name is required")
+        return (
+            {
+                "type": BLOCK_TYPE_TOOL_USE,
+                "id": block.id,
+                "name": block.name,
+                "input": {"input": block.input},
+            },
+            [],
+            True,
+        )
+
+    if isinstance(block, CustomToolResultBlock):
+        if not block.tool_use_id:
+            raise ValueError(f"anthropic: {path}.tool_use_id is required")
+        if isinstance(block.output, str):
+            return (
+                {
+                    "type": BLOCK_TYPE_TOOL_RESULT,
+                    "tool_use_id": block.tool_use_id,
+                    "content": block.output,
+                },
+                [],
+                True,
+            )
+        wire_content: list[dict[str, Any]] = []
+        c_losses: list[Loss] = []
+        for i, inner in enumerate(block.output or []):
+            if isinstance(inner, TextBlock):
+                wire_content.append({"type": BLOCK_TYPE_TEXT, "text": inner.text})
+            elif isinstance(inner, ImageBlock):
+                img_wire, img_losses, mapped = encode_image_block(
+                    inner.media_type, inner.data, inner.url, f"{path}.content[{i}]"
+                )
+                if mapped and img_wire:
+                    wire_content.append(img_wire)
+                c_losses.extend(img_losses)
+        return (
+            {
+                "type": BLOCK_TYPE_TOOL_RESULT,
+                "tool_use_id": block.tool_use_id,
+                "content": wire_content,
+            },
+            c_losses,
+            True,
+        )
 
     if isinstance(block, ToolUseBlock):
         if not block.id:
@@ -420,9 +484,9 @@ def encode_response(
         losses.extend(b_losses)
 
     effective_stop = resp.stop_reason
-    if effective_stop == STOP_TOOL_USE and not any(isinstance(b, ToolUseBlock) for b in resp.content):
+    if effective_stop == STOP_TOOL_USE and not any(isinstance(b, (ToolUseBlock, CustomToolUseBlock)) for b in resp.content):
         effective_stop = STOP_END_TURN
-        losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because the target cannot retain custom tool calls"))
+        losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because the target cannot retain tool calls"))
     if resp.content and not out["content"]:
         out["content"].append({"type": BLOCK_TYPE_TEXT, "text": ""})
     reason, seq = encode_stop_reason(effective_stop, resp.stop_sequence)
@@ -473,7 +537,22 @@ def encode_response_block(
             [],
             True,
         )
-    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+    if isinstance(block, CustomToolUseBlock):
+        if not block.id:
+            raise ValueError(f"anthropic: {path}.id is required")
+        if not block.name:
+            raise ValueError(f"anthropic: {path}.name is required")
+        return (
+            {
+                "type": BLOCK_TYPE_TOOL_USE,
+                "id": block.id,
+                "name": block.name,
+                "input": {"input": block.input},
+            },
+            [],
+            True,
+        )
+    if isinstance(block, (CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
     return (
         None,

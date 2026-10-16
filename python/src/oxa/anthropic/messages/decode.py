@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from oxa._wire import RawDocument, audit_decode
-
 from typing import Any
 
+from oxa._wire import RawDocument, audit_decode
 from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT as AN_ROLE_ASSISTANT,
 )
@@ -54,6 +53,16 @@ from oxa.ir import (
 from oxa.modelmap import Table
 
 
+def is_custom_tool_input_schema(schema: Any) -> bool:
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return False
+    props = schema.get("properties")
+    if not isinstance(props, dict) or list(props.keys()) != ["input"]:
+        return False
+    input_prop = props.get("input")
+    return isinstance(input_prop, dict) and input_prop.get("type") == "string"
+
+
 @audit_decode("anthropic", "request")
 def decode_request(
     wire: dict[str, Any],
@@ -82,21 +91,32 @@ def decode_request(
         model = table.map(model)
 
     tools: list[Tool] | None = None
+    custom_tools: set[str] = set()
     if "tools" in wire and wire["tools"] is not None:
         tools = []
         for index, tool in enumerate(wire["tools"]):
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
-            tools.append(
-                Tool(
-                    name=tool["name"],
-                    description=desc if desc else None,
-                    input_schema=schema,
+            if is_custom_tool_input_schema(schema):
+                custom_tools.add(tool["name"])
+                tools.append(
+                    Tool(
+                        name=tool["name"],
+                        description=desc if desc else None,
+                        type="custom",
+                    )
                 )
-            )
+            else:
+                tools.append(
+                    Tool(
+                        name=tool["name"],
+                        description=desc if desc else None,
+                        input_schema=schema,
+                    )
+                )
 
-    tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
+    tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"), custom_tools=custom_tools)
     losses.extend(tc_losses)
 
     system, sys_losses = decode_system(wire.get("system"))
@@ -106,6 +126,7 @@ def decode_request(
     if not raw_messages:
         raise ValueError("anthropic: request carries no messages")
 
+    custom_call_ids: set[str] = set()
     messages: list[IrMessage] = []
     for index, msg in enumerate(raw_messages):
         role_str = msg.get("role", "")
@@ -117,7 +138,9 @@ def decode_request(
             raise ValueError(f"anthropic: messages[{index}]: unknown role {role_str!r}")
 
         content_path = f"messages[{index}].content"
-        blocks, b_losses = decode_content(msg.get("content"), content_path, raw_text)
+        blocks, b_losses = decode_content(
+            msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids
+        )
         losses.extend(b_losses)
         messages.append(IrMessage(role=role, content=blocks))
 

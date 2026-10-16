@@ -35,12 +35,27 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
 	for i, tool := range wire.Tools {
+		if tool.Type == ir.ToolTypeCustom {
+			if tool.Custom == nil || tool.Custom.Name == "" {
+				return nil, nil, fmt.Errorf("chatcompletions: custom tool requires custom.name")
+			}
+			req.Tools = append(req.Tools, ir.Tool{
+				Type:        ir.ToolTypeCustom,
+				Name:        tool.Custom.Name,
+				Description: tool.Custom.Description,
+				Format:      tool.Custom.Format,
+			})
+			continue
+		}
 		if tool.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Chat Completions tool type %q has no IR equivalent", tool.Type),
 			))
 			continue
+		}
+		if tool.Function == nil {
+			return nil, nil, fmt.Errorf("chatcompletions: function tool requires function")
 		}
 		req.Tools = append(req.Tools, ir.Tool{
 			Name:        tool.Function.Name,
@@ -52,10 +67,21 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	req.ToolChoice = choice
 	losses = append(losses, choiceLosses...)
 
+	customCallIDs := make(map[string]bool)
+	for _, m := range wire.Messages {
+		if m.Role == RoleAssistant {
+			for _, tc := range m.ToolCalls {
+				if tc.Type == ir.ToolTypeCustom {
+					customCallIDs[tc.ID] = true
+				}
+			}
+		}
+	}
+
 	for i := 0; i < len(wire.Messages); {
 		message := wire.Messages[i]
 		if message.Role == RoleTool {
-			merged, next, resultLosses, err := decodeToolResultRun(wire.Messages, i)
+			merged, next, resultLosses, err := decodeToolResultRun(wire.Messages, i, customCallIDs)
 			if err != nil {
 				return nil, nil, err
 			}

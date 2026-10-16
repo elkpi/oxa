@@ -5,7 +5,11 @@
 // imports ir and the standard library only, never another face.
 package chatcompletions
 
-import "encoding/json"
+import (
+	"encoding/json"
+
+	"github.com/elkpi/oxa/go/v2/ir"
+)
 
 // Request is the Chat Completions wire request for the supported non-streaming
 // subset.
@@ -55,11 +59,17 @@ type JSONSchemaWire struct {
 	Strict      *bool           `json:"strict,omitempty"`
 }
 
-// ToolWire is one element of a wire tools array. The supported Chat
-// Completions tool variant is type:function.
+// ToolWire is one element of a wire tools array.
 type ToolWire struct {
-	Type     string       `json:"type"`
-	Function FunctionWire `json:"function"`
+	Type     string          `json:"type"`
+	Function *FunctionWire   `json:"function,omitempty"`
+	Custom   *CustomToolWire `json:"custom,omitempty"`
+}
+
+type CustomToolWire struct {
+	Name        string               `json:"name"`
+	Description string               `json:"description,omitempty"`
+	Format      *ir.CustomToolFormat `json:"format,omitempty"`
 }
 
 const (
@@ -96,12 +106,15 @@ type FunctionWire struct {
 	Arguments   string          `json:"arguments,omitempty"`
 }
 
-// ToolChoiceWire forces one named function.
+// ToolChoiceWire forces one named function or custom tool.
 type ToolChoiceWire struct {
 	Type     string `json:"type"`
-	Function struct {
+	Function *struct {
 		Name string `json:"name"`
-	} `json:"function"`
+	} `json:"function,omitempty"`
+	Custom *struct {
+		Name string `json:"name"`
+	} `json:"custom,omitempty"`
 }
 
 // Message is a wire message. Content is a string or an array of ContentPart
@@ -116,12 +129,17 @@ type Message struct {
 	FunctionCall     any        `json:"function_call,omitempty"`
 }
 
-// ToolCall is an assistant function invocation. Function.Arguments is raw
-// JSON text held as a Go string and copied into the IR without parsing.
+// ToolCall is an assistant function or custom tool invocation.
 type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function FunctionWire `json:"function"`
+	ID       string          `json:"id"`
+	Type     string          `json:"type"`
+	Function *FunctionWire   `json:"function,omitempty"`
+	Custom   *CustomCallWire `json:"custom,omitempty"`
+}
+
+type CustomCallWire struct {
+	Name  string `json:"name,omitempty"`
+	Input string `json:"input,omitempty"`
 }
 
 // ContentPart is one element of a parts-array message content.
@@ -189,10 +207,11 @@ type DeltaPayload struct {
 // present in the wire shape, including index zero; its other fields are
 // pointers so absent fields remain distinct from present empty strings.
 type ToolCallDelta struct {
-	Index    int            `json:"index"`
-	ID       *string        `json:"id,omitempty"`
-	Type     *string        `json:"type,omitempty"`
-	Function *FunctionDelta `json:"function,omitempty"`
+	Index    int             `json:"index"`
+	ID       *string         `json:"id,omitempty"`
+	Type     *string         `json:"type,omitempty"`
+	Function *FunctionDelta  `json:"function,omitempty"`
+	Custom   *CustomCallWire `json:"custom,omitempty"`
 }
 
 // FunctionDelta is the incremental function payload of a tool call. Arguments

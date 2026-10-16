@@ -26,7 +26,14 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
 		for i, tool := range req.Tools {
 			if tool.Type == ir.ToolTypeCustom {
-				losses = append(losses, loss(fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic, "custom tools are not implemented by this Chat Completions profile"))
+				out.Tools = append(out.Tools, ToolWire{
+					Type: ir.ToolTypeCustom,
+					Custom: &CustomToolWire{
+						Name:        tool.Name,
+						Description: tool.Description,
+						Format:      tool.Format,
+					},
+				})
 				continue
 			}
 			if tool.Type == ir.ToolTypeApplyPatch {
@@ -35,7 +42,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			}
 			out.Tools = append(out.Tools, ToolWire{
 				Type: ToolTypeFunction,
-				Function: FunctionWire{
+				Function: &FunctionWire{
 					Name:        tool.Name,
 					Description: tool.Description,
 					Parameters:  tool.InputSchema,
@@ -70,14 +77,38 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			losses = append(losses, messageLosses...)
 		case ir.RoleUser:
 			var normal []ir.Block
-			var results []ir.ToolResultBlock
+			var toolMessages []Message
 			// N-CC-9: tool messages are hoisted ahead of the trailing user
 			// content. When ordinary content precedes a tool result in the
 			// source turn, that hoisting does not preserve the source order.
 			lastResult, firstNormal := -1, -1
 			for k, block := range message.Content {
-				if _, custom := block.(ir.CustomToolResultBlock); custom {
-					losses = append(losses, loss(fmt.Sprintf("messages[%d].content[%d]", i, k), "content", ir.LossUnsupportedSemantic, "custom tool results are not implemented by this profile"))
+				if customResult, ok := block.(ir.CustomToolResultBlock); ok {
+					var content any
+					if customResult.Output.Text != nil {
+						content = *customResult.Output.Text
+					} else {
+						parts := make([]ContentPart, 0, len(customResult.Output.Content))
+						for pIdx, b := range customResult.Output.Content {
+							switch pb := b.(type) {
+							case ir.TextBlock:
+								parts = append(parts, ContentPart{Type: ContentPartTypeText, Text: pb.Text})
+							case ir.ImageBlock:
+								part, l := encodeImageBlock(pb, fmt.Sprintf("messages[%d].content[%d][%d]", i, k, pIdx))
+								if l != nil {
+									losses = append(losses, *l)
+								}
+								parts = append(parts, part)
+							}
+						}
+						content = parts
+					}
+					toolMessages = append(toolMessages, Message{
+						Role:       RoleTool,
+						ToolCallID: customResult.ToolUseID,
+						Content:    content,
+					})
+					lastResult = k
 					continue
 				}
 				if _, patch := block.(ir.ApplyPatchToolResultBlock); patch {
@@ -85,7 +116,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 					continue
 				}
 				if result, ok := block.(ir.ToolResultBlock); ok {
-					results = append(results, result)
+					toolMessage, resultLosses := encodeToolResult(result, fmt.Sprintf("messages[%d].content[%d]", i, k))
+					toolMessages = append(toolMessages, toolMessage)
+					losses = append(losses, resultLosses...)
 					lastResult = k
 					continue
 				}
@@ -103,12 +136,8 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			// Tool messages must follow the assistant invocation immediately. If
 			// the IR user turn also carries normal content, render it after the
 			// tool-result run as a separate user message.
-			for j, result := range results {
-				toolMessage, resultLosses := encodeToolResult(result, fmt.Sprintf("messages[%d].content[%d]", i, j))
-				out.Messages = append(out.Messages, toolMessage)
-				losses = append(losses, resultLosses...)
-			}
-			if len(normal) > 0 || len(results) == 0 {
+			out.Messages = append(out.Messages, toolMessages...)
+			if len(normal) > 0 || len(toolMessages) == 0 {
 				content, contentLosses := encodeUserContent(normal, fmt.Sprintf("messages[%d].content", i))
 				out.Messages = append(out.Messages, Message{Role: RoleUser, Content: content})
 				losses = append(losses, contentLosses...)
@@ -177,18 +206,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		finish = FinishReasonContentFilter
 	case ir.StopToolUse:
 		finish = FinishReasonToolCalls
-		hasCustom, hasFunction := false, false
+		hasPatch, hasCall := false, false
 		for _, b := range resp.Content {
 			switch b.(type) {
-			case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
-				hasCustom = true
-			case ir.ToolUseBlock:
-				hasFunction = true
+			case ir.ApplyPatchToolUseBlock:
+				hasPatch = true
+			case ir.ToolUseBlock, ir.CustomToolUseBlock:
+				hasCall = true
 			}
 		}
-		if hasCustom && !hasFunction {
+		if hasPatch && !hasCall {
 			finish = FinishReasonStop
-			losses = append(losses, loss("stop_reason", "stop_reason", ir.LossDegraded, "custom calls were dropped; tool_use normalized to end_turn"))
+			losses = append(losses, loss("stop_reason", "stop_reason", ir.LossDegraded, "tool calls were dropped; tool_use normalized to end_turn"))
 		}
 	case ir.StopSequence:
 		// Chat Completions reports only finish_reason "stop" without

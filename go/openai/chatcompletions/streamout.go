@@ -15,6 +15,7 @@ const (
 	streamTextBlock streamBlockKind = iota
 	streamToolBlock
 	streamThinkingBlock
+	streamCustomBlock
 )
 
 // streamEncodeBlock retains the current IR block. Tool input and fragments are
@@ -118,6 +119,25 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 			e.nextNativeTool++
 			e.toolSeen = true
 			return nil, nil, nil
+		case ir.CustomToolUseBlock:
+			if block.ID == "" || block.Name == "" {
+				return nil, nil, fmt.Errorf("chatcompletions: CustomToolUseBlock requires nonempty ID and name")
+			}
+			input, err := unwrapIRString(block.Input)
+			if err != nil {
+				return nil, nil, fmt.Errorf("chatcompletions: CustomToolUseBlock input: %w", err)
+			}
+			e.active = &streamEncodeBlock{
+				kind:        streamCustomBlock,
+				index:       event.Index,
+				toolID:      block.ID,
+				toolName:    block.Name,
+				toolInput:   input,
+				nativeIndex: e.nextNativeTool,
+			}
+			e.nextNativeTool++
+			e.toolSeen = true
+			return nil, nil, nil
 		default:
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStart carries unsupported block %T", block)
 		}
@@ -148,6 +168,18 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 			default:
 				return nil, nil, fmt.Errorf("chatcompletions: ThinkingBlock received non-thinking delta %T", event.Delta)
 			}
+		case streamCustomBlock:
+			delta, ok := event.Delta.(ir.CustomToolInputDelta)
+			if !ok {
+				return nil, nil, fmt.Errorf("chatcompletions: CustomToolUseBlock received non-custom-input delta %T", event.Delta)
+			}
+			fragment, err := unwrapIRString(delta.Text)
+			if err != nil {
+				return nil, nil, fmt.Errorf("chatcompletions: CustomToolInputDelta text: %w", err)
+			}
+			e.active.fragments = append(e.active.fragments, fragment)
+			e.queueCustomArguments(e.active, fragment)
+			return nil, nil, nil
 		case streamToolBlock:
 			delta, ok := event.Delta.(ir.InputJSONDelta)
 			if !ok {
@@ -167,6 +199,15 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 	case ir.ContentBlockStop:
 		if e.active == nil || event.Index != e.active.index {
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStop out of grammar order")
+		}
+		if e.active.kind == streamCustomBlock {
+			if len(e.active.fragments) == 0 {
+				e.active.fragments = append(e.active.fragments, e.active.toolInput)
+				e.queueCustomArguments(e.active, e.active.toolInput)
+			}
+			if strings.Join(e.active.fragments, "") != e.active.toolInput {
+				return nil, nil, fmt.Errorf("chatcompletions: CustomToolUseBlock input does not equal concatenated CustomToolInputDelta fragments")
+			}
 		}
 		if e.active.kind == streamToolBlock {
 			if len(e.active.fragments) == 0 {
@@ -246,6 +287,20 @@ func (e *StreamEncoder) queueToolArguments(block *streamEncodeBlock, arguments s
 		call.ID = &id
 		call.Type = &kind
 		function.Name = &name
+		block.toolStarted = true
+	}
+	e.pendingTools = append(e.pendingTools, e.chunk(DeltaPayload{ToolCalls: []ToolCallDelta{call}}))
+}
+
+func (e *StreamEncoder) queueCustomArguments(block *streamEncodeBlock, input string) {
+	custom := &CustomCallWire{Input: input}
+	call := ToolCallDelta{Index: block.nativeIndex, Custom: custom}
+	if !block.toolStarted {
+		id := block.toolID
+		kind := ir.ToolTypeCustom
+		custom.Name = block.toolName
+		call.ID = &id
+		call.Type = &kind
 		block.toolStarted = true
 	}
 	e.pendingTools = append(e.pendingTools, e.chunk(DeltaPayload{ToolCalls: []ToolCallDelta{call}}))

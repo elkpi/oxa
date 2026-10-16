@@ -560,7 +560,7 @@ func TestToolArgumentsPreserveRawText(t *testing.T) {
 			{Role: "user", Content: "Weather?"},
 			{Role: "assistant", ToolCalls: []ToolCall{{
 				ID: "call_1", Type: "function",
-				Function: FunctionWire{Name: "weather", Arguments: arguments},
+				Function: &FunctionWire{Name: "weather", Arguments: arguments},
 			}}},
 		},
 	}
@@ -587,8 +587,12 @@ func TestToolArgumentsPreserveRawText(t *testing.T) {
 }
 
 func TestToolChoiceMappings(t *testing.T) {
-	named := ToolChoiceWire{Type: "function"}
-	named.Function.Name = "weather"
+	named := ToolChoiceWire{
+		Type: "function",
+		Function: &struct {
+			Name string `json:"name"`
+		}{Name: "weather"},
+	}
 	cases := []struct {
 		name     string
 		wire     any
@@ -621,7 +625,7 @@ func TestToolChoiceMappings(t *testing.T) {
 				}
 			case ToolChoiceWire:
 				got, ok := out.ToolChoice.(ToolChoiceWire)
-				if !ok || got.Type != want.Type || got.Function.Name != want.Function.Name {
+				if !ok || got.Type != want.Type || got.Function == nil || want.Function == nil || got.Function.Name != want.Function.Name {
 					t.Fatalf("encoded choice: %#v", out.ToolChoice)
 				}
 			}

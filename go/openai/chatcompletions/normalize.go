@@ -133,16 +133,44 @@ func decodeImageURL(raw, path string) (ir.ImageBlock, *ir.Loss) {
 
 func ptrLoss(value ir.Loss) *ir.Loss { return &value }
 
-// N-CC-3 appends function tool calls after the assistant's normal content and
+// N-CC-3 appends function and custom tool calls after the assistant's normal content and
 // wraps their opaque arguments text in the IR's raw JSON string token.
 func decodeToolCalls(calls []ToolCall, path string) ([]ir.Block, []ir.Loss) {
 	blocks := make([]ir.Block, 0, len(calls))
 	var losses []ir.Loss
 	for i, call := range calls {
+		if call.Type == ir.ToolTypeCustom {
+			if call.Custom == nil {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "custom", ir.LossUnsupportedSemantic,
+					"custom tool call missing custom definition",
+				))
+				continue
+			}
+			input, err := json.Marshal(call.Custom.Input)
+			if err != nil {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].custom.input", path, i), "input", ir.LossUnsupportedSemantic,
+					"custom input could not be represented as raw IR text",
+				))
+				continue
+			}
+			blocks = append(blocks, ir.CustomToolUseBlock{
+				ID: call.ID, Name: call.Custom.Name, Input: json.RawMessage(input),
+			})
+			continue
+		}
 		if call.Type != ToolTypeFunction {
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("Chat Completions tool call type %q has no IR equivalent", call.Type),
+			))
+			continue
+		}
+		if call.Function == nil {
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "function", ir.LossUnsupportedSemantic,
+				"function tool call missing function definition",
 			))
 			continue
 		}
@@ -164,18 +192,38 @@ func decodeToolCalls(calls []ToolCall, path string) ([]ir.Block, []ir.Loss) {
 }
 
 // N-CC-4 merges consecutive role:tool messages into one user message of
-// ToolResultBlocks, as required by INV-4.
-func decodeToolResultRun(messages []Message, start int) (ir.Message, int, []ir.Loss, error) {
+// ToolResultBlocks or CustomToolResultBlocks, as required by INV-4.
+func decodeToolResultRun(messages []Message, start int, customCallIDs map[string]bool) (ir.Message, int, []ir.Loss, error) {
 	content := make([]ir.Block, 0)
 	var losses []ir.Loss
 	i := start
 	for ; i < len(messages) && messages[i].Role == RoleTool; i++ {
-		blocks, blockLosses, err := decodeContent(messages[i].Content, fmt.Sprintf("messages[%d].content", i))
-		if err != nil {
-			return ir.Message{}, 0, nil, err
+		toolCallID := messages[i].ToolCallID
+		if customCallIDs != nil && customCallIDs[toolCallID] {
+			if str, ok := messages[i].Content.(string); ok {
+				content = append(content, ir.CustomToolResultBlock{
+					ToolUseID: toolCallID,
+					Output:    ir.CustomToolOutput{Text: &str},
+				})
+			} else {
+				blocks, blockLosses, err := decodeContent(messages[i].Content, fmt.Sprintf("messages[%d].content", i))
+				if err != nil {
+					return ir.Message{}, 0, nil, err
+				}
+				content = append(content, ir.CustomToolResultBlock{
+					ToolUseID: toolCallID,
+					Output:    ir.CustomToolOutput{Content: blocks},
+				})
+				losses = append(losses, blockLosses...)
+			}
+		} else {
+			blocks, blockLosses, err := decodeContent(messages[i].Content, fmt.Sprintf("messages[%d].content", i))
+			if err != nil {
+				return ir.Message{}, 0, nil, err
+			}
+			content = append(content, ir.ToolResultBlock{ToolUseID: toolCallID, Content: blocks})
+			losses = append(losses, blockLosses...)
 		}
-		content = append(content, ir.ToolResultBlock{ToolUseID: messages[i].ToolCallID, Content: blocks})
-		losses = append(losses, blockLosses...)
 		if messages[i].FunctionCall != nil {
 			losses = append(losses, loss(
 				fmt.Sprintf("messages[%d].function_call", i), "function_call", ir.LossUnmappedField,
@@ -186,7 +234,7 @@ func decodeToolResultRun(messages []Message, start int) (ir.Message, int, []ir.L
 	return ir.Message{Role: ir.RoleUser, Content: content}, i, losses, nil
 }
 
-// N-CC-5 maps the four Chat Completions tool_choice forms to the IR modes.
+// N-CC-5 maps the Chat Completions tool_choice forms to the IR modes.
 func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 	if value == nil {
 		return nil, nil
@@ -205,36 +253,62 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 	var kind, name string
 	switch choice := value.(type) {
 	case ToolChoiceWire:
-		kind, name = choice.Type, choice.Function.Name
+		kind = choice.Type
+		if choice.Type == ir.ToolTypeCustom && choice.Custom != nil {
+			name = choice.Custom.Name
+		} else if choice.Function != nil {
+			name = choice.Function.Name
+		}
 	case *ToolChoiceWire:
 		if choice == nil {
 			return nil, nil
 		}
-		kind, name = choice.Type, choice.Function.Name
+		kind = choice.Type
+		if choice.Type == ir.ToolTypeCustom && choice.Custom != nil {
+			name = choice.Custom.Name
+		} else if choice.Function != nil {
+			name = choice.Function.Name
+		}
 	case map[string]any:
 		kind, _ = choice["type"].(string)
-		function, _ := choice["function"].(map[string]any)
-		if function != nil {
+		if kind == ir.ToolTypeCustom {
+			if cust, ok := choice["custom"].(map[string]any); ok {
+				name, _ = cust["name"].(string)
+			}
+		} else if function, ok := choice["function"].(map[string]any); ok {
 			name, _ = function["name"].(string)
 		}
 	default:
 		return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			"Chat Completions tool_choice has no IR equivalent")}
 	}
+	if kind == ir.ToolTypeCustom && name != "" {
+		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, ToolType: ir.ToolTypeCustom, Name: name}, nil
+	}
 	if kind == ToolTypeFunction && name != "" {
 		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: name}, nil
 	}
 	return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
-		"only named function Chat Completions tool_choice values are supported")}
+		"only named function or custom Chat Completions tool_choice values are supported")}
 }
 
-// N-CC-6 renders the IR's four tool-choice modes in Chat Completions form.
+// N-CC-6 renders the IR's tool-choice modes in Chat Completions form.
 func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 	if choice == nil {
 		return nil, nil
 	}
-	if choice.ToolType == ir.ToolTypeCustom || choice.ToolType == ir.ToolTypeApplyPatch {
+	if choice.ToolType == ir.ToolTypeApplyPatch {
 		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "tool choice is not implemented by this profile"))
+	}
+	if choice.ToolType == ir.ToolTypeCustom {
+		if choice.Name == "" {
+			return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "IR named custom tool choice has no tool name"))
+		}
+		out := ToolChoiceWire{Type: ir.ToolTypeCustom}
+		out.Custom = &struct {
+			Name string `json:"name"`
+		}{Name: choice.Name}
+		return out, nil
 	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto, ir.ToolChoiceNone:
@@ -247,7 +321,9 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 				"IR named tool choice has no function name"))
 		}
 		out := ToolChoiceWire{Type: ToolTypeFunction}
-		out.Function.Name = choice.Name
+		out.Function = &struct {
+			Name string `json:"name"`
+		}{Name: choice.Name}
 		return out, nil
 	default:
 		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
@@ -338,9 +414,22 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
 				ID: value.ID, Type: ToolTypeFunction,
-				Function: FunctionWire{Name: value.Name, Arguments: arguments},
+				Function: &FunctionWire{Name: value.Name, Arguments: arguments},
 			})
-		case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
+		case ir.CustomToolUseBlock:
+			var inputStr string
+			if err := json.Unmarshal(value.Input, &inputStr); err != nil {
+				inputStr = string(value.Input)
+			}
+			out.ToolCalls = append(out.ToolCalls, ToolCall{
+				ID:   value.ID,
+				Type: ir.ToolTypeCustom,
+				Custom: &CustomCallWire{
+					Name:  value.Name,
+					Input: inputStr,
+				},
+			})
+		case ir.ApplyPatchToolUseBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),

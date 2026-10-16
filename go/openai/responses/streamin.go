@@ -461,7 +461,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("responses: %s without response", ev.Type)
 		}
 		for _, item := range ev.Response.Output {
-			if item.Type == ItemTypeCustomToolCall {
+			switch item.Type {
+			case ItemTypeCustomToolCall:
 				prior, ok := d.completedCustomCalls[item.ID]
 				if item.ID == "" {
 					for _, candidate := range d.completedCustomCalls {
@@ -476,7 +477,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 				if !ok || item.Input == nil || prior.Input == nil || *item.Input != *prior.Input || item.CallID != prior.CallID || item.Name != prior.Name {
 					return nil, fmt.Errorf("responses: terminal custom snapshot mismatch")
 				}
-			} else if item.Type == ItemTypeApplyPatchCall {
+			case ItemTypeApplyPatchCall:
 				prior, ok := d.completedApplyPatchCalls[item.ID]
 				if !ok || item.CallID != prior.CallID || item.Status != prior.Status {
 					return nil, fmt.Errorf("responses: terminal apply patch call snapshot mismatch")
@@ -490,7 +491,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 				if item.Operation.Diff != nil && *item.Operation.Diff != *prior.Operation.Diff {
 					return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
 				}
-			} else if item.Type == ItemTypeApplyPatchCallOutput {
+			case ItemTypeApplyPatchCallOutput:
 				prior, ok := d.completedApplyPatchResults[item.ID]
 				if !ok || item.CallID != prior.CallID || item.Status != prior.Status {
 					return nil, fmt.Errorf("responses: terminal apply patch result snapshot mismatch")

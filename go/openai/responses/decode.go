@@ -284,15 +284,20 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		oStart := aStart
 		for oStart < len(items) {
 			it := items[oStart]
-			if it.Type == ItemTypeFunctionCallOutput {
-				results = append(results, toolItemRef{it.CallID, "function", oStart})
-			} else if it.Type == ItemTypeCustomToolCallOutput {
-				results = append(results, toolItemRef{it.CallID, "custom", oStart})
-			} else if it.Type == ItemTypeApplyPatchCallOutput {
-				results = append(results, toolItemRef{it.CallID, "apply_patch", oStart})
-			} else {
+			matchedKind := ""
+			switch it.Type {
+			case ItemTypeFunctionCallOutput:
+				matchedKind = "function"
+			case ItemTypeCustomToolCallOutput:
+				matchedKind = "custom"
+			case ItemTypeApplyPatchCallOutput:
+				matchedKind = "apply_patch"
+			default:
+			}
+			if matchedKind == "" {
 				break
 			}
+			results = append(results, toolItemRef{it.CallID, matchedKind, oStart})
 			oStart++
 		}
 

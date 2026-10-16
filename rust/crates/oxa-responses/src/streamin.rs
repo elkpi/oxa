@@ -21,7 +21,7 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DONE, ITEM_TYPE_CUSTOM_TOOL_CALL,
     ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE,
-    ITEM_TYPE_REASONING, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, OutputValue, StreamEvent,
+    ITEM_TYPE_REASONING, OutputValue, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, StreamEvent,
 };
 
 struct StreamFunctionCall {
@@ -142,7 +142,9 @@ impl StreamDecoder {
                 || ev.kind.starts_with("response.function_call_arguments.")
                 || ev.kind.starts_with("response.custom_tool_call_input."))
         {
-            return Err(Error::new("responses: content or delta event on apply patch item"));
+            return Err(Error::new(
+                "responses: content or delta event on apply patch item",
+            ));
         }
 
         match ev.kind.as_str() {
@@ -196,8 +198,14 @@ impl StreamDecoder {
                     return Ok(Vec::new());
                 }
                 if item.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL {
-                    if item.id.is_empty() || item.call_id.is_empty() || item.status.is_empty() || item.operation.is_none() {
-                        return Err(Error::new("responses: apply_patch_call requires id, call_id, status and operation"));
+                    if item.id.is_empty()
+                        || item.call_id.is_empty()
+                        || item.status.is_empty()
+                        || item.operation.is_none()
+                    {
+                        return Err(Error::new(
+                            "responses: apply_patch_call requires id, call_id, status and operation",
+                        ));
                     }
                     self.apply_patch_call = Some(StreamApplyPatchCall {
                         call_id: item.call_id.clone(),
@@ -206,7 +214,9 @@ impl StreamDecoder {
                 }
                 if item.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT {
                     if item.id.is_empty() || item.call_id.is_empty() || item.status.is_empty() {
-                        return Err(Error::new("responses: apply_patch_call_output requires id, call_id and status"));
+                        return Err(Error::new(
+                            "responses: apply_patch_call_output requires id, call_id and status",
+                        ));
                     }
                     self.apply_patch_result = Some(StreamApplyPatchResult {
                         call_id: item.call_id.clone(),
@@ -688,12 +698,27 @@ impl StreamDecoder {
                 }
                 if let Some(ap) = self.apply_patch_call.take() {
                     if item.call_id != ap.call_id {
-                        return Err(Error::new("responses: output_item.done does not match active apply_patch_call"));
+                        return Err(Error::new(
+                            "responses: output_item.done does not match active apply_patch_call",
+                        ));
                     }
-                    let status = crate::normalize::decode_apply_patch_call_status(&item.status, &format!("output[{output_index}]"), &mut self.losses)
-                        .ok_or_else(|| Error::new(format!("responses: invalid apply_patch_call status: {:?}", item.status)))?;
-                    let op = crate::normalize::decode_apply_patch_operation(item.operation.as_ref(), &format!("output[{output_index}].operation"), &mut self.losses)?
-                        .ok_or_else(|| Error::new("responses: invalid apply_patch_call operation"))?;
+                    let status = crate::normalize::decode_apply_patch_call_status(
+                        &item.status,
+                        &format!("output[{output_index}]"),
+                        &mut self.losses,
+                    )
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "responses: invalid apply_patch_call status: {:?}",
+                            item.status
+                        ))
+                    })?;
+                    let op = crate::normalize::decode_apply_patch_operation(
+                        item.operation.as_ref(),
+                        &format!("output[{output_index}].operation"),
+                        &mut self.losses,
+                    )?
+                    .ok_or_else(|| Error::new("responses: invalid apply_patch_call operation"))?;
                     let index = self.next_block_index;
                     self.next_block_index += 1;
                     let events = vec![
@@ -713,10 +738,21 @@ impl StreamDecoder {
                 }
                 if let Some(apr) = self.apply_patch_result.take() {
                     if item.call_id != apr.call_id {
-                        return Err(Error::new("responses: output_item.done does not match active apply_patch_call_output"));
+                        return Err(Error::new(
+                            "responses: output_item.done does not match active apply_patch_call_output",
+                        ));
                     }
-                    let status = crate::normalize::decode_apply_patch_result_status(&item.status, &format!("output[{output_index}]"), &mut self.losses)
-                        .ok_or_else(|| Error::new(format!("responses: invalid apply_patch_call_output status: {:?}", item.status)))?;
+                    let status = crate::normalize::decode_apply_patch_result_status(
+                        &item.status,
+                        &format!("output[{output_index}]"),
+                        &mut self.losses,
+                    )
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "responses: invalid apply_patch_call_output status: {:?}",
+                            item.status
+                        ))
+                    })?;
                     let output = match &item.output {
                         None => None,
                         Some(OutputValue::Text(s)) => Some(s.clone()),
@@ -839,21 +875,31 @@ impl StreamDecoder {
                 };
                 validate_custom_terminal(response, &self.completed_custom_calls)?;
                 for it in &response.output {
-                    if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL || it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT {
+                    if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL
+                        || it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT
+                    {
                         let prior = self.completed_items.iter().find(|p| p.id == it.id);
                         let Some(prior) = prior else {
-                            return Err(Error::new("responses: terminal apply patch snapshot mismatch"));
+                            return Err(Error::new(
+                                "responses: terminal apply patch snapshot mismatch",
+                            ));
                         };
                         if it.call_id != prior.call_id || it.status != prior.status {
-                            return Err(Error::new("responses: terminal apply patch snapshot mismatch"));
+                            return Err(Error::new(
+                                "responses: terminal apply patch snapshot mismatch",
+                            ));
                         }
                         if it.kind == crate::types::ITEM_TYPE_APPLY_PATCH_CALL {
                             if it.operation != prior.operation {
-                                return Err(Error::new("responses: terminal apply patch operation mismatch"));
+                                return Err(Error::new(
+                                    "responses: terminal apply patch operation mismatch",
+                                ));
                             }
                         } else {
                             if it.output != prior.output {
-                                return Err(Error::new("responses: terminal apply patch output mismatch"));
+                                return Err(Error::new(
+                                    "responses: terminal apply patch output mismatch",
+                                ));
                             }
                         }
                     }

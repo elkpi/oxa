@@ -123,10 +123,7 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                     }
                     Block::ApplyPatchToolUse { id, .. } => {
                         if id.is_empty() {
-                            return Err(violate(
-                                i,
-                                "apply_patch_tool_use requires nonempty id",
-                            ));
+                            return Err(violate(i, "apply_patch_tool_use requires nonempty id"));
                         }
                         (*index, OpenBlock::Atomic)
                     }

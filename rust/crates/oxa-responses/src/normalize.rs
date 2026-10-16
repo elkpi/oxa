@@ -1,11 +1,12 @@
 //! Normalization rules N-R-1 through N-R-10 (spec/11 §5).
 
-use std::collections::{BTreeMap, BTreeSet};
 use serde_json::{Value, json};
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxa_ir::{
     ApplyPatchCallStatus, ApplyPatchOperation, ApplyPatchResultStatus, Block, CustomToolOutput,
-    Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice, ToolChoiceMode, ToolType,
+    Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice, ToolChoiceMode,
+    ToolType,
 };
 
 use crate::error::Error;
@@ -197,13 +198,20 @@ pub(crate) fn decode_apply_patch_operation(
     losses: &mut Vec<Loss>,
 ) -> Result<Option<ApplyPatchOperation>, Error> {
     let Some(op) = op else {
-        losses.push(loss(path, "operation", LossReason::UnsupportedSemantic, "operation is required"));
+        losses.push(loss(
+            path,
+            "operation",
+            LossReason::UnsupportedSemantic,
+            "operation is required",
+        ));
         return Ok(None);
     };
     match op.kind.as_str() {
         "create_file" => {
             let Some(diff) = &op.diff else {
-                return Err(Error::new(format!("responses: {path}.diff is required for create_file")));
+                return Err(Error::new(format!(
+                    "responses: {path}.diff is required for create_file"
+                )));
             };
             Ok(Some(ApplyPatchOperation::CreateFile {
                 path: op.path.clone(),
@@ -212,7 +220,9 @@ pub(crate) fn decode_apply_patch_operation(
         }
         "update_file" => {
             let Some(diff) = &op.diff else {
-                return Err(Error::new(format!("responses: {path}.diff is required for update_file")));
+                return Err(Error::new(format!(
+                    "responses: {path}.diff is required for update_file"
+                )));
             };
             Ok(Some(ApplyPatchOperation::UpdateFile {
                 path: op.path.clone(),
@@ -223,7 +233,12 @@ pub(crate) fn decode_apply_patch_operation(
             path: op.path.clone(),
         })),
         other => {
-            losses.push(loss(path, "operation", LossReason::UnsupportedSemantic, format!("unsupported operation type {other:?}")));
+            losses.push(loss(
+                path,
+                "operation",
+                LossReason::UnsupportedSemantic,
+                format!("unsupported operation type {other:?}"),
+            ));
             Ok(None)
         }
     }
@@ -233,27 +248,21 @@ pub(crate) fn encode_apply_patch_operation(
     op: &ApplyPatchOperation,
 ) -> crate::types::ApplyPatchOperationWire {
     match op {
-        ApplyPatchOperation::CreateFile { path, diff } => {
-            crate::types::ApplyPatchOperationWire {
-                kind: "create_file".to_string(),
-                path: path.clone(),
-                diff: Some(diff.clone()),
-            }
-        }
-        ApplyPatchOperation::UpdateFile { path, diff } => {
-            crate::types::ApplyPatchOperationWire {
-                kind: "update_file".to_string(),
-                path: path.clone(),
-                diff: Some(diff.clone()),
-            }
-        }
-        ApplyPatchOperation::DeleteFile { path } => {
-            crate::types::ApplyPatchOperationWire {
-                kind: "delete_file".to_string(),
-                path: path.clone(),
-                diff: None,
-            }
-        }
+        ApplyPatchOperation::CreateFile { path, diff } => crate::types::ApplyPatchOperationWire {
+            kind: "create_file".to_string(),
+            path: path.clone(),
+            diff: Some(diff.clone()),
+        },
+        ApplyPatchOperation::UpdateFile { path, diff } => crate::types::ApplyPatchOperationWire {
+            kind: "update_file".to_string(),
+            path: path.clone(),
+            diff: Some(diff.clone()),
+        },
+        ApplyPatchOperation::DeleteFile { path } => crate::types::ApplyPatchOperationWire {
+            kind: "delete_file".to_string(),
+            path: path.clone(),
+            diff: None,
+        },
     }
 }
 
@@ -294,9 +303,15 @@ pub(crate) fn precheck_apply_patch_pairs(
         while a_start < items.len() {
             let it = &items[a_start];
             match it.kind.as_str() {
-                ITEM_TYPE_FUNCTION_CALL => calls.push((it.call_id.clone(), "function".to_string(), a_start)),
-                ITEM_TYPE_CUSTOM_TOOL_CALL => calls.push((it.call_id.clone(), "custom".to_string(), a_start)),
-                "apply_patch_call" => calls.push((it.call_id.clone(), "apply_patch".to_string(), a_start)),
+                ITEM_TYPE_FUNCTION_CALL => {
+                    calls.push((it.call_id.clone(), "function".to_string(), a_start))
+                }
+                ITEM_TYPE_CUSTOM_TOOL_CALL => {
+                    calls.push((it.call_id.clone(), "custom".to_string(), a_start))
+                }
+                "apply_patch_call" => {
+                    calls.push((it.call_id.clone(), "apply_patch".to_string(), a_start))
+                }
                 ITEM_TYPE_REASONING => {}
                 "" | ITEM_TYPE_MESSAGE if it.role == ROLE_ASSISTANT => {}
                 _ => break,
@@ -309,16 +324,25 @@ pub(crate) fn precheck_apply_patch_pairs(
         while o_start < items.len() {
             let it = &items[o_start];
             match it.kind.as_str() {
-                ITEM_TYPE_FUNCTION_CALL_OUTPUT => results.push((it.call_id.clone(), "function".to_string(), o_start)),
-                ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => results.push((it.call_id.clone(), "custom".to_string(), o_start)),
-                "apply_patch_call_output" => results.push((it.call_id.clone(), "apply_patch".to_string(), o_start)),
+                ITEM_TYPE_FUNCTION_CALL_OUTPUT => {
+                    results.push((it.call_id.clone(), "function".to_string(), o_start))
+                }
+                ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => {
+                    results.push((it.call_id.clone(), "custom".to_string(), o_start))
+                }
+                "apply_patch_call_output" => {
+                    results.push((it.call_id.clone(), "apply_patch".to_string(), o_start))
+                }
                 _ => break,
             }
             o_start += 1;
         }
 
         if !calls.is_empty() && calls.len() == results.len() {
-            let matched = calls.iter().zip(&results).all(|(c, r)| c.0 == r.0 && c.1 == r.1);
+            let matched = calls
+                .iter()
+                .zip(&results)
+                .all(|(c, r)| c.0 == r.0 && c.1 == r.1);
             if matched {
                 for (c, r) in calls.iter().zip(&results) {
                     if c.1 != "apply_patch" {
@@ -330,16 +354,32 @@ pub(crate) fn precheck_apply_patch_pairs(
                     let o_item = &items[o_idx];
 
                     let mut call_losses = Vec::new();
-                    let op = decode_apply_patch_operation(c_item.operation.as_ref(), &format!("input[{c_idx}]"), &mut call_losses)?;
-                    let call_status = decode_apply_patch_call_status(&c_item.status, &format!("input[{c_idx}]"), &mut call_losses);
+                    let op = decode_apply_patch_operation(
+                        c_item.operation.as_ref(),
+                        &format!("input[{c_idx}]"),
+                        &mut call_losses,
+                    )?;
+                    let call_status = decode_apply_patch_call_status(
+                        &c_item.status,
+                        &format!("input[{c_idx}]"),
+                        &mut call_losses,
+                    );
 
                     let mut res_losses = Vec::new();
-                    let res_status = decode_apply_patch_result_status(&o_item.status, &format!("input[{o_idx}]"), &mut res_losses);
+                    let res_status = decode_apply_patch_result_status(
+                        &o_item.status,
+                        &format!("input[{o_idx}]"),
+                        &mut res_losses,
+                    );
 
                     let output_str = match &o_item.output {
                         None => None,
                         Some(OutputValue::Text(s)) => Some(s.clone()),
-                        Some(_) => return Err(Error::new(format!("responses: input[{o_idx}].output must be a string"))),
+                        Some(_) => {
+                            return Err(Error::new(format!(
+                                "responses: input[{o_idx}].output must be a string"
+                            )));
+                        }
                     };
 
                     let has_call_loss = !call_losses.is_empty();
@@ -351,24 +391,40 @@ pub(crate) fn precheck_apply_patch_pairs(
                         if has_call_loss {
                             losses.extend(call_losses);
                         } else {
-                            losses.push(loss(format!("input[{c_idx}]"), "type", LossReason::UnsupportedSemantic, "paired apply_patch result has unsupported semantic"));
+                            losses.push(loss(
+                                format!("input[{c_idx}]"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                "paired apply_patch result has unsupported semantic",
+                            ));
                         }
                         if has_res_loss {
                             losses.extend(res_losses);
                         } else {
-                            losses.push(loss(format!("input[{o_idx}]"), "type", LossReason::UnsupportedSemantic, "paired apply_patch call has unsupported semantic"));
+                            losses.push(loss(
+                                format!("input[{o_idx}]"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                "paired apply_patch call has unsupported semantic",
+                            ));
                         }
                     } else if let (Some(op), Some(cs), Some(rs)) = (op, call_status, res_status) {
-                        decoded_calls.insert(c_idx, Block::ApplyPatchToolUse {
-                            id: c_item.call_id.clone(),
-                            status: cs,
-                            operation: op,
-                        });
-                        decoded_results.insert(o_idx, Block::ApplyPatchToolResult {
-                            tool_use_id: o_item.call_id.clone(),
-                            status: rs,
-                            output: output_str,
-                        });
+                        decoded_calls.insert(
+                            c_idx,
+                            Block::ApplyPatchToolUse {
+                                id: c_item.call_id.clone(),
+                                status: cs,
+                                operation: op,
+                            },
+                        );
+                        decoded_results.insert(
+                            o_idx,
+                            Block::ApplyPatchToolResult {
+                                tool_use_id: o_item.call_id.clone(),
+                                status: rs,
+                                output: output_str,
+                            },
+                        );
                     }
                 }
             }
@@ -405,10 +461,24 @@ pub(crate) fn decode_assistant_run(
                 index += 1;
                 continue;
             }
-            let status = decode_apply_patch_call_status(&item.status, &format!("input[{index}]"), &mut losses);
-            let Some(status) = status else { index += 1; continue; };
-            let op = decode_apply_patch_operation(item.operation.as_ref(), &format!("input[{index}]"), &mut losses)?;
-            let Some(op) = op else { index += 1; continue; };
+            let status = decode_apply_patch_call_status(
+                &item.status,
+                &format!("input[{index}]"),
+                &mut losses,
+            );
+            let Some(status) = status else {
+                index += 1;
+                continue;
+            };
+            let op = decode_apply_patch_operation(
+                item.operation.as_ref(),
+                &format!("input[{index}]"),
+                &mut losses,
+            )?;
+            let Some(op) = op else {
+                index += 1;
+                continue;
+            };
             calls.push(Block::ApplyPatchToolUse {
                 id: item.call_id.clone(),
                 status,
@@ -521,12 +591,23 @@ pub(crate) fn decode_output_run(
                 index += 1;
                 continue;
             }
-            let status = decode_apply_patch_result_status(&item.status, &format!("input[{index}]"), &mut losses);
-            let Some(status) = status else { index += 1; continue; };
+            let status = decode_apply_patch_result_status(
+                &item.status,
+                &format!("input[{index}]"),
+                &mut losses,
+            );
+            let Some(status) = status else {
+                index += 1;
+                continue;
+            };
             let output_str = match &item.output {
                 None => None,
                 Some(OutputValue::Text(s)) => Some(s.clone()),
-                Some(_) => return Err(Error::new(format!("responses: input[{index}].output must be a string"))),
+                Some(_) => {
+                    return Err(Error::new(format!(
+                        "responses: input[{index}].output must be a string"
+                    )));
+                }
             };
             content.push(Block::ApplyPatchToolResult {
                 tool_use_id: item.call_id.clone(),
@@ -1034,7 +1115,11 @@ pub(crate) fn encode_assistant_message(
                     ));
                 }
             }
-            Block::ApplyPatchToolUse { id, status, operation } => {
+            Block::ApplyPatchToolUse {
+                id,
+                status,
+                operation,
+            } => {
                 let status_str = match status {
                     ApplyPatchCallStatus::InProgress => "in_progress",
                     ApplyPatchCallStatus::Completed => "completed",
@@ -1064,14 +1149,12 @@ pub(crate) fn encode_assistant_message(
             Block::Image { .. }
             | Block::ToolResult { .. }
             | Block::CustomToolResult { .. }
-            | Block::ApplyPatchToolResult { .. } => {
-                losses.push(loss(
-                    format!("{path}[{index}]"),
-                    "content",
-                    LossReason::UnsupportedSemantic,
-                    "this IR block cannot be rendered in a Responses assistant input item",
-                ))
-            }
+            | Block::ApplyPatchToolResult { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "content",
+                LossReason::UnsupportedSemantic,
+                "this IR block cannot be rendered in a Responses assistant input item",
+            )),
         }
     }
     let mut items = Vec::new();

@@ -286,7 +286,11 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     ));
                 }
             }
-            Block::ApplyPatchToolUse { id, status, operation } => {
+            Block::ApplyPatchToolUse {
+                id,
+                status,
+                operation,
+            } => {
                 let status_str = match status {
                     oxa_ir::ApplyPatchCallStatus::InProgress => "in_progress",
                     oxa_ir::ApplyPatchCallStatus::Completed => "completed",
@@ -301,7 +305,11 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 });
                 apc_index += 1;
             }
-            Block::ApplyPatchToolResult { tool_use_id, status, output } => {
+            Block::ApplyPatchToolResult {
+                tool_use_id,
+                status,
+                output,
+            } => {
                 let status_str = match status {
                     oxa_ir::ApplyPatchResultStatus::Completed => "completed",
                     oxa_ir::ApplyPatchResultStatus::Failed => "failed",

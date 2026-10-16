@@ -18,9 +18,9 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA, ErrorWire,
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, InputTokenDetailsWire, OBJECT_RESPONSE,
-    OutputItem, OutputPart, OutputTokenDetailsWire, OutputValue, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
-    Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent,
-    UsageWire,
+    OutputItem, OutputPart, OutputTokenDetailsWire, OutputValue, PART_TYPE_OUTPUT_TEXT,
+    ROLE_ASSISTANT, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS,
+    STATUS_INCOMPLETE, StreamEvent, UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -264,9 +264,10 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    StreamOutputItemKind::ApplyPatchCall | StreamOutputItemKind::ApplyPatchResult => {
-                        Err(Error::new("responses: apply patch item does not accept deltas"))
-                    }
+                    StreamOutputItemKind::ApplyPatchCall
+                    | StreamOutputItemKind::ApplyPatchResult => Err(Error::new(
+                        "responses: apply patch item does not accept deltas",
+                    )),
                 }
             }
             Event::ContentBlockStop { index } => {
@@ -740,16 +741,24 @@ impl StreamEncoder {
         index: i64,
         block: &Block,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
-        let Block::ApplyPatchToolUse { id, operation, .. } = block else { unreachable!() };
+        let Block::ApplyPatchToolUse { id, operation, .. } = block else {
+            unreachable!()
+        };
         if id.is_empty() {
-            return Err(Error::new("responses: apply_patch_call requires nonempty id"));
+            return Err(Error::new(
+                "responses: apply_patch_call requires nonempty id",
+            ));
         }
         let mut out = Vec::new();
         if let Some(active) = &self.active_item {
             match active.kind {
                 StreamOutputItemKind::Message => out.push(self.close_message_item()),
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                _ => return Err(Error::new("responses: apply_patch_call cannot open before active item completes")),
+                _ => {
+                    return Err(Error::new(
+                        "responses: apply_patch_call cannot open before active item completes",
+                    ));
+                }
             }
         }
         let output_index = self.next_output_index;
@@ -793,9 +802,16 @@ impl StreamEncoder {
 
     fn stop_apply_patch_call_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let Some(active_item) = &mut self.active_item else {
-            return Err(Error::new("responses: apply_patch_call block without active item"));
+            return Err(Error::new(
+                "responses: apply_patch_call block without active item",
+            ));
         };
-        let Some(Block::ApplyPatchToolUse { id, status, operation }) = self.active_apply_patch_call.take() else {
+        let Some(Block::ApplyPatchToolUse {
+            id,
+            status,
+            operation,
+        }) = self.active_apply_patch_call.take()
+        else {
             return Err(Error::new("responses: apply_patch_call missing block"));
         };
         self.active_block = None;
@@ -828,16 +844,29 @@ impl StreamEncoder {
         index: i64,
         block: &Block,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
-        let Block::ApplyPatchToolResult { tool_use_id, status, output } = block else { unreachable!() };
+        let Block::ApplyPatchToolResult {
+            tool_use_id,
+            status,
+            output,
+        } = block
+        else {
+            unreachable!()
+        };
         if tool_use_id.is_empty() {
-            return Err(Error::new("responses: apply_patch_call_output requires nonempty tool_use_id"));
+            return Err(Error::new(
+                "responses: apply_patch_call_output requires nonempty tool_use_id",
+            ));
         }
         let mut out = Vec::new();
         if let Some(active) = &self.active_item {
             match active.kind {
                 StreamOutputItemKind::Message => out.push(self.close_message_item()),
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                _ => return Err(Error::new("responses: apply_patch_call_output cannot open before active item completes")),
+                _ => {
+                    return Err(Error::new(
+                        "responses: apply_patch_call_output cannot open before active item completes",
+                    ));
+                }
             }
         }
         let output_index = self.next_output_index;
@@ -884,10 +913,19 @@ impl StreamEncoder {
 
     fn stop_apply_patch_result_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let Some(active_item) = &mut self.active_item else {
-            return Err(Error::new("responses: apply_patch_call_output block without active item"));
+            return Err(Error::new(
+                "responses: apply_patch_call_output block without active item",
+            ));
         };
-        let Some(Block::ApplyPatchToolResult { tool_use_id, status, output }) = self.active_apply_patch_result.take() else {
-            return Err(Error::new("responses: apply_patch_call_output missing block"));
+        let Some(Block::ApplyPatchToolResult {
+            tool_use_id,
+            status,
+            output,
+        }) = self.active_apply_patch_result.take()
+        else {
+            return Err(Error::new(
+                "responses: apply_patch_call_output missing block",
+            ));
         };
         self.active_block = None;
         let status_str = match status {

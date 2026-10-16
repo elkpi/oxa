@@ -455,7 +455,9 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
                 .content
                 .iter()
                 .filter_map(|b| match b {
-                    Block::ToolResult { tool_use_id, .. } => Some((tool_use_id.as_str(), "function")),
+                    Block::ToolResult { tool_use_id, .. } => {
+                        Some((tool_use_id.as_str(), "function"))
+                    }
                     Block::CustomToolResult { tool_use_id, .. } => {
                         Some((tool_use_id.as_str(), "custom"))
                     }
@@ -693,10 +695,22 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 has_tool_use = true;
             }
             crate::types::ITEM_TYPE_APPLY_PATCH_CALL => {
-                let status = crate::normalize::decode_apply_patch_call_status(&item.status, &format!("output[{item_index}]"), &mut losses);
-                let Some(status) = status else { continue; };
-                let op = crate::normalize::decode_apply_patch_operation(item.operation.as_ref(), &format!("output[{item_index}]"), &mut losses)?;
-                let Some(op) = op else { continue; };
+                let status = crate::normalize::decode_apply_patch_call_status(
+                    &item.status,
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                );
+                let Some(status) = status else {
+                    continue;
+                };
+                let op = crate::normalize::decode_apply_patch_operation(
+                    item.operation.as_ref(),
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                )?;
+                let Some(op) = op else {
+                    continue;
+                };
                 calls.push(Block::ApplyPatchToolUse {
                     id: item.call_id.clone(),
                     status,
@@ -705,12 +719,22 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 has_tool_use = true;
             }
             crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT => {
-                let status = crate::normalize::decode_apply_patch_result_status(&item.status, &format!("output[{item_index}]"), &mut losses);
-                let Some(status) = status else { continue; };
+                let status = crate::normalize::decode_apply_patch_result_status(
+                    &item.status,
+                    &format!("output[{item_index}]"),
+                    &mut losses,
+                );
+                let Some(status) = status else {
+                    continue;
+                };
                 let output = match &item.output {
                     None => None,
                     Some(OutputValue::Text(s)) => Some(s.clone()),
-                    Some(_) => return Err(Error::new(format!("responses: output[{item_index}].output must be a string"))),
+                    Some(_) => {
+                        return Err(Error::new(format!(
+                            "responses: output[{item_index}].output must be a string"
+                        )));
+                    }
                 };
                 calls.push(Block::ApplyPatchToolResult {
                     tool_use_id: item.call_id.clone(),

@@ -359,7 +359,9 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("output", ""),
         ]),
         "apply_patch_operation" => match tag(object, "type").as_deref() {
-            Some("create_file" | "update_file") => Some(&[("type", ""), ("path", ""), ("diff", "")]),
+            Some("create_file" | "update_file") => {
+                Some(&[("type", ""), ("path", ""), ("diff", "")])
+            }
             Some("delete_file") => Some(&[("type", ""), ("path", "")]),
             _ => None,
         },

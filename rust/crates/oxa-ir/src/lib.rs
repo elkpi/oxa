@@ -20,7 +20,7 @@ pub use event::{Delta, Event, EventStream};
 pub use loss::{Loss, LossReason};
 pub use request::{
     ApplyPatchCallStatus, ApplyPatchOperation, ApplyPatchResultStatus, Block, CustomToolFormat,
-    CustomToolOutput, Message, Params, ReasoningEffort, Request, ResponseFormat, Role,
-    SystemBlock, Tool, ToolChoice, ToolChoiceMode, ToolType,
+    CustomToolOutput, Message, Params, ReasoningEffort, Request, ResponseFormat, Role, SystemBlock,
+    Tool, ToolChoice, ToolChoiceMode, ToolType,
 };
 pub use response::{InputTokensDetails, OutputTokensDetails, Response, StopReason, Usage};

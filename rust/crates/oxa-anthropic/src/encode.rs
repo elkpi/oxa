@@ -107,9 +107,10 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
         && req.tools.as_ref().is_some_and(|ts| {
             !ts.is_empty()
-                && ts
-                    .iter()
-                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::Custom) || t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
+                && ts.iter().all(|t| {
+                    t.tool_type == Some(oxa_ir::ToolType::Custom)
+                        || t.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
+                })
         })
     {
         choice = None;
@@ -481,17 +482,18 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. }
         )
     });
-    let effective_stop = if resp.stop_reason == StopReason::ToolUse && has_custom && !has_native_call {
-        losses.push(loss(
-            "stop_reason",
-            "stop_reason",
-            LossReason::Degraded,
-            "custom calls were dropped; tool_use normalized to end_turn",
-        ));
-        StopReason::EndTurn
-    } else {
-        resp.stop_reason
-    };
+    let effective_stop =
+        if resp.stop_reason == StopReason::ToolUse && has_custom && !has_native_call {
+            losses.push(loss(
+                "stop_reason",
+                "stop_reason",
+                LossReason::Degraded,
+                "custom calls were dropped; tool_use normalized to end_turn",
+            ));
+            StopReason::EndTurn
+        } else {
+            resp.stop_reason
+        };
     let (reason, seq) = encode_stop_reason(effective_stop, resp.stop_sequence.as_deref())?;
     out.stop_reason = reason.to_string();
     if let Some(s) = seq {

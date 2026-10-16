@@ -121,7 +121,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 8);
+        CHECK(r->executed == 11);
         std::printf("test_stream (responses): all %zu vectors passed\n", r->executed);
     }
 
@@ -205,6 +205,92 @@ int main() {
         }
     }
 
-    std::puts("test_stream: all 18 stream vectors passed");
+    // Responses custom input snapshots are opaque, optional, and never re-appended.
+    {
+        oxa::openai::responses::StreamDecoder decoder;
+        CHECK(decoder.feed(R"({"type":"response.created","response":{"id":"r","model":"m"}})").ok());
+        CHECK(decoder.feed(R"({"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"code_exec","input":""}})").ok());
+        CHECK(!decoder.feed(R"({"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0})").ok());
+        CHECK(!decoder.feed(R"({"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0,"delta":null})").ok());
+        CHECK(decoder.feed(R"({"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0,"delta":"raw"})").ok());
+        CHECK(decoder.feed(R"({"type":"response.custom_tool_call_input.done","item_id":"ctc_0","output_index":0,"input":"raw"})").ok());
+        CHECK(decoder.feed(R"({"type":"response.custom_tool_call_input.done","item_id":"ctc_0","output_index":0,"input":"raw"})").ok());
+        CHECK(decoder.feed(R"({"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"code_exec","input":"raw"}})").ok());
+        CHECK(!decoder.feed(R"({"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"code_exec","input":"raw"}})").ok());
+        auto terminal = decoder.feed(R"({"type":"response.completed","response":{"id":"r","model":"m","status":"completed","output":[]}})");
+        CHECK(terminal.ok());
+        CHECK(decoder.flush().ok());
+
+        oxa::openai::responses::StreamDecoder mismatch;
+        CHECK(mismatch.feed(R"({"type":"response.created","response":{"id":"r","model":"m"}})").ok());
+        CHECK(mismatch.feed(R"({"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"x","input":""}})").ok());
+        CHECK(mismatch.feed(R"({"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0,"delta":"a"})").ok());
+        CHECK(mismatch.feed(R"({"type":"response.custom_tool_call_input.done","item_id":"ctc_0","output_index":0,"input":"b"})").ok());
+        CHECK(!mismatch.feed(R"({"type":"response.output_item.done","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"x","input":"b"}})").ok());
+
+        oxa::openai::responses::StreamDecoder conflict;
+        CHECK(conflict.feed(R"({"type":"response.created","response":{"id":"r","model":"m"}})").ok());
+        CHECK(conflict.feed(R"({"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"x","input":""}})").ok());
+        CHECK(conflict.feed(R"({"type":"response.custom_tool_call_input.done","item_id":"ctc_0","output_index":0,"input":"a"})").ok());
+        CHECK(!conflict.feed(R"({"type":"response.custom_tool_call_input.done","item_id":"ctc_0","output_index":0,"input":"b"})").ok());
+
+        oxa::openai::responses::StreamDecoder missing;
+        CHECK(missing.feed(R"({"type":"response.created","response":{"id":"r","model":"m"}})").ok());
+        CHECK(!missing.feed(R"({"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"x"}})").ok());
+    }
+
+    // Unsupported target stream encoders absorb custom blocks and degrade stop only when needed.
+    {
+        const oxa::ir::MessageStart start{"r", "m"};
+        const oxa::ir::ContentBlockStart custom_start{0, oxa::ir::CustomToolUseBlock{"c", "code_exec", "raw"}};
+        const oxa::ir::ContentBlockDelta custom_delta{0, oxa::ir::CustomToolInputDelta{"raw"}};
+        const oxa::ir::ContentBlockStop custom_stop{0};
+        const oxa::ir::MessageDelta stop{std::string(oxa::ir::STOP_TOOL_USE), std::nullopt, {1, 1}};
+        oxa::openai::chatcompletions::StreamEncoder cc;
+        CHECK(cc.apply(start).ok());
+        auto cc_start = cc.apply(custom_start);
+        CHECK(cc_start.ok() && cc_start->losses.size() == 1 && cc_start->value.empty());
+        CHECK(cc.apply(custom_delta).ok()); CHECK(cc.apply(custom_stop).ok());
+        auto cc_terminal = cc.apply(stop);
+        CHECK(cc_terminal.ok() && cc_terminal->losses.size() == 1);
+        if (cc_terminal.ok()) CHECK(cc_terminal->value.back().find("choices")->as_array()[0].find("finish_reason")->as_string() == "stop");
+        CHECK(cc.apply(oxa::ir::MessageDone{}).ok());
+
+        oxa::anthropic::messages::StreamEncoder ant;
+        CHECK(ant.apply(start).ok());
+        auto ant_start = ant.apply(custom_start);
+        CHECK(ant_start.ok() && ant_start->losses.size() == 1 && ant_start->value.empty());
+        CHECK(ant.apply(custom_delta).ok()); CHECK(ant.apply(custom_stop).ok());
+        auto ant_terminal = ant.apply(stop);
+        CHECK(ant_terminal.ok() && ant_terminal->losses.size() == 1);
+        if (ant_terminal.ok()) CHECK(ant_terminal->value[0].find("delta")->find("stop_reason")->as_string() == "end_turn");
+        CHECK(ant.apply(oxa::ir::MessageDone{}).ok());
+
+        // Dropped custom blocks do not consume target-native call/block indexes.
+        oxa::openai::chatcompletions::StreamEncoder compact_cc;
+        CHECK(compact_cc.apply(start).ok());
+        CHECK(compact_cc.apply(custom_start).ok()); CHECK(compact_cc.apply(custom_delta).ok()); CHECK(compact_cc.apply(custom_stop).ok());
+        CHECK(compact_cc.apply(oxa::ir::ContentBlockStart{1, oxa::ir::ToolUseBlock{"f", "clock", "{}"}}).ok());
+        CHECK(compact_cc.apply(oxa::ir::ContentBlockDelta{1, oxa::ir::InputJsonDelta{"{}"}}).ok());
+        CHECK(compact_cc.apply(oxa::ir::ContentBlockStop{1}).ok());
+        auto compact_cc_stop = compact_cc.apply(stop);
+        CHECK(compact_cc_stop.ok());
+        if (compact_cc_stop.ok()) {
+            const auto* choices = compact_cc_stop->value[0].find("choices");
+            const auto* calls = choices->as_array()[0].find("delta")->find("tool_calls");
+            CHECK(calls && calls->as_array()[0].find("index")->as_int() == 0);
+        }
+
+        oxa::anthropic::messages::StreamEncoder compact_ant;
+        CHECK(compact_ant.apply(start).ok());
+        CHECK(compact_ant.apply(custom_start).ok()); CHECK(compact_ant.apply(custom_delta).ok()); CHECK(compact_ant.apply(custom_stop).ok());
+        auto native_start = compact_ant.apply(oxa::ir::ContentBlockStart{1, oxa::ir::ToolUseBlock{"f", "clock", "{}"}});
+        CHECK(native_start.ok());
+        if (native_start.ok()) CHECK(native_start->value[0].find("index")->as_int() == 0);
+        CHECK(compact_ant.apply(oxa::ir::ContentBlockDelta{1, oxa::ir::InputJsonDelta{"{}"}}).ok());
+        CHECK(compact_ant.apply(oxa::ir::ContentBlockStop{1}).ok());
+    }
+
+    std::puts("test_stream: all 24 stream vectors passed");
     return 0;
 }

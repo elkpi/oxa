@@ -56,8 +56,7 @@ public:
 };
 
 int main() {
-    // During the Spec 2.0 rollout, baseline 0.1.0 vectors compare against
-    // converters that correctly emit the current 0.2.0 IR contract.
+    // Baseline 0.1.0 vectors compare against converters that emit 0.2.0.
     {
         auto expected = oxa::json::parse(R"({"specVersion":"0.1.0"})");
         auto actual = oxa::json::parse(R"({"specVersion":"0.2.0"})");
@@ -108,7 +107,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 58);
+        CHECK(r->executed == 75);
     }
 
     // 4. Cross-protocol nonstream
@@ -126,6 +125,38 @@ int main() {
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 
-    std::puts("test_vectors: all 164 nonstream vectors passed");
+    // Unsupported target profiles drop custom declarations, choices, calls, and results once each.
+    {
+        oxa::ir::Request req;
+        req.model = "m";
+        req.tools = std::vector<oxa::ir::Tool>{};
+        oxa::ir::Tool tool; tool.type = "custom"; tool.name = "code_exec";
+        req.tools->push_back(tool);
+        req.tool_choice = oxa::ir::ToolChoice{std::string(oxa::ir::TOOL_CHOICE_TOOL), "code_exec", "custom"};
+        req.params = oxa::ir::Params{}; req.params->max_tokens = 32;
+        req.messages.push_back({"assistant", {oxa::ir::CustomToolUseBlock{"c", "code_exec", "arbitrary"}}});
+        req.messages.push_back({"user", {oxa::ir::CustomToolResultBlock{"c", std::string("result")}}});
+        auto cc_req = oxa::openai::chatcompletions::encode_request(req);
+        auto ant_req = oxa::anthropic::messages::encode_request(req);
+        CHECK(cc_req.ok() && ant_req.ok());
+        if (cc_req.ok()) CHECK(cc_req->losses.size() == 4);
+        if (ant_req.ok()) CHECK(ant_req->losses.size() == 4);
+        oxa::ir::Response response;
+        response.id = "r"; response.model = "m"; response.stop_reason = std::string(oxa::ir::STOP_TOOL_USE);
+        response.content.push_back(oxa::ir::CustomToolUseBlock{"c", "code_exec", "arbitrary"});
+        auto cc_resp = oxa::openai::chatcompletions::encode_response(response);
+        auto ant_resp = oxa::anthropic::messages::encode_response(response);
+        CHECK(cc_resp.ok() && ant_resp.ok());
+        if (cc_resp.ok()) {
+            CHECK(cc_resp->losses.size() == 2);
+            CHECK(cc_resp->value.find("choices")->as_array()[0].find("finish_reason")->as_string() == "stop");
+        }
+        if (ant_resp.ok()) {
+            CHECK(ant_resp->losses.size() == 2);
+            CHECK(ant_resp->value.find("stop_reason")->as_string() == "end_turn");
+        }
+    }
+
+    std::puts("test_vectors: all 181 nonstream vectors passed");
     return 0;
 }

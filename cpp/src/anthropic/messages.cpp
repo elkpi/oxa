@@ -332,9 +332,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("system", std::move(sys_arr));
     }
 
+    const bool all_tools_custom = req.tools.has_value() && !req.tools->empty() &&
+        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) { return tool.type == "custom"; });
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
-        for (const auto& t : *req.tools) {
+        for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
+            const auto& t = (*req.tools)[ti];
+            if (t.type == "custom") {
+                losses.push_back(make_ant_loss("tools[" + std::to_string(ti) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                continue;
+            }
             json::Value tw = json::Value::object();
             tw.set("name", json::Value::string(t.name));
             if (t.has_description && !t.description.empty()) {
@@ -353,18 +361,27 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tco.set("type", json::Value::string("auto"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
-            json::Value tco = json::Value::object();
-            tco.set("type", json::Value::string("any"));
-            out.set("tool_choice", std::move(tco));
+            if (all_tools_custom) losses.push_back(make_ant_loss("tool_choice", "tool_choice",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "required choice was omitted because all tools are unsupported custom tools"));
+            else {
+                json::Value tco = json::Value::object();
+                tco.set("type", json::Value::string("any"));
+                out.set("tool_choice", std::move(tco));
+            }
         } else if (tc.mode == ir::TOOL_CHOICE_NONE) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("none"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
-            json::Value tco = json::Value::object();
-            tco.set("type", json::Value::string("tool"));
-            if (tc.name.has_value()) tco.set("name", json::Value::string(*tc.name));
-            out.set("tool_choice", std::move(tco));
+            if (tc.tool_type.has_value() && *tc.tool_type == "custom") {
+                losses.push_back(make_ant_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic Messages has no native custom tool choice mapping"));
+            } else {
+                json::Value tco = json::Value::object();
+                tco.set("type", json::Value::string("tool"));
+                if (tc.name.has_value()) tco.set("name", json::Value::string(*tc.name));
+                out.set("tool_choice", std::move(tco));
+            }
         }
     }
 
@@ -429,6 +446,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("input", json::Value::raw(tu->input));
                     }
                     content_arr.push_back(std::move(bw));
+                } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "custom_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "custom_tool_result", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
                 } else if (const auto* tr = std::get_if<ir::ToolResultBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("tool_result"));
@@ -446,6 +469,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     bw.set("content", std::move(inner_arr));
                     content_arr.push_back(std::move(bw));
                 }
+            }
+            if (content_arr.as_array().empty()) {
+                json::Value empty_text = json::Value::object();
+                empty_text.set("type", json::Value::string("text"));
+                empty_text.set("text", json::Value::string(""));
+                content_arr.push_back(std::move(empty_text));
             }
             mw.set("content", std::move(content_arr));
         }
@@ -559,6 +588,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     out.set("model", json::Value::string(opts.model_map.map(resp.model)));
 
     json::Value content_arr = json::Value::array();
+    bool retained_tool_use = false;
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
         const auto& b = resp.content[i];
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
@@ -590,11 +620,24 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 bw.set("input", json::Value::raw(tu->input));
             }
             content_arr.push_back(std::move(bw));
+            retained_tool_use = true;
+        } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "custom_tool_use",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+        } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "custom_tool_result",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
         }
     }
     out.set("content", std::move(content_arr));
 
-    OXA_ASSIGN_OR_RETURN(std::string ant_sr, encode_stop_reason(resp.stop_reason));
+    std::string effective_reason = resp.stop_reason;
+    if (effective_reason == ir::STOP_TOOL_USE && !retained_tool_use) {
+        effective_reason = std::string(ir::STOP_END_TURN);
+        losses.push_back(make_ant_loss("stop_reason", "stop_reason", ir::LOSS_DEGRADED,
+            "tool_use was downgraded to end_turn because no supported tool call remains"));
+    }
+    OXA_ASSIGN_OR_RETURN(std::string ant_sr, encode_stop_reason(effective_reason));
     out.set("stop_reason", json::Value::string(ant_sr));
     if (resp.stop_sequence.has_value() && !resp.stop_sequence->empty()) {
         out.set("stop_sequence", json::Value::string(*resp.stop_sequence));
@@ -969,14 +1012,22 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (!started_ || block_open_ || delta_seen_) {
             return invalid_argument("anthropic: ContentBlockStart out of grammar order");
         }
-        if (cbs->index != next_index_) {
+        if (cbs->index != next_ir_index_) {
             return invalid_argument("anthropic: ContentBlockStart index " + std::to_string(cbs->index) +
-                                    ", want " + std::to_string(next_index_));
+                                    ", want " + std::to_string(next_ir_index_));
         }
-        next_index_++;
+        next_ir_index_++;
         block_open_ = true;
-        open_index_ = cbs->index;
-
+        open_ir_index_ = cbs->index;
+        if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
+            (void)custom;
+            skipped_custom_ = true; open_tool_ = false; open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "block",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        skipped_custom_ = false;
+        open_index_ = next_index_++;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_start"));
         chunk.set("index", json::Value::integer(open_index_));
@@ -986,6 +1037,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             if (tu->name.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use name is required");
             open_tool_ = true;
             open_thinking_ = false;
+            tool_seen_ = true;
             tool_input_ = tu->input;
             tool_parts_.clear();
             cb.set("type", json::Value::string("tool_use"));
@@ -1014,12 +1066,17 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     }
 
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
-        if (!block_open_ || cbd->index != open_index_) {
+        if (!block_open_ || cbd->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockDelta out of grammar order");
+        }
+        if (skipped_custom_) {
+            if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
+                return invalid_argument("anthropic: custom tool block received wrong delta type");
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_delta"));
-        chunk.set("index", json::Value::integer(cbd->index));
+        chunk.set("index", json::Value::integer(open_index_));
         json::Value delta = json::Value::object();
         if (open_tool_) {
             const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
@@ -1055,14 +1112,18 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     }
 
     if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
-        if (!block_open_ || cst->index != open_index_) {
+        if (!block_open_ || cst->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (skipped_custom_) {
+            block_open_ = false; skipped_custom_ = false;
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (open_thinking_) {
             if (thinking_parts_.empty() && !thinking_input_.empty()) {
                 json::Value d_chunk = json::Value::object();
                 d_chunk.set("type", json::Value::string("content_block_delta"));
-                d_chunk.set("index", json::Value::integer(cst->index));
+                d_chunk.set("index", json::Value::integer(open_index_));
                 json::Value delta = json::Value::object();
                 delta.set("type", json::Value::string(std::string(DELTA_TYPE_THINKING_DELTA)));
                 delta.set("thinking", json::Value::string(thinking_input_));
@@ -1109,7 +1170,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         block_open_ = false;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_stop"));
-        chunk.set("index", json::Value::integer(cst->index));
+        chunk.set("index", json::Value::integer(open_index_));
         chunks.push_back(std::move(chunk));
         return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
     }
@@ -1119,7 +1180,13 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             return invalid_argument("anthropic: MessageDelta out of grammar order");
         }
         delta_seen_ = true;
-        OXA_ASSIGN_OR_RETURN(std::string asr, encode_stop_reason(md->stop_reason));
+        std::string effective_reason = md->stop_reason;
+        if (effective_reason == ir::STOP_TOOL_USE && !tool_seen_) {
+            effective_reason = std::string(ir::STOP_END_TURN);
+            losses.push_back(make_ant_loss("stop_reason", "stop_reason", ir::LOSS_DEGRADED,
+                "tool_use was downgraded to end_turn because no supported tool call remains"));
+        }
+        OXA_ASSIGN_OR_RETURN(std::string asr, encode_stop_reason(effective_reason));
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("message_delta"));
         json::Value delta = json::Value::object();

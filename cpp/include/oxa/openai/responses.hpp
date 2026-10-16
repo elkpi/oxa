@@ -19,6 +19,7 @@ inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 inline constexpr std::string_view ROLE_DEVELOPER = "developer";
 
 inline constexpr std::string_view TOOL_TYPE_FUNCTION = "function";
+inline constexpr std::string_view TOOL_TYPE_CUSTOM = "custom";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_NONE = "none";
@@ -27,6 +28,8 @@ inline constexpr std::string_view TOOL_CHOICE_REQUIRED = "required";
 inline constexpr std::string_view ITEM_TYPE_MESSAGE = "message";
 inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL = "function_call";
 inline constexpr std::string_view ITEM_TYPE_FUNCTION_CALL_OUTPUT = "function_call_output";
+inline constexpr std::string_view ITEM_TYPE_CUSTOM_TOOL_CALL = "custom_tool_call";
+inline constexpr std::string_view ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT = "custom_tool_call_output";
 inline constexpr std::string_view ITEM_TYPE_REASONING = "reasoning";
 
 inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
@@ -59,6 +62,10 @@ inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA =
     "response.function_call_arguments.delta";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE =
     "response.function_call_arguments.done";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA =
+    "response.custom_tool_call_input.delta";
+inline constexpr std::string_view EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE =
+    "response.custom_tool_call_input.done";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_COMPLETED = "response.completed";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_INCOMPLETE = "response.incomplete";
 inline constexpr std::string_view EVENT_TYPE_RESPONSE_FAILED = "response.failed";
@@ -135,6 +142,13 @@ private:
     Status require_function_call(const json::Value& ev, std::string_view event_type);
     ir::Loss unsupported_item_loss(std::int64_t output_index, std::string_view item_type);
     StatusOr<std::vector<ir::Event>> replay_function_call(const StreamFunctionCall& call);
+    struct StreamCustomToolCall {
+        std::string item_id; std::int64_t output_index = 0; std::string call_id; std::string name;
+        std::string initial_input; std::vector<std::string> fragments; std::optional<std::string> snapshot;
+    };
+    std::optional<StreamCustomToolCall> custom_tool_call_;
+    Status require_custom_tool_call(const json::Value& ev, std::string_view event_type);
+    StatusOr<std::vector<ir::Event>> replay_custom_tool_call(const StreamCustomToolCall& call);
 };
 
 class StreamEncoder {
@@ -144,7 +158,7 @@ public:
     StatusOr<Conversion<std::vector<json::Value>>> apply(const ir::Event& event);
 
 private:
-    enum class OutputItemKind { Message, Reasoning, FunctionCall };
+    enum class OutputItemKind { Message, Reasoning, FunctionCall, CustomToolCall };
 
     struct StreamOutputItem {
         OutputItemKind kind;
@@ -178,6 +192,7 @@ private:
     std::int64_t next_output_index_ = 0;
     std::int64_t next_message_item_ = 0;
     std::int64_t next_function_item_ = 0;
+    std::int64_t next_custom_item_ = 0;
     std::int64_t next_reasoning_item_ = 0;
     std::optional<StreamOutputItem> active_item_;
     std::optional<StreamEncodeBlock> active_block_;
@@ -186,14 +201,17 @@ private:
     std::pair<StreamOutputItem, json::Value> open_message_item();
     std::pair<StreamOutputItem, json::Value> open_reasoning_item();
     std::pair<StreamOutputItem, json::Value> open_function_call_item(std::string_view call_id, std::string_view name);
+    std::pair<StreamOutputItem, json::Value> open_custom_tool_call_item(std::string_view call_id, std::string_view name);
     json::Value close_message_item();
     json::Value close_reasoning_item();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_text_block(std::int64_t index, const ir::TextBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_function_call_block(std::int64_t index, const ir::ToolUseBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_custom_tool_call_block(std::int64_t index, const ir::CustomToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_text_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_thinking_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_function_call_block();
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_custom_tool_call_block();
     StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> terminal(const ir::MessageDelta& delta);
 };
 

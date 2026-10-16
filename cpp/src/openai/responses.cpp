@@ -153,6 +153,48 @@ std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_content(
     return {blocks, losses};
 }
 
+StatusOr<ir::Block> decode_tool_call_item(const json::Value& item, bool custom) {
+    std::string call_id, name;
+    if (const auto* v = item.find("call_id"); v && v->is_string()) call_id = v->as_string();
+    if (const auto* v = item.find("name"); v && v->is_string()) name = v->as_string();
+    if (call_id.empty() || name.empty()) return invalid_argument("responses: tool call requires non-empty call_id and name");
+    if (custom) {
+        const auto* input = item.find("input");
+        if (!input || !input->is_string()) return invalid_argument("responses: custom_tool_call requires string input");
+        return ir::Block(ir::CustomToolUseBlock{std::move(call_id), std::move(name), input->as_string()});
+    }
+    std::string arguments;
+    if (const auto* v = item.find("arguments"); v && v->is_string()) arguments = v->as_string();
+    return ir::Block(ir::ToolUseBlock{std::move(call_id), std::move(name), std::move(arguments)});
+}
+
+StatusOr<std::variant<std::string, std::vector<ir::BlockHolder>>> decode_custom_output(
+    const json::Value& value, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (value.is_string()) return std::variant<std::string, std::vector<ir::BlockHolder>>(value.as_string());
+    if (!value.is_array()) return invalid_argument("responses: custom tool output must be a string or array");
+    std::vector<ir::BlockHolder> parts;
+    for (std::size_t i = 0; i < value.as_array().size(); ++i) {
+        const auto& part = value.as_array()[i];
+        const auto* t = part.find("type");
+        const std::string kind = t && t->is_string() ? t->as_string() : "";
+        const std::string part_path = path + "[" + std::to_string(i) + "]";
+        if (kind == "input_text") {
+            const auto* text = part.find("text");
+            parts.push_back(ir::BlockHolder{ir::TextBlock{text && text->is_string() ? text->as_string() : ""}});
+        } else if (kind == "input_image") {
+            json::Value one = json::Value::array(); one.push_back(part);
+            auto decoded = decode_content(&one, path);
+            losses.insert(losses.end(), decoded.second.begin(), decoded.second.end());
+            for (auto& block : decoded.first) if (std::holds_alternative<ir::ImageBlock>(block))
+                parts.push_back(ir::BlockHolder{std::move(block)});
+        } else {
+            losses.push_back(make_resp_loss(part_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "custom tool output content is not supported"));
+        }
+    }
+    return std::variant<std::string, std::vector<ir::BlockHolder>>(std::move(parts));
+}
+
 std::pair<std::optional<ir::ToolChoice>, std::vector<ir::Loss>> decode_tool_choice(
     const json::Value* tc) {
     if (!tc || tc->is_null()) return {std::nullopt, {}};
@@ -176,8 +218,10 @@ std::pair<std::optional<ir::ToolChoice>, std::vector<ir::Loss>> decode_tool_choi
         std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
         std::string name;
         if (const auto* nv = tc->find("name"); nv && nv->is_string()) name = nv->as_string();
-        if (kind == "function" && !name.empty()) {
-            return {ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name}, {}};
+        if ((kind == "function" || kind == "custom") && !name.empty()) {
+            ir::ToolChoice choice{std::string(ir::TOOL_CHOICE_TOOL), name};
+            if (kind == "custom") choice.tool_type = "custom";
+            return {std::move(choice), {}};
         }
         return {std::nullopt,
                 {make_resp_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -289,24 +333,37 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             const auto& t = tools_val->as_array()[i];
             const auto* type_val = t.find("type");
             std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
-            if (kind != "function") {
-                losses.push_back(make_resp_loss(
-                    "tools[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "Responses tool type \"" + kind + "\" has no IR equivalent"));
+            if (kind != "function" && kind != "custom") {
+                losses.push_back(make_resp_loss("tools[" + std::to_string(i) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses tool type \"" + kind + "\" has no IR equivalent"));
                 continue;
             }
             ir::Tool tool;
+            tool.type = kind;
             if (const auto* nv = t.find("name"); nv && nv->is_string()) tool.name = nv->as_string();
             if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
                 tool.description = dv->as_string();
                 tool.has_description = true;
             }
-            if (const auto* pv = t.find("parameters")) {
-                tool.input_schema = *pv;
-            } else {
-                tool.input_schema = json::Value::null();
-            }
-            if (t.find("strict") != nullptr) {
+            if (kind == "custom") {
+                if (const auto* format = t.find("format")) {
+                    if (!format->is_object()) return invalid_argument("responses: custom tool format must be an object");
+                    tool.format = *format;
+                    const auto* ft = format->find("type");
+                    const std::string ftype = ft && ft->is_string() ? ft->as_string() : "";
+                    if (ftype != "text" && ftype != "grammar") losses.push_back(make_resp_loss(
+                        "tools[" + std::to_string(i) + "].format.type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "unknown custom tool format type has no IR equivalent"));
+                    else if (ftype == "grammar") {
+                        const auto* syntax = format->find("syntax");
+                        if (!syntax || !syntax->is_string() || (syntax->as_string() != "lark" && syntax->as_string() != "regex"))
+                            losses.push_back(make_resp_loss("tools[" + std::to_string(i) + "].format.syntax",
+                                "syntax", ir::LOSS_UNSUPPORTED_SEMANTIC, "unknown custom tool grammar syntax has no IR equivalent"));
+                    }
+                }
+            } else if (const auto* pv = t.find("parameters")) tool.input_schema = *pv;
+            else tool.input_schema = json::Value::null();
+            if (kind == "function" && t.find("strict") != nullptr) {
                 losses.push_back(make_resp_loss(
                     "tools[" + std::to_string(i) + "].strict", "strict", ir::LOSS_UNMAPPED_FIELD,
                     "Responses function tool strict mode has no IR equivalent in v1."));
@@ -377,12 +434,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                             ++index;
                             continue;
                         }
-                        if (ckind == "function_call") {
-                            ir::ToolUseBlock tu;
-                            if (const auto* idv = cur.find("call_id"); idv && idv->is_string()) tu.id = idv->as_string();
-                            if (const auto* nv = cur.find("name"); nv && nv->is_string()) tu.name = nv->as_string();
-                            if (const auto* av = cur.find("arguments"); av && av->is_string()) tu.input = av->as_string();
-                            call_blocks.push_back(std::move(tu));
+                        if (ckind == "function_call" || ckind == "custom_tool_call") {
+                            OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(cur, ckind == "custom_tool_call"));
+                            call_blocks.push_back(std::move(call));
                             ++index;
                             continue;
                         }
@@ -409,7 +463,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 } else {
                     return invalid_argument("responses: input[" + std::to_string(index) + "]: unknown role \"" + role + "\"");
                 }
-            } else if (kind == "function_call" || kind == "reasoning") {
+            } else if (kind == "function_call" || kind == "custom_tool_call" || kind == "reasoning") {
                 // Standalone reasoning/function_call items start an assistant run
                 std::vector<ir::Block> text_blocks;
                 std::vector<ir::Block> call_blocks;
@@ -424,12 +478,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         ++index;
                         continue;
                     }
-                    if (ckind == "function_call") {
-                        ir::ToolUseBlock tu;
-                        if (const auto* idv = cur.find("call_id"); idv && idv->is_string()) tu.id = idv->as_string();
-                        if (const auto* nv = cur.find("name"); nv && nv->is_string()) tu.name = nv->as_string();
-                        if (const auto* av = cur.find("arguments"); av && av->is_string()) tu.input = av->as_string();
-                        call_blocks.push_back(std::move(tu));
+                    if (ckind == "function_call" || ckind == "custom_tool_call") {
+                        OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(cur, ckind == "custom_tool_call"));
+                        call_blocks.push_back(std::move(call));
                         ++index;
                         continue;
                     }
@@ -453,21 +504,29 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (!text_blocks.empty()) {
                     req.messages.push_back(ir::Message{std::string(ir::ROLE_ASSISTANT), std::move(text_blocks)});
                 }
-            } else if (kind == "function_call_output") {
-                // Maximal run of function_call_output items merged into one user message
+            } else if (kind == "function_call_output" || kind == "custom_tool_call_output") {
+                // Mixed result runs retain the source order and the call category.
                 std::vector<ir::Block> tr_blocks;
                 while (index < items.size()) {
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
-                    if (ckind != "function_call_output") break;
-
-                    ir::ToolResultBlock tr;
-                    if (const auto* cid = cur.find("call_id"); cid && cid->is_string()) tr.tool_use_id = cid->as_string();
-                    std::string out_txt;
-                    if (const auto* ov = cur.find("output"); ov && ov->is_string()) out_txt = ov->as_string();
-                    tr.content.push_back(ir::BlockHolder{ir::TextBlock{std::move(out_txt)}});
-                    tr_blocks.push_back(std::move(tr));
+                    if (ckind != "function_call_output" && ckind != "custom_tool_call_output") break;
+                    const auto* cid = cur.find("call_id");
+                    if (!cid || !cid->is_string() || cid->as_string().empty())
+                        return invalid_argument("responses: call output requires non-empty call_id");
+                    const auto* ov = cur.find("output");
+                    if (ckind == "custom_tool_call_output") {
+                        if (!ov) return invalid_argument("responses: custom_tool_call_output requires output");
+                        OXA_ASSIGN_OR_RETURN(auto output, decode_custom_output(*ov,
+                            "input[" + std::to_string(index) + "].output", losses));
+                        tr_blocks.push_back(ir::CustomToolResultBlock{cid->as_string(), std::move(output)});
+                    } else {
+                        ir::ToolResultBlock tr; tr.tool_use_id = cid->as_string();
+                        std::string text = ov && ov->is_string() ? ov->as_string() : "";
+                        tr.content.push_back(ir::BlockHolder{ir::TextBlock{std::move(text)}});
+                        tr_blocks.push_back(std::move(tr));
+                    }
                     ++index;
                 }
                 req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(tr_blocks)});
@@ -591,10 +650,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         json::Value tools_arr = json::Value::array();
         for (const auto& t : *req.tools) {
             json::Value tw = json::Value::object();
-            tw.set("type", json::Value::string("function"));
-            tw.set("name", json::Value::string(t.name));
-            tw.set("description", json::Value::string(t.description));
-            tw.set("parameters", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
+            if (t.type == "custom") {
+                tw.set("type", json::Value::string("custom"));
+                tw.set("name", json::Value::string(t.name));
+                if (t.has_description) tw.set("description", json::Value::string(t.description));
+                if (t.format.has_value()) tw.set("format", *t.format);
+            } else {
+                tw.set("type", json::Value::string("function"));
+                tw.set("name", json::Value::string(t.name));
+                tw.set("description", json::Value::string(t.description));
+                tw.set("parameters", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
+            }
             tools_arr.push_back(std::move(tw));
         }
         out.set("tools", std::move(tools_arr));
@@ -611,7 +677,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
             if (tc.name.has_value() && !tc.name->empty()) {
                 json::Value tco = json::Value::object();
-                tco.set("type", json::Value::string("function"));
+                const bool custom = tc.tool_type.has_value() && *tc.tool_type == "custom";
+                tco.set("type", json::Value::string(custom ? "custom" : "function"));
                 tco.set("name", json::Value::string(*tc.name));
                 out.set("tool_choice", std::move(tco));
             } else {
@@ -626,15 +693,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
         const auto& m = req.messages[i];
         if (m.role == ir::ROLE_USER) {
-            std::vector<const ir::ToolResultBlock*> results;
+            std::vector<const ir::Block*> results;
             std::vector<const ir::Block*> normal;
             std::optional<std::size_t> first_normal;
             std::optional<std::size_t> last_result;
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
-                if (const auto* tr = std::get_if<ir::ToolResultBlock>(&b)) {
-                    results.push_back(tr);
+                if (std::holds_alternative<ir::ToolResultBlock>(b) ||
+                    std::holds_alternative<ir::CustomToolResultBlock>(b)) {
+                    results.push_back(&b);
                     last_result = bi;
                 } else {
                     if (!first_normal.has_value()) first_normal = bi;
@@ -649,24 +717,43 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             }
 
             for (std::size_t ri = 0; ri < results.size(); ++ri) {
-                const auto* tr = results[ri];
-                json::Value fco = json::Value::object();
-                fco.set("type", json::Value::string("function_call_output"));
-                fco.set("call_id", json::Value::string(tr->tool_use_id));
-                std::string res_txt;
-                for (const auto& inner : tr->content) {
-                    if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
-                        res_txt += itb->text;
+                const auto& result = *results[ri];
+                json::Value item = json::Value::object();
+                if (const auto* custom = std::get_if<ir::CustomToolResultBlock>(&result)) {
+                    item.set("type", json::Value::string("custom_tool_call_output"));
+                    item.set("call_id", json::Value::string(custom->tool_use_id));
+                    if (const auto* text = std::get_if<std::string>(&custom->output)) item.set("output", json::Value::string(*text));
+                    else {
+                        json::Value parts = json::Value::array();
+                        for (const auto& inner : std::get<std::vector<ir::BlockHolder>>(custom->output)) {
+                            json::Value part = json::Value::object();
+                            if (const auto* text = std::get_if<ir::TextBlock>(&inner.block)) {
+                                part.set("type", json::Value::string("input_text"));
+                                part.set("text", json::Value::string(text->text));
+                            } else if (const auto* image = std::get_if<ir::ImageBlock>(&inner.block)) {
+                                part.set("type", json::Value::string("input_image"));
+                                if (image->data.has_value() && !image->data->empty())
+                                    part.set("image_url", json::Value::string("data:" + image->media_type.value_or("image/jpeg") + ";base64," + *image->data));
+                                else if (image->url.has_value()) part.set("image_url", json::Value::string(*image->url));
+                            }
+                            parts.push_back(std::move(part));
+                        }
+                        item.set("output", std::move(parts));
                     }
-                }
-                fco.set("output", json::Value::string(std::move(res_txt)));
-                if (tr->is_error) {
-                    losses.push_back(make_resp_loss(
+                } else {
+                    const auto* tr = std::get_if<ir::ToolResultBlock>(&result);
+                    item.set("type", json::Value::string("function_call_output"));
+                    item.set("call_id", json::Value::string(tr->tool_use_id));
+                    std::string text;
+                    for (const auto& inner : tr->content)
+                        if (const auto* part = std::get_if<ir::TextBlock>(&inner.block)) text += part->text;
+                    item.set("output", json::Value::string(std::move(text)));
+                    if (tr->is_error) losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].is_error",
                         "is_error", ir::LOSS_UNMAPPED_FIELD,
                         "Responses function_call_output items have no is_error field"));
                 }
-                items.push_back(std::move(fco));
+                items.push_back(std::move(item));
             }
 
             if (!normal.empty() || results.empty()) {
@@ -730,6 +817,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     fc.set("name", json::Value::string(tu->name));
                     fc.set("arguments", json::Value::string(tu->input));
                     fc_items.push_back(std::move(fc));
+                } else if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&b)) {
+                    json::Value call = json::Value::object();
+                    call.set("type", json::Value::string("custom_tool_call"));
+                    call.set("call_id", json::Value::string(custom->id));
+                    call.set("name", json::Value::string(custom->name));
+                    call.set("input", json::Value::string(custom->input));
+                    fc_items.push_back(std::move(call));
                 }
             }
             const bool has_reasoning = !reasoning_summary.as_array().empty();
@@ -877,6 +971,16 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                 if (const auto* av = item.find("arguments"); av && av->is_string()) tu.input = av->as_string();
                 resp.content.push_back(std::move(tu));
                 has_tool_use = true;
+            } else if (kind == "custom_tool_call") {
+                OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(item, true));
+                resp.content.push_back(std::move(call));
+                has_tool_use = true;
+            } else if (kind == "custom_tool_call_output") {
+                const auto* cid = item.find("call_id"); const auto* output = item.find("output");
+                if (!cid || !cid->is_string() || cid->as_string().empty() || !output)
+                    return invalid_argument("responses: custom_tool_call_output requires non-empty call_id and output");
+                OXA_ASSIGN_OR_RETURN(auto decoded, decode_custom_output(*output, item_path + ".output", losses));
+                resp.content.push_back(ir::CustomToolResultBlock{cid->as_string(), std::move(decoded)});
             } else {
                 losses.push_back(make_resp_loss(
                     item_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -959,6 +1063,38 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             fc.set("name", json::Value::string(tu->name));
             fc.set("arguments", json::Value::string(tu->input));
             calls.push_back(std::move(fc));
+        } else if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&b)) {
+            json::Value call = json::Value::object();
+            call.set("type", json::Value::string("custom_tool_call"));
+            call.set("id", json::Value::string("ctc_abc123"));
+            call.set("call_id", json::Value::string(custom->id));
+            call.set("name", json::Value::string(custom->name));
+            call.set("input", json::Value::string(custom->input));
+            calls.push_back(std::move(call));
+        } else if (const auto* custom_result = std::get_if<ir::CustomToolResultBlock>(&b)) {
+            json::Value result = json::Value::object();
+            result.set("type", json::Value::string("custom_tool_call_output"));
+            result.set("call_id", json::Value::string(custom_result->tool_use_id));
+            if (const auto* output = std::get_if<std::string>(&custom_result->output))
+                result.set("output", json::Value::string(*output));
+            else {
+                json::Value parts = json::Value::array();
+                for (const auto& inner : std::get<std::vector<ir::BlockHolder>>(custom_result->output)) {
+                    json::Value part = json::Value::object();
+                    if (const auto* text = std::get_if<ir::TextBlock>(&inner.block)) {
+                        part.set("type", json::Value::string("input_text"));
+                        part.set("text", json::Value::string(text->text));
+                    } else if (const auto* image = std::get_if<ir::ImageBlock>(&inner.block)) {
+                        part.set("type", json::Value::string("input_image"));
+                        if (image->data.has_value() && !image->data->empty())
+                            part.set("image_url", json::Value::string("data:" + image->media_type.value_or("image/jpeg") + ";base64," + *image->data));
+                        else if (image->url.has_value()) part.set("image_url", json::Value::string(*image->url));
+                    }
+                    parts.push_back(std::move(part));
+                }
+                result.set("output", std::move(parts));
+            }
+            calls.push_back(std::move(result));
         } else {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1065,6 +1201,13 @@ Status StreamDecoder::require_function_call(const json::Value& ev, std::string_v
     return ok_status();
 }
 
+Status StreamDecoder::require_custom_tool_call(const json::Value& ev, std::string_view event_type) {
+    OXA_RETURN_IF_ERROR(require_active_item(ev, event_type));
+    if (!custom_tool_call_.has_value())
+        return invalid_argument("responses: " + std::string(event_type) + " without an active custom_tool_call item");
+    return ok_status();
+}
+
 ir::Loss StreamDecoder::unsupported_item_loss(std::int64_t output_index, std::string_view item_type) {
     std::string detail;
     if (item_type == "function_call_output") {
@@ -1089,6 +1232,23 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::replay_function_call(const Strea
     for (const auto& f : call.fragments) {
         events.push_back(ir::ContentBlockDelta{index, ir::InputJsonDelta{f}});
     }
+    events.push_back(ir::ContentBlockStop{index});
+    return events;
+}
+
+StatusOr<std::vector<ir::Event>> StreamDecoder::replay_custom_tool_call(const StreamCustomToolCall& call) {
+    std::string joined;
+    for (const auto& fragment : call.fragments) joined += fragment;
+    const std::string final_input = call.snapshot.value_or(joined);
+    if (call.snapshot.has_value() && joined != final_input && !call.fragments.empty())
+        return invalid_argument("responses: custom tool input snapshot does not match delta fragments");
+    std::int64_t index = next_block_index_++;
+    std::vector<ir::Event> events;
+    events.reserve(call.fragments.size() + 2);
+    events.push_back(ir::ContentBlockStart{index, ir::CustomToolUseBlock{call.call_id, call.name, final_input}});
+    if (call.fragments.empty()) events.push_back(ir::ContentBlockDelta{index, ir::CustomToolInputDelta{final_input}});
+    else for (const auto& fragment : call.fragments)
+        events.push_back(ir::ContentBlockDelta{index, ir::CustomToolInputDelta{fragment}});
     events.push_back(ir::ContentBlockStop{index});
     return events;
 }
@@ -1154,6 +1314,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         skipped_call_id_.clear();
         next_content_index_ = 0;
         function_call_ = std::nullopt;
+        custom_tool_call_ = std::nullopt;
 
         std::string role;
         if (const auto* rv = item->find("role"); rv && rv->is_string()) role = rv->as_string();
@@ -1180,6 +1341,16 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
                 fc.fragments.push_back(av->as_string());
             }
             function_call_ = std::move(fc);
+            return events;
+        }
+        if (ikind == "custom_tool_call") {
+            std::string call_id, name;
+            if (const auto* v = item->find("call_id"); v && v->is_string()) call_id = v->as_string();
+            if (const auto* v = item->find("name"); v && v->is_string()) name = v->as_string();
+            const auto* input = item->find("input");
+            if (item_id_.empty() || call_id.empty() || name.empty() || !input || !input->is_string() || !input->as_string().empty())
+                return invalid_argument("responses: custom_tool_call added item requires id, call_id, name, and input empty string");
+            custom_tool_call_ = StreamCustomToolCall{item_id_, out_idx, call_id, name, "", {}, std::nullopt};
             return events;
         }
 
@@ -1231,6 +1402,25 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         std::string txt;
         if (const auto* tv = part->find("text"); tv && tv->is_string()) txt = tv->as_string();
         events.push_back(ir::ContentBlockStart{block_index_, ir::TextBlock{std::move(txt)}});
+        return events;
+    }
+
+    if (type == EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA) {
+        OXA_RETURN_IF_ERROR(require_custom_tool_call(chunk, type));
+        if (custom_tool_call_->snapshot.has_value()) return invalid_argument("responses: custom tool input delta after input.done");
+        const auto* delta = chunk.find("delta");
+        if (!delta || !delta->is_string()) return invalid_argument("responses: custom tool input delta requires string delta");
+        custom_tool_call_->fragments.push_back(delta->as_string());
+        return events;
+    }
+
+    if (type == EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE) {
+        OXA_RETURN_IF_ERROR(require_custom_tool_call(chunk, type));
+        const auto* input = chunk.find("input");
+        if (!input || !input->is_string()) return invalid_argument("responses: custom tool input.done requires string input");
+        if (custom_tool_call_->snapshot.has_value() && *custom_tool_call_->snapshot != input->as_string())
+            return invalid_argument("responses: conflicting custom tool input snapshots");
+        custom_tool_call_->snapshot = input->as_string();
         return events;
     }
 
@@ -1490,6 +1680,22 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             tool_use_seen_ = true;
             function_call_ = std::nullopt;
         }
+        if (custom_tool_call_.has_value()) {
+            const auto* cid = item->find("call_id"); const auto* name = item->find("name"); const auto* input = item->find("input");
+            if (!cid || !cid->is_string() || !name || !name->is_string() || !input || !input->is_string() ||
+                cid->as_string() != custom_tool_call_->call_id || name->as_string() != custom_tool_call_->name)
+                return invalid_argument("responses: custom_tool_call.done identity does not match added item");
+            if (custom_tool_call_->snapshot.has_value() && *custom_tool_call_->snapshot != input->as_string())
+                return invalid_argument("responses: custom tool input snapshots conflict");
+            std::string joined;
+            for (const auto& fragment : custom_tool_call_->fragments) joined += fragment;
+            if (!custom_tool_call_->fragments.empty() && joined != input->as_string())
+                return invalid_argument("responses: custom tool input does not match delta fragments");
+            custom_tool_call_->snapshot = input->as_string();
+            OXA_ASSIGN_OR_RETURN(events, replay_custom_tool_call(*custom_tool_call_));
+            tool_use_seen_ = true;
+            custom_tool_call_ = std::nullopt;
+        }
 
         item_open_ = false;
         item_type_.clear();
@@ -1653,6 +1859,25 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_func
     return {std::move(item), std::move(event)};
 }
 
+std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_custom_tool_call_item(
+    std::string_view call_id, std::string_view name) {
+    std::string item_id = "ctc_" + std::to_string(next_custom_item_++);
+    std::int64_t output_index = next_output_index_++;
+    StreamOutputItem item; item.kind = OutputItemKind::CustomToolCall; item.id = item_id;
+    item.output_index = output_index; item.call_id = std::string(call_id); item.name = std::string(name);
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.added"));
+    event.set("output_index", json::Value::integer(output_index));
+    json::Value wire_item = json::Value::object();
+    wire_item.set("id", json::Value::string(item_id));
+    wire_item.set("type", json::Value::string("custom_tool_call"));
+    wire_item.set("call_id", json::Value::string(std::string(call_id)));
+    wire_item.set("name", json::Value::string(std::string(name)));
+    wire_item.set("input", json::Value::string(""));
+    event.set("item", std::move(wire_item));
+    return {std::move(item), std::move(event)};
+}
+
 json::Value StreamEncoder::close_reasoning_item() {
     auto item = std::move(*active_item_);
     active_item_ = std::nullopt;
@@ -1805,6 +2030,22 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
 }
 
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_custom_tool_call_block(
+    std::int64_t index, const ir::CustomToolUseBlock& block) {
+    if (block.id.empty() || block.name.empty()) return invalid_argument("responses: CustomToolUseBlock requires nonempty ID and name");
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) out.push_back(close_message_item());
+        else if (active_item_->kind == OutputItemKind::Reasoning) out.push_back(close_reasoning_item());
+        else return invalid_argument("responses: custom tool call cannot open before the active call completes");
+    }
+    auto [item, added] = open_custom_tool_call_item(block.id, block.name);
+    active_item_ = std::move(item);
+    StreamEncodeBlock eb; eb.index = index; eb.kind = OutputItemKind::CustomToolCall; eb.tool_input = block.input;
+    active_block_ = std::move(eb); out.push_back(std::move(added));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_text_block() {
     if (!active_item_.has_value() || active_item_->kind != OutputItemKind::Message) {
         return invalid_argument("responses: text block without an active message item");
@@ -1920,6 +2161,42 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
 }
 
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_custom_tool_call_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::CustomToolCall)
+        return invalid_argument("responses: custom tool block without an active custom_tool_call item");
+    auto block = std::move(*active_block_); active_block_ = std::nullopt;
+    std::vector<json::Value> out;
+    if (block.fragments.empty()) {
+        block.fragments.push_back(block.tool_input);
+        json::Value delta = json::Value::object();
+        delta.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA)));
+        delta.set("item_id", json::Value::string(active_item_->id));
+        delta.set("output_index", json::Value::integer(active_item_->output_index));
+        delta.set("delta", json::Value::string(block.tool_input));
+        out.push_back(std::move(delta));
+    }
+    std::string input;
+    for (const auto& fragment : block.fragments) input += fragment;
+    if (input != block.tool_input) return invalid_argument("responses: CustomToolUseBlock input does not equal custom input delta fragments");
+    json::Value snapshot = json::Value::object();
+    snapshot.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE)));
+    snapshot.set("item_id", json::Value::string(active_item_->id));
+    snapshot.set("output_index", json::Value::integer(active_item_->output_index));
+    snapshot.set("input", json::Value::string(input)); out.push_back(std::move(snapshot));
+    json::Value completed = json::Value::object();
+    completed.set("id", json::Value::string(active_item_->id));
+    completed.set("type", json::Value::string("custom_tool_call"));
+    completed.set("call_id", json::Value::string(active_item_->call_id));
+    completed.set("name", json::Value::string(active_item_->name));
+    completed.set("input", json::Value::string(input));
+    json::Value done = json::Value::object();
+    done.set("type", json::Value::string("response.output_item.done"));
+    done.set("output_index", json::Value::integer(active_item_->output_index));
+    done.set("item", completed); out.push_back(std::move(done));
+    completed_.push_back(std::move(completed)); active_item_ = std::nullopt;
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
 StatusOr<std::pair<json::Value, std::vector<ir::Loss>>> StreamEncoder::terminal(const ir::MessageDelta& delta) {
     json::Value resp = json::Value::object();
     resp.set("id", json::Value::string(id_));
@@ -2028,6 +2305,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_function_call_block(cbs->index, *tu));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_custom_tool_call_block(cbs->index, *custom));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         return invalid_argument("responses: ContentBlockStart carries unsupported block");
     }
 
@@ -2068,6 +2349,17 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             }
             return invalid_argument("responses: ThinkingBlock received non-thinking delta");
         }
+        if (active_block_->kind == OutputItemKind::CustomToolCall) {
+            const auto* custom = std::get_if<ir::CustomToolInputDelta>(&cbd->delta);
+            if (!custom) return invalid_argument("responses: CustomToolUseBlock received non-custom delta");
+            active_block_->fragments.push_back(custom->text);
+            json::Value chunk = json::Value::object();
+            chunk.set("type", json::Value::string(std::string(EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA)));
+            chunk.set("item_id", json::Value::string(active_item_->id));
+            chunk.set("output_index", json::Value::integer(active_item_->output_index));
+            chunk.set("delta", json::Value::string(custom->text));
+            return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+        }
         if (active_block_->kind == OutputItemKind::FunctionCall) {
             const auto* ij = std::get_if<ir::InputJsonDelta>(&cbd->delta);
             if (!ij) return invalid_argument("responses: ToolUseBlock received non-input-json delta");
@@ -2093,6 +2385,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (active_block_->kind == OutputItemKind::Reasoning) {
             OXA_ASSIGN_OR_RETURN(auto res, stop_thinking_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (active_block_->kind == OutputItemKind::CustomToolCall) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_custom_tool_call_block());
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         OXA_ASSIGN_OR_RETURN(auto res, stop_function_call_block());

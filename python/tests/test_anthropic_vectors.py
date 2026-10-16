@@ -23,7 +23,7 @@ class AnthropicVectorsTest(unittest.TestCase):
             return
 
         vectors = load_vectors(root, "anthropic", "nonstream")
-        self.assertEqual(len(vectors), 42, "expected 42 nonstream anthropic vectors")
+        self.assertEqual(len(vectors), 48, "expected 48 nonstream anthropic vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

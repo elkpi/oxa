@@ -3,6 +3,8 @@
 import json
 import unittest
 
+from oxa.anthropic.messages import encode_request as an_encode_request
+from oxa.anthropic.messages import encode_response as an_encode_response
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -14,17 +16,18 @@ from oxa.ir import (
     CustomToolResultBlock,
     CustomToolUseBlock,
     Message,
+    Params,
     Request,
     Response,
     TextBlock,
-    ToolResultBlock,
-    ToolUseBlock,
     Tool,
     ToolChoice,
+    ToolResultBlock,
+    ToolUseBlock,
     Usage,
 )
-from oxa.openai.chatcompletions import encode_request as cc_encode_request, encode_response as cc_encode_response
-from oxa.anthropic.messages import encode_request as an_encode_request, encode_response as an_encode_response
+from oxa.openai.chatcompletions import encode_request as cc_encode_request
+from oxa.openai.chatcompletions import encode_response as cc_encode_response
 from oxa.openai.responses import (
     decode_request,
     decode_request_json,
@@ -151,25 +154,37 @@ class ResponsesNonstreamTest(unittest.TestCase):
         self.assertEqual(len(unsupported), 1)
         self.assertFalse(any(l.path.startswith("input[2].output[1].") for l in losses))
 
-    def test_custom_tools_downgrade_explicitly_for_unimplemented_targets(self) -> None:
+    def test_custom_tools_supported_in_cc_and_anthropic(self) -> None:
         req = Request(
             model="m",
             messages=[Message(role=ROLE_USER, content=[CustomToolResultBlock(tool_use_id="c", output="")])],
             tools=[Tool(name="exec", type="custom")],
             tool_choice=ToolChoice(mode="any"),
+            params=Params(max_tokens=1024),
         )
         for encoder in (cc_encode_request, an_encode_request):
             wire, losses = encoder(req)
+            self.assertIn("tools", wire)
+            self.assertIn("tool_choice", wire)
+            self.assertEqual(len(losses), 0)
+
+        response = Response(id="r", model="m", content=[CustomToolUseBlock(id="c", name="exec", input="not JSON")], stop_reason="tool_use", usage=Usage())
+        for encoder, expected in ((cc_encode_response, "tool_calls"), (an_encode_response, "tool_use")):
+            wire, losses = encoder(response)
+            self.assertEqual(wire["choices"][0]["finish_reason"] if encoder is cc_encode_response else wire["stop_reason"], expected)
+            self.assertEqual(len(losses), 0)
+
+        patch_req = Request(
+            model="m",
+            messages=[Message(role=ROLE_USER, content=[TextBlock(text="hi")])],
+            tools=[Tool(name="apply_patch", type="apply_patch")],
+            tool_choice=ToolChoice(mode="any"),
+        )
+        for encoder in (cc_encode_request, an_encode_request):
+            wire, losses = encoder(patch_req)
             self.assertNotIn("tools", wire)
             self.assertNotIn("tool_choice", wire)
             self.assertTrue(any(l.reason == LOSS_UNSUPPORTED_SEMANTIC for l in losses))
-            self.assertEqual(wire["messages"][0].get("content", ""), "")
-
-        response = Response(id="r", model="m", content=[CustomToolUseBlock(id="c", name="exec", input="not JSON")], stop_reason="tool_use", usage=Usage())
-        for encoder, expected in ((cc_encode_response, "stop"), (an_encode_response, "end_turn")):
-            wire, losses = encoder(response)
-            self.assertEqual(wire["choices"][0]["finish_reason"] if encoder is cc_encode_response else wire["stop_reason"], expected)
-            self.assertTrue(any(l.reason == LOSS_DEGRADED for l in losses))
 
     def test_encoding_ir_stop_other_is_a_structural_error(self) -> None:
         resp = Response(

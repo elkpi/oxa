@@ -20,6 +20,8 @@ import {
 import {
   decodeRequest as decodeResponsesRequest,
   encodeRequest as encodeResponsesRequest,
+  decodeResponse as decodeResponsesResponse,
+  ResponsesStreamDecoder,
 } from "../src/openai/responses/index.js";
 
 const text = { type: "text", text: "hello" } as const;
@@ -187,6 +189,204 @@ test("face decoders reject invalid source request conversations", () => {
       }),
     "Anthropic decode",
   );
+});
+
+test("Responses apply_patch invalid request association", () => {
+  assert.throws(
+    () =>
+      decodeResponsesRequest({
+        model: "m",
+        input: [
+          { role: "user", content: "hi" },
+          {
+            type: "apply_patch_call",
+            call_id: "same",
+            status: "completed",
+            operation: { type: "future" },
+          },
+          {
+            type: "apply_patch_call",
+            call_id: "same",
+            status: "completed",
+            operation: { type: "future" },
+          },
+          {
+            type: "apply_patch_call_output",
+            call_id: "same",
+            status: "completed",
+          },
+          {
+            type: "apply_patch_call_output",
+            call_id: "same",
+            status: "completed",
+          },
+        ],
+      }),
+    /INV-3/,
+  );
+  assert.throws(
+    () =>
+      decodeResponsesRequest({
+        model: "m",
+        input: [
+          { role: "user", content: "hi" },
+          {
+            type: "apply_patch_call",
+            call_id: "a",
+            status: "completed",
+            operation: { type: "future" },
+          },
+          {
+            type: "apply_patch_call_output",
+            call_id: "b",
+            status: "future",
+          },
+        ],
+      }),
+    /INV-3/,
+  );
+  assert.throws(
+    () =>
+      decodeResponsesRequest({
+        model: "m",
+        input: [
+          { role: "user", content: "hi" },
+          {
+            type: "apply_patch_call_output",
+            call_id: "c",
+            status: "completed",
+          },
+        ],
+      }),
+    /INV-3/,
+  );
+});
+
+test("Responses apply_patch response validation rejects missing fields", () => {
+  const badItems = [
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      call_id: "c",
+      status: "completed",
+      operation: { type: "delete_file" }, // missing path
+    },
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      call_id: "c",
+      status: "completed",
+      operation: { type: "delete_file", path: null }, // null path
+    },
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      call_id: "c",
+      status: "completed",
+      operation: { type: "create_file", path: "a" }, // missing diff
+    },
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      status: "completed",
+      operation: { type: "delete_file", path: "a" }, // missing call_id
+    },
+    {
+      type: "apply_patch_call",
+      call_id: "c",
+      status: "completed",
+      operation: { type: "delete_file", path: "a" }, // missing item id
+    },
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      call_id: "c",
+      status: "completed", // missing operation
+    },
+    {
+      id: "apc",
+      type: "apply_patch_call",
+      call_id: "c",
+      operation: { type: "delete_file", path: "a" }, // missing status
+    },
+  ];
+  for (const item of badItems) {
+    assert.throws(
+      () =>
+        decodeResponsesResponse({
+          id: "r",
+          model: "m",
+          status: "completed",
+          output: [item as any],
+        }),
+      OxaError,
+    );
+  }
+});
+
+test("Responses stream decoder skips unknown apply_patch op and status with loss", () => {
+  for (const scenario of [
+    { op: { type: "future", extra: true }, status: "completed" },
+    { op: { type: "delete_file", path: "a" }, status: "future" },
+    { op: { type: "delete_file", path: "a", diff: 42 }, status: "completed" },
+  ]) {
+    const d = new ResponsesStreamDecoder();
+    d.Feed({
+      type: "response.created",
+      response: {
+        id: "r",
+        object: "response",
+        model: "m",
+        status: "in_progress",
+        output: [],
+      },
+    });
+    d.Feed({
+      type: "response.output_item.added",
+      output_index: 0,
+      item: {
+        id: "apc",
+        type: "apply_patch_call",
+        call_id: "c",
+        status: "in_progress",
+        operation: scenario.op as any,
+      },
+    });
+    const doneEvents = d.Feed({
+      type: "response.output_item.done",
+      output_index: 0,
+      item: {
+        id: "apc",
+        type: "apply_patch_call",
+        call_id: "c",
+        status: scenario.status as any,
+        operation: scenario.op as any,
+      },
+    });
+    if (scenario.status === "future" || scenario.op.type === "future") {
+      assert.equal(doneEvents.length, 0);
+    }
+    d.Feed({
+      type: "response.completed",
+      response: {
+        id: "r",
+        object: "response",
+        model: "m",
+        status: "completed",
+        output: [
+          {
+            id: "apc",
+            type: "apply_patch_call",
+            call_id: "c",
+            status: scenario.status as any,
+            operation: scenario.op as any,
+          },
+        ],
+      },
+    });
+    d.Flush();
+    assert.ok(d.Losses().length >= 1);
+  }
 });
 
 function assertInvalidRequest(run: () => unknown, context: string): void {

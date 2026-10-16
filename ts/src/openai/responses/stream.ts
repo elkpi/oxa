@@ -646,29 +646,35 @@ export class ResponsesStreamDecoder {
         this.#lifecycle(
           "response.output_item.done does not match active apply_patch_call",
         );
-      const status = decodeStreamApplyPatchCallStatus(
+      const statusResult = decodeStreamApplyPatchCallStatus(
         event.item.status,
         `output[${index}]`,
       );
-      const op = decodeStreamApplyPatchOperation(
+      const opResult = decodeStreamApplyPatchOperation(
         event.item.operation,
         `output[${index}].operation`,
       );
-      const blockIndex = this.#nextBlockIndex++;
-      events = [
-        {
-          type: "content_block_start",
-          index: blockIndex,
-          block: {
-            type: "apply_patch_tool_use",
-            id: call.callId,
-            status,
-            operation: op,
+      if (statusResult.loss !== undefined || opResult.loss !== undefined) {
+        if (statusResult.loss !== undefined)
+          this.#losses.push(statusResult.loss);
+        if (opResult.loss !== undefined) this.#losses.push(opResult.loss);
+      } else {
+        const blockIndex = this.#nextBlockIndex++;
+        events = [
+          {
+            type: "content_block_start",
+            index: blockIndex,
+            block: {
+              type: "apply_patch_tool_use",
+              id: call.callId,
+              status: statusResult.status!,
+              operation: opResult.operation!,
+            },
           },
-        },
-        { type: "content_block_stop", index: blockIndex },
-      ];
-      this.#toolUseSeen = true;
+          { type: "content_block_stop", index: blockIndex },
+        ];
+        this.#toolUseSeen = true;
+      }
       this.#completedItems.set(event.item.id!, event.item);
       this.#applyPatchCall = undefined;
     }
@@ -681,26 +687,30 @@ export class ResponsesStreamDecoder {
         this.#lifecycle(
           "response.output_item.done does not match active apply_patch_call_output",
         );
-      const status = decodeStreamApplyPatchResultStatus(
+      const statusResult = decodeStreamApplyPatchResultStatus(
         event.item.status,
         `output[${index}]`,
       );
-      const blockIndex = this.#nextBlockIndex++;
-      const output =
-        typeof event.item.output === "string" ? event.item.output : undefined;
-      events = [
-        {
-          type: "content_block_start",
-          index: blockIndex,
-          block: {
-            type: "apply_patch_tool_result",
-            tool_use_id: result.callId,
-            status,
-            ...(output !== undefined ? { output } : {}),
+      if (statusResult.loss !== undefined) {
+        this.#losses.push(statusResult.loss);
+      } else {
+        const blockIndex = this.#nextBlockIndex++;
+        const output =
+          typeof event.item.output === "string" ? event.item.output : undefined;
+        events = [
+          {
+            type: "content_block_start",
+            index: blockIndex,
+            block: {
+              type: "apply_patch_tool_result",
+              tool_use_id: result.callId,
+              status: statusResult.status!,
+              ...(output !== undefined ? { output } : {}),
+            },
           },
-        },
-        { type: "content_block_stop", index: blockIndex },
-      ];
+          { type: "content_block_stop", index: blockIndex },
+        ];
+      }
       this.#completedItems.set(event.item.id!, event.item);
       this.#applyPatchResult = undefined;
     }
@@ -832,11 +842,26 @@ export class ResponsesStreamDecoder {
           if (
             item.operation === undefined ||
             prior.operation === undefined ||
-            item.operation.type !== prior.operation.type ||
-            item.operation.path !== prior.operation.path ||
-            item.operation.diff !== prior.operation.diff
+            item.operation.type !== prior.operation.type
           )
             this.#lifecycle("terminal apply patch operation mismatch");
+          if (
+            item.operation.type !== "create_file" &&
+            item.operation.type !== "update_file" &&
+            item.operation.type !== "delete_file"
+          ) {
+            if (
+              JSON.stringify(item.operation) !== JSON.stringify(prior.operation)
+            )
+              this.#lifecycle("terminal apply patch operation mismatch");
+          } else {
+            if (
+              item.operation.path !== prior.operation.path ||
+              (item.operation.type !== "delete_file" &&
+                item.operation.diff !== prior.operation.diff)
+            )
+              this.#lifecycle("terminal apply patch operation mismatch");
+          }
         } else {
           if (item.output !== prior.output)
             this.#lifecycle("terminal apply patch output mismatch");
@@ -1042,7 +1067,7 @@ export class ResponsesStreamDecoder {
 function decodeStreamApplyPatchOperation(
   wire: any,
   path: string,
-): ApplyPatchOperation {
+): { operation?: ApplyPatchOperation; loss?: Loss } {
   if (wire === undefined || wire === null || typeof wire !== "object") {
     throw new OxaError(
       "type-violation",
@@ -1066,7 +1091,7 @@ function decodeStreamApplyPatchOperation(
           `${path}.operation requires string diff for ${type}`,
         );
       }
-      return { type, path: filePath, diff: wire.diff };
+      return { operation: { type, path: filePath, diff: wire.diff } };
     case "delete_file":
       if (typeof filePath !== "string") {
         throw new OxaError(
@@ -1074,39 +1099,63 @@ function decodeStreamApplyPatchOperation(
           `${path}.operation requires string path for delete_file`,
         );
       }
-      return { type, path: filePath };
+      return { operation: { type, path: filePath } };
     default:
-      throw new OxaError(
-        "type-violation",
-        `${path}.operation has unsupported type ${type}`,
-      );
+      return {
+        loss: {
+          path,
+          field: "operation",
+          reason: "unsupported-semantic",
+          detail: `unsupported operation type ${type}`,
+        },
+      };
   }
 }
 
 function decodeStreamApplyPatchCallStatus(
   status: any,
   path: string,
-): "in_progress" | "completed" {
-  if (status !== "in_progress" && status !== "completed") {
+): { status?: "in_progress" | "completed"; loss?: Loss } {
+  if (typeof status !== "string") {
     throw new OxaError(
       "type-violation",
       `${path}.status is invalid: ${status}`,
     );
   }
-  return status;
+  if (status === "in_progress" || status === "completed") {
+    return { status };
+  }
+  return {
+    loss: {
+      path: `${path}.status`,
+      field: "status",
+      reason: "unmapped-value",
+      detail: `unknown apply_patch_call status ${status}`,
+    },
+  };
 }
 
 function decodeStreamApplyPatchResultStatus(
   status: any,
   path: string,
-): "completed" | "failed" {
-  if (status !== "completed" && status !== "failed") {
+): { status?: "completed" | "failed"; loss?: Loss } {
+  if (typeof status !== "string") {
     throw new OxaError(
       "type-violation",
       `${path}.status is invalid: ${status}`,
     );
   }
-  return status;
+  if (status === "completed" || status === "failed") {
+    return { status };
+  }
+  return {
+    loss: {
+      path: `${path}.status`,
+      field: "status",
+      reason: "unmapped-value",
+      detail: `unknown apply_patch_call_output status ${status}`,
+    },
+  };
 }
 
 function encodeApplyPatchOperation(

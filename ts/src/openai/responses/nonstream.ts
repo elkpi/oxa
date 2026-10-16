@@ -212,32 +212,7 @@ function decodeRequestObject(
               index += 1;
               continue;
             }
-            const statusResult = decodeApplyPatchCallStatusWire(
-              current.status,
-              `input[${index}]`,
-            );
-            if (statusResult.loss) {
-              losses.push(statusResult.loss);
-              index += 1;
-              continue;
-            }
-            const opResult = decodeApplyPatchOperationWire(
-              current.operation,
-              `input[${index}]`,
-            );
-            if (opResult.loss) {
-              losses.push(opResult.loss);
-              index += 1;
-              continue;
-            }
-            calls.push({
-              type: "apply_patch_tool_use",
-              id: nonEmptyString(current.call_id, `input[${index}].call_id`),
-              status: statusResult.status!,
-              operation: opResult.operation!,
-            });
-            index += 1;
-            continue;
+            fail(`input[${index}]: unpaired apply_patch_call (INV-3)`);
           }
           if (currentType === "function_call") {
             calls.push({
@@ -308,32 +283,7 @@ function decodeRequestObject(
               index += 1;
               continue;
             }
-            const statusResult = decodeApplyPatchResultStatusWire(
-              current.status,
-              `input[${index}]`,
-            );
-            if (statusResult.loss) {
-              losses.push(statusResult.loss);
-              index += 1;
-              continue;
-            }
-            const outResult = decodeApplyPatchResultOutputWire(
-              current.output,
-              `input[${index}]`,
-            );
-            content.push({
-              type: "apply_patch_tool_result",
-              tool_use_id: nonEmptyString(
-                current.call_id,
-                `input[${index}].call_id`,
-              ),
-              status: statusResult.status!,
-              ...(outResult.output !== undefined
-                ? { output: outResult.output }
-                : {}),
-            });
-            index += 1;
-            continue;
+            fail(`input[${index}]: unpaired apply_patch_call_output (INV-3)`);
           }
           const callId = nonEmptyString(
             current.call_id,
@@ -467,6 +417,11 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
       i++;
       continue;
     }
+    if (item.type === "apply_patch_call_output") {
+      fail(
+        `input[${i}]: apply_patch tool result without preceding tool calls (INV-3)`,
+      );
+    }
     const type = item.type === undefined ? "message" : item.type;
     const isAssistant =
       (type === "message" && item.role === "assistant") ||
@@ -481,6 +436,7 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
     }
 
     const calls: { callId: string; kind: string; index: number }[] = [];
+    const seenCallIds = new Set<string>();
     let aStart = i;
     while (aStart < items.length) {
       const it = items[aStart];
@@ -492,24 +448,13 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
       )
         break;
       const t = it.type === undefined ? "message" : it.type;
+      let kind = "";
       if (t === "function_call") {
-        calls.push({
-          callId: string(it.call_id, `input[${aStart}].call_id`),
-          kind: "function",
-          index: aStart,
-        });
+        kind = "function";
       } else if (t === "custom_tool_call") {
-        calls.push({
-          callId: string(it.call_id, `input[${aStart}].call_id`),
-          kind: "custom",
-          index: aStart,
-        });
+        kind = "custom";
       } else if (t === "apply_patch_call") {
-        calls.push({
-          callId: string(it.call_id, `input[${aStart}].call_id`),
-          kind: "apply_patch",
-          index: aStart,
-        });
+        kind = "apply_patch";
       } else if (
         t === "reasoning" ||
         (t === "message" && it.role === "assistant")
@@ -517,6 +462,21 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
         // assistant content
       } else {
         break;
+      }
+      if (kind !== "") {
+        const callId = string(it.call_id, `input[${aStart}].call_id`);
+        if (kind === "apply_patch" && callId === "") {
+          fail(
+            `input[${aStart}]: apply_patch tool call requires nonempty call_id (INV-3)`,
+          );
+        }
+        if (seenCallIds.has(callId)) {
+          fail(
+            `input[${aStart}]: duplicate call_id "${callId}" in turn (INV-3)`,
+          );
+        }
+        seenCallIds.add(callId);
+        calls.push({ callId, kind, index: aStart });
       }
       aStart++;
     }
@@ -533,105 +493,102 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
       )
         break;
       const t = it.type;
+      let matchedKind = "";
       if (t === "function_call_output") {
-        results.push({
-          callId: string(it.call_id, `input[${oStart}].call_id`),
-          kind: "function",
-          index: oStart,
-        });
+        matchedKind = "function";
       } else if (t === "custom_tool_call_output") {
-        results.push({
-          callId: string(it.call_id, `input[${oStart}].call_id`),
-          kind: "custom",
-          index: oStart,
-        });
+        matchedKind = "custom";
       } else if (t === "apply_patch_call_output") {
-        results.push({
-          callId: string(it.call_id, `input[${oStart}].call_id`),
-          kind: "apply_patch",
-          index: oStart,
-        });
+        matchedKind = "apply_patch";
       } else {
         break;
       }
+      const callId = string(it.call_id, `input[${oStart}].call_id`);
+      if (matchedKind === "apply_patch" && callId === "") {
+        fail(
+          `input[${oStart}]: apply_patch tool result requires nonempty call_id (INV-3)`,
+        );
+      }
+      results.push({ callId, kind: matchedKind, index: oStart });
       oStart++;
     }
 
-    if (calls.length > 0 && calls.length === results.length) {
-      let matched = true;
+    const hasApplyPatch =
+      calls.some((c) => c.kind === "apply_patch") ||
+      results.some((r) => r.kind === "apply_patch");
+
+    if (hasApplyPatch) {
+      if (calls.length !== results.length) {
+        fail(
+          `tool calls count (${calls.length}) and results count (${results.length}) mismatch (INV-3)`,
+        );
+      }
       for (let k = 0; k < calls.length; k++) {
         if (
           calls[k]!.callId !== results[k]!.callId ||
           calls[k]!.kind !== results[k]!.kind
         ) {
-          matched = false;
-          break;
+          fail("tool result identity/type/order mismatch (INV-3)");
         }
       }
-      if (matched) {
-        for (let k = 0; k < calls.length; k++) {
-          if (calls[k]!.kind !== "apply_patch") continue;
-          const cIdx = calls[k]!.index;
-          const oIdx = results[k]!.index;
-          const cItem = object(items[cIdx], `input[${cIdx}]`);
-          const oItem = object(items[oIdx], `input[${oIdx}]`);
+      for (let k = 0; k < calls.length; k++) {
+        if (calls[k]!.kind !== "apply_patch") continue;
+        const cIdx = calls[k]!.index;
+        const oIdx = results[k]!.index;
+        const cItem = object(items[cIdx], `input[${cIdx}]`);
+        const oItem = object(items[oIdx], `input[${oIdx}]`);
 
-          const callOpResult = decodeApplyPatchOperationWire(
-            cItem.operation,
-            `input[${cIdx}]`,
-          );
-          const callStatusResult = decodeApplyPatchCallStatusWire(
-            cItem.status,
-            `input[${cIdx}]`,
-          );
-          const resStatusResult = decodeApplyPatchResultStatusWire(
-            oItem.status,
-            `input[${oIdx}]`,
-          );
-          const resOutputResult = decodeApplyPatchResultOutputWire(
-            oItem.output,
-            `input[${oIdx}]`,
-          );
+        const callOpResult = decodeApplyPatchOperationWire(
+          cItem.operation,
+          `input[${cIdx}]`,
+        );
+        const callStatusResult = decodeApplyPatchCallStatusWire(
+          cItem.status,
+          `input[${cIdx}]`,
+        );
+        const resStatusResult = decodeApplyPatchResultStatusWire(
+          oItem.status,
+          `input[${oIdx}]`,
+        );
+        const resOutputResult = decodeApplyPatchResultOutputWire(
+          oItem.output,
+          `input[${oIdx}]`,
+        );
 
-          const hasCallLoss =
-            callOpResult.loss !== undefined ||
-            callStatusResult.loss !== undefined;
-          const hasResLoss = resStatusResult.loss !== undefined;
+        const hasCallLoss =
+          callOpResult.loss !== undefined ||
+          callStatusResult.loss !== undefined;
+        const hasResLoss = resStatusResult.loss !== undefined;
 
-          if (hasCallLoss || hasResLoss) {
-            dropped.add(cIdx);
-            dropped.add(oIdx);
-            if (hasCallLoss) {
-              if (callOpResult.loss) losses.push(callOpResult.loss);
-              if (callStatusResult.loss) losses.push(callStatusResult.loss);
-            } else {
-              losses.push(
-                loss(`input[${cIdx}]`, "type", "unsupported-semantic"),
-              );
-            }
-            if (hasResLoss) {
-              if (resStatusResult.loss) losses.push(resStatusResult.loss);
-            } else {
-              losses.push(
-                loss(`input[${oIdx}]`, "type", "unsupported-semantic"),
-              );
-            }
+        if (hasCallLoss || hasResLoss) {
+          dropped.add(cIdx);
+          dropped.add(oIdx);
+          if (hasCallLoss) {
+            if (callOpResult.loss) losses.push(callOpResult.loss);
+            if (callStatusResult.loss) losses.push(callStatusResult.loss);
           } else {
-            decodedCalls.set(cIdx, {
-              type: "apply_patch_tool_use",
-              id: string(cItem.call_id, `input[${cIdx}].call_id`),
-              status: callStatusResult.status!,
-              operation: callOpResult.operation!,
-            });
-            decodedResults.set(oIdx, {
-              type: "apply_patch_tool_result",
-              tool_use_id: string(oItem.call_id, `input[${oIdx}].call_id`),
-              status: resStatusResult.status!,
-              ...(resOutputResult.output !== undefined
-                ? { output: resOutputResult.output }
-                : {}),
-            });
+            losses.push(loss(`input[${cIdx}]`, "type", "unsupported-semantic"));
           }
+          if (hasResLoss) {
+            if (resStatusResult.loss) losses.push(resStatusResult.loss);
+          } else {
+            losses.push(loss(`input[${oIdx}]`, "type", "unsupported-semantic"));
+          }
+        } else {
+          decodedCalls.set(cIdx, {
+            type: "apply_patch_tool_use",
+            id: string(cItem.call_id, `input[${cIdx}].call_id`),
+            status: callStatusResult.status!,
+            operation: callOpResult.operation!,
+          });
+          decodedResults.set(oIdx, {
+            type: "apply_patch_tool_result",
+            tool_use_id: string(oItem.call_id, `input[${oIdx}].call_id`),
+            status: resStatusResult.status!,
+            ...(resOutputResult.output !== undefined
+              ? { output: resOutputResult.output }
+              : {}),
+          });
         }
       }
     }
@@ -653,7 +610,7 @@ function decodeApplyPatchOperationWire(
     isJsonArray(wire) ||
     isJsonNumber(wire)
   ) {
-    return { loss: loss(path, "operation", "unsupported-semantic") };
+    fail(`${path}.operation is required`);
   }
   const type = string(wire.type, `${path}.operation.type`);
   switch (type) {
@@ -682,8 +639,8 @@ function decodeApplyPatchCallStatusWire(
   status: JsonValue | undefined,
   path: string,
 ): { status?: "in_progress" | "completed"; loss?: Loss } {
-  if (typeof status !== "string") {
-    return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+  if (typeof status !== "string" || status === "") {
+    fail(`${path}.status is required`);
   }
   if (status === "in_progress" || status === "completed") {
     return { status };
@@ -695,8 +652,8 @@ function decodeApplyPatchResultStatusWire(
   status: JsonValue | undefined,
   path: string,
 ): { status?: "completed" | "failed"; loss?: Loss } {
-  if (typeof status !== "string") {
-    return { loss: loss(`${path}.status`, "status", "unmapped-value") };
+  if (typeof status !== "string" || status === "") {
+    fail(`${path}.status is required`);
   }
   if (status === "completed" || status === "failed") {
     return { status };
@@ -840,6 +797,7 @@ function decodeResponseObject(
           ),
         );
     } else if (item.type === "apply_patch_call") {
+      nonEmptyString(item.id, `output[${index}].id`);
       const statusResult = decodeApplyPatchCallStatusWire(
         item.status,
         `output[${index}]`,
@@ -863,6 +821,7 @@ function decodeResponseObject(
         operation: opResult.operation!,
       });
     } else if (item.type === "apply_patch_call_output") {
+      nonEmptyString(item.id, `output[${index}].id`);
       const statusResult = decodeApplyPatchResultStatusWire(
         item.status,
         `output[${index}]`,

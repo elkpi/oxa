@@ -20,6 +20,11 @@ The JSON shape of every type in this document is defined normatively by
 [`spec/schema/ir.schema.json`](schema/ir.schema.json). The document and the
 schema MUST agree (INV-9).
 
+规范 2.2 的 Custom Tools 扩展由 [13](13-custom-tools.md) 定义：新增
+`custom_tool_use`、`custom_tool_result` Block 和 `custom_tool_input_delta`
+Delta，扩展 Tool/ToolChoice 与 INV-1、INV-3、INV-4、INV-5。
+下文既有类型保持有效；IR 文档 contract 保持 `0.2.0`（兼容读取 `0.1.0`）。
+
 ## 2. Conventions
 
 - **Type and field names.** Types are named in the Go reference style
@@ -55,7 +60,7 @@ A conversation to be sent to a model, face-neutral.
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| — | `specVersion` | const `"0.1.0"` | yes | document-layer field (§6); not part of in-memory types |
+| — | `specVersion` | enum `"0.1.0"` \| `"0.2.0"` | yes | document-layer field (§6); not part of in-memory types |
 | `Model` | `model` | string | yes | non-empty; opaque, passed through verbatim (document [03](03-model-handling.md)) |
 | `System` | `system` | `[]SystemBlock` | no | absent means no system prompt |
 | `Messages` | `messages` | `[]Message` | yes, ≥ 1 | INV-2 through INV-4 |
@@ -90,6 +95,8 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `ToolUseBlock` | `tool_use` | a tool invocation produced by the model |
 | `ToolResultBlock` | `tool_result` | the outcome of a tool invocation, supplied by the caller |
 | `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
+| `CustomToolUseBlock` | `custom_tool_use` | 任意文本输入的自定义工具调用（2.2，见 spec/13） |
+| `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
 
 #### TextBlock
 
@@ -138,7 +145,9 @@ responsibility; consumers treat `data` as an opaque string.
 |----------|---------------|------|----------|-------|
 | `Name` | `name` | string | yes, non-empty | |
 | `Description` | `description` | string | no | |
-| `InputSchema` | `input_schema` | JSON object | yes | a JSON-Schema-shaped object, carried verbatim; MUST NOT be analyzed or rewritten |
+| `Type` | `type` | enum `function` \| `custom` | no | 缺省 function；旧 function 编码维持省略 |
+| `InputSchema` | `input_schema` | JSON object | iff function | a JSON-Schema-shaped object, carried verbatim; MUST NOT be analyzed or rewritten；custom MUST NOT 携带 |
+| `Format` | `format` | `CustomToolFormat` | no，限 custom | text 或 grammar（syntax 为 lark/regex，definition 为不透明字符串）；见 spec/13 |
 
 ### 3.6 ToolChoice
 
@@ -146,6 +155,7 @@ responsibility; consumers treat `data` as an opaque string.
 |----------|---------------|------|----------|
 | `Mode` | `mode` | enum `auto` \| `any` \| `tool` \| `none` | yes |
 | `Name` | `name` | string | yes iff `Mode == "tool"`, else MUST be absent; non-empty |
+| `ToolType` | `tool_type` | enum `function` \| `custom` | no；仅 Mode 为 tool 时允许，缺省 function |
 
 `tool` with `name` selects exactly one tool; the other modes carry no
 `name`.
@@ -185,7 +195,7 @@ When unspecified by caller, `response_format` is omitted from `Params`.
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| — | `specVersion` | const `"0.1.0"` | yes | document-layer field (§6) |
+| — | `specVersion` | enum `"0.1.0"` \| `"0.2.0"` | yes | document-layer field (§6) |
 | `ID` | `id` | string | yes, non-empty | provider-assigned response identifier |
 | `Model` | `model` | string | yes, non-empty | |
 | `Content` | `content` | `[]Block` | yes | MAY be empty (an event stream with zero blocks aggregates to this) |
@@ -261,6 +271,7 @@ The delta payload of `ContentBlockDelta`. Sealed; discriminated on the JSON `typ
 | `InputJSONDelta` | `input_json_delta` | `PartialJSON` |
 | `ThinkingDelta` | `thinking_delta` | `Text` |
 | `SignatureDelta` | `signature_delta` | `Signature` |
+| `CustomToolInputDelta` | `custom_tool_input_delta` | `Text`（JSON text 字段，任意字符串；仅 CustomToolUseBlock 接受） |
 
 | Go field | JSON property | Type | Notes |
 |----------|---------------|------|-------|
@@ -271,7 +282,8 @@ The delta payload of `ContentBlockDelta`. Sealed; discriminated on the JSON `typ
 Delta/block correspondence is fixed: a `TextBlock` admits only
 `TextDelta`; a `ToolUseBlock` admits only `InputJSONDelta`; a `ThinkingBlock`
 admits `thinking_delta*` followed by at most one `signature_delta`; an
-`ImageBlock` admits no deltas (INV-5).
+`ImageBlock` admits no deltas (INV-5)。自 2.2 起，`CustomToolUseBlock` 仅接受 `CustomToolInputDelta`，
+其 `text` 片段拼接 MUST 等于该块完整 `input`；不得复用 InputJSONDelta。
 
 ### 5.3 EventStream
 
@@ -281,7 +293,7 @@ vectors), the sequence is wrapped once:
 
 | JSON property | Type | Required | Notes |
 |---------------|------|----------|-------|
-| `specVersion` | const `"0.1.0"` | yes | document-layer field (§6) |
+| `specVersion` | enum `"0.1.0"` \| `"0.2.0"` | yes | document-layer field (§6) |
 | `events` | `[]Event` | yes, ≥ 3 | the minimum valid stream is `message_start`, `message_delta`, `message_done` |
 
 ## 6. JSON documents
@@ -311,7 +323,9 @@ conversion path; it is copied as an opaque string. Comparison of
 `tool_use.input` is by exact string equality; the JSON inside it is never
 structurally compared (INV-7 applies to the IR tree, and `input` is a
 string leaf). The same rule applies to `input_json_delta.partial_json` and
-to `thinking.signature` / `signature_delta.signature`.
+to `thinking.signature` / `signature_delta.signature`。自 2.2 起，同样的不透明字符串纪律
+适用于 `custom_tool_use.input` 和 `custom_tool_input_delta.text`；这两个字段的内容
+是任意文本，不要求为 JSON，也不得尝试按 JSON 解析。
 
 **INV-2 — First message is user.** In a `Request`, `messages[0].role` MUST
 be `user`.
@@ -330,7 +344,10 @@ answering one assistant message MUST be carried in a single user message.
 When a source face presents them as separate messages (for example,
 consecutive Chat Completions `tool` messages), the face → IR converter
 MUST merge them into one IR user message; IR → face converters MUST NOT
-expect them split.
+expect them split。
+
+自 2.2 起，INV-3/4 同时包含 CustomToolUseBlock/CustomToolResultBlock；function 与 custom
+可以混合，但 call_id、调用类别及相对顺序必须一一匹配。详见 spec/13 §2。
 
 **INV-5 — Event grammar.** An IR event stream MUST have exactly this
 shape:

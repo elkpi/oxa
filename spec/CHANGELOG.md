@@ -5,7 +5,16 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## Unreleased
+## 2.2.0 - Unreleased
+
+### Added
+
+- [13 — Custom Tools](13-custom-tools.md) 定义独立的 custom 调用/结果 Block 和文本 Delta，扩展 Tool/ToolChoice 及 INV-1/3/4/5。
+- Responses 非流式与流式双向映射，含任意文本、grammar、内容列表、关联及不支持目标的显式 loss。
+- IR contract 保持 `0.2.0`（兼容读取 `0.1.0`）；新增 20 个共享向量，总数 205。
+- 规划在后续版本（如 2.3.0）补齐 Chat Completions 与 Anthropic Messages 的对等能力支持。
+
+## 2.1.x - Unreleased
 
 ### Added
 

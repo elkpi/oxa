@@ -2,6 +2,10 @@
 
 Status: normative. The current spec version is declared in [README.md](README.md).
 
+规范 2.2 的 Responses custom 输入流式扩展见 [13 §4](13-custom-tools.md#4-流式--n-c-4)。
+该扩展复用 M7 缓存模型，使用独立的 custom_tool_input_delta，而非 input_json_delta；
+旧版关于其他非 function 工具不支持的规则不再适用于已建模的 custom 调用。
+
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
 document are to be interpreted as described in RFC 2119 and RFC 8174 when,

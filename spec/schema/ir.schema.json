@@ -80,7 +80,67 @@
         { "$ref": "#/$defs/imageBlock" },
         { "$ref": "#/$defs/toolUseBlock" },
         { "$ref": "#/$defs/toolResultBlock" },
-        { "$ref": "#/$defs/thinkingBlock" }
+        { "$ref": "#/$defs/thinkingBlock" },
+        { "$ref": "#/$defs/customToolUseBlock" },
+        { "$ref": "#/$defs/customToolResultBlock" }
+      ]
+    },
+    "customToolUseBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "custom_tool_use" },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1 },
+        "input": { "type": "string" }
+      },
+      "required": ["type", "id", "name", "input"],
+      "additionalProperties": false
+    },
+    "customToolResultBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "custom_tool_result" },
+        "tool_use_id": { "type": "string", "minLength": 1 },
+        "output": {
+          "oneOf": [
+            { "type": "string" },
+            { "type": "array", "items": { "oneOf": [
+              { "$ref": "#/$defs/textBlock" },
+              { "$ref": "#/$defs/imageBlock" }
+            ] } }
+          ]
+        }
+      },
+      "required": ["type", "tool_use_id", "output"],
+      "additionalProperties": false
+    },
+    "customToolInputDelta": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "custom_tool_input_delta" },
+        "text": { "type": "string" }
+      },
+      "required": ["type", "text"],
+      "additionalProperties": false
+    },
+    "customToolFormat": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "type": { "const": "text" } },
+          "required": ["type"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "grammar" },
+            "syntax": { "enum": ["lark", "regex"] },
+            "definition": { "type": "string" }
+          },
+          "required": ["type", "syntax", "definition"],
+          "additionalProperties": false
+        }
       ]
     },
     "textBlock": {
@@ -171,17 +231,33 @@
       "additionalProperties": false
     },
     "tool": {
-      "type": "object",
-      "properties": {
-        "name": { "type": "string", "minLength": 1 },
-        "description": { "type": "string" },
-        "input_schema": {
+      "oneOf": [
+        {
           "type": "object",
-          "description": "JSON-Schema-shaped object carried verbatim; never analyzed or rewritten."
+          "properties": {
+            "type": { "const": "function" },
+            "name": { "type": "string", "minLength": 1 },
+            "description": { "type": "string" },
+            "input_schema": {
+              "type": "object",
+              "description": "JSON-Schema-shaped object carried verbatim; never analyzed or rewritten."
+            }
+          },
+          "required": ["name", "input_schema"],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "custom" },
+            "name": { "type": "string", "minLength": 1 },
+            "description": { "type": "string" },
+            "format": { "$ref": "#/$defs/customToolFormat" }
+          },
+          "required": ["type", "name"],
+          "additionalProperties": false
         }
-      },
-      "required": ["name", "input_schema"],
-      "additionalProperties": false
+      ]
     },
     "toolChoice": {
       "description": "Tool choice (spec/01 s3.6); name is required iff mode is \"tool\".",
@@ -208,7 +284,8 @@
           "type": "object",
           "properties": {
             "mode": { "const": "tool" },
-            "name": { "type": "string", "minLength": 1 }
+            "name": { "type": "string", "minLength": 1 },
+            "tool_type": { "enum": ["function", "custom"] }
           },
           "required": ["mode", "name"],
           "additionalProperties": false
@@ -436,7 +513,8 @@
         { "$ref": "#/$defs/textDelta" },
         { "$ref": "#/$defs/inputJSONDelta" },
         { "$ref": "#/$defs/thinkingDelta" },
-        { "$ref": "#/$defs/signatureDelta" }
+        { "$ref": "#/$defs/signatureDelta" },
+        { "$ref": "#/$defs/customToolInputDelta" }
       ]
     },
     "textDelta": {

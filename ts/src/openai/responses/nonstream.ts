@@ -22,6 +22,7 @@ import type {
   Request,
   Response,
   ResponseFormat,
+  Tool,
   ToolChoice,
   ToolResultBlock,
 } from "../../ir/index.js";
@@ -89,29 +90,48 @@ function decodeRequestObject(
       type: "text",
       text: string(wire.instructions, "instructions"),
     });
-  const tools = optionalArray(wire.tools, "tools").flatMap((entry, index) => {
-    const tool = object(entry, `tools[${index}]`);
-    if (tool.type !== "function") {
-      losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
-      return [];
-    }
-    if (tool.strict !== undefined)
-      losses.push(loss(`tools[${index}].strict`, "strict", "unmapped-field"));
-    return [
-      {
-        name: string(tool.name, `tools[${index}].name`),
-        ...(tool.description === undefined
-          ? {}
-          : {
-              description: string(
-                tool.description,
-                `tools[${index}].description`,
-              ),
-            }),
-        input_schema: object(tool.parameters, `tools[${index}].parameters`),
-      },
-    ];
-  });
+  const tools = optionalArray(wire.tools, "tools").flatMap<Tool>(
+    (entry, index) => {
+      const tool = object(entry, `tools[${index}]`);
+      const name = nonEmptyString(tool.name, `tools[${index}].name`);
+      const description =
+        tool.description === undefined
+          ? undefined
+          : string(tool.description, `tools[${index}].description`);
+      if (tool.type === "custom") {
+        const format =
+          tool.format === undefined
+            ? undefined
+            : decodeCustomToolFormat(
+                tool.format,
+                losses,
+                `tools[${index}].format`,
+              );
+        if (tool.format !== undefined && format === undefined) return [];
+        return [
+          {
+            type: "custom" as const,
+            name,
+            ...(description === undefined ? {} : { description }),
+            ...(format === undefined ? {} : { format }),
+          },
+        ];
+      }
+      if (tool.type !== "function") {
+        losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
+        return [];
+      }
+      if (tool.strict !== undefined)
+        losses.push(loss(`tools[${index}].strict`, "strict", "unmapped-field"));
+      return [
+        {
+          name,
+          ...(description === undefined ? {} : { description }),
+          input_schema: object(tool.parameters, `tools[${index}].parameters`),
+        },
+      ];
+    },
+  );
   const toolChoice = decodeToolChoice(wire.tool_choice, losses);
   const messages: Message[] = [];
   if (typeof wire.input === "string") {
@@ -129,6 +149,7 @@ function decodeRequestObject(
           : string(item.type, `input[${index}].type`);
       if (
         type === "function_call" ||
+        type === "custom_tool_call" ||
         type === "reasoning" ||
         (type === "message" && item.role === "assistant")
       ) {
@@ -170,11 +191,21 @@ function decodeRequestObject(
           if (currentType === "function_call") {
             calls.push({
               type: "tool_use",
-              id: string(current.call_id, `input[${index}].call_id`),
-              name: string(current.name, `input[${index}].name`),
+              id: nonEmptyString(current.call_id, `input[${index}].call_id`),
+              name: nonEmptyString(current.name, `input[${index}].name`),
               input: jsonText(
                 string(current.arguments, `input[${index}].arguments`),
               ),
+            });
+            index += 1;
+            continue;
+          }
+          if (currentType === "custom_tool_call") {
+            calls.push({
+              type: "custom_tool_use",
+              id: nonEmptyString(current.call_id, `input[${index}].call_id`),
+              name: nonEmptyString(current.name, `input[${index}].name`),
+              input: string(current.input, `input[${index}].input`),
             });
             index += 1;
             continue;
@@ -200,21 +231,43 @@ function decodeRequestObject(
         });
         continue;
       }
-      if (type === "function_call_output") {
+      if (
+        type === "function_call_output" ||
+        type === "custom_tool_call_output"
+      ) {
         const content: Block[] = [];
         while (index < items.length) {
           const current = object(items[index], `input[${index}]`);
-          if (current.type !== "function_call_output") break;
-          content.push({
-            type: "tool_result",
-            tool_use_id: string(current.call_id, `input[${index}].call_id`),
-            content: [
-              {
-                type: "text",
-                text: string(current.output, `input[${index}].output`),
-              },
-            ],
-          });
+          if (
+            current.type !== "function_call_output" &&
+            current.type !== "custom_tool_call_output"
+          )
+            break;
+          const callId = nonEmptyString(
+            current.call_id,
+            `input[${index}].call_id`,
+          );
+          if (current.type === "custom_tool_call_output")
+            content.push({
+              type: "custom_tool_result",
+              tool_use_id: callId,
+              output: decodeCustomOutput(
+                current.output,
+                `input[${index}].output`,
+                losses,
+              ),
+            });
+          else
+            content.push({
+              type: "tool_result",
+              tool_use_id: callId,
+              content: [
+                {
+                  type: "text",
+                  text: string(current.output, `input[${index}].output`),
+                },
+              ],
+            });
           index += 1;
         }
         messages.push({ role: "user", content });
@@ -410,9 +463,26 @@ function decodeResponseObject(
     } else if (item.type === "function_call") {
       calls.push({
         type: "tool_use",
-        id: string(item.call_id, `output[${index}].call_id`),
-        name: string(item.name, `output[${index}].name`),
+        id: nonEmptyString(item.call_id, `output[${index}].call_id`),
+        name: nonEmptyString(item.name, `output[${index}].name`),
         input: jsonText(string(item.arguments, `output[${index}].arguments`)),
+      });
+    } else if (item.type === "custom_tool_call") {
+      calls.push({
+        type: "custom_tool_use",
+        id: nonEmptyString(item.call_id, `output[${index}].call_id`),
+        name: nonEmptyString(item.name, `output[${index}].name`),
+        input: string(item.input, `output[${index}].input`),
+      });
+    } else if (item.type === "custom_tool_call_output") {
+      calls.push({
+        type: "custom_tool_result",
+        tool_use_id: nonEmptyString(item.call_id, `output[${index}].call_id`),
+        output: decodeCustomOutput(
+          item.output,
+          `output[${index}].output`,
+          losses,
+        ),
       });
     } else {
       losses.push(loss(`output[${index}]`, "type", "unsupported-semantic"));
@@ -424,7 +494,11 @@ function decodeResponseObject(
     stopReason = "other";
     losses.push(loss("error", "error", "unsupported-semantic"));
   } else if (status === "completed") {
-    stopReason = calls.length > 0 ? "tool_use" : "end_turn";
+    stopReason = calls.some(
+      (block) => block.type === "tool_use" || block.type === "custom_tool_use",
+    )
+      ? "tool_use"
+      : "end_turn";
   } else if (status === "incomplete") {
     const details =
       wire.incomplete_details === undefined || wire.incomplete_details === null
@@ -535,6 +609,13 @@ export function encodeRequest(
             name: block.name,
             arguments: block.input,
           });
+        } else if (block.type === "custom_tool_use") {
+          calls.push({
+            type: "custom_tool_call",
+            call_id: block.id,
+            name: block.name,
+            input: block.input,
+          });
         } else
           losses.push(
             loss(
@@ -570,14 +651,27 @@ export function encodeRequest(
       ? object(items[0], "input[0]").content
       : undefined;
   const tools =
-    request.tools?.map((tool) => ({
-      type: "function",
-      name: tool.name,
-      ...(tool.description === undefined
-        ? {}
-        : { description: tool.description }),
-      parameters: tool.input_schema,
-    })) ?? [];
+    request.tools?.map((tool) =>
+      tool.type === "custom"
+        ? {
+            type: "custom",
+            name: tool.name,
+            ...(tool.description === undefined
+              ? {}
+              : { description: tool.description }),
+            ...(tool.format === undefined
+              ? {}
+              : { format: encodeCustomToolFormat(tool.format) }),
+          }
+        : {
+            type: "function",
+            name: tool.name,
+            ...(tool.description === undefined
+              ? {}
+              : { description: tool.description }),
+            parameters: tool.input_schema,
+          },
+    ) ?? [];
   const toolChoice = encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   if (params?.stop_sequences !== undefined && params.stop_sequences.length > 0)
@@ -643,6 +737,25 @@ export function encodeResponse(
         call_id: block.id,
         name: block.name,
         arguments: block.input,
+      });
+    } else if (block.type === "custom_tool_use") {
+      calls.push({
+        type: "custom_tool_call",
+        id: "ctc_abc123",
+        call_id: block.id,
+        name: block.name,
+        input: block.input,
+      });
+    } else if (block.type === "custom_tool_result") {
+      calls.push({
+        type: "custom_tool_call_output",
+        id: "ctco_abc123",
+        call_id: block.tool_use_id,
+        output: encodeCustomOutput(
+          block.output,
+          `content[${index}].output`,
+          losses,
+        ),
       });
     } else
       losses.push(loss(`content[${index}]`, "content", "unsupported-semantic"));
@@ -736,13 +849,17 @@ function encodeUserMessage(
   losses: Loss[],
 ): void {
   const normal: Block[] = [];
-  const results: { readonly block: ToolResultBlock; readonly index: number }[] =
-    [];
+  const results: {
+    readonly block:
+      | ToolResultBlock
+      | Extract<Block, { type: "custom_tool_result" }>;
+    readonly index: number;
+  }[] = [];
   let firstNormal = -1;
   let lastResult = -1;
   for (let index = 0; index < message.content.length; index += 1) {
     const block = message.content[index]!;
-    if (block.type === "tool_result") {
+    if (block.type === "tool_result" || block.type === "custom_tool_result") {
       results.push({ block, index });
       lastResult = index;
     } else {
@@ -753,6 +870,18 @@ function encodeUserMessage(
   if (firstNormal >= 0 && firstNormal < lastResult)
     losses.push(loss(`messages[${messageIndex}]`, "ordering", "degraded"));
   for (const result of results) {
+    if (result.block.type === "custom_tool_result") {
+      items.push({
+        type: "custom_tool_call_output",
+        call_id: result.block.tool_use_id,
+        output: encodeCustomOutput(
+          result.block.output,
+          `messages[${messageIndex}].content[${result.index}].output`,
+          losses,
+        ),
+      });
+      continue;
+    }
     let output = "";
     for (let index = 0; index < result.block.content.length; index += 1) {
       const block = result.block.content[index]!;
@@ -789,6 +918,97 @@ function encodeUserMessage(
         losses,
       ),
     });
+}
+
+function decodeCustomToolFormat(
+  value: JsonValue,
+  losses: Loss[],
+  path: string,
+): import("../../ir/index.js").CustomToolFormat | undefined {
+  const format = object(value, path);
+  if (format.type === "text") return { type: "text" };
+  if (format.type !== "grammar") {
+    losses.push(loss(`${path}.type`, "type", "unsupported-semantic"));
+    return undefined;
+  }
+  const syntax = string(format.syntax, `${path}.syntax`);
+  if (syntax !== "lark" && syntax !== "regex") {
+    losses.push(loss(`${path}.syntax`, "syntax", "unsupported-semantic"));
+    return undefined;
+  }
+  return {
+    type: "grammar",
+    syntax,
+    definition: string(format.definition, `${path}.definition`),
+  };
+}
+function encodeCustomToolFormat(
+  format: import("../../ir/index.js").CustomToolFormat,
+): JsonObject {
+  return format.type === "text"
+    ? { type: "text" }
+    : { type: "grammar", syntax: format.syntax, definition: format.definition };
+}
+function decodeCustomOutput(
+  value: JsonValue | undefined,
+  path: string,
+  losses: Loss[],
+): string | import("../../ir/index.js").CustomToolResultOutput {
+  if (typeof value === "string") return value;
+  const parts = array(value, path);
+  const output: (Extract<Block, { type: "text" }> | ImageBlock)[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const part = object(parts[i], `${path}[${i}]`);
+    if (part.type === "input_text") {
+      output.push({
+        type: "text",
+        text: string(part.text, `${path}[${i}].text`),
+      });
+      continue;
+    }
+    if (part.type === "input_image") {
+      const raw = part.image_url;
+      const url =
+        typeof raw === "string"
+          ? raw
+          : string(
+              object(raw, `${path}[${i}].image_url`).url,
+              `${path}[${i}].image_url.url`,
+            );
+      const image = decodeImage(url);
+      if (image === undefined)
+        losses.push(
+          loss(`${path}[${i}].image_url`, "image_url", "unsupported-semantic"),
+        );
+      else output.push(image);
+      if (part.detail !== undefined)
+        losses.push(loss(`${path}[${i}].detail`, "detail", "unmapped-field"));
+      continue;
+    }
+    losses.push({
+      path: `${path}[${i}]`,
+      field: "type",
+      reason: "unsupported-semantic",
+      detail: "custom tool output content is not supported",
+    });
+  }
+  return output;
+}
+function encodeCustomOutput(
+  value: string | import("../../ir/index.js").CustomToolResultOutput,
+  path: string,
+  losses: Loss[],
+): JsonValue {
+  if (typeof value === "string") return value;
+  return value.flatMap<JsonValue>((part, i) => {
+    if (part.type === "text") return [{ type: "input_text", text: part.text }];
+    const image = encodeImage(part);
+    if (image === undefined) {
+      losses.push(loss(`${path}[${i}]`, "image", "unsupported-semantic"));
+      return [];
+    }
+    return [{ type: "input_image", image_url: image }];
+  });
 }
 
 function decodeContent(
@@ -917,11 +1137,15 @@ function decodeToolChoice(
     typeof value === "object" &&
     !isJsonArray(value) &&
     !isJsonNumber(value) &&
-    value.type === "function" &&
+    (value.type === "function" || value.type === "custom") &&
     typeof value.name === "string" &&
     value.name !== ""
   )
-    return { mode: "tool", name: value.name };
+    return {
+      mode: "tool",
+      name: value.name,
+      ...(value.type === "custom" ? { tool_type: "custom" } : {}),
+    };
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }
@@ -934,7 +1158,10 @@ function encodeToolChoice(
   if (value.mode === "auto" || value.mode === "none") return value.mode;
   if (value.mode === "any") return "required";
   if (value.mode === "tool" && value.name !== "")
-    return { type: "function", name: value.name };
+    return {
+      type: value.tool_type === "custom" ? "custom" : "function",
+      name: value.name,
+    };
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }

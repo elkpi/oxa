@@ -18,7 +18,7 @@ def find_repo_root(start_dir: Path | str | None = None) -> Path | None:
     current = current.resolve()
 
     while True:
-        if (current / "vectors").is_dir() and (current / ".git").is_dir():
+        if (current / "vectors").is_dir() and (current / ".git").exists():
             return current
         if current.parent == current:
             return None

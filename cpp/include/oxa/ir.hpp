@@ -38,6 +38,8 @@ inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
+inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use";
+inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_ANY = "any";
@@ -62,6 +64,7 @@ inline constexpr std::string_view DELTA_TYPE_TEXT_DELTA = "text_delta";
 inline constexpr std::string_view DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta";
 inline constexpr std::string_view DELTA_TYPE_THINKING_DELTA = "thinking_delta";
 inline constexpr std::string_view DELTA_TYPE_SIGNATURE_DELTA = "signature_delta";
+inline constexpr std::string_view DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA = "custom_tool_input_delta";
 
 inline constexpr std::string_view LOSS_UNMAPPED_FIELD = "unmapped-field";
 inline constexpr std::string_view LOSS_UNMAPPED_VALUE = "unmapped-value";
@@ -99,7 +102,14 @@ struct ToolResultBlock {
     bool is_error = false;
 };
 
-using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock>;
+struct CustomToolUseBlock { std::string id; std::string name; std::string input; };
+struct CustomToolResultBlock {
+    std::string tool_use_id;
+    std::variant<std::string, std::vector<struct BlockHolder>> output;
+};
+
+using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock,
+                           CustomToolUseBlock, CustomToolResultBlock>;
 
 struct BlockHolder {
     Block block;
@@ -119,11 +129,18 @@ struct Tool {
     std::string description;  // empty means absent
     bool has_description = false;
     json::Value input_schema;
+    std::string type = "function";
+    std::optional<json::Value> format;
 };
 
 struct ToolChoice {
     std::string mode;
     std::optional<std::string> name;
+    std::optional<std::string> tool_type;
+
+    ToolChoice() = default;
+    ToolChoice(std::string m, std::optional<std::string> n = std::nullopt, std::optional<std::string> tt = std::nullopt)
+        : mode(std::move(m)), name(std::move(n)), tool_type(std::move(tt)) {}
 };
 
 struct ResponseFormat {
@@ -207,6 +224,8 @@ struct InputJsonDelta {
     std::string partial_json;
 };
 
+struct CustomToolInputDelta { std::string text; };
+
 struct ThinkingDelta {
     std::string text;
 };
@@ -215,7 +234,7 @@ struct SignatureDelta {
     std::string signature;
 };
 
-using Delta = std::variant<TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta>;
+using Delta = std::variant<TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta, CustomToolInputDelta>;
 
 struct MessageStart {
     std::string id;

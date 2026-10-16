@@ -15,6 +15,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req == nil {
 		return nil, nil, fmt.Errorf("responses: nil request")
 	}
+	if err := ir.ValidateCustomConversation(req); err != nil {
+		return nil, nil, err
+	}
 	var losses []ir.Loss
 	if len(req.Metadata) > 0 {
 		losses = append(losses, loss(
@@ -34,6 +37,18 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolDef, 0, len(req.Tools))
 		for _, tool := range req.Tools {
+			if tool.Type == ir.ToolTypeCustom {
+				if len(tool.InputSchema) > 0 {
+					return nil, nil, fmt.Errorf("responses: custom tool cannot carry input_schema")
+				}
+				if tool.Format != nil {
+					if _, err := json.Marshal(tool.Format); err != nil {
+						return nil, nil, err
+					}
+				}
+				out.Tools = append(out.Tools, ToolDef{Type: ToolTypeCustom, Name: tool.Name, Description: tool.Description, Format: encodeCustomFormat(tool.Format)})
+				continue
+			}
 			out.Tools = append(out.Tools, ToolDef{
 				Type:        ToolTypeFunction,
 				Name:        tool.Name,
@@ -132,11 +147,14 @@ func encodeTextFormat(rf *ir.ResponseFormat) *TextFormatWire {
 func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]ir.Loss, error) {
 	var losses []ir.Loss
 	var normal []ir.Block
-	var results []ir.ToolResultBlock
+	var results []ir.Block
+	var resultIndexes []int
 	lastResult, firstNormal := -1, -1
 	for k, block := range message.Content {
-		if result, ok := block.(ir.ToolResultBlock); ok {
-			results = append(results, result)
+		switch block.(type) {
+		case ir.ToolResultBlock, ir.CustomToolResultBlock:
+			results = append(results, block)
+			resultIndexes = append(resultIndexes, k)
 			lastResult = k
 			continue
 		}
@@ -151,7 +169,18 @@ func encodeUserMessage(items *[]InputItem, message ir.Message, path string) ([]i
 			"N-R-10: function_call_output items are hoisted ahead of the trailing user content; source order is not preserved",
 		))
 	}
-	for j, result := range results {
+	for j, resultBlock := range results {
+		j = resultIndexes[j]
+		if custom, ok := resultBlock.(ir.CustomToolResultBlock); ok {
+			output, outputLosses, err := encodeCustomOutput(custom.Output, fmt.Sprintf("%s.content[%d].output", path, j))
+			if err != nil {
+				return nil, err
+			}
+			losses = append(losses, outputLosses...)
+			*items = append(*items, InputItem{Type: ItemTypeCustomToolCallOutput, CallID: custom.ToolUseID, Output: output})
+			continue
+		}
+		result := resultBlock.(ir.ToolResultBlock)
 		output := ""
 		for k, block := range result.Content {
 			if text, ok := block.(ir.TextBlock); ok {
@@ -242,6 +271,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 					"Responses request reasoning items carry no provider signature",
 				))
 			}
+		case ir.CustomToolUseBlock:
+			input, err := unwrapToolArguments(value.Input)
+			if err != nil {
+				return nil, err
+			}
+			calls = append(calls, InputItem{Type: ItemTypeCustomToolCall, CallID: value.ID, Name: value.Name, Input: &input})
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {
@@ -302,6 +337,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 					"Responses reasoning items carry no provider signature",
 				))
 			}
+		case ir.CustomToolUseBlock:
+			input, err := unwrapToolArguments(value.Input)
+			if err != nil {
+				return nil, nil, err
+			}
+			output = append(output, OutputItem{Type: ItemTypeCustomToolCall, ID: "ctc_abc123", CallID: value.ID, Name: value.Name, Input: &input})
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {

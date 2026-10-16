@@ -14,6 +14,8 @@ from oxa.ir import (
     TOOL_CHOICE_NONE,
     TOOL_CHOICE_TOOL,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -35,6 +37,8 @@ from oxa.ir import (
 from oxa.openai.responses.constants import (
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_CUSTOM_TOOL_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
     PART_TYPE_INPUT_IMAGE,
@@ -43,6 +47,7 @@ from oxa.openai.responses.constants import (
     ROLE_ASSISTANT,
     ROLE_USER,
     TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_CUSTOM,
 )
 from oxa.openai.responses.constants import (
     TOOL_CHOICE_AUTO as RESP_TOOL_CHOICE_AUTO,
@@ -183,13 +188,13 @@ def decode_assistant_run(
             index += 1
             continue
         if kind == ITEM_TYPE_FUNCTION_CALL:
-            calls.append(
-                ToolUseBlock(
-                    id=item.get("call_id", ""),
-                    name=item.get("name", ""),
-                    input=item.get("arguments", ""),
-                )
-            )
+            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
+            index += 1
+            continue
+        if kind == ITEM_TYPE_CUSTOM_TOOL_CALL:
+            if "input" not in item:
+                raise ValueError(f"responses: input[{index}].input is missing")
+            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item["input"]))
             index += 1
             continue
 
@@ -207,25 +212,44 @@ def decode_assistant_run(
     return IrMessage(role=IR_ROLE_ASSISTANT, content=content), index, losses
 
 
-def decode_output_run(
-    items: list[dict[str, Any]],
-    start: int,
-) -> tuple[IrMessage, int]:
-    """N-R-6 merges a maximal function_call_output run into one user message."""
+def decode_output_run(items: list[dict[str, Any]], start: int) -> tuple[IrMessage, int, list[Loss]]:
+    """Merge maximal function/custom result runs into a single user turn."""
     content: list[Block] = []
+    losses: list[Loss] = []
     index = start
-    while index < len(items) and items[index].get("type") == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
+    while index < len(items) and items[index].get("type") in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT):
         item = items[index]
-        content.append(
-            ToolResultBlock(
-                tool_use_id=item.get("call_id", ""),
-                content=[TextBlock(text=item.get("output", ""))],
-                is_error=False,
-            )
-        )
+        if item.get("type") == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
+            content.append(ToolResultBlock(tool_use_id=item.get("call_id", ""), content=[TextBlock(text=item.get("output", ""))]))
+        else:
+            if "output" not in item:
+                raise ValueError(f"responses: input[{index}].output is missing")
+            output = item["output"]
+            if isinstance(output, str):
+                content.append(CustomToolResultBlock(tool_use_id=item.get("call_id", ""), output=output))
+            elif isinstance(output, list):
+                mapped: list[TextBlock | ImageBlock] = []
+                for part_index, part in enumerate(output):
+                    path = f"input[{index}].output[{part_index}]"
+                    if not isinstance(part, dict):
+                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+                        continue
+                    ptype = part.get("type", "")
+                    if ptype == PART_TYPE_INPUT_TEXT:
+                        mapped.append(TextBlock(text=part.get("text", "")))
+                    elif ptype == PART_TYPE_INPUT_IMAGE:
+                        image, img_loss = decode_image_url(part.get("image_url", ""), f"{path}.image_url")
+                        if img_loss is None and isinstance(image, ImageBlock):
+                            mapped.append(image)
+                        else:
+                            losses.append(img_loss)
+                    else:
+                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+                content.append(CustomToolResultBlock(tool_use_id=item.get("call_id", ""), output=mapped))
+            else:
+                raise ValueError(f"responses: input[{index}].output must be a string or array")
         index += 1
-    return IrMessage(role=IR_ROLE_USER, content=content), index
-
+    return IrMessage(role=IR_ROLE_USER, content=content), index, losses
 
 def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
     """N-R-9 maps Responses tool choice forms to the IR modes."""
@@ -249,16 +273,9 @@ def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
     if isinstance(value, dict):
         kind = value.get("type", "")
         name = value.get("name", "")
-        if kind == TOOL_TYPE_FUNCTION and name:
-            return ToolChoice(mode=TOOL_CHOICE_TOOL, name=name), []
-        return None, [
-            loss(
-                "tool_choice",
-                "tool_choice",
-                LOSS_UNSUPPORTED_SEMANTIC,
-                "only named function Responses tool_choice values are supported",
-            )
-        ]
+        if kind in (TOOL_TYPE_FUNCTION, TOOL_TYPE_CUSTOM) and name:
+            return ToolChoice(mode=TOOL_CHOICE_TOOL, name=name, tool_type=kind), []
+        return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "only named function or custom Responses tool_choice values are supported")]
     return None, [
         loss(
             "tool_choice",
@@ -280,10 +297,7 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[Any | None, Loss | No
         return RESP_TOOL_CHOICE_REQUIRED, None
     if choice.mode == TOOL_CHOICE_TOOL:
         if choice.name:
-            return {
-                "type": TOOL_TYPE_FUNCTION,
-                "name": choice.name,
-            }, None
+            return {"type": TOOL_TYPE_CUSTOM if choice.tool_type == "custom" else TOOL_TYPE_FUNCTION, "name": choice.name}, None
         return None, loss(
             "tool_choice",
             "tool_choice",
@@ -380,13 +394,13 @@ def encode_user_message(
     path: str,
 ) -> tuple[list[dict[str, Any]], list[Loss]]:
     normal: list[Block] = []
-    results: list[ToolResultBlock] = []
+    results: list[ToolResultBlock | CustomToolResultBlock] = []
     first_normal: int | None = None
     last_result: int | None = None
     losses: list[Loss] = []
 
     for pos, block in enumerate(message.content):
-        if isinstance(block, ToolResultBlock):
+        if isinstance(block, (ToolResultBlock, CustomToolResultBlock)):
             results.append(block)
             last_result = pos
         else:
@@ -406,6 +420,20 @@ def encode_user_message(
 
     items: list[dict[str, Any]] = []
     for index, res in enumerate(results):
+        if isinstance(res, CustomToolResultBlock):
+            if isinstance(res.output, str):
+                output = res.output
+            else:
+                output = []
+                for c_idx, inner in enumerate(res.output):
+                    if isinstance(inner, TextBlock):
+                        output.append({"type": PART_TYPE_INPUT_TEXT, "text": inner.text})
+                    elif isinstance(inner, ImageBlock):
+                        part, img_loss = encode_image_block(inner.media_type, inner.data, inner.url, f"{path}.content[{index}].output[{c_idx}]")
+                        if img_loss is not None: losses.append(img_loss)
+                        elif part is not None: output.append(part)
+            items.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, "call_id": res.tool_use_id, "output": output})
+            continue
         out_chunks: list[str] = []
         for c_idx, inner in enumerate(res.content):
             if isinstance(inner, TextBlock):
@@ -481,14 +509,9 @@ def encode_assistant_message(
                     )
                 )
         elif isinstance(block, ToolUseBlock):
-            calls.append(
-                {
-                    "type": ITEM_TYPE_FUNCTION_CALL,
-                    "call_id": block.id,
-                    "name": block.name,
-                    "arguments": block.input,
-                }
-            )
+            calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "call_id": block.id, "name": block.name, "arguments": block.input})
+        elif isinstance(block, CustomToolUseBlock):
+            calls.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": block.id, "name": block.name, "input": block.input})
         else:
             losses.append(
                 loss(

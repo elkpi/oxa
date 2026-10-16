@@ -17,7 +17,7 @@ class VectestHarnessTest(unittest.TestCase):
         self.assertIsNotNone(root)
         assert root is not None
         self.assertTrue((root / "vectors").is_dir())
-        self.assertTrue((root / ".git").is_dir())
+        self.assertTrue((root / ".git").exists())
 
     def test_load_vectors_loads_and_sorts(self) -> None:
         root = find_repo_root()
@@ -43,16 +43,16 @@ class VectestHarnessTest(unittest.TestCase):
             ("responses", "stream"),
         ):
             vectors.extend(load_vectors(root, face, mode))
-        self.assertEqual(len(vectors), 185)
-        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 34)
+        self.assertEqual(len(vectors), 205)
+        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 54)
 
-    def test_compare_json_treats_spec01_and_spec02_as_transitional_equivalents(self) -> None:
+    def test_compare_json_treats_supported_spec_versions_as_transitional_equivalents(self) -> None:
         compare_json(
             {"specVersion": "0.1.0", "nested": {"specVersion": "0.2.0"}},
             {"specVersion": "0.2.0", "nested": {"specVersion": "0.1.0"}},
         )
         with self.assertRaises(AssertionError):
-            compare_json({"specVersion": "0.2.0"}, {"specVersion": "0.3.0"})
+            compare_json({"specVersion": "0.1.0", "value": 1}, {"specVersion": "0.2.0", "value": 2})
 
     def test_compare_json_structural_equality(self) -> None:
         # Key order insensitive

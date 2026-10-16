@@ -14,6 +14,8 @@ from oxa.ir import (
     TOOL_CHOICE_NONE,
     TOOL_CHOICE_TOOL,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -262,11 +264,10 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[Any | None, Loss | No
     if choice.mode == TOOL_CHOICE_ANY:
         return CC_TOOL_CHOICE_REQUIRED, None
     if choice.mode == TOOL_CHOICE_TOOL:
+        if choice.tool_type == "custom":
+            return None, loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "custom tool_choice has no Chat Completions mapping")
         if choice.name:
-            return {
-                "type": TOOL_TYPE_FUNCTION,
-                "function": {"name": choice.name},
-            }, None
+            return {"type": TOOL_TYPE_FUNCTION, "function": {"name": choice.name}}, None
         return None, loss(
             "tool_choice",
             "tool_choice",
@@ -385,16 +386,9 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                     )
                 )
         elif isinstance(block, ToolUseBlock):
-            tool_calls.append(
-                {
-                    "id": block.id,
-                    "type": TOOL_TYPE_FUNCTION,
-                    "function": {
-                        "name": block.name,
-                        "arguments": block.input,
-                    },
-                }
-            )
+            tool_calls.append({"id": block.id, "type": TOOL_TYPE_FUNCTION, "function": {"name": block.name, "arguments": block.input}})
+        elif isinstance(block, (CustomToolUseBlock, CustomToolResultBlock)):
+            losses.append(loss(f"{path}[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Chat Completions mapping"))
         elif isinstance(block, ImageBlock):
             losses.append(
                 loss(

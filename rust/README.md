@@ -1,13 +1,13 @@
 # oxa Rust implementation
 
-The Rust workspace source is **2.1.2 (unreleased)**; the latest published
+The Rust workspace source is **2.2.0 (unreleased)**; the latest published
 version is **2.1.1**. Rust emits IR documents
 with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 185
-current Spec 2.x vectors against it, including Spec 2.1 structured outputs.
+oxa implementation — Rust gets no vector set of its own, and CI runs all 205
+current Spec 2.x vectors against it, including Spec 2.1 structured outputs and Spec 2.2 Custom Tools.
 
 ## Layout
 

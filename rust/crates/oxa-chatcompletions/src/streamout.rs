@@ -17,6 +17,7 @@ enum StreamBlockKind {
     Text,
     Thinking,
     Tool,
+    Custom,
 }
 
 struct StreamEncodeBlock {
@@ -41,6 +42,7 @@ pub struct StreamEncoder {
     next_ir_index: i64,
     next_native_tool: usize,
     tool_seen: bool,
+    custom_seen: bool,
     ordering_degrade: bool,
     pending_tools: Vec<Chunk>,
     finished: bool,
@@ -59,6 +61,7 @@ impl StreamEncoder {
             next_ir_index: 0,
             next_native_tool: 0,
             tool_seen: false,
+            custom_seen: false,
             ordering_degrade: false,
             pending_tools: Vec::new(),
             finished: false,
@@ -168,6 +171,29 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
+                    Block::CustomToolUse { .. } => {
+                        self.active = Some(StreamEncodeBlock {
+                            kind: StreamBlockKind::Custom,
+                            index: *index,
+                            tool_id: String::new(),
+                            tool_name: String::new(),
+                            tool_input: String::new(),
+                            fragments: Vec::new(),
+                            native_index: 0,
+                            tool_started: false,
+                            signature_seen: false,
+                        });
+                        self.custom_seen = true;
+                        Ok((
+                            Vec::new(),
+                            vec![loss(
+                                format!("events[{index}].block"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                "Chat Completions streaming does not support custom tools",
+                            )],
+                        ))
+                    }
                     _ => Err(Error::new(
                         "chatcompletions: ContentBlockStart carries unsupported block",
                     )),
@@ -185,6 +211,7 @@ impl StreamEncoder {
                     ));
                 }
                 match active.kind {
+                    StreamBlockKind::Custom => Ok((Vec::new(), Vec::new())),
                     StreamBlockKind::Text => {
                         let Delta::TextDelta { text } = delta else {
                             return Err(Error::new(
@@ -260,6 +287,9 @@ impl StreamEncoder {
                         "chatcompletions: ContentBlockStop out of grammar order",
                     ));
                 }
+                if active.kind == StreamBlockKind::Custom {
+                    return Ok((Vec::new(), Vec::new()));
+                }
                 if active.kind == StreamBlockKind::Tool {
                     let mut act = active;
                     if act.fragments.is_empty() {
@@ -293,8 +323,25 @@ impl StreamEncoder {
                     .ok_or_else(|| {
                         Error::new("chatcompletions: derived total_tokens exceeds int64")
                     })?;
-                let (finish, finish_loss) = encode_finish_reason(*stop_reason)?;
+                let effective_stop =
+                    if *stop_reason == oxa_ir::StopReason::ToolUse && !self.tool_seen {
+                        oxa_ir::StopReason::EndTurn
+                    } else {
+                        *stop_reason
+                    };
+                let (finish, finish_loss) = encode_finish_reason(effective_stop)?;
                 let mut losses = Vec::new();
+                if *stop_reason == oxa_ir::StopReason::ToolUse
+                    && !self.tool_seen
+                    && self.custom_seen
+                {
+                    losses.push(loss(
+                        "stop_reason",
+                        "stop_reason",
+                        LossReason::Degraded,
+                        "custom tool calls were dropped; stop_reason was degraded to end_turn",
+                    ));
+                }
                 if let Some(l) = finish_loss {
                     losses.push(l);
                 }

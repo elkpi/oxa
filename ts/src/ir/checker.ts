@@ -40,23 +40,34 @@ export function assertEventSequence(events: readonly Event[]): void {
             fail("thinking delta must precede signature delta");
           }
         }
-        if (event.delta.type === "input_json_delta")
+        if (
+          event.delta.type === "custom_tool_input_delta" &&
+          typeof event.delta.text !== "string"
+        )
+          fail("custom tool input delta text must be a string");
+        if (
+          event.delta.type === "input_json_delta" ||
+          event.delta.type === "custom_tool_input_delta"
+        )
           open = {
             ...open,
-            partialJson: open.partialJson + event.delta.partial_json,
+            partialJson:
+              open.partialJson +
+              (event.delta.type === "input_json_delta"
+                ? event.delta.partial_json
+                : event.delta.text),
             sawInputJsonDelta: true,
           };
         continue;
       }
       if (event.type === "content_block_stop" && event.index === open.index) {
         if (
-          open.block.type === "tool_use" &&
+          (open.block.type === "tool_use" ||
+            open.block.type === "custom_tool_use") &&
           open.sawInputJsonDelta &&
           open.partialJson !== open.block.input
         )
-          fail(
-            "tool input does not equal concatenated input_json_delta fragments",
-          );
+          fail("tool input does not equal concatenated input delta fragments");
         open = undefined;
         expectedIndex += 1;
         continue;
@@ -91,7 +102,9 @@ function matches(block: Block, delta: Delta): boolean {
     (block.type === "text" && delta.type === "text_delta") ||
     (block.type === "thinking" &&
       (delta.type === "thinking_delta" || delta.type === "signature_delta")) ||
-    (block.type === "tool_use" && delta.type === "input_json_delta")
+    (block.type === "tool_use" && delta.type === "input_json_delta") ||
+    (block.type === "custom_tool_use" &&
+      delta.type === "custom_tool_input_delta")
   );
 }
 

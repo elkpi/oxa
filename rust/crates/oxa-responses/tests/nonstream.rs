@@ -78,7 +78,7 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             InputItem {
                 kind: "function_call_output".to_string(),
                 call_id: "call_1".to_string(),
-                output: "Sunny".to_string(),
+                output: Some(oxa_responses::OutputValue::Text("Sunny".to_string())),
                 ..InputItem::default()
             },
             InputItem {

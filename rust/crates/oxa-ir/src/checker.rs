@@ -46,6 +46,7 @@ enum OpenBlock {
     Text,
     Thinking { signature_seen: bool },
     Tool(OpenTool),
+    CustomTool(OpenTool),
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -103,6 +104,22 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                             fragment_count: 0,
                         }),
                     ),
+                    Block::CustomToolUse { id, name, input } => {
+                        if id.is_empty() || name.is_empty() {
+                            return Err(violate(
+                                i,
+                                "custom_tool_use requires nonempty id and name",
+                            ));
+                        }
+                        (
+                            *index,
+                            OpenBlock::CustomTool(OpenTool {
+                                input: input.clone(),
+                                fragments: String::new(),
+                                fragment_count: 0,
+                            }),
+                        )
+                    }
                     other => {
                         return Err(violate(
                             i,
@@ -143,6 +160,10 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                         tool.fragments.push_str(partial_json);
                         tool.fragment_count += 1;
                     }
+                    (OpenBlock::CustomTool(tool), Delta::CustomToolInputDelta { text }) => {
+                        tool.fragments.push_str(text);
+                        tool.fragment_count += 1;
+                    }
                     _ => {
                         return Err(violate(
                             i,
@@ -166,7 +187,7 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                         ),
                     ));
                 }
-                if let OpenBlock::Tool(tool) = kind {
+                if let OpenBlock::Tool(tool) | OpenBlock::CustomTool(tool) = kind {
                     validate_tool_input(i, &tool, allow_synthesized)?;
                 }
             }
@@ -263,6 +284,8 @@ fn block_kind(block: &Block) -> &'static str {
         Block::Thinking { .. } => "thinking",
         Block::Image { .. } => "image",
         Block::ToolUse { .. } => "tool_use",
+        Block::CustomToolUse { .. } => "custom_tool_use",
+        Block::CustomToolResult { .. } => "custom_tool_result",
         Block::ToolResult { .. } => "tool_result",
     }
 }
@@ -271,6 +294,7 @@ fn delta_kind(delta: &Delta) -> &'static str {
     match delta {
         Delta::TextDelta { .. } => "text_delta",
         Delta::InputJsonDelta { .. } => "input_json_delta",
+        Delta::CustomToolInputDelta { .. } => "custom_tool_input_delta",
         Delta::ThinkingDelta { .. } => "thinking_delta",
         Delta::SignatureDelta { .. } => "signature_delta",
     }

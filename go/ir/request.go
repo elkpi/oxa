@@ -36,13 +36,21 @@ type Tool struct {
 	Name        string
 	Description string
 	InputSchema json.RawMessage
+	Type        string
+	Format      *CustomToolFormat
 }
+
+const (
+	ToolTypeFunction = "function"
+	ToolTypeCustom   = "custom"
+)
 
 // ToolChoice selects tool-usage behavior (spec/01 s3.6). Name is set iff Mode
 // is "tool".
 type ToolChoice struct {
-	Mode string // auto | any | tool | none
-	Name string
+	Mode     string // auto | any | tool | none
+	Name     string
+	ToolType string
 }
 
 const (

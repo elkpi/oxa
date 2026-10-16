@@ -5,6 +5,10 @@ face and the oxa intermediate representation (spec/01). It covers the
 non-streaming request and response conversion implemented by the Go spoke
 `go/openai/responses`. Streaming is out of scope here (see §6).
 
+规范 2.2 新增的 custom 工具声明、选择、调用与结果映射见
+[13 — Custom Tools](13-custom-tools.md)（N-C-1 至 N-C-5）；这些扩展与现有
+function 映射并存，不得通过名称或输入内容推断类型。
+
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" are to be
 interpreted as described in RFC 2119 and RFC 8174 (see

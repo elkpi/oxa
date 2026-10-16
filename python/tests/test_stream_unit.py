@@ -4,9 +4,18 @@ import unittest
 
 from oxa.anthropic.messages import (
     StreamDecoder as AnthropicStreamDecoder,
+    StreamEncoder as AnthropicStreamEncoder,
 )
 from oxa.ir import (
+    LOSS_DEGRADED,
+    LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
+    STOP_TOOL_USE,
+    ContentBlockDelta,
+    ContentBlockStart,
+    ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     MessageDelta,
     MessageDone,
     MessageStart,
@@ -14,6 +23,7 @@ from oxa.ir import (
 )
 from oxa.openai.chatcompletions import (
     StreamDecoder as ChatCompletionsStreamDecoder,
+    StreamEncoder as ChatCompletionsStreamEncoder,
 )
 from oxa.openai.responses import (
     StreamDecoder as ResponsesStreamDecoder,
@@ -24,6 +34,61 @@ from oxa.openai.responses import (
 
 
 class StreamUnitTests(unittest.TestCase):
+    def _responses_custom_open(self) -> ResponsesStreamDecoder:
+        dec = ResponsesStreamDecoder()
+        dec.feed({"type": "response.created", "response": {"id": "r", "model": "m"}})
+        dec.feed({"type": "response.output_item.added", "output_index": 0, "item": {"type": "custom_tool_call", "id": "ctc_0", "call_id": "c", "name": "exec", "input": ""}})
+        return dec
+
+    def test_responses_custom_done_snapshots_do_not_duplicate_deltas(self) -> None:
+        dec = self._responses_custom_open()
+        dec.feed({"type": "response.custom_tool_call_input.delta", "item_id": "ctc_0", "output_index": 0, "delta": "raw"})
+        dec.feed({"type": "response.custom_tool_call_input.done", "item_id": "ctc_0", "output_index": 0, "input": "raw"})
+        dec.feed({"type": "response.custom_tool_call_input.done", "item_id": "ctc_0", "output_index": 0, "input": "raw"})
+        events = dec.feed({"type": "response.output_item.done", "output_index": 0, "item": {"type": "custom_tool_call", "id": "ctc_0", "call_id": "c", "name": "exec", "input": "raw"}})
+        self.assertEqual(len(events), 3)
+        self.assertIsInstance(events[0].block, CustomToolUseBlock)
+        self.assertEqual(events[1].delta, CustomToolInputDelta(text="raw"))
+
+    def test_responses_custom_snapshot_conflicts_and_missing_fields_fail(self) -> None:
+        dec = self._responses_custom_open()
+        with self.assertRaises(ValueError):
+            dec.feed({"type": "response.custom_tool_call_input.delta", "item_id": "ctc_0", "output_index": 0})
+        with self.assertRaises(ValueError):
+            dec.feed({"type": "response.custom_tool_call_input.delta", "item_id": "ctc_0", "output_index": 0, "delta": None})
+        dec.feed({"type": "response.custom_tool_call_input.delta", "item_id": "ctc_0", "output_index": 0, "delta": ""})
+        dec.feed({"type": "response.custom_tool_call_input.done", "item_id": "ctc_0", "output_index": 0, "input": ""})
+        with self.assertRaises(ValueError):
+            dec.feed({"type": "response.custom_tool_call_input.done", "item_id": "ctc_0", "output_index": 0, "input": "x"})
+
+    def test_responses_custom_item_requires_added_input_and_done_snapshot(self) -> None:
+        dec = ResponsesStreamDecoder()
+        dec.feed({"type": "response.created", "response": {"id": "r", "model": "m"}})
+        with self.assertRaises(ValueError):
+            dec.feed({"type": "response.output_item.added", "output_index": 0, "item": {"type": "custom_tool_call", "id": "ctc_0", "call_id": "c", "name": "exec"}})
+        dec = self._responses_custom_open()
+        events = dec.feed({"type": "response.output_item.done", "output_index": 0, "item": {"type": "custom_tool_call", "id": "ctc_0", "call_id": "c", "name": "exec", "input": ""}})
+        self.assertEqual(events[1].delta, CustomToolInputDelta(text=""))
+
+    def test_unsupported_stream_encoders_absorb_custom_blocks_and_degrade_stop(self) -> None:
+        stream = [MessageStart(id="r", model="m"),
+                  ContentBlockStart(index=0, block=CustomToolUseBlock(id="c", name="exec", input="raw")),
+                  ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="raw")),
+                  ContentBlockStop(index=0),
+                  MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()), MessageDone()]
+        for encoder, terminal in ((ChatCompletionsStreamEncoder(), "stop"), (AnthropicStreamEncoder(), "end_turn")):
+            wire, losses = [], []
+            for event in stream:
+                emitted, event_losses = encoder.apply(event)
+                wire.extend(emitted)
+                losses.extend(event_losses)
+            self.assertEqual(sum(l.reason == LOSS_UNSUPPORTED_SEMANTIC for l in losses), 1)
+            self.assertEqual(sum(l.reason == LOSS_DEGRADED for l in losses), 1)
+            if terminal == "stop":
+                self.assertEqual(wire[-1]["choices"][0]["finish_reason"], "stop")
+            else:
+                self.assertEqual(wire[-2]["delta"]["stop_reason"], "end_turn")
+
     def test_chatcompletions_decoder_flush_twice_is_error(self) -> None:
         dec = ChatCompletionsStreamDecoder()
         dec.feed(

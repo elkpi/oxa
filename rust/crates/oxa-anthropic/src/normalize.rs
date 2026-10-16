@@ -268,18 +268,21 @@ pub(crate) fn decode_tool_choice(
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Auto,
                 name: None,
+                tool_type: None,
             })
         }
         TOOL_CHOICE_TYPE_ANY => {
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Any,
                 name: None,
+                tool_type: None,
             })
         }
         TOOL_CHOICE_TYPE_NONE => {
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::None,
                 name: None,
+                tool_type: None,
             })
         }
         TOOL_CHOICE_TYPE_TOOL => {
@@ -291,6 +294,7 @@ pub(crate) fn decode_tool_choice(
             decoded = Some(ToolChoice {
                 mode: ToolChoiceMode::Tool,
                 name: Some(choice.name.clone()),
+                tool_type: None,
             });
         }
         other => losses.push(loss(

@@ -111,13 +111,25 @@ json::Value dump_block(const Block& b) {
         out.set("input", json::Value::string(tu->input));
         return out;
     }
+    if (const auto* cu = std::get_if<CustomToolUseBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_CUSTOM_TOOL_USE)));
+        out.set("id", json::Value::string(cu->id)); out.set("name", json::Value::string(cu->name));
+        out.set("input", json::Value::string(cu->input)); return out;
+    }
+    if (const auto* cr = std::get_if<CustomToolResultBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_CUSTOM_TOOL_RESULT)));
+        out.set("tool_use_id", json::Value::string(cr->tool_use_id));
+        if (const auto* text = std::get_if<std::string>(&cr->output)) out.set("output", json::Value::string(*text));
+        else { json::Value output = json::Value::array();
+            for (const auto& inner : std::get<std::vector<BlockHolder>>(cr->output)) output.push_back(dump_block(inner.block));
+            out.set("output", std::move(output)); }
+        return out;
+    }
     const auto& tr = std::get<ToolResultBlock>(b);
     out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_RESULT)));
     out.set("tool_use_id", json::Value::string(tr.tool_use_id));
     json::Value content = json::Value::array();
-    for (const auto& inner : tr.content) {
-        content.push_back(dump_block(inner.block));
-    }
+    for (const auto& inner : tr.content) content.push_back(dump_block(inner.block));
     out.set("content", std::move(content));
     if (tr.is_error) out.set("is_error", json::Value::boolean(true));
     return out;
@@ -168,7 +180,35 @@ StatusOr<Block> load_block(const json::Value& v) {
         OXA_ASSIGN_OR_RETURN(tu.id, require_string(v, "id", "tool_use block"));
         OXA_ASSIGN_OR_RETURN(tu.name, require_string(v, "name", "tool_use block"));
         OXA_ASSIGN_OR_RETURN(tu.input, require_string(v, "input", "tool_use block"));
+        if (tu.id.empty() || tu.name.empty()) return invalid_argument("tool_use id and name must be non-empty");
         return Block(std::move(tu));
+    }
+    if (kind == BLOCK_TYPE_CUSTOM_TOOL_USE) {
+        CustomToolUseBlock cu;
+        OXA_ASSIGN_OR_RETURN(cu.id, require_string(v, "id", "custom_tool_use block"));
+        OXA_ASSIGN_OR_RETURN(cu.name, require_string(v, "name", "custom_tool_use block"));
+        OXA_ASSIGN_OR_RETURN(cu.input, require_string(v, "input", "custom_tool_use block"));
+        if (cu.id.empty() || cu.name.empty()) return invalid_argument("custom_tool_use id and name must be non-empty");
+        return Block(std::move(cu));
+    }
+    if (kind == BLOCK_TYPE_CUSTOM_TOOL_RESULT) {
+        CustomToolResultBlock cr;
+        OXA_ASSIGN_OR_RETURN(cr.tool_use_id, require_string(v, "tool_use_id", "custom_tool_result block"));
+        if (cr.tool_use_id.empty()) return invalid_argument("custom_tool_result tool_use_id must be non-empty");
+        if (v.find("is_error") != nullptr) return invalid_argument("custom_tool_result has no is_error field");
+        const json::Value* output = v.find("output");
+        if (output == nullptr) return invalid_argument("custom_tool_result missing output");
+        if (output->is_string()) cr.output = output->as_string();
+        else if (output->is_array()) { std::vector<BlockHolder> parts;
+            for (const auto& part : output->as_array()) {
+                OXA_ASSIGN_OR_RETURN(Block inner, load_block(part));
+                if (!std::holds_alternative<TextBlock>(inner) && !std::holds_alternative<ImageBlock>(inner))
+                    return invalid_argument("custom_tool_result output accepts only text and image blocks");
+                parts.push_back(BlockHolder{std::move(inner)});
+            }
+            cr.output = std::move(parts);
+        } else return invalid_argument("custom_tool_result output must be a string or array");
+        return Block(std::move(cr));
     }
     if (kind == BLOCK_TYPE_TOOL_RESULT) {
         ToolResultBlock tr;
@@ -216,9 +256,15 @@ json::Value dump_request(const Request& r) {
         json::Value tools = json::Value::array();
         for (const auto& t : *r.tools) {
             json::Value tv = json::Value::object();
-            tv.set("name", json::Value::string(t.name));
-            if (t.has_description) tv.set("description", json::Value::string(t.description));
-            tv.set("input_schema", t.input_schema);
+            if (t.type == "custom") {
+                tv.set("type", json::Value::string("custom")); tv.set("name", json::Value::string(t.name));
+                if (t.has_description) tv.set("description", json::Value::string(t.description));
+                if (t.format.has_value()) tv.set("format", *t.format);
+            } else {
+                tv.set("name", json::Value::string(t.name));
+                if (t.has_description) tv.set("description", json::Value::string(t.description));
+                tv.set("input_schema", t.input_schema);
+            }
             tools.push_back(std::move(tv));
         }
         out.set("tools", std::move(tools));
@@ -228,6 +274,7 @@ json::Value dump_request(const Request& r) {
         tc.set("mode", json::Value::string(r.tool_choice->mode));
         if (r.tool_choice->mode == TOOL_CHOICE_TOOL && r.tool_choice->name.has_value()) {
             tc.set("name", json::Value::string(*r.tool_choice->name));
+            if (r.tool_choice->tool_type.has_value()) tc.set("tool_type", json::Value::string(*r.tool_choice->tool_type));
         }
         out.set("tool_choice", std::move(tc));
     }
@@ -321,15 +368,29 @@ StatusOr<Request> load_request(const json::Value& v) {
         for (const auto& tv : tools->as_array()) {
             if (!tv.is_object()) return invalid_argument("tool must be an object");
             Tool t;
+            if (const auto* type = tv.find("type"); type != nullptr) {
+                if (!type->is_string()) return invalid_argument("tool type must be a string");
+                t.type = type->as_string();
+            }
+            if (t.type != "function" && t.type != "custom") return invalid_argument("tool type must be function or custom");
             OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
+            if (t.name.empty()) return invalid_argument("tool name must be non-empty");
             const json::Value* desc = tv.find("description");
             if (desc != nullptr) {
                 if (!desc->is_string()) return invalid_argument("tool description must be a string");
                 t.description = desc->as_string();
                 t.has_description = true;
             }
-            OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
-            t.input_schema = is_val.get();
+            const json::Value* format = tv.find("format");
+            const json::Value* input_schema = tv.find("input_schema");
+            if (t.type == "custom") {
+                if (input_schema != nullptr) return invalid_argument("custom tool must not carry input_schema");
+                if (format != nullptr) t.format = *format;
+            } else {
+                if (format != nullptr) return invalid_argument("function tool must not carry format");
+                OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
+                t.input_schema = is_val.get();
+            }
             out.push_back(std::move(t));
         }
         if (!out.empty()) r.tools = std::move(out);
@@ -345,6 +406,11 @@ StatusOr<Request> load_request(const json::Value& v) {
             if (!name->is_string()) return invalid_argument("tool_choice name must be a string");
             choice.name = name->as_string();
         }
+        if (const auto* tt = tc->find("tool_type"); tt != nullptr) {
+            if (!tt->is_string() || (tt->as_string() != "function" && tt->as_string() != "custom")) return invalid_argument("tool_choice tool_type must be function or custom");
+            choice.tool_type = tt->as_string();
+        }
+        if (choice.mode != TOOL_CHOICE_TOOL && choice.tool_type.has_value()) return invalid_argument("tool_choice tool_type only applies to mode tool");
         if (choice.mode == TOOL_CHOICE_TOOL && !choice.name.has_value()) {
             return invalid_argument("tool_choice mode tool requires name");
         }
@@ -571,6 +637,9 @@ json::Value dump_event(const Event& e) {
         } else if (const auto* thinking = std::get_if<ThinkingDelta>(&cbd->delta)) {
             d.set("type", json::Value::string(std::string(DELTA_TYPE_THINKING_DELTA)));
             d.set("text", json::Value::string(thinking->text));
+        } else if (const auto* custom = std::get_if<CustomToolInputDelta>(&cbd->delta)) {
+            d.set("type", json::Value::string(std::string(DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA)));
+            d.set("text", json::Value::string(custom->text));
         } else {
             const auto& signature = std::get<SignatureDelta>(cbd->delta);
             d.set("type", json::Value::string(std::string(DELTA_TYPE_SIGNATURE_DELTA)));
@@ -630,6 +699,9 @@ StatusOr<Event> load_event(const json::Value& v) {
         } else if (dkind == DELTA_TYPE_SIGNATURE_DELTA) {
             OXA_ASSIGN_OR_RETURN(std::string signature, require_string(d, "signature", "signature_delta"));
             delta = SignatureDelta{std::move(signature)};
+        } else if (dkind == DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA) {
+            OXA_ASSIGN_OR_RETURN(std::string text, require_string(d, "text", "custom_tool_input_delta"));
+            delta = CustomToolInputDelta{std::move(text)};
         } else {
             return invalid_argument("unknown delta discriminant: " + dkind);
         }
@@ -702,18 +774,15 @@ namespace {
 
 enum class Phase { NeedStart, Blocks, NeedMessageDone, Done };
 
-struct OpenTool {
-    std::string input;
-    std::string fragments;
-    std::size_t fragment_count = 0;
-};
+struct OpenTool { std::string input; std::string fragments; std::size_t fragment_count = 0; bool custom = false; };
 
 Status validate_tool_input(std::size_t i, const OpenTool& tool, bool allow_synthesized) {
     if (tool.fragment_count == 0) {
         if (tool.input.empty() || allow_synthesized) return ok_status();
         return invalid_argument("event " + std::to_string(i) +
-                                ": tool block input without input_json_delta fragments; only encoder "
-                                "shorthand may synthesize them");
+                                (tool.custom ? ": custom tool input without custom_tool_input_delta fragments"
+                                             : ": tool input without input_json_delta fragments") +
+                                (allow_synthesized ? "" : "; encoder shorthand may synthesize them"));
     }
     if (tool.input != tool.fragments) {
         return invalid_argument("event " + std::to_string(i) +
@@ -730,6 +799,7 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
     bool open = false;
     std::int64_t open_index = 0;
     bool open_is_tool = false;
+    bool open_is_custom_tool = false;
     bool open_is_thinking = false;
     bool signature_seen = false;
     OpenTool tool;
@@ -764,15 +834,19 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
             if (const auto* tb = std::get_if<TextBlock>(&cbs->block)) {
                 (void)tb;
                 open_is_tool = false;
+                open_is_custom_tool = false;
                 open_is_thinking = false;
             } else if (std::holds_alternative<ThinkingBlock>(cbs->block)) {
                 open_is_tool = false;
+                open_is_custom_tool = false;
                 open_is_thinking = true;
                 signature_seen = false;
             } else if (const auto* tu = std::get_if<ToolUseBlock>(&cbs->block)) {
-                open_is_tool = true;
-                open_is_thinking = false;
-                tool = OpenTool{tu->input, "", 0};
+                open_is_tool = true; open_is_custom_tool = false; open_is_thinking = false;
+                tool = OpenTool{tu->input, "", 0, false};
+            } else if (const auto* custom = std::get_if<CustomToolUseBlock>(&cbs->block)) {
+                open_is_tool = true; open_is_custom_tool = true; open_is_thinking = false;
+                tool = OpenTool{custom->input, "", 0, true};
             } else {
                 return invalid_argument(
                     "event " + std::to_string(i) +
@@ -791,9 +865,11 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                                         std::to_string(open_index));
             }
             if (open_is_tool) {
-                if (const auto* ij = std::get_if<InputJsonDelta>(&cbd->delta)) {
-                    tool.fragments += ij->partial_json;
-                    tool.fragment_count += 1;
+                if (!open_is_custom_tool) {
+                    if (const auto* ij = std::get_if<InputJsonDelta>(&cbd->delta)) { tool.fragments += ij->partial_json; ++tool.fragment_count; }
+                    else return invalid_argument("event " + std::to_string(i) + ": wrong delta type for function tool");
+                } else if (const auto* custom = std::get_if<CustomToolInputDelta>(&cbd->delta)) {
+                    tool.fragments += custom->text; ++tool.fragment_count;
                 } else {
                     return invalid_argument(
                         "event " + std::to_string(i) +

@@ -111,6 +111,13 @@ function decodeEvent(value: JsonValue): Event {
 }
 
 function encodeBlock(block: Block): JsonObject {
+  if (block.type === "custom_tool_use")
+    return {
+      type: block.type,
+      id: block.id,
+      name: block.name,
+      input: block.input,
+    };
   if (block.type === "text") return { type: "text", text: block.text };
   if (block.type === "thinking")
     return {
@@ -132,6 +139,13 @@ function encodeBlock(block: Block): JsonObject {
 }
 function decodeBlock(value: JsonValue | undefined): Block {
   const block = object(value, "block");
+  if (block.type === "custom_tool_use")
+    return {
+      type: block.type,
+      id: nonEmptyString(block.id, "block.id"),
+      name: nonEmptyString(block.name, "block.name"),
+      input: string(block.input, "block.input"),
+    };
   if (block.type === "text")
     return { type: "text", text: string(block.text, "block.text") };
   if (block.type === "thinking")
@@ -152,6 +166,8 @@ function decodeBlock(value: JsonValue | undefined): Block {
   fail("unsupported block type");
 }
 function encodeDelta(delta: Delta): JsonObject {
+  if (delta.type === "custom_tool_input_delta")
+    return { type: delta.type, text: delta.text };
   if (delta.type === "text_delta")
     return { type: "text_delta", text: delta.text };
   if (delta.type === "thinking_delta")
@@ -164,6 +180,8 @@ function encodeDelta(delta: Delta): JsonObject {
 }
 function decodeDelta(value: JsonValue | undefined): Delta {
   const delta = object(value, "delta");
+  if (delta.type === "custom_tool_input_delta")
+    return { type: delta.type, text: string(delta.text, "delta.text") };
   if (delta.type === "text_delta")
     return { type: "text_delta", text: string(delta.text, "delta.text") };
   if (delta.type === "thinking_delta")

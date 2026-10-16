@@ -1,0 +1,73 @@
+{
+  "name": "responses.nonstream.custom-format-1-from-ir",
+  "description": "N-C-1 至 N-C-4：Custom Tools 显式类型、任意文本保真与调用关联。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "format": {
+          "type": "text"
+        }
+      }
+    ],
+    "tool_choice": {
+      "mode": "tool",
+      "name": "code_exec",
+      "tool_type": "custom"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "n-c-1",
+    "n-c-2",
+    "n-c-3",
+    "n-c-4"
+  ],
+  "provenance": {
+    "doc_url": "https://github.com/openai/openai-python/tree/e71d781ac5e7b3f365ac130bf338baaf13ae720d/src/openai/types/responses",
+    "retrieved": "2026-10-16"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "expected_output": {
+    "model": "m",
+    "input": "hello",
+    "tools": [
+      {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "format": {
+          "type": "text"
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "custom",
+      "name": "code_exec"
+    }
+  }
+}

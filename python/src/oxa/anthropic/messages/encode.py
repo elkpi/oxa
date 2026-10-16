@@ -32,6 +32,8 @@ from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
@@ -84,9 +86,12 @@ def encode_request(
     if req.system:
         out["system"] = encode_system(req.system)
 
+    tools_wire: list[dict[str, Any]] = []
     if req.tools:
-        tools_wire: list[dict[str, Any]] = []
         for index, tool in enumerate(req.tools):
+            if tool.type == "custom":
+                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Anthropic mapping"))
+                continue
             require_json_object(tool.input_schema, f"tools[{index}].input_schema")
             t_dict: dict[str, Any] = {
                 "name": tool.name,
@@ -95,9 +100,13 @@ def encode_request(
             if tool.description:
                 t_dict["description"] = tool.description
             tools_wire.append(t_dict)
-        out["tools"] = tools_wire
+        if tools_wire:
+            out["tools"] = tools_wire
 
     choice_wire, tc_losses = encode_tool_choice(req.tool_choice)
+    if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
+        choice_wire = None
+        tc_losses.append(loss("tool_choice", "type", LOSS_UNSUPPORTED_SEMANTIC, "all declarations for the required tool choice were dropped"))
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     losses.extend(tc_losses)
@@ -118,6 +127,8 @@ def encode_request(
             first_block = req.messages[0].content[0]
             assert isinstance(first_block, TextBlock)
             content_val: Any = first_block.text
+        elif not blocks_wire and message.content:
+            content_val = ""
         else:
             content_val = blocks_wire
 
@@ -222,6 +233,9 @@ def encode_request_block(
 
     if isinstance(block, ImageBlock):
         return encode_image_block(block.media_type, block.data, block.url, path)
+
+    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock)):
+        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
 
     if isinstance(block, ToolUseBlock):
         if not block.id:
@@ -403,7 +417,13 @@ def encode_response(
             out["content"].append(encoded)
         losses.extend(b_losses)
 
-    reason, seq = encode_stop_reason(resp.stop_reason, resp.stop_sequence)
+    effective_stop = resp.stop_reason
+    if effective_stop == STOP_TOOL_USE and not any(isinstance(b, ToolUseBlock) for b in resp.content):
+        effective_stop = STOP_END_TURN
+        losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because the target cannot retain custom tool calls"))
+    if resp.content and not out["content"]:
+        out["content"].append({"type": BLOCK_TYPE_TEXT, "text": ""})
+    reason, seq = encode_stop_reason(effective_stop, resp.stop_sequence)
     out["stop_reason"] = reason
     if seq is not None:
         out["stop_sequence"] = seq
@@ -451,6 +471,8 @@ def encode_response_block(
             [],
             True,
         )
+    if isinstance(block, (CustomToolUseBlock, CustomToolResultBlock)):
+        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic mapping")], False
     return (
         None,
         [

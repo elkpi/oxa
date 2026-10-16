@@ -7,10 +7,14 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_DEGRADED,
+    LOSS_UNSUPPORTED_SEMANTIC,
+    STOP_END_TURN,
     LOSS_UNMAPPED_FIELD,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     Event,
     InputJsonDelta,
     Loss,
@@ -112,6 +116,11 @@ class StreamEncoder:
             if isinstance(ev.block, ThinkingBlock):
                 self._active = _StreamEncodeBlock(kind="thinking", index=ev.index)
                 return [], []
+            if isinstance(ev.block, CustomToolUseBlock):
+                if not ev.block.id or not ev.block.name:
+                    raise ValueError("chatcompletions: CustomToolUseBlock requires nonempty ID and name")
+                self._active = _StreamEncodeBlock(kind="custom", index=ev.index, tool_id=ev.block.id, tool_name=ev.block.name, tool_input=ev.block.input)
+                return [], []
             if isinstance(ev.block, ToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("chatcompletions: ToolUseBlock requires nonempty ID and name")
@@ -151,6 +160,11 @@ class StreamEncoder:
                         )
                     ]
                 raise ValueError("chatcompletions: ThinkingBlock received non-thinking delta")
+            if self._active.kind == "custom":
+                if not isinstance(ev.delta, CustomToolInputDelta):
+                    raise ValueError("chatcompletions: CustomToolUseBlock received non-custom-input delta")
+                self._active.fragments.append(ev.delta.text)
+                return [], []
             if self._active.kind == "tool":
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("chatcompletions: ToolUseBlock received non-input-json delta")
@@ -166,6 +180,10 @@ class StreamEncoder:
             active = self._active
             self._active = None
 
+            if active.kind == "custom":
+                if active.fragments and "".join(active.fragments) != active.tool_input:
+                    raise ValueError("chatcompletions: CustomToolUseBlock input does not equal custom input deltas")
+                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool calls have no Chat Completions streaming mapping")]
             if active.kind == "tool":
                 if not active.fragments:
                     # Synthesize full argument delta
@@ -184,8 +202,12 @@ class StreamEncoder:
             if not self._started or self._active is not None:
                 raise ValueError("chatcompletions: MessageDelta out of grammar order")
 
-            finish, finish_loss = encode_finish_reason(ev.stop_reason)
+            stop_reason = ev.stop_reason
             losses: list[Loss] = []
+            if stop_reason == "tool_use" and not self._tool_seen:
+                stop_reason = STOP_END_TURN
+                losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because no native function call was retained"))
+            finish, finish_loss = encode_finish_reason(stop_reason)
             if finish_loss is not None:
                 losses.append(finish_loss)
 

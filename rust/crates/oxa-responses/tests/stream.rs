@@ -944,3 +944,168 @@ fn stream_encoder_happy_path() {
     let (evs, _) = e.apply(&Event::MessageDone {}).unwrap();
     assert!(evs.is_empty());
 }
+
+fn custom_added(input: Option<&str>) -> StreamEvent {
+    StreamEvent {
+        kind: "response.output_item.added".into(),
+        output_index: Some(0),
+        item: Some(OutputItem {
+            id: "ctc_0".into(),
+            kind: "custom_tool_call".into(),
+            call_id: "call_custom".into(),
+            name: "exec".into(),
+            input: input.map(str::to_string),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn custom_delta(item_id: &str, delta: &str) -> StreamEvent {
+    StreamEvent {
+        kind: "response.custom_tool_call_input.delta".into(),
+        item_id: Some(item_id.into()),
+        output_index: Some(0),
+        delta: Some(delta.into()),
+        ..Default::default()
+    }
+}
+
+fn custom_input_done(input: Option<&str>) -> StreamEvent {
+    StreamEvent {
+        kind: "response.custom_tool_call_input.done".into(),
+        item_id: Some("ctc_0".into()),
+        output_index: Some(0),
+        input: input.map(str::to_string),
+        ..Default::default()
+    }
+}
+
+fn custom_item_done(input: Option<&str>) -> StreamEvent {
+    StreamEvent {
+        kind: "response.output_item.done".into(),
+        output_index: Some(0),
+        item: Some(OutputItem {
+            id: "ctc_0".into(),
+            kind: "custom_tool_call".into(),
+            call_id: "call_custom".into(),
+            name: "exec".into(),
+            input: input.map(str::to_string),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+fn custom_decoder() -> StreamDecoder {
+    let mut decoder = StreamDecoder::new(&Config::default());
+    decoder.feed(&stream_created("resp_custom", "m")).unwrap();
+    decoder
+}
+
+#[test]
+fn custom_stream_requires_added_input_and_rejects_mismatched_delta_snapshots() {
+    let mut missing = custom_decoder();
+    assert!(
+        missing
+            .feed(&custom_added(None))
+            .unwrap_err()
+            .to_string()
+            .contains("input empty string")
+    );
+
+    let mut mismatch = custom_decoder();
+    mismatch.feed(&custom_added(Some(""))).unwrap();
+    mismatch.feed(&custom_delta("ctc_0", "opaque-a")).unwrap();
+    assert!(
+        mismatch
+            .feed(&custom_input_done(Some("opaque-b")))
+            .unwrap_err()
+            .to_string()
+            .contains("does not match input deltas")
+    );
+
+    let mut wrong_item = custom_decoder();
+    wrong_item.feed(&custom_added(Some(""))).unwrap();
+    assert!(
+        wrong_item
+            .feed(&custom_delta("other", "x"))
+            .unwrap_err()
+            .to_string()
+            .contains("does not match")
+    );
+}
+
+#[test]
+fn custom_stream_accepts_repeated_identical_snapshots_and_checks_item_done() {
+    let mut decoder = custom_decoder();
+    decoder.feed(&custom_added(Some(""))).unwrap();
+    decoder.feed(&custom_input_done(Some("opaque"))).unwrap();
+    decoder.feed(&custom_input_done(Some("opaque"))).unwrap();
+    let events = decoder.feed(&custom_item_done(Some("opaque"))).unwrap();
+    assert_eq!(events.len(), 3);
+    assert!(matches!(
+        events[1],
+        Event::ContentBlockDelta {
+            delta: Delta::CustomToolInputDelta { .. },
+            ..
+        }
+    ));
+
+    let mut conflict = custom_decoder();
+    conflict.feed(&custom_added(Some(""))).unwrap();
+    conflict.feed(&custom_input_done(Some("opaque"))).unwrap();
+    assert!(
+        conflict
+            .feed(&custom_item_done(Some("different")))
+            .unwrap_err()
+            .to_string()
+            .contains("snapshots conflict")
+    );
+}
+
+#[test]
+fn custom_stream_empty_input_synthesizes_empty_delta_and_requires_done_input() {
+    let mut decoder = custom_decoder();
+    decoder.feed(&custom_added(Some(""))).unwrap();
+    let events = decoder.feed(&custom_item_done(Some(""))).unwrap();
+    assert_eq!(events.len(), 3);
+    assert!(
+        matches!(&events[1], Event::ContentBlockDelta { delta: Delta::CustomToolInputDelta { text }, .. } if text.is_empty())
+    );
+
+    let mut missing = custom_decoder();
+    missing.feed(&custom_added(Some(""))).unwrap();
+    assert!(
+        missing
+            .feed(&custom_input_done(None))
+            .unwrap_err()
+            .to_string()
+            .contains("missing input field")
+    );
+}
+
+#[test]
+fn custom_stream_delta_presence_is_strict_and_empty_is_valid() {
+    for raw in [
+        r#"{"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0}"#,
+        r#"{"type":"response.custom_tool_call_input.delta","item_id":"ctc_0","output_index":0,"delta":null}"#,
+    ] {
+        let mut decoder = custom_decoder();
+        decoder.feed(&custom_added(Some(""))).unwrap();
+        assert!(
+            decoder
+                .feed_json(raw)
+                .unwrap_err()
+                .to_string()
+                .contains("missing delta field")
+        );
+    }
+    let mut decoder = custom_decoder();
+    decoder.feed(&custom_added(Some(""))).unwrap();
+    decoder.feed(&custom_delta("ctc_0", "")).unwrap();
+    let events = decoder.feed(&custom_item_done(Some(""))).unwrap();
+    assert!(
+        matches!(&events[1], Event::ContentBlockDelta { delta: Delta::CustomToolInputDelta { text }, .. } if text.is_empty())
+    );
+}

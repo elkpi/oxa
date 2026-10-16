@@ -16,7 +16,12 @@ const (
 	RoleAssistant = "assistant"
 	RoleDeveloper = "developer"
 
-	ToolTypeFunction = "function"
+	ToolTypeFunction                      = "function"
+	ToolTypeCustom                        = "custom"
+	ItemTypeCustomToolCall                = "custom_tool_call"
+	ItemTypeCustomToolCallOutput          = "custom_tool_call_output"
+	EventTypeResponseCustomToolInputDelta = "response.custom_tool_call_input.delta"
+	EventTypeResponseCustomToolInputDone  = "response.custom_tool_call_input.done"
 
 	ToolChoiceAuto     = "auto"
 	ToolChoiceNone     = "none"
@@ -149,13 +154,15 @@ func (in Input) MarshalJSON() ([]byte, error) {
 // (type absent or "message", role user/assistant/system), a function_call
 // item, a function_call_output item, or an unknown type dropped with a loss.
 type InputItem struct {
+	ID        string          `json:"id,omitempty"`
 	Type      string          `json:"type,omitempty"`
 	Role      string          `json:"role,omitempty"`
 	Content   any             `json:"content,omitempty"` // string or []ContentPart
 	CallID    string          `json:"call_id,omitempty"`
 	Name      string          `json:"name,omitempty"`
 	Arguments string          `json:"arguments,omitempty"`
-	Output    string          `json:"output,omitempty"`
+	Output    any             `json:"output,omitempty"`
+	Input     *string         `json:"input,omitempty"`
 	Summary   []OutputContent `json:"summary,omitempty"`
 }
 
@@ -172,11 +179,18 @@ type ContentPart struct {
 // Strict has no IR equivalent in v1 and is dropped with an unmapped-field
 // loss (N-R-8).
 type ToolDef struct {
-	Type        string          `json:"type"`
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	Parameters  json.RawMessage `json:"parameters,omitempty"`
-	Strict      *bool           `json:"strict,omitempty"`
+	Type        string                `json:"type"`
+	Name        string                `json:"name"`
+	Description string                `json:"description,omitempty"`
+	Parameters  json.RawMessage       `json:"parameters,omitempty"`
+	Strict      *bool                 `json:"strict,omitempty"`
+	Format      *CustomToolFormatWire `json:"format,omitempty"`
+}
+
+type CustomToolFormatWire struct {
+	Type       string  `json:"type"`
+	Syntax     string  `json:"syntax,omitempty"`
+	Definition *string `json:"definition,omitempty"`
 }
 
 // ToolChoiceWire forces one named function (Responses named form is flat:
@@ -220,6 +234,7 @@ type OutputItem struct {
 	CallID           string          `json:"call_id,omitempty"`
 	Name             string          `json:"name,omitempty"`
 	Arguments        string          `json:"arguments,omitempty"`
+	Input            *string         `json:"input,omitempty"`
 	Summary          []OutputContent `json:"summary,omitempty"`
 	EncryptedContent string          `json:"encrypted_content,omitempty"`
 }
@@ -270,6 +285,7 @@ type StreamEvent struct {
 	CallID         string         `json:"call_id,omitempty"`
 	Name           string         `json:"name,omitempty"`
 	Arguments      string         `json:"arguments,omitempty"`
+	Input          *string        `json:"input,omitempty"`
 	SequenceNumber int64          `json:"sequence_number,omitempty"`
 }
 
@@ -316,7 +332,18 @@ func (e StreamEvent) MarshalJSON() ([]byte, error) {
 			Type: e.Type, ItemID: e.ItemID, OutputIndex: e.OutputIndex,
 			ContentIndex: e.ContentIndex, Part: e.Part, sequence: sequence{e.SequenceNumber},
 		})
-	case EventTypeResponseFunctionCallArgsDelta:
+	case EventTypeResponseCustomToolInputDone:
+		if e.Input == nil {
+			return nil, fmt.Errorf("responses: custom input.done requires input")
+		}
+		return json.Marshal(struct {
+			Type        string `json:"type"`
+			ItemID      string `json:"item_id"`
+			OutputIndex int    `json:"output_index"`
+			Input       string `json:"input"`
+			sequence
+		}{e.Type, e.ItemID, e.OutputIndex, *e.Input, sequence{e.SequenceNumber}})
+	case EventTypeResponseFunctionCallArgsDelta, EventTypeResponseCustomToolInputDelta:
 		return json.Marshal(struct {
 			Type        string `json:"type"`
 			ItemID      string `json:"item_id"`

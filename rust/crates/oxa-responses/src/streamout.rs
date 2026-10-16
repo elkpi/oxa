@@ -7,17 +7,20 @@ use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
     ERROR_CODE_REFUSAL, EVENT_TYPE_RESPONSE_COMPLETED, EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED,
-    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED, EVENT_TYPE_RESPONSE_FAILED,
-    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
-    EVENT_TYPE_RESPONSE_INCOMPLETE, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
-    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA,
-    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE, EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
+    EVENT_TYPE_RESPONSE_CONTENT_PART_DONE, EVENT_TYPE_RESPONSE_CREATED,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA, EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE,
+    EVENT_TYPE_RESPONSE_FAILED, EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA,
+    EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE, EVENT_TYPE_RESPONSE_INCOMPLETE,
+    EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+    EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA, EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DONE,
+    EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_DONE,
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA, ErrorWire,
-    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_MESSAGE,
-    ITEM_TYPE_REASONING, IncompleteWire, InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem,
-    OutputPart, OutputTokenDetailsWire, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, Response,
-    STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent, UsageWire,
+    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, InputTokenDetailsWire, OBJECT_RESPONSE,
+    OutputItem, OutputPart, OutputTokenDetailsWire, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
+    Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent,
+    UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -25,6 +28,7 @@ enum StreamOutputItemKind {
     Message,
     Reasoning,
     FunctionCall,
+    CustomToolCall,
 }
 
 struct StreamOutputItem {
@@ -58,6 +62,7 @@ pub struct StreamEncoder {
     next_output_index: i64,
     next_message_item: usize,
     next_function_item: usize,
+    next_custom_item: usize,
     next_reasoning_item: usize,
     active_item: Option<StreamOutputItem>,
     active_block: Option<StreamEncodeBlock>,
@@ -78,6 +83,7 @@ impl StreamEncoder {
             next_output_index: 0,
             next_message_item: 0,
             next_function_item: 0,
+            next_custom_item: 0,
             next_reasoning_item: 0,
             active_item: None,
             active_block: None,
@@ -138,6 +144,9 @@ impl StreamEncoder {
                     } => self.start_thinking_block(*index, thinking, signature.as_deref()),
                     Block::ToolUse { id, name, input } => {
                         self.start_function_call_block(*index, id, name, input)
+                    }
+                    Block::CustomToolUse { id, name, input } => {
+                        self.start_custom_tool_call_block(*index, id, name, input)
                     }
                     _ => Err(Error::new(
                         "responses: ContentBlockStart carries unsupported block",
@@ -221,6 +230,24 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    StreamOutputItemKind::CustomToolCall => {
+                        let Delta::CustomToolInputDelta { text } = delta else {
+                            return Err(Error::new(
+                                "responses: CustomToolUseBlock received non-custom-input delta",
+                            ));
+                        };
+                        active_block.fragments.push(text.clone());
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA.to_string(),
+                                item_id: Some(active_item.id.clone()),
+                                output_index: Some(active_item.output_index),
+                                delta: Some(text.clone()),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
                 }
             }
             Event::ContentBlockStop { index } => {
@@ -238,6 +265,7 @@ impl StreamEncoder {
                     StreamOutputItemKind::Message => self.stop_text_block(),
                     StreamOutputItemKind::Reasoning => self.stop_thinking_block(),
                     StreamOutputItemKind::FunctionCall => self.stop_function_call_block(),
+                    StreamOutputItemKind::CustomToolCall => self.stop_custom_tool_call_block(),
                 }
             }
             Event::MessageDelta { .. } => {
@@ -249,9 +277,10 @@ impl StreamEncoder {
                     match active.kind {
                         StreamOutputItemKind::Message => out.push(self.close_message_item()),
                         StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                        StreamOutputItemKind::FunctionCall => {
+                        StreamOutputItemKind::FunctionCall
+                        | StreamOutputItemKind::CustomToolCall => {
                             return Err(Error::new(
-                                "responses: MessageDelta with an uncompleted function_call item",
+                                "responses: MessageDelta with an uncompleted tool-call item",
                             ));
                         }
                     }
@@ -284,9 +313,9 @@ impl StreamEncoder {
             match active.kind {
                 StreamOutputItemKind::Message => {}
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                StreamOutputItemKind::FunctionCall => {
+                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
                     return Err(Error::new(
-                        "responses: TextBlock cannot open before the active function_call item completes",
+                        "responses: TextBlock cannot open before the active tool item completes",
                     ));
                 }
             }
@@ -337,9 +366,9 @@ impl StreamEncoder {
                 // Consecutive thinking blocks merge into one reasoning item,
                 // mirroring the Go reference encoder.
                 StreamOutputItemKind::Reasoning => {}
-                StreamOutputItemKind::FunctionCall => {
+                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
                     return Err(Error::new(
-                        "responses: ThinkingBlock cannot open before the active function_call item completes",
+                        "responses: ThinkingBlock cannot open before the active tool item completes",
                     ));
                 }
             }
@@ -405,9 +434,9 @@ impl StreamEncoder {
             match active.kind {
                 StreamOutputItemKind::Message => out.push(self.close_message_item()),
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                StreamOutputItemKind::FunctionCall => {
+                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
                     return Err(Error::new(
-                        "responses: ToolUseBlock cannot open before the active function_call item completes",
+                        "responses: ToolUseBlock cannot open before the active tool item completes",
                     ));
                 }
             }
@@ -500,6 +529,67 @@ impl StreamEncoder {
         ))
     }
 
+    fn start_custom_tool_call_block(
+        &mut self,
+        index: i64,
+        id: &str,
+        name: &str,
+        input: &str,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        if id.is_empty() || name.is_empty() {
+            return Err(Error::new(
+                "responses: CustomToolUseBlock requires nonempty ID and name",
+            ));
+        }
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                _ => {
+                    return Err(Error::new(
+                        "responses: custom tool call cannot open before active tool call completes",
+                    ));
+                }
+            }
+        }
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        let item_id = format!("ctc_{}", self.next_custom_item);
+        self.next_custom_item += 1;
+        self.active_item = Some(StreamOutputItem {
+            kind: StreamOutputItemKind::CustomToolCall,
+            id: item_id.clone(),
+            output_index,
+            content: Vec::new(),
+            next_content_index: 0,
+            call_id: id.to_string(),
+            name: name.to_string(),
+        });
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::CustomToolCall,
+            content_index: 0,
+            text: String::new(),
+            tool_input: input.to_string(),
+            fragments: Vec::new(),
+        });
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
+            output_index: Some(output_index),
+            item: Some(OutputItem {
+                id: item_id,
+                kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
+                call_id: id.to_string(),
+                name: name.to_string(),
+                input: Some(String::new()),
+                ..OutputItem::default()
+            }),
+            ..Default::default()
+        });
+        Ok((out, Vec::new()))
+    }
+
     fn stop_function_call_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let Some(active_item) = &mut self.active_item else {
             return Err(Error::new(
@@ -545,6 +635,61 @@ impl StreamEncoder {
             call_id: Some(active_item.call_id.clone()),
             name: Some(active_item.name.clone()),
             arguments: Some(arguments),
+            ..Default::default()
+        });
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
+            output_index: Some(active_item.output_index),
+            item: Some(completed.clone()),
+            ..Default::default()
+        });
+        self.completed.push(completed);
+        self.active_item = None;
+        Ok((out, Vec::new()))
+    }
+
+    fn stop_custom_tool_call_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let Some(active_item) = &mut self.active_item else {
+            return Err(Error::new(
+                "responses: custom tool block without an active item",
+            ));
+        };
+        if active_item.kind != StreamOutputItemKind::CustomToolCall {
+            return Err(Error::new(
+                "responses: custom tool block without an active custom item",
+            ));
+        }
+        let mut block = self.active_block.take().expect("active block");
+        let mut out = Vec::new();
+        if block.fragments.is_empty() {
+            block.fragments.push(block.tool_input.clone());
+            out.push(StreamEvent {
+                kind: EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA.to_string(),
+                item_id: Some(active_item.id.clone()),
+                output_index: Some(active_item.output_index),
+                delta: Some(block.tool_input.clone()),
+                ..Default::default()
+            });
+        }
+        let input = block.fragments.concat();
+        if input != block.tool_input {
+            return Err(Error::new(
+                "responses: CustomToolUseBlock input does not equal concatenated custom input deltas",
+            ));
+        }
+        let completed = OutputItem {
+            id: active_item.id.clone(),
+            kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
+            call_id: active_item.call_id.clone(),
+            name: active_item.name.clone(),
+            input: Some(input.clone()),
+            ..OutputItem::default()
+        };
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE.to_string(),
+            item_id: Some(active_item.id.clone()),
+            output_index: Some(active_item.output_index),
+            input: Some(input),
             ..Default::default()
         });
         out.push(StreamEvent {

@@ -3,15 +3,17 @@
 use serde_json::{Value, json};
 
 use oxa_ir::{
-    Block, Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice, ToolChoiceMode,
+    Block, CustomToolOutput, Loss, LossReason, Message as IrMessage, Role, SystemBlock, ToolChoice,
+    ToolChoiceMode, ToolType,
 };
 
 use crate::error::Error;
 use crate::types::{
-    ContentPart, ContentValue, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, InputItem, OutputPart, PART_TYPE_INPUT_IMAGE,
+    ContentPart, ContentValue, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
+    ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE,
+    ITEM_TYPE_REASONING, InputItem, OutputPart, OutputValue, PART_TYPE_INPUT_IMAGE,
     PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, TOOL_CHOICE_AUTO,
-    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION,
+    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
 };
 
 pub(crate) fn loss(
@@ -82,7 +84,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
     }
 }
 
-fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
+pub(crate) fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
     if raw.starts_with("https:") {
         if is_valid_https_url(raw) {
             return Ok(Block::Image {
@@ -194,6 +196,25 @@ pub(crate) fn decode_assistant_run(
             index += 1;
             continue;
         }
+        if item.kind == ITEM_TYPE_CUSTOM_TOOL_CALL {
+            let input = item.input.as_ref().ok_or_else(|| {
+                Error::new(format!(
+                    "responses: input[{index}].input is required for custom_tool_call"
+                ))
+            })?;
+            if item.call_id.is_empty() || item.name.is_empty() {
+                return Err(Error::new(format!(
+                    "responses: input[{index}] custom_tool_call requires call_id and name"
+                )));
+            }
+            calls.push(Block::CustomToolUse {
+                id: item.call_id.clone(),
+                name: item.name.clone(),
+                input: input.clone(),
+            });
+            index += 1;
+            continue;
+        }
         if !(item.kind.is_empty() || item.kind == ITEM_TYPE_MESSAGE) || item.role != ROLE_ASSISTANT
         {
             break;
@@ -221,26 +242,100 @@ pub(crate) fn decode_assistant_run(
 }
 
 /// N-R-6 merges a maximal function_call_output run into one user message.
-pub(crate) fn decode_output_run(items: &[InputItem], start: usize) -> (IrMessage, usize) {
+pub(crate) fn decode_output_run(
+    items: &[InputItem],
+    start: usize,
+) -> Result<(IrMessage, usize, Vec<Loss>), Error> {
     let mut content = Vec::new();
+    let mut losses = Vec::new();
     let mut index = start;
-    while index < items.len() && items[index].kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
-        content.push(Block::ToolResult {
-            tool_use_id: items[index].call_id.clone(),
-            content: vec![Block::Text {
-                text: items[index].output.clone(),
-            }],
-            is_error: None,
-        });
+    while index < items.len()
+        && (items[index].kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT
+            || items[index].kind == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT)
+    {
+        let item = &items[index];
+        let output = item.output.as_ref().ok_or_else(|| {
+            Error::new(format!(
+                "responses: input[{index}].output is required for tool output"
+            ))
+        })?;
+        if item.kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
+            let OutputValue::Text(text) = output else {
+                return Err(Error::new(
+                    "responses: function_call_output must be a string",
+                ));
+            };
+            content.push(Block::ToolResult {
+                tool_use_id: item.call_id.clone(),
+                content: vec![Block::Text { text: text.clone() }],
+                is_error: None,
+            });
+        } else {
+            if item.call_id.is_empty() {
+                return Err(Error::new(format!(
+                    "responses: input[{index}].call_id is required for custom_tool_call_output"
+                )));
+            }
+            let custom = match output {
+                OutputValue::Text(text) => CustomToolOutput::Text(text.clone()),
+                OutputValue::Parts(parts) => {
+                    let mut blocks = Vec::new();
+                    for (j, p) in parts.iter().enumerate() {
+                        let path = format!("input[{index}].output[{j}]");
+                        match p.kind.as_str() {
+                            PART_TYPE_INPUT_TEXT => {
+                                if !p.image_url.is_empty() {
+                                    losses.push(loss(
+                                        format!("{path}.image_url"),
+                                        "image_url",
+                                        LossReason::UnmappedField,
+                                        "input_text has no image_url field",
+                                    ));
+                                }
+                                blocks.push(Block::Text {
+                                    text: p.text.clone(),
+                                });
+                            }
+                            PART_TYPE_INPUT_IMAGE if !p.image_url.is_empty() => {
+                                match decode_image_url(&p.image_url, &format!("{path}.image_url")) {
+                                    Ok(b) => blocks.push(b),
+                                    Err(l) => losses.push(l),
+                                }
+                                if p.detail.is_some() {
+                                    losses.push(loss(
+                                        format!("{path}.detail"),
+                                        "detail",
+                                        LossReason::UnmappedField,
+                                        "input_image detail has no IR equivalent",
+                                    ));
+                                }
+                            }
+                            _ => losses.push(loss(
+                                path,
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                "custom tool output content is not supported",
+                            )),
+                        }
+                    }
+                    CustomToolOutput::Content(blocks)
+                }
+            };
+            content.push(Block::CustomToolResult {
+                tool_use_id: item.call_id.clone(),
+                output: custom,
+            });
+        }
         index += 1;
     }
-    (
+    Ok((
         IrMessage {
             role: Role::User,
             content,
         },
         index,
-    )
+        losses,
+    ))
 }
 
 /// N-R-9 maps Responses tool choice forms to the IR modes.
@@ -254,6 +349,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Auto,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -261,6 +357,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::None,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -268,6 +365,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 Some(ToolChoice {
                     mode: ToolChoiceMode::Any,
                     name: None,
+                    tool_type: None,
                 }),
                 Vec::new(),
             ),
@@ -290,11 +388,16 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
-            if kind == TOOL_TYPE_FUNCTION && !name.is_empty() {
+            if (kind == TOOL_TYPE_FUNCTION || kind == TOOL_TYPE_CUSTOM) && !name.is_empty() {
                 (
                     Some(ToolChoice {
                         mode: ToolChoiceMode::Tool,
                         name: Some(name.to_string()),
+                        tool_type: if kind == TOOL_TYPE_CUSTOM {
+                            Some(ToolType::Custom)
+                        } else {
+                            None
+                        },
                     }),
                     Vec::new(),
                 )
@@ -333,7 +436,9 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
         ToolChoiceMode::Any => (Some(json!(TOOL_CHOICE_REQUIRED)), None),
         ToolChoiceMode::Tool => match choice.name.as_deref() {
             Some(name) if !name.is_empty() => (
-                Some(json!({ "type": TOOL_TYPE_FUNCTION, "name": name })),
+                Some(
+                    json!({ "type": if choice.tool_type==Some(ToolType::Custom){TOOL_TYPE_CUSTOM}else{TOOL_TYPE_FUNCTION}, "name":name }),
+                ),
                 None,
             ),
             _ => (
@@ -380,6 +485,8 @@ pub(crate) fn encode_image_block(
             kind: PART_TYPE_INPUT_IMAGE.to_string(),
             text: String::new(),
             image_url: format!("data:{media_type};base64,{data}"),
+            detail: None,
+            file_id: None,
         });
     }
     if let Some(url) = url
@@ -389,6 +496,8 @@ pub(crate) fn encode_image_block(
             kind: PART_TYPE_INPUT_IMAGE.to_string(),
             text: String::new(),
             image_url: url.to_string(),
+            detail: None,
+            file_id: None,
         });
     }
     Err(loss(
@@ -413,6 +522,8 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 kind: PART_TYPE_INPUT_TEXT.to_string(),
                 text: text.clone(),
                 image_url: String::new(),
+                detail: None,
+                file_id: None,
             }),
             Block::Image {
                 media_type,
@@ -442,73 +553,123 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
 pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<InputItem>, Vec<Loss>) {
     let mut normal = Vec::new();
     let mut results = Vec::new();
-    let mut first_normal = None;
-    let mut last_result = None;
-    for (index, block) in message.content.iter().enumerate() {
-        if matches!(block, Block::ToolResult { .. }) {
-            results.push(block.clone());
-            last_result = Some(index);
+    let mut first = None;
+    let mut last = None;
+    for (i, b) in message.content.iter().enumerate() {
+        if matches!(b, Block::ToolResult { .. } | Block::CustomToolResult { .. }) {
+            results.push(b.clone());
+            last = Some(i);
         } else {
-            first_normal.get_or_insert(index);
-            normal.push(block.clone());
+            first.get_or_insert(i);
+            normal.push(b.clone());
         }
     }
     let mut losses = Vec::new();
-    if let (Some(first), Some(last)) = (first_normal, last_result)
-        && first < last
+    if let (Some(a), Some(b)) = (first, last)
+        && a < b
     {
         losses.push(loss(
             format!("{path}.content"),
             "ordering",
             LossReason::Degraded,
-            "N-R-10: function_call_output items are hoisted ahead of the trailing user content; source order is not preserved",
+            "tool output items are hoisted ahead of trailing user content",
         ));
     }
     let mut items = Vec::new();
-    for (index, block) in results.iter().enumerate() {
-        let Block::ToolResult {
-            tool_use_id,
-            content,
-            is_error,
-        } = block
-        else {
-            unreachable!("results contains only tool result blocks");
-        };
-        let mut output = String::new();
-        for (content_index, inner) in content.iter().enumerate() {
-            match inner {
-                Block::Text { text } => output.push_str(text),
-                _ => losses.push(loss(
-                    format!("{path}.content[{index}].content[{content_index}]"),
-                    "content",
-                    LossReason::UnsupportedSemantic,
-                    "this IR block cannot be rendered in a Responses function_call_output item",
-                )),
+    for (i, b) in results.iter().enumerate() {
+        match b {
+            Block::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
+                let mut out = String::new();
+                for inner in content {
+                    if let Block::Text { text } = inner {
+                        out.push_str(text)
+                    } else {
+                        losses.push(loss(
+                            format!("{path}.content[{i}].content"),
+                            "content",
+                            LossReason::UnsupportedSemantic,
+                            "unsupported function result content",
+                        ));
+                    }
+                }
+                if *is_error == Some(true) {
+                    losses.push(loss(
+                        format!("{path}.content[{i}].is_error"),
+                        "is_error",
+                        LossReason::UnmappedField,
+                        "Responses function output has no is_error",
+                    ));
+                }
+                items.push(InputItem {
+                    kind: ITEM_TYPE_FUNCTION_CALL_OUTPUT.to_string(),
+                    call_id: tool_use_id.clone(),
+                    output: Some(OutputValue::Text(out)),
+                    ..InputItem::default()
+                });
             }
+            Block::CustomToolResult {
+                tool_use_id,
+                output,
+            } => {
+                let out = match output {
+                    CustomToolOutput::Text(s) => OutputValue::Text(s.clone()),
+                    CustomToolOutput::Content(bs) => {
+                        let mut parts = Vec::new();
+                        for (j, b) in bs.iter().enumerate() {
+                            match b {
+                                Block::Text { text } => parts.push(ContentPart {
+                                    kind: PART_TYPE_INPUT_TEXT.to_string(),
+                                    text: text.clone(),
+                                    image_url: String::new(),
+                                    detail: None,
+                                    file_id: None,
+                                }),
+                                Block::Image {
+                                    media_type,
+                                    data,
+                                    url,
+                                } => match encode_image_block(
+                                    media_type.as_deref(),
+                                    data.as_deref(),
+                                    url.as_deref(),
+                                    &format!("{path}.content[{i}].output[{j}]"),
+                                ) {
+                                    Ok(p) => parts.push(p),
+                                    Err(l) => losses.push(l),
+                                },
+                                _ => losses.push(loss(
+                                    format!("{path}.content[{i}].output[{j}]"),
+                                    "type",
+                                    LossReason::UnsupportedSemantic,
+                                    "custom tool output content is not supported",
+                                )),
+                            }
+                        }
+                        OutputValue::Parts(parts)
+                    }
+                };
+                items.push(InputItem {
+                    kind: ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT.to_string(),
+                    call_id: tool_use_id.clone(),
+                    output: Some(out),
+                    ..InputItem::default()
+                });
+            }
+            _ => unreachable!(),
         }
-        if *is_error == Some(true) {
-            losses.push(loss(
-                format!("{path}.content[{index}].is_error"),
-                "is_error",
-                LossReason::UnmappedField,
-                "Responses function_call_output items have no is_error field",
-            ));
-        }
-        items.push(InputItem {
-            kind: ITEM_TYPE_FUNCTION_CALL_OUTPUT.to_string(),
-            call_id: tool_use_id.clone(),
-            output,
-            ..InputItem::default()
-        });
     }
     if !normal.is_empty() || results.is_empty() {
-        let (content, content_losses) = encode_user_content(&normal, &format!("{path}.content"));
+        let (c, l) = encode_user_content(&normal, &format!("{path}.content"));
         items.push(InputItem {
             role: ROLE_USER.to_string(),
-            content: Some(content),
+            content: Some(c),
             ..InputItem::default()
         });
-        losses.extend(content_losses);
+        losses.extend(l);
     }
     (items, losses)
 }
@@ -558,12 +719,21 @@ pub(crate) fn encode_assistant_message(
                 arguments: input.clone(),
                 ..InputItem::default()
             }),
-            Block::Image { .. } | Block::ToolResult { .. } => losses.push(loss(
-                format!("{path}[{index}]"),
-                "content",
-                LossReason::UnsupportedSemantic,
-                "this IR block cannot be rendered in a Responses assistant input item",
-            )),
+            Block::CustomToolUse { id, name, input } => calls.push(InputItem {
+                kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
+                call_id: id.clone(),
+                name: name.clone(),
+                input: Some(input.clone()),
+                ..InputItem::default()
+            }),
+            Block::Image { .. } | Block::ToolResult { .. } | Block::CustomToolResult { .. } => {
+                losses.push(loss(
+                    format!("{path}[{index}]"),
+                    "content",
+                    LossReason::UnsupportedSemantic,
+                    "this IR block cannot be rendered in a Responses assistant input item",
+                ))
+            }
         }
     }
     let mut items = Vec::new();

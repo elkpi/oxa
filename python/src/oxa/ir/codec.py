@@ -6,11 +6,14 @@ import json
 from typing import Any
 
 from oxa.ir.constants import (
+    BLOCK_TYPE_CUSTOM_TOOL_RESULT,
+    BLOCK_TYPE_CUSTOM_TOOL_USE,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
+    DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
@@ -32,6 +35,12 @@ from oxa.ir.types import (
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolFormat,
+    CustomToolFormatGrammar,
+    CustomToolFormatText,
+    CustomToolInputDelta,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     Delta,
     Event,
     EventStream,
@@ -166,6 +175,21 @@ def dump_block(block: Block) -> dict[str, Any]:
         if block.is_error:
             res["is_error"] = True
         return res
+    if isinstance(block, CustomToolUseBlock):
+        if not block.id or not block.name or not isinstance(block.input, str):
+            raise CodecError("custom_tool_use requires non-empty id/name and string input")
+        return {"type": BLOCK_TYPE_CUSTOM_TOOL_USE, "id": block.id, "name": block.name, "input": block.input}
+    if isinstance(block, CustomToolResultBlock):
+        if not block.tool_use_id:
+            raise CodecError("custom_tool_result block requires non-empty tool_use_id")
+        output = block.output
+        if isinstance(output, list):
+            if any(not isinstance(b, (TextBlock, ImageBlock)) for b in output):
+                raise CodecError("custom_tool_result output array accepts only text and image blocks")
+            output = [dump_block(b) for b in output]
+        elif not isinstance(output, str):
+            raise CodecError("custom_tool_result output must be a string or array")
+        return {"type": BLOCK_TYPE_CUSTOM_TOOL_RESULT, "tool_use_id": block.tool_use_id, "output": output}
     raise CodecError(f"unknown block type: {type(block)}")
 
 
@@ -194,6 +218,23 @@ def load_block(data: dict[str, Any]) -> Block:
             content=[load_block(b) for b in content_raw],
             is_error=bool(data.get("is_error", False)),
         )
+    if kind == BLOCK_TYPE_CUSTOM_TOOL_USE:
+        call_id, name, input_text = data.get("id"), data.get("name"), data.get("input")
+        if not isinstance(call_id, str) or not call_id or not isinstance(name, str) or not name or not isinstance(input_text, str):
+            raise CodecError("custom_tool_use requires non-empty id/name and string input")
+        return CustomToolUseBlock(id=call_id, name=name, input=input_text)
+    if kind == BLOCK_TYPE_CUSTOM_TOOL_RESULT:
+        call_id, output = data.get("tool_use_id"), data.get("output")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("custom_tool_result requires non-empty tool_use_id")
+        if isinstance(output, list):
+            blocks = [load_block(b) for b in output]
+            if any(not isinstance(b, (TextBlock, ImageBlock)) for b in blocks):
+                raise CodecError("custom_tool_result output array accepts only text and image blocks")
+            output = blocks
+        elif not isinstance(output, str):
+            raise CodecError("custom_tool_result output must be a string or array")
+        return CustomToolResultBlock(tool_use_id=call_id, output=output)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -209,6 +250,8 @@ def dump_delta(delta: Delta) -> dict[str, Any]:
         return {"type": DELTA_TYPE_THINKING_DELTA, "text": delta.text}
     if isinstance(delta, SignatureDelta):
         return {"type": DELTA_TYPE_SIGNATURE_DELTA, "signature": delta.signature}
+    if isinstance(delta, CustomToolInputDelta):
+        return {"type": DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA, "text": delta.text}
     raise CodecError(f"unknown delta type: {type(delta)}")
 
 
@@ -222,6 +265,8 @@ def load_delta(data: dict[str, Any]) -> Delta:
         return ThinkingDelta(text=data["text"])
     if kind == DELTA_TYPE_SIGNATURE_DELTA:
         return SignatureDelta(signature=data["signature"])
+    if kind == DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA:
+        return CustomToolInputDelta(text=data["text"])
     raise CodecError(f"unknown delta discriminant: {kind}")
 
 
@@ -309,12 +354,22 @@ def dump_request(req: Request) -> dict[str, Any]:
     if req.tools:
         tools_out: list[dict[str, Any]] = []
         for t in req.tools:
-            t_dict: dict[str, Any] = {
-                "name": t.name,
-                "input_schema": t.input_schema,
-            }
-            if t.description:
-                t_dict["description"] = t.description
+            if t.type == "custom":
+                if t.input_schema is not None:
+                    raise CodecError("custom tool must not carry input_schema")
+                t_dict: dict[str, Any] = {"type": "custom", "name": t.name}
+                if t.description is not None:
+                    t_dict["description"] = t.description
+                if t.format is not None:
+                    t_dict["format"] = dump_custom_tool_format(t.format)
+            elif t.type == "function":
+                if t.format is not None or t.input_schema is None:
+                    raise CodecError("function tool requires input_schema and must not carry format")
+                t_dict = {"name": t.name, "input_schema": t.input_schema}
+                if t.description:
+                    t_dict["description"] = t.description
+            else:
+                raise CodecError(f"unknown tool type: {t.type!r}")
             tools_out.append(t_dict)
         out["tools"] = tools_out
     if req.tool_choice:
@@ -322,7 +377,13 @@ def dump_request(req: Request) -> dict[str, Any]:
         if req.tool_choice.mode == TOOL_CHOICE_TOOL:
             if not req.tool_choice.name:
                 raise CodecError("tool choice in mode 'tool' requires name")
+            if not req.tool_choice.name or req.tool_choice.tool_type not in ("function", "custom"):
+                raise CodecError("tool choice in mode 'tool' requires name and function/custom tool_type")
             tc_dict["name"] = req.tool_choice.name
+            if req.tool_choice.tool_type != "function":
+                tc_dict["tool_type"] = req.tool_choice.tool_type
+        elif req.tool_choice.tool_type != "function":
+            raise CodecError("tool_choice.tool_type is only valid when mode is tool")
         out["tool_choice"] = tc_dict
     if req.params:
         p_dict: dict[str, Any] = {}
@@ -362,6 +423,30 @@ def dump_response_format(rf: ResponseFormat) -> dict[str, Any]:
             res["strict"] = rf.strict
         return res
     raise CodecError(f"unknown response format type: {type(rf)}")
+
+
+def dump_custom_tool_format(fmt: CustomToolFormat) -> dict[str, Any]:
+    if isinstance(fmt, CustomToolFormatText):
+        return {"type": "text"}
+    if isinstance(fmt, CustomToolFormatGrammar):
+        if fmt.syntax not in ("lark", "regex") or not isinstance(fmt.definition, str):
+            raise CodecError("custom grammar format requires syntax lark/regex and string definition")
+        return {"type": "grammar", "syntax": fmt.syntax, "definition": fmt.definition}
+    raise CodecError(f"unknown custom tool format: {type(fmt)}")
+
+
+def load_custom_tool_format(data: dict[str, Any]) -> CustomToolFormat:
+    if not isinstance(data, dict):
+        raise CodecError("custom tool format must be an object")
+    kind = data.get("type")
+    if kind == "text":
+        return CustomToolFormatText()
+    if kind == "grammar":
+        syntax, definition = data.get("syntax"), data.get("definition")
+        if syntax not in ("lark", "regex") or not isinstance(definition, str):
+            raise CodecError("custom grammar format requires syntax lark/regex and string definition")
+        return CustomToolFormatGrammar(syntax=syntax, definition=definition)
+    raise CodecError(f"unknown custom tool format type: {kind!r}")
 
 
 def load_response_format(data: dict[str, Any]) -> ResponseFormat:
@@ -419,19 +504,31 @@ def load_request(data: dict[str, Any] | str) -> Request:
 
     tools: list[Tool] | None = None
     if "tools" in raw:
-        tools = [
-            Tool(
-                name=t["name"],
-                input_schema=t["input_schema"],
-                description=t.get("description"),
-            )
-            for t in raw["tools"]
-        ]
+        tools = []
+        for t in raw["tools"]:
+            tool_type = t.get("type", "function")
+            if tool_type == "custom":
+                if "input_schema" in t:
+                    raise CodecError("custom tool must not carry input_schema")
+                fmt = t.get("format")
+                tools.append(Tool(name=t["name"], description=t.get("description"), type="custom", format=load_custom_tool_format(fmt) if fmt is not None else None))
+            elif tool_type == "function":
+                if "format" in t:
+                    raise CodecError("function tool must not carry format")
+                tools.append(Tool(name=t["name"], input_schema=t["input_schema"], description=t.get("description")))
+            else:
+                raise CodecError(f"unknown tool type: {tool_type!r}")
 
     tool_choice: ToolChoice | None = None
     if "tool_choice" in raw:
         tc = raw["tool_choice"]
-        tool_choice = ToolChoice(mode=tc["mode"], name=tc.get("name"))
+        mode, tool_type = tc["mode"], tc.get("tool_type", "function")
+        if mode == TOOL_CHOICE_TOOL:
+            if tool_type not in ("function", "custom") or not tc.get("name"):
+                raise CodecError("tool choice mode 'tool' requires name and function/custom tool_type")
+        elif "tool_type" in tc:
+            raise CodecError("tool_choice.tool_type is only valid when mode is tool")
+        tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type)
 
     params: Params | None = None
     if "params" in raw:

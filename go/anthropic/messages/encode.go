@@ -47,6 +47,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 
 	for i, tool := range req.Tools {
+		if tool.Type == ir.ToolTypeCustom {
+			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tools[%d]", i), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "custom tools have no equivalent in Anthropic Messages"})
+			continue
+		}
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
 		}
@@ -62,6 +66,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	out.ToolChoice = choice
 	losses = append(losses, choiceLosses...)
+	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceAny && len(req.Tools) > 0 && len(out.Tools) == 0 {
+		out.ToolChoice = nil
+		losses = append(losses, ir.Loss{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "all tool declarations were dropped"})
+	}
 
 	shorthand := len(req.System) == 0 && len(req.Messages) == 1 &&
 		len(req.Messages[0].Content) == 1
@@ -83,6 +91,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			return nil, nil, err
 		}
 		losses = append(losses, blockLosses...)
+		if len(blocks) == 0 {
+			blocks = []BlockWire{{Type: BlockTypeText, Text: ""}}
+		}
 		if shorthand {
 			out.Messages = append(out.Messages, Message{Role: role, Content: blocks[0].Text})
 		} else {
@@ -145,6 +156,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error) {
 	if choice == nil {
 		return nil, nil, nil
+	}
+	if choice.ToolType == ir.ToolTypeCustom {
+		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "custom tool choice has no equivalent"}}, nil
 	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto:
@@ -338,6 +352,19 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		}
 	case ir.StopToolUse:
 		out.StopReason = StopReasonToolUse
+		hasCustom, hasFunction := false, false
+		for _, b := range resp.Content {
+			switch b.(type) {
+			case ir.CustomToolUseBlock:
+				hasCustom = true
+			case ir.ToolUseBlock:
+				hasFunction = true
+			}
+		}
+		if hasCustom && !hasFunction {
+			out.StopReason = StopReasonEndTurn
+			losses = append(losses, ir.Loss{Path: "stop_reason", Field: "stop_reason", Reason: ir.LossDegraded, Detail: "custom calls were dropped; tool_use normalized to end_turn"})
+		}
 	case ir.StopRefusal:
 		out.StopReason = StopReasonRefusal
 	default:

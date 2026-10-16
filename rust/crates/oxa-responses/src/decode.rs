@@ -1,8 +1,9 @@
 //! Face → IR conversions (spec/11 §4).
 
 use oxa_ir::{
-    Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
-    Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
+    Block, CustomToolFormat, CustomToolOutput, InputTokensDetails, Loss, LossReason,
+    OutputTokensDetails, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
+    ResponseFormat, Role, StopReason, ToolType, Usage,
 };
 
 use crate::config::Config;
@@ -12,10 +13,12 @@ use crate::normalize::{
     loss,
 };
 use crate::types::{
-    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, Input, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
-    ROLE_DEVELOPER, ROLE_SYSTEM, ROLE_USER, Request, Response, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_INCOMPLETE, TOOL_TYPE_FUNCTION, UsageWire,
+    INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, Input, OutputValue, PART_TYPE_INPUT_IMAGE,
+    PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_DEVELOPER, ROLE_SYSTEM,
+    ROLE_USER, Request, Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE,
+    TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION, UsageWire,
 };
 
 /// Converts a Responses wire request to the IR (face → IR). Semantic
@@ -70,6 +73,57 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
 
     let mut tools = Vec::new();
     for (index, tool) in wire.tools.iter().enumerate() {
+        if tool.kind == TOOL_TYPE_CUSTOM {
+            if tool.name.is_empty() {
+                return Err(Error::new(format!(
+                    "responses: tools[{index}].name is required for custom tool"
+                )));
+            }
+            let format = match &tool.format {
+                None => None,
+                Some(v) => match serde_json::from_value::<CustomToolFormat>(v.clone()) {
+                    Ok(f)
+                        if f.format_type == "text"
+                            && f.syntax.is_none()
+                            && f.definition.is_none() =>
+                    {
+                        Some(f)
+                    }
+                    Ok(f)
+                        if f.format_type == "grammar"
+                            && matches!(f.syntax.as_deref(), Some("lark" | "regex"))
+                            && f.definition.is_some() =>
+                    {
+                        Some(f)
+                    }
+                    _ => {
+                        losses.push(loss(
+                            format!("tools[{index}].format"),
+                            "format",
+                            LossReason::UnsupportedSemantic,
+                            "custom tool format is not supported",
+                        ));
+                        None
+                    }
+                },
+            };
+            if tool.parameters.is_some() {
+                losses.push(loss(
+                    format!("tools[{index}].parameters"),
+                    "parameters",
+                    LossReason::UnmappedField,
+                    "custom tools do not carry function parameters",
+                ));
+            }
+            tools.push(oxa_ir::Tool {
+                tool_type: Some(ToolType::Custom),
+                name: tool.name.clone(),
+                description: non_empty(tool.description.clone()),
+                input_schema: None,
+                format,
+            });
+            continue;
+        }
         if tool.kind != TOOL_TYPE_FUNCTION {
             losses.push(loss(
                 format!("tools[{index}]"),
@@ -80,9 +134,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             continue;
         }
         tools.push(oxa_ir::Tool {
+            tool_type: None,
             name: tool.name.clone(),
             description: non_empty(tool.description.clone()),
             input_schema: tool.parameters.clone(),
+            format: None,
         });
         if tool.strict.is_some() {
             losses.push(loss(
@@ -160,7 +216,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             )));
                         }
                     },
-                    ITEM_TYPE_FUNCTION_CALL | ITEM_TYPE_REASONING => {
+                    ITEM_TYPE_FUNCTION_CALL | ITEM_TYPE_CUSTOM_TOOL_CALL | ITEM_TYPE_REASONING => {
                         let (message, next, run_losses) = decode_assistant_run(items, index)?;
                         if let Some(message) = message {
                             request.messages.push(message);
@@ -168,9 +224,10 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         losses.extend(run_losses);
                         index = next;
                     }
-                    ITEM_TYPE_FUNCTION_CALL_OUTPUT => {
-                        let (message, next) = decode_output_run(items, index);
+                    ITEM_TYPE_FUNCTION_CALL_OUTPUT | ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => {
+                        let (message, next, output_losses) = decode_output_run(items, index)?;
                         request.messages.push(message);
+                        losses.extend(output_losses);
                         index = next;
                     }
                     other => {
@@ -205,6 +262,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             "An empty user message was added because the IR requires at least one conversation message.",
         ));
     }
+    validate_tool_history(&request)?;
     let reasoning_effort = decode_reasoning_effort(wire.reasoning.as_ref(), &mut losses)?;
     let response_format = decode_text_format(
         wire.text.as_ref().and_then(|text| text.format.as_ref()),
@@ -227,6 +285,149 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         request.params = Some(params);
     }
     Ok((request, losses))
+}
+
+fn decode_custom_output(
+    output: &OutputValue,
+    item_index: usize,
+    losses: &mut Vec<Loss>,
+) -> CustomToolOutput {
+    match output {
+        OutputValue::Text(s) => CustomToolOutput::Text(s.clone()),
+        OutputValue::Parts(parts) => {
+            let mut blocks = Vec::new();
+            for (i, p) in parts.iter().enumerate() {
+                let path = format!("output[{item_index}].output[{i}]");
+                match p.kind.as_str() {
+                    PART_TYPE_INPUT_TEXT => {
+                        if !p.image_url.is_empty() {
+                            losses.push(loss(
+                                format!("{path}.image_url"),
+                                "image_url",
+                                LossReason::UnmappedField,
+                                "input_text has no image_url field",
+                            ));
+                        }
+                        blocks.push(Block::Text {
+                            text: p.text.clone(),
+                        });
+                    }
+                    PART_TYPE_INPUT_IMAGE if !p.image_url.is_empty() => {
+                        if !p.text.is_empty() {
+                            losses.push(loss(
+                                format!("{path}.text"),
+                                "text",
+                                LossReason::UnmappedField,
+                                "input_image has no text field",
+                            ));
+                        }
+                        if p.file_id.is_some() {
+                            losses.push(loss(
+                                format!("{path}.file_id"),
+                                "file_id",
+                                LossReason::UnmappedField,
+                                "input_image file_id has no IR equivalent",
+                            ));
+                        }
+                        match crate::normalize::decode_image_url(
+                            &p.image_url,
+                            &format!("{path}.image_url"),
+                        ) {
+                            Ok(b) => blocks.push(b),
+                            Err(l) => losses.push(l),
+                        }
+                        if p.detail.is_some() {
+                            losses.push(loss(
+                                format!("{path}.detail"),
+                                "detail",
+                                LossReason::UnmappedField,
+                                "input_image detail has no IR equivalent",
+                            ));
+                        }
+                    }
+                    _ => losses.push(loss(
+                        path,
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "custom tool output content is not supported",
+                    )),
+                }
+            }
+            CustomToolOutput::Content(blocks)
+        }
+    }
+}
+
+fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
+    let has_custom = req.messages.iter().any(|m| {
+        m.content.iter().any(|b| {
+            matches!(
+                b,
+                Block::CustomToolUse { .. } | Block::CustomToolResult { .. }
+            )
+        })
+    });
+    if !has_custom {
+        return Ok(());
+    }
+    if req.messages.first().is_some_and(|m| m.role != Role::User) {
+        return Err(Error::new(
+            "responses: conversation must begin with a user message",
+        ));
+    }
+    let mut pending: Vec<(String, bool)> = Vec::new();
+    for (mi, m) in req.messages.iter().enumerate() {
+        if m.role == Role::Assistant {
+            pending.clear();
+            for b in &m.content {
+                match b {
+                    Block::ToolUse { id, name, .. } | Block::CustomToolUse { id, name, .. } => {
+                        let custom = matches!(b, Block::CustomToolUse { .. });
+                        if id.is_empty() || name.is_empty() {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] tool call requires nonempty id and name"
+                            )));
+                        }
+                        if pending.iter().any(|(x, _)| x == id) {
+                            return Err(Error::new(format!(
+                                "responses: messages[{mi}] has duplicate tool call id {id:?}"
+                            )));
+                        }
+                        pending.push((id.clone(), custom));
+                    }
+                    _ => {}
+                }
+            }
+        } else {
+            let results: Vec<(&str, bool)> = m
+                .content
+                .iter()
+                .filter_map(|b| match b {
+                    Block::ToolResult { tool_use_id, .. } => Some((tool_use_id.as_str(), false)),
+                    Block::CustomToolResult { tool_use_id, .. } => {
+                        Some((tool_use_id.as_str(), true))
+                    }
+                    _ => None,
+                })
+                .collect();
+            if !results.is_empty() {
+                if results.len() != pending.len() {
+                    return Err(Error::new(format!(
+                        "responses: messages[{mi}] results do not match preceding calls"
+                    )));
+                }
+                for ((id, custom), (got, kind)) in pending.iter().zip(results.iter()) {
+                    if id.as_str() != *got || custom != kind {
+                        return Err(Error::new(format!(
+                            "responses: messages[{mi}] result call id or category mismatch"
+                        )));
+                    }
+                }
+            }
+            pending.clear();
+        }
+    }
+    Ok(())
 }
 
 fn decode_text_format(
@@ -435,6 +636,36 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     input: item.arguments.clone(),
                 });
                 has_tool_use = true;
+            }
+            ITEM_TYPE_CUSTOM_TOOL_CALL => {
+                let input = item.input.as_ref().ok_or_else(|| {
+                    Error::new(format!(
+                        "responses: output[{item_index}].input is required for custom_tool_call"
+                    ))
+                })?;
+                if item.call_id.is_empty() || item.name.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}] custom_tool_call requires call_id and name"
+                    )));
+                }
+                calls.push(Block::CustomToolUse {
+                    id: item.call_id.clone(),
+                    name: item.name.clone(),
+                    input: input.clone(),
+                });
+                has_tool_use = true;
+            }
+            ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => {
+                if item.call_id.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: output[{item_index}].call_id is required for custom_tool_call_output"
+                    )));
+                }
+                let output=item.output.as_ref().ok_or_else(||Error::new(format!("responses: output[{item_index}].output is required for custom_tool_call_output")))?;
+                calls.push(Block::CustomToolResult {
+                    tool_use_id: item.call_id.clone(),
+                    output: decode_custom_output(output, item_index, &mut losses),
+                });
             }
             other => losses.push(loss(
                 format!("output[{item_index}]"),

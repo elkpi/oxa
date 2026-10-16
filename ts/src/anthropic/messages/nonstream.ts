@@ -265,26 +265,48 @@ export function encodeRequest(
     request.messages.length === 1 &&
     request.messages[0]!.content.length === 1 &&
     request.messages[0]!.content[0]!.type === "text";
-  const messages = request.messages.map((message, index) => ({
-    role: message.role,
-    content: shorthand
+  const messages = request.messages.map((message, index) => {
+    const encoded = shorthand
       ? (message.content[0] as { readonly text: string }).text
       : encodeContent(
           message.content,
           `messages[${index}].content`,
           losses,
           true,
-        ),
-  }));
+        );
+    return {
+      role: message.role,
+      content:
+        Array.isArray(encoded) && encoded.length === 0
+          ? [{ type: "text", text: "" }]
+          : encoded,
+    };
+  });
   const tools =
-    request.tools?.map((tool) => ({
-      name: tool.name,
-      ...(tool.description === undefined
-        ? {}
-        : { description: tool.description }),
-      input_schema: tool.input_schema,
-    })) ?? [];
-  const toolChoice = encodeToolChoice(request.tool_choice);
+    request.tools?.flatMap((tool, index) => {
+      if (tool.type === "custom") {
+        losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
+        return [];
+      }
+      return [
+        {
+          name: tool.name,
+          ...(tool.description === undefined
+            ? {}
+            : { description: tool.description }),
+          input_schema: tool.input_schema,
+        },
+      ];
+    }) ?? [];
+  const allToolsDropped =
+    (request.tools?.length ?? 0) > 0 && tools.length === 0;
+  const toolChoice =
+    request.tool_choice?.mode === "any" && allToolsDropped
+      ? (losses.push(
+          loss("tool_choice", "tool_choice", "unsupported-semantic"),
+        ),
+        undefined)
+      : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   return {
     value: {
@@ -330,16 +352,29 @@ export function encodeResponse(
   )
     fail(`stop reason ${response.stop_reason} is unsupported`);
   const losses: Loss[] = [];
+  const stopReason =
+    response.stop_reason === "tool_use" &&
+    !response.content.some((block) => block.type === "tool_use")
+      ? (losses.push(loss("stop_reason", "stop_reason", "degraded")),
+        "end_turn" as const)
+      : response.stop_reason;
   return {
     value: {
       id: response.id,
       type: "message",
       role: "assistant",
       model: mapModel(options.modelMapper, response.model),
-      content: encodeContent(response.content, "content", losses, false),
-      stop_reason: response.stop_reason,
-      ...(response.stop_reason === "stop_sequence" &&
-      response.stop_sequence !== undefined
+      content: (() => {
+        const encoded = encodeContent(
+          response.content,
+          "content",
+          losses,
+          false,
+        );
+        return encoded.length === 0 ? [{ type: "text", text: "" }] : encoded;
+      })(),
+      stop_reason: stopReason,
+      ...(stopReason === "stop_sequence" && response.stop_sequence !== undefined
         ? { stop_sequence: response.stop_sequence }
         : {}),
       usage: {
@@ -528,6 +563,11 @@ function encodeContent(
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       });
+    } else if (
+      block.type === "custom_tool_use" ||
+      block.type === "custom_tool_result"
+    ) {
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     }
   }
   return output;
@@ -580,10 +620,15 @@ function decodeToolChoice(
 
 function encodeToolChoice(
   value: ToolChoice | undefined,
+  losses: Loss[],
 ): JsonObject | undefined {
   if (value === undefined) return undefined;
   if (value.mode === "tool") {
     if (value.name === "") fail("tool_choice.name must not be empty");
+    if (value.tool_type === "custom") {
+      losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
+      return undefined;
+    }
     return { type: "tool", name: value.name };
   }
   return { type: value.mode };

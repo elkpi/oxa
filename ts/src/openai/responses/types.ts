@@ -17,6 +17,15 @@ export interface ResponsesOutputTextPart {
   readonly text: string;
   readonly annotations?: readonly unknown[];
 }
+export interface ResponsesInputTextPart {
+  readonly type: "input_text";
+  readonly text: string;
+}
+export interface ResponsesInputImagePart {
+  readonly type: "input_image";
+  readonly image_url: string | { readonly url?: string };
+  readonly detail?: string;
+}
 
 /** An opaque content part unsupported by the current Responses profile. */
 export interface ResponsesUnknownContentPart {
@@ -26,6 +35,8 @@ export interface ResponsesUnknownContentPart {
 
 export type ResponsesOutputContentPart =
   | ResponsesOutputTextPart
+  | ResponsesInputTextPart
+  | ResponsesInputImagePart
   | ResponsesUnknownContentPart;
 
 export interface ResponsesOutputItem {
@@ -42,7 +53,9 @@ export interface ResponsesOutputItem {
   readonly name?: string;
   /** Opaque JSON text for function_call items. */
   readonly arguments?: string;
-  readonly output?: string;
+  readonly output?: string | readonly ResponsesOutputContentPart[];
+  readonly input?: string;
+  readonly format?: Readonly<Record<string, unknown>>;
 }
 
 export interface ResponsesResponse {
@@ -71,5 +84,6 @@ export interface ResponsesStreamEvent {
   readonly name?: string;
   /** Opaque JSON text used only by arguments.done. */
   readonly arguments?: string;
+  readonly input?: string;
   readonly sequence_number?: number;
 }

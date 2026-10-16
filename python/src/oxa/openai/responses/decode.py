@@ -15,6 +15,11 @@ from oxa.ir import (
     STOP_OTHER,
     STOP_TOOL_USE,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
+    CustomToolFormatGrammar,
+    CustomToolFormatText,
+    ImageBlock,
     InputTokensDetails,
     Loss,
     OutputTokensDetails,
@@ -43,6 +48,8 @@ from oxa.openai.responses.constants import (
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+    ITEM_TYPE_CUSTOM_TOOL_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
     PART_TYPE_OUTPUT_TEXT,
@@ -54,11 +61,13 @@ from oxa.openai.responses.constants import (
     STATUS_FAILED,
     STATUS_INCOMPLETE,
     TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_CUSTOM,
 )
 from oxa.openai.responses.normalize import (
     content_system,
     decode_assistant_run,
     decode_content,
+    decode_image_url,
     decode_output_run,
     decode_tool_choice,
     loss,
@@ -115,15 +124,12 @@ def decode_request(
     tools: list[Tool] = []
     for index, tool in enumerate(wire.get("tools", [])):
         kind = tool.get("type", "")
+        if kind == TOOL_TYPE_CUSTOM:
+            fmt = decode_custom_tool_format(tool.get("format"), f"tools[{index}].format", losses) if "format" in tool else None
+            tools.append(Tool(name=tool.get("name", ""), description=tool.get("description"), type="custom", format=fmt))
+            continue
         if kind != TOOL_TYPE_FUNCTION:
-            losses.append(
-                loss(
-                    f"tools[{index}]",
-                    "type",
-                    LOSS_UNSUPPORTED_SEMANTIC,
-                    f"Responses tool type {kind!r} has no IR equivalent",
-                )
-            )
+            losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, f"Responses tool type {kind!r} has no IR equivalent"))
             continue
         desc = tool.get("description")
         tools.append(
@@ -190,15 +196,16 @@ def decode_request(
                     index = next_idx
                 else:
                     raise ValueError(f"responses: input[{index}]: unknown role {role!r}")
-            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_REASONING):
+            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_REASONING):
                 msg, next_idx, run_losses = decode_assistant_run(raw_input, index)
                 if msg is not None:
                     req.messages.append(msg)
                 losses.extend(run_losses)
                 index = next_idx
-            elif kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
-                msg, next_idx = decode_output_run(raw_input, index)
+            elif kind in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT):
+                msg, next_idx, run_losses = decode_output_run(raw_input, index)
                 req.messages.append(msg)
+                losses.extend(run_losses)
                 index = next_idx
             else:
                 losses.append(
@@ -299,6 +306,24 @@ def decode_request(
         ),
         losses,
     )
+
+
+def decode_custom_tool_format(value: Any, path: str, losses: list[Loss]) -> CustomToolFormat | None:
+    if not isinstance(value, dict):
+        raise ValueError(f"responses: {path} must be an object")
+    kind = value.get("type")
+    if kind == "text":
+        return CustomToolFormatText()
+    if kind == "grammar":
+        syntax, definition = value.get("syntax"), value.get("definition")
+        if not isinstance(definition, str):
+            raise ValueError(f"responses: {path}.definition must be a string")
+        if syntax not in ("lark", "regex"):
+            losses.append(loss(f"{path}.syntax", "syntax", LOSS_UNSUPPORTED_SEMANTIC, f"unsupported custom grammar syntax {syntax!r}"))
+            return None
+        return CustomToolFormatGrammar(syntax=syntax, definition=definition)
+    losses.append(loss(f"{path}.type", "type", LOSS_UNSUPPORTED_SEMANTIC, f"unsupported custom tool format {kind!r}"))
+    return None
 
 
 def decode_text_format(value: Any, losses: list[Loss]) -> ResponseFormat | None:
@@ -414,13 +439,34 @@ def decode_response(
                     )
                 )
         elif kind == ITEM_TYPE_FUNCTION_CALL:
-            calls.append(
-                ToolUseBlock(
-                    id=item.get("call_id", ""),
-                    name=item.get("name", ""),
-                    input=item.get("arguments", ""),
-                )
-            )
+            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
+            has_tool_use = True
+        elif kind == ITEM_TYPE_CUSTOM_TOOL_CALL:
+            if "input" not in item:
+                raise ValueError(f"responses: output[{item_index}].input is missing")
+            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item["input"]))
+            has_tool_use = True
+        elif kind == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT:
+            output = item.get("output")
+            if isinstance(output, str):
+                calls.append(CustomToolResultBlock(tool_use_id=item.get("call_id", ""), output=output))
+            elif isinstance(output, list):
+                mapped: list[TextBlock | ImageBlock] = []
+                for part_index, part in enumerate(output):
+                    path=f"output[{item_index}].output[{part_index}]"
+                    if not isinstance(part, dict):
+                        losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported")); continue
+                    if part.get("type") == "input_text": mapped.append(TextBlock(text=part.get("text", "")))
+                    elif part.get("type") == "input_image":
+                        image, img_loss = decode_image_url(part.get("image_url", ""), f"{path}.image_url")
+                        if img_loss is None and isinstance(image, ImageBlock):
+                            mapped.append(image)
+                        elif img_loss is not None:
+                            losses.append(img_loss)
+                    else: losses.append(loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+                calls.append(CustomToolResultBlock(tool_use_id=item.get("call_id", ""), output=mapped))
+            else:
+                raise ValueError(f"responses: output[{item_index}].output must be a string or array")
             has_tool_use = True
         else:
             losses.append(

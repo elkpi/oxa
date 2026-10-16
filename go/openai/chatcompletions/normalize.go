@@ -233,6 +233,9 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 	if choice == nil {
 		return nil, nil
 	}
+	if choice.ToolType == ir.ToolTypeCustom {
+		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "custom tool choice is not implemented by this profile"))
+	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto, ir.ToolChoiceNone:
 		return choice.Mode, nil

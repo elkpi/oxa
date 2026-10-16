@@ -9,6 +9,8 @@ from oxa.ir import (
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     Event,
     EventStream,
     InputJsonDelta,
@@ -173,6 +175,31 @@ class CheckerTest(unittest.TestCase):
             done(),
         ]
         validate_event_stream(EventStream(events=events))
+
+    def test_custom_tool_uses_opaque_custom_deltas_only(self) -> None:
+        events = [
+            start(),
+            ContentBlockStart(index=0, block=CustomToolUseBlock(id="ct1", name="exec", input="not JSON\r\n")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="not JSON")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="\r\n")),
+            block_stop(0),
+            message_delta(STOP_TOOL_USE),
+            done(),
+        ]
+        validate_event_stream(EventStream(events=events))
+
+    def test_custom_tool_rejects_function_delta_and_mismatched_snapshot(self) -> None:
+        self.assert_rejects(
+            [start(), ContentBlockStart(index=0, block=CustomToolUseBlock(id="ct1", name="exec", input="x")),
+             input_delta(0, "x"), block_stop(0), message_delta(STOP_TOOL_USE), done()],
+            2, "delta type",
+        )
+        self.assert_rejects(
+            [start(), ContentBlockStart(index=0, block=CustomToolUseBlock(id="ct1", name="exec", input="x")),
+             ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="y")), block_stop(0),
+             message_delta(STOP_TOOL_USE), done()],
+            3, "concatenation",
+        )
 
     def test_accepts_empty_tool_input_without_fragments(self) -> None:
         events = [

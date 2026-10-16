@@ -11,6 +11,7 @@ pub const ROLE_ASSISTANT: &str = "assistant";
 pub const ROLE_DEVELOPER: &str = "developer";
 
 pub const TOOL_TYPE_FUNCTION: &str = "function";
+pub const TOOL_TYPE_CUSTOM: &str = "custom";
 
 pub const TOOL_CHOICE_AUTO: &str = "auto";
 pub const TOOL_CHOICE_NONE: &str = "none";
@@ -19,6 +20,8 @@ pub const TOOL_CHOICE_REQUIRED: &str = "required";
 pub const ITEM_TYPE_MESSAGE: &str = "message";
 pub const ITEM_TYPE_FUNCTION_CALL: &str = "function_call";
 pub const ITEM_TYPE_FUNCTION_CALL_OUTPUT: &str = "function_call_output";
+pub const ITEM_TYPE_CUSTOM_TOOL_CALL: &str = "custom_tool_call";
+pub const ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT: &str = "custom_tool_call_output";
 pub const ITEM_TYPE_REASONING: &str = "reasoning";
 
 pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
@@ -55,6 +58,9 @@ pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA: &str =
     "response.function_call_arguments.delta";
 pub const EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE: &str =
     "response.function_call_arguments.done";
+pub const EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DELTA: &str =
+    "response.custom_tool_call_input.delta";
+pub const EVENT_TYPE_RESPONSE_CUSTOM_TOOL_INPUT_DONE: &str = "response.custom_tool_call_input.done";
 pub const EVENT_TYPE_RESPONSE_COMPLETED: &str = "response.completed";
 pub const EVENT_TYPE_RESPONSE_INCOMPLETE: &str = "response.incomplete";
 pub const EVENT_TYPE_RESPONSE_FAILED: &str = "response.failed";
@@ -145,8 +151,10 @@ pub struct InputItem {
         skip_serializing_if = "String::is_empty"
     )]
     pub arguments: String,
-    #[serde(rename = "output", default, skip_serializing_if = "String::is_empty")]
-    pub output: String,
+    #[serde(rename = "input", default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<OutputValue>,
 }
 
 /// Responses message content, either text shorthand or a part array.
@@ -170,6 +178,10 @@ pub struct ContentPart {
         skip_serializing_if = "String::is_empty"
     )]
     pub image_url: String,
+    #[serde(rename = "detail", default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(rename = "file_id", default, skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
 }
 
 /// A Responses function-tool definition.
@@ -185,8 +197,14 @@ pub struct ToolDef {
         skip_serializing_if = "String::is_empty"
     )]
     pub description: String,
-    #[serde(rename = "parameters", default)]
-    pub parameters: Value,
+    #[serde(
+        rename = "parameters",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub parameters: Option<Value>,
+    #[serde(rename = "format", default, skip_serializing_if = "Option::is_none")]
+    pub format: Option<Value>,
     #[serde(rename = "strict", default, skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
 }
@@ -256,6 +274,18 @@ pub struct OutputItem {
         skip_serializing_if = "String::is_empty"
     )]
     pub arguments: String,
+    #[serde(rename = "input", default, skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
+    #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<OutputValue>,
+}
+
+/// A custom-tool output string or ordered input-content list.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum OutputValue {
+    Text(String),
+    Parts(Vec<ContentPart>),
 }
 
 /// One Responses message-output content part.
@@ -349,6 +379,8 @@ pub struct StreamEvent {
     pub name: Option<String>,
     #[serde(rename = "arguments", skip_serializing_if = "Option::is_none")]
     pub arguments: Option<String>,
+    #[serde(rename = "input", skip_serializing_if = "Option::is_none")]
+    pub input: Option<String>,
     #[serde(rename = "sequence_number", skip_serializing_if = "Option::is_none")]
     pub sequence_number: Option<i64>,
 }

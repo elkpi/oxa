@@ -48,6 +48,25 @@ type wireThinkingBlock struct {
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
+	case CustomToolUseBlock:
+		if v.ID == "" || v.Name == "" {
+			return nil, fmt.Errorf("ir: custom call requires id/name")
+		}
+		if err := validateOpaqueString(v.Input); err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			CustomToolUseBlock
+		}{BlockTypeCustomToolUse, v})
+	case CustomToolResultBlock:
+		if v.ToolUseID == "" {
+			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			CustomToolResultBlock
+		}{BlockTypeCustomToolResult, v})
 	case TextBlock:
 		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text})
 	case ThinkingBlock:
@@ -102,6 +121,34 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return nil, err
 	}
 	switch head.Type {
+	case BlockTypeCustomToolUse:
+		var b CustomToolUseBlock
+		if err := json.Unmarshal(data, &b); err != nil {
+			return nil, err
+		}
+		if b.ID == "" || b.Name == "" {
+			return nil, fmt.Errorf("ir: custom call requires id/name")
+		}
+		if err := validateOpaqueString(b.Input); err != nil {
+			return nil, err
+		}
+		return b, nil
+	case BlockTypeCustomToolResult:
+		var w struct {
+			ToolUseID string          `json:"tool_use_id"`
+			Output    json.RawMessage `json:"output"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.ToolUseID == "" {
+			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
+		}
+		var output CustomToolOutput
+		if err := output.UnmarshalJSON(w.Output); err != nil {
+			return nil, err
+		}
+		return CustomToolResultBlock{ToolUseID: w.ToolUseID, Output: output}, nil
 	case BlockTypeText:
 		var w wireTextBlock
 		if err := json.Unmarshal(data, &w); err != nil {
@@ -181,14 +228,17 @@ type wireMessage struct {
 }
 
 type wireTool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name        string            `json:"name"`
+	Description string            `json:"description,omitempty"`
+	InputSchema json.RawMessage   `json:"input_schema,omitempty"`
+	Type        string            `json:"type,omitempty"`
+	Format      *CustomToolFormat `json:"format,omitempty"`
 }
 
 type wireToolChoice struct {
-	Mode string `json:"mode"`
-	Name string `json:"name,omitempty"`
+	Mode     string `json:"mode"`
+	Name     string `json:"name,omitempty"`
+	ToolType string `json:"tool_type,omitempty"`
 }
 
 type wireResponseFormat struct {
@@ -260,11 +310,23 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	}
 	tools := make([]wireTool, 0, len(req.Tools))
 	for _, t := range req.Tools {
+		if err := validateTool(t); err != nil {
+			return nil, err
+		}
+		if t.Type == ToolTypeFunction {
+			t.Type = ""
+		}
 		tools = append(tools, wireTool(t))
+	}
+	if err := validateToolChoice(req.ToolChoice); err != nil {
+		return nil, err
+	}
+	if err := ValidateCustomConversation(req); err != nil {
+		return nil, err
 	}
 	var tc *wireToolChoice
 	if req.ToolChoice != nil {
-		tc = &wireToolChoice{Mode: req.ToolChoice.Mode, Name: req.ToolChoice.Name}
+		tc = &wireToolChoice{Mode: req.ToolChoice.Mode, Name: req.ToolChoice.Name, ToolType: req.ToolChoice.ToolType}
 	}
 	var params *wireParams
 	if req.Params.set() {
@@ -324,10 +386,17 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 		req.Messages = append(req.Messages, Message{Role: m.Role, Content: content})
 	}
 	for _, t := range w.Tools {
-		req.Tools = append(req.Tools, Tool(t))
+		tool := Tool(t)
+		if err := validateTool(tool); err != nil {
+			return nil, err
+		}
+		req.Tools = append(req.Tools, tool)
 	}
 	if w.ToolChoice != nil {
-		req.ToolChoice = &ToolChoice{Mode: w.ToolChoice.Mode, Name: w.ToolChoice.Name}
+		req.ToolChoice = &ToolChoice{Mode: w.ToolChoice.Mode, Name: w.ToolChoice.Name, ToolType: w.ToolChoice.ToolType}
+		if err := validateToolChoice(req.ToolChoice); err != nil {
+			return nil, err
+		}
 	}
 	if w.Params != nil {
 		req.Params = Params{
@@ -346,6 +415,9 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 				Strict:      w.Params.ResponseFormat.Strict,
 			}
 		}
+	}
+	if err := ValidateCustomConversation(req); err != nil {
+		return nil, err
 	}
 	return req, nil
 }
@@ -481,6 +553,14 @@ type wireSignatureDelta struct {
 // MarshalDelta renders one delta in its canonical type-discriminated form.
 func MarshalDelta(d Delta) (json.RawMessage, error) {
 	switch v := d.(type) {
+	case CustomToolInputDelta:
+		if err := validateOpaqueString(v.Text); err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Type string          `json:"type"`
+			Text json.RawMessage `json:"text"`
+		}{DeltaTypeCustomToolInput, v.Text})
 	case TextDelta:
 		return json.Marshal(wireTextDelta{Type: DeltaTypeTextDelta, Text: v.Text})
 	case InputJSONDelta:
@@ -508,6 +588,15 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 		return nil, err
 	}
 	switch head.Type {
+	case DeltaTypeCustomToolInput:
+		var w CustomToolInputDelta
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if err := validateOpaqueString(w.Text); err != nil {
+			return nil, err
+		}
+		return w, nil
 	case DeltaTypeTextDelta:
 		var w wireTextDelta
 		if err := json.Unmarshal(data, &w); err != nil {

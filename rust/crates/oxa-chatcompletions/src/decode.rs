@@ -86,9 +86,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 continue;
             }
             tools.push(oxa_ir::Tool {
+                tool_type: None,
                 name: tool.function.name.clone(),
                 description: non_empty(tool.function.description.clone()),
-                input_schema: tool.function.parameters.clone().unwrap_or(Value::Null),
+                input_schema: Some(tool.function.parameters.clone().unwrap_or(Value::Null)),
+                format: None,
             });
         }
         if !tools.is_empty() {

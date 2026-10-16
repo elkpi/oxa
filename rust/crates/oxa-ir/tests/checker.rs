@@ -435,3 +435,98 @@ fn complete_text_stream_passes() {
     })
     .expect("reference stream");
 }
+
+#[test]
+fn custom_tool_input_delta_is_opaque_and_type_matched() {
+    use oxa_ir::Block::CustomToolUse;
+    let good = EventStream {
+        events: vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: CustomToolUse {
+                    id: "c".into(),
+                    name: "exec".into(),
+                    input: "{}\r\n".into(),
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::CustomToolInputDelta {
+                    text: "{}\r\n".into(),
+                },
+            },
+            block_stop(0),
+            message_delta(StopReason::ToolUse),
+            done(),
+        ],
+    };
+    validate_event_stream(&good).expect("matching opaque custom input fragment");
+
+    let bad = EventStream {
+        events: vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: CustomToolUse {
+                    id: "c".into(),
+                    name: "exec".into(),
+                    input: "{}".into(),
+                },
+            },
+            Event::ContentBlockDelta {
+                index: 0,
+                delta: Delta::InputJsonDelta {
+                    partial_json: "{}".into(),
+                },
+            },
+            block_stop(0),
+            message_delta(StopReason::ToolUse),
+            done(),
+        ],
+    };
+    let violation =
+        validate_event_stream(&bad).expect_err("function delta cannot target custom tool");
+    assert_eq!(violation.event, 2);
+    assert!(violation.message.contains("delta type"));
+}
+
+#[test]
+fn custom_tool_empty_input_needs_no_delta_and_requires_identity() {
+    let stream = EventStream {
+        events: vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: oxa_ir::Block::CustomToolUse {
+                    id: "c".into(),
+                    name: "exec".into(),
+                    input: String::new(),
+                },
+            },
+            block_stop(0),
+            message_delta(StopReason::ToolUse),
+            done(),
+        ],
+    };
+    validate_event_stream(&stream).expect("empty custom input is valid without a fragment");
+    let invalid = EventStream {
+        events: vec![
+            start(),
+            Event::ContentBlockStart {
+                index: 0,
+                block: oxa_ir::Block::CustomToolUse {
+                    id: String::new(),
+                    name: "exec".into(),
+                    input: String::new(),
+                },
+            },
+        ],
+    };
+    assert!(
+        validate_event_stream(&invalid)
+            .unwrap_err()
+            .message
+            .contains("id and name")
+    );
+}

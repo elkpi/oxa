@@ -9,11 +9,14 @@ export {
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   BLOCK_TYPE_IMAGE,
+  BLOCK_TYPE_CUSTOM_TOOL_USE,
+  BLOCK_TYPE_CUSTOM_TOOL_RESULT,
   BLOCK_TYPE_TEXT,
   BLOCK_TYPE_THINKING,
   BLOCK_TYPE_TOOL_RESULT,
   BLOCK_TYPE_TOOL_USE,
   DELTA_TYPE_INPUT_JSON_DELTA,
+  DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
   DELTA_TYPE_SIGNATURE_DELTA,
   DELTA_TYPE_TEXT_DELTA,
   DELTA_TYPE_THINKING_DELTA,
@@ -49,6 +52,11 @@ export {
 export {
   specVersion,
   type Block,
+  type CustomToolInputDelta,
+  type CustomToolResultBlock,
+  type CustomToolResultOutput,
+  type CustomToolUseBlock,
+  type CustomToolFormat,
   type ImageBlock,
   type ThinkingBlock,
   type ContentBlockDelta,

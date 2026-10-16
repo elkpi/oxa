@@ -54,9 +54,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 &format!("tools[{index}].input_schema"),
             )?;
             tools.push(oxa_ir::Tool {
+                tool_type: None,
                 name: tool.name.clone(),
                 description: non_empty(tool.description.clone()),
-                input_schema: tool.input_schema.clone(),
+                input_schema: Some(tool.input_schema.clone()),
+                format: None,
             });
         }
         if !tools.is_empty() {

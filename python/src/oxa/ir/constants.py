@@ -16,7 +16,9 @@ BLOCK_TYPE_THINKING: Final = "thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
-BlockType = Literal["text", "thinking", "image", "tool_use", "tool_result"]
+BLOCK_TYPE_CUSTOM_TOOL_USE: Final = "custom_tool_use"
+BLOCK_TYPE_CUSTOM_TOOL_RESULT: Final = "custom_tool_result"
+BlockType = Literal["text", "thinking", "image", "tool_use", "tool_result", "custom_tool_use", "custom_tool_result"]
 
 # Tool choice modes (spec/01 §3.6)
 TOOL_CHOICE_AUTO: Final = "auto"
@@ -65,7 +67,8 @@ DELTA_TYPE_TEXT_DELTA: Final = "text_delta"
 DELTA_TYPE_INPUT_JSON_DELTA: Final = "input_json_delta"
 DELTA_TYPE_THINKING_DELTA: Final = "thinking_delta"
 DELTA_TYPE_SIGNATURE_DELTA: Final = "signature_delta"
-DeltaType = Literal["text_delta", "input_json_delta", "thinking_delta", "signature_delta"]
+DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA: Final = "custom_tool_input_delta"
+DeltaType = Literal["text_delta", "input_json_delta", "thinking_delta", "signature_delta", "custom_tool_input_delta"]
 
 # Loss reasons (spec/02 §3)
 LOSS_UNMAPPED_FIELD: Final = "unmapped-field"
@@ -90,6 +93,8 @@ __all__ = [
     "BLOCK_TYPE_IMAGE",
     "BLOCK_TYPE_TOOL_USE",
     "BLOCK_TYPE_TOOL_RESULT",
+    "BLOCK_TYPE_CUSTOM_TOOL_USE",
+    "BLOCK_TYPE_CUSTOM_TOOL_RESULT",
     "BlockType",
     "TOOL_CHOICE_AUTO",
     "TOOL_CHOICE_ANY",
@@ -115,6 +120,7 @@ __all__ = [
     "DELTA_TYPE_INPUT_JSON_DELTA",
     "DELTA_TYPE_THINKING_DELTA",
     "DELTA_TYPE_SIGNATURE_DELTA",
+    "DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA",
     "DeltaType",
     "LOSS_UNMAPPED_FIELD",
     "LOSS_UNMAPPED_VALUE",

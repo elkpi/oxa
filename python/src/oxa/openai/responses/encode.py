@@ -13,6 +13,11 @@ from oxa.ir import (
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
+    CustomToolFormatGrammar,
+    CustomToolFormatText,
+    ImageBlock,
     Loss,
     Request,
     Response,
@@ -35,6 +40,8 @@ from oxa.openai.responses.constants import (
     ERROR_CODE_REFUSAL,
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
     OBJECT_RESPONSE,
@@ -45,9 +52,11 @@ from oxa.openai.responses.constants import (
     STATUS_FAILED,
     STATUS_INCOMPLETE,
     TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_CUSTOM,
 )
 from oxa.openai.responses.normalize import (
     encode_assistant_message,
+    encode_image_block,
     encode_tool_choice,
     encode_user_message,
     loss,
@@ -86,13 +95,18 @@ def encode_request(
     if req.tools:
         tools_wire: list[dict[str, Any]] = []
         for tool in req.tools:
-            t_dict: dict[str, Any] = {
-                "type": TOOL_TYPE_FUNCTION,
-                "name": tool.name,
-                "parameters": tool.input_schema,
-            }
-            if tool.description:
-                t_dict["description"] = tool.description
+            if tool.type == "custom":
+                t_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": tool.name}
+                if tool.description is not None:
+                    t_dict["description"] = tool.description
+                if tool.format is not None:
+                    t_dict["format"] = encode_custom_tool_format(tool.format)
+            else:
+                if tool.input_schema is None:
+                    raise ValueError(f"responses: tools[{len(tools_wire)}].input_schema is required")
+                t_dict = {"type": TOOL_TYPE_FUNCTION, "name": tool.name, "parameters": tool.input_schema}
+                if tool.description:
+                    t_dict["description"] = tool.description
             tools_wire.append(t_dict)
         out["tools"] = tools_wire
 
@@ -149,6 +163,16 @@ def encode_request(
     return out, losses
 
 
+def encode_custom_tool_format(fmt: Any) -> dict[str, Any]:
+    if isinstance(fmt, CustomToolFormatText):
+        return {"type": "text"}
+    if isinstance(fmt, CustomToolFormatGrammar):
+        if fmt.syntax not in ("lark", "regex"):
+            raise ValueError("responses: custom grammar syntax must be lark or regex")
+        return {"type": "grammar", "syntax": fmt.syntax, "definition": fmt.definition}
+    raise ValueError(f"responses: unknown custom tool format {type(fmt)}")
+
+
 def encode_text_format(rf: ResponseFormat) -> dict[str, Any]:
     if isinstance(rf, ResponseFormatText):
         return {"type": "text"}
@@ -201,16 +225,24 @@ def encode_response(
                     )
                 )
         elif isinstance(block, ToolUseBlock):
-            calls.append(
-                {
-                    "type": ITEM_TYPE_FUNCTION_CALL,
-                    "id": "fc_abc123",
-                    "status": STATUS_COMPLETED,
-                    "call_id": block.id,
-                    "name": block.name,
-                    "arguments": block.input,
-                }
-            )
+            calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "id": "fc_abc123", "status": STATUS_COMPLETED, "call_id": block.id, "name": block.name, "arguments": block.input})
+        elif isinstance(block, CustomToolUseBlock):
+            calls.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "id": "ctc_abc123", "call_id": block.id, "name": block.name, "input": block.input})
+        elif isinstance(block, CustomToolResultBlock):
+            if isinstance(block.output, str):
+                output = block.output
+            else:
+                output = []
+                for c_idx, inner in enumerate(block.output):
+                    if isinstance(inner, TextBlock):
+                        output.append({"type": "input_text", "text": inner.text})
+                    elif isinstance(inner, ImageBlock):
+                        part, img_loss = encode_image_block(inner.media_type, inner.data, inner.url, f"content[{index}].output[{c_idx}]")
+                        if img_loss is not None: losses.append(img_loss)
+                        elif part is not None: output.append(part)
+                    else:
+                        losses.append(loss(f"content[{index}].output[{c_idx}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool output content is not supported"))
+            calls.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, "call_id": block.tool_use_id, "output": output})
         else:
             losses.append(
                 loss(

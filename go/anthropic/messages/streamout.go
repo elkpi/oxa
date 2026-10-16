@@ -15,6 +15,7 @@ import (
 // the correspondingly named wire event. Envelope fields absent from the IR
 // render with the documented defaults and record no loss.
 type StreamEncoder struct {
+	customFilter  customStreamFilter
 	models        modelmap.Table
 	id            string
 	model         string
@@ -73,7 +74,7 @@ func (d StreamDelta) MarshalJSON() ([]byte, error) {
 // mapping is near-identity except that a tool block stop may synthesize one
 // full input_json_delta when no argument deltas were supplied. Out-of-grammar
 // orderings are structural errors.
-func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
+func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 	if ev == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil event")
 	}

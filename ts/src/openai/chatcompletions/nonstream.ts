@@ -361,6 +361,14 @@ export function encodeRequest(
       if (block.type === "tool_result") {
         results.push({ block, index: blockIndex });
         lastResult = blockIndex;
+      } else if (block.type === "custom_tool_result") {
+        losses.push(
+          loss(
+            `messages[${index}].content[${blockIndex}]`,
+            "type",
+            "unsupported-semantic",
+          ),
+        );
       } else {
         if (firstNormal < 0) firstNormal = blockIndex;
         normal.push(block);
@@ -387,17 +395,33 @@ export function encodeRequest(
       });
   }
   const tools =
-    request.tools?.map((tool) => ({
-      type: "function",
-      function: {
-        name: tool.name,
-        ...(tool.description === undefined
-          ? {}
-          : { description: tool.description }),
-        parameters: tool.input_schema,
-      },
-    })) ?? [];
-  const toolChoice = encodeToolChoice(request.tool_choice, losses);
+    request.tools?.flatMap((tool, index) => {
+      if (tool.type === "custom") {
+        losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
+        return [];
+      }
+      return [
+        {
+          type: "function",
+          function: {
+            name: tool.name,
+            ...(tool.description === undefined
+              ? {}
+              : { description: tool.description }),
+            parameters: tool.input_schema,
+          },
+        },
+      ];
+    }) ?? [];
+  const allToolsDropped =
+    (request.tools?.length ?? 0) > 0 && tools.length === 0;
+  const toolChoice =
+    request.tool_choice?.mode === "any" && allToolsDropped
+      ? (losses.push(
+          loss("tool_choice", "tool_choice", "unsupported-semantic"),
+        ),
+        undefined)
+      : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   return {
     value: {
@@ -447,7 +471,12 @@ export function encodeResponse(
       finishReason = "content_filter";
       break;
     case "tool_use":
-      finishReason = "tool_calls";
+      if (response.content.some((block) => block.type === "tool_use"))
+        finishReason = "tool_calls";
+      else {
+        finishReason = "stop";
+        losses.push(loss("stop_reason", "stop_reason", "degraded"));
+      }
       break;
     case "stop_sequence":
       finishReason = "stop";
@@ -626,8 +655,13 @@ function encodeToolChoice(
   if (value === undefined) return undefined;
   if (value.mode === "auto" || value.mode === "none") return value.mode;
   if (value.mode === "any") return "required";
-  if (value.mode === "tool" && value.name !== "")
+  if (value.mode === "tool" && value.name !== "") {
+    if (value.tool_type === "custom") {
+      losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
+      return undefined;
+    }
     return { type: "function", function: { name: value.name } };
+  }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }

@@ -8,12 +8,13 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.1.0**. Go, TypeScript, Rust, Python, and C++ share
-one golden suite of **185 vectors**, covering reasoning, usage granularity,
-structured-output format mapping, and Responses developer instructions.
-Implementation release **v2.1.2 is being prepared**; the latest published
-coordinated release is **v2.1.1**. The specification version and IR contract
-remain unchanged. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Current spec version: **2.2.0（未发布）**。IR contract 保持 **0.2.0**。Custom Tools 扩展见 [13](13-custom-tools.md)。
+
+上一冻结规范版本为 **2.1.0**。Go, TypeScript, Rust, Python, and C++ share
+one golden suite of **205 vectors**, covering reasoning, usage granularity,
+structured-output format mapping, Responses developer instructions, and Custom Tools.
+Implementation release **v2.2.0 is being prepared**; the latest published
+coordinated release is **v2.1.1**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 
@@ -43,15 +44,13 @@ The version series are tied to the implementation roadmap:
 | 1.0.x | The TypeScript implementation — added after 1.0.0 with no spec change, validated against the identical vector set |
 | 2.0.0 | Reasoning content and usage granularity across all faces (Go Wave 1; TypeScript Wave 2; Rust Wave 3; Python Wave 4; C++ Wave 5) |
 | 2.1.0 | Structured-output format mapping via `Params.ResponseFormat` across all faces; additive optional IR field, contract remains `0.2.0` |
+| 2.2.0 | Custom tools support across OpenAI Responses; contract remains `0.2.0` |
 
 Post-1.0 evolution ladder:
 
-- **Patch releases (1.0.x)** — wording clarifications, documentation, and
-  glossary additions with zero schema, rule, or behavioral change.
-- **Minor releases (1.x)** — additive optional members on non-sealed types
-  (such as additional parameters or non-breaking usage fields).
-- **Major releases (2.x)** — sealed union or enum extensions (such as new
-  `Block` or `Delta` variants, new stop reasons, or new tool choice modes).
+- **小版本（Patch releases, x.y.Z）** — BUG 修订、小 feature、文档与词条澄清，无基础协议结构破坏。
+- **中间版本（Minor releases, x.Y.0）** — 同一个转换框架下的能力补充与扩展（例如 Custom Tools 声明/调用/流式、新参数字段支持）；保持 IR contract 在同一主要周期内平滑向后兼容。
+- **高位版本（Major releases, X.0.0）** — 大的架构重构升级（例如整体转换管线重构或破坏性重写）。
 
 Freeze rules for every series:
 
@@ -59,10 +58,7 @@ Freeze rules for every series:
    arrive with a minor bump; within a series, existing rules, IR shapes,
    and loss semantics MUST NOT change (clarifications are patch
    releases).
-2. Extending a sealed union or an enum
-   ([01, §2](01-intermediate-representation.md)) after 1.0 is a major
-   bump.
-3. The behavioral source of truth stays `vectors/`: any spec change that
+2. The behavioral source of truth stays `vectors/`: any spec change that
    alters observable behavior MUST land together with the vector change
    that pins it.
 
@@ -87,6 +83,7 @@ Read the documents in this order:
 | [10](10-mapping-openai-chat-completions.md) | Chat Completions face mapping | ready |
 | [11](11-mapping-openai-responses.md) | Responses face mapping | ready |
 | [12](12-mapping-anthropic-messages.md) | Anthropic Messages face mapping | ready |
+| [13](13-custom-tools.md) | Custom Tools：IR、Responses、流式与降级 | ready（2.2，未发布） |
 | [20](20-streaming-semantics.md) | streaming semantics | ready |
 | [90](90-glossary.md) | glossary | ready |
 

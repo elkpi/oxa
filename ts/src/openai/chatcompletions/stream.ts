@@ -353,6 +353,11 @@ export interface ChatCompletionsStreamEncoderOptions {
 type EncoderBlock =
   | { readonly kind: "text"; readonly index: number }
   | {
+      readonly kind: "custom";
+      readonly index: number;
+      readonly blockType: "custom_tool_use" | "custom_tool_result";
+    }
+  | {
       readonly kind: "thinking";
       readonly index: number;
       sawSignatureDelta: boolean;
@@ -448,6 +453,36 @@ export class ChatCompletionsStreamEncoder {
         ],
       };
     }
+    if (
+      event.block.type === "custom_tool_use" ||
+      event.block.type === "custom_tool_result"
+    ) {
+      if (
+        event.block.type === "custom_tool_use" &&
+        (event.block.id === "" || event.block.name === "")
+      )
+        this.#lifecycle("custom_tool_use requires nonempty id and name");
+      if (
+        event.block.type === "custom_tool_result" &&
+        event.block.tool_use_id === ""
+      )
+        this.#lifecycle("custom_tool_result requires nonempty tool_use_id");
+      this.#active = {
+        kind: "custom",
+        index: event.index,
+        blockType: event.block.type,
+      };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${event.index}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+          },
+        ],
+      };
+    }
     if (event.block.type !== "tool_use")
       this.#lifecycle(`unsupported content block ${event.block.type}`);
     if (event.block.id === "" || event.block.name === "")
@@ -475,6 +510,15 @@ export class ChatCompletionsStreamEncoder {
       if (event.delta.type !== "text_delta")
         this.#lifecycle("text block received non-text delta");
       return this.#result([this.#chunk({ content: event.delta.text })]);
+    }
+    if (this.#active.kind === "custom") {
+      if (
+        this.#active.blockType !== "custom_tool_use" ||
+        event.delta.type !== "custom_tool_input_delta" ||
+        typeof event.delta.text !== "string"
+      )
+        this.#lifecycle("delta does not match skipped custom block");
+      return this.#result([]);
     }
     if (this.#active.kind === "thinking") {
       if (event.delta.type === "thinking_delta") {
@@ -514,6 +558,10 @@ export class ChatCompletionsStreamEncoder {
   #stopBlock(index: number): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (this.#active === undefined || index !== this.#active.index)
       this.#lifecycle("content_block_stop out of grammar order");
+    if (this.#active.kind === "custom") {
+      this.#active = undefined;
+      return this.#result([]);
+    }
     if (this.#active.kind === "tool") {
       if (this.#active.fragments.length === 0) {
         this.#active.fragments.push(this.#active.input);
@@ -544,7 +592,16 @@ export class ChatCompletionsStreamEncoder {
     );
     this.#finished = true;
     const losses: Loss[] = [];
-    const finishReason = this.#finishReason(stopReason, losses);
+    let effectiveStopReason = stopReason;
+    if (stopReason === "tool_use" && !this.#toolSeen) {
+      effectiveStopReason = "end_turn";
+      losses.push({
+        path: "stop_reason",
+        field: "stop_reason",
+        reason: "degraded",
+      });
+    }
+    const finishReason = this.#finishReason(effectiveStopReason, losses);
     if (this.#orderingDegrade)
       losses.push({
         path: "events",

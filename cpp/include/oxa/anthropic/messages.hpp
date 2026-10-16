@@ -124,14 +124,18 @@ private:
     std::string model_;
     bool started_ = false;
     bool block_open_ = false;
+    bool skipped_custom_ = false;
     bool open_tool_ = false;
     bool open_thinking_ = false;
+    bool tool_seen_ = false;
     std::string thinking_input_;
     std::optional<std::string> thinking_signature_;
     std::vector<std::string> thinking_parts_;
     bool signature_seen_ = false;
     std::int64_t open_index_ = 0;
+    std::int64_t open_ir_index_ = 0;
     std::int64_t next_index_ = 0;
+    std::int64_t next_ir_index_ = 0;
     std::string tool_input_;
     std::vector<std::string> tool_parts_;
     bool delta_seen_ = false;

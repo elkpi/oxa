@@ -1,11 +1,12 @@
 //! Anthropic Messages streaming encoder: converts IR events into wire events (IR → face).
 
-use oxa_ir::{Block, Delta, Event, Loss};
+use oxa_ir::{Block, Delta, Event, Loss, LossReason, StopReason};
 use serde_json::value::RawValue;
 
 use crate::config::Config;
 use crate::encode::encode_stop_reason;
 use crate::error::Error;
+use crate::normalize::loss;
 use crate::types::{
     BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE, BlockWire,
     DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_SIGNATURE_DELTA, DELTA_TYPE_TEXT_DELTA,
@@ -22,10 +23,15 @@ pub struct StreamEncoder {
     model: String,
     started: bool,
     next_index: i64,
+    next_wire_index: i64,
     open_index: i64,
+    open_ir_index: i64,
     block_open: bool,
     open_tool: bool,
     open_thinking: bool,
+    open_custom: bool,
+    custom_seen: bool,
+    tool_seen: bool,
     thinking_input: String,
     thinking_signature: Option<String>,
     thinking_parts: Vec<String>,
@@ -45,10 +51,15 @@ impl StreamEncoder {
             model: String::new(),
             started: false,
             next_index: 0,
+            next_wire_index: 0,
             open_index: 0,
+            open_ir_index: 0,
             block_open: false,
             open_tool: false,
             open_thinking: false,
+            open_custom: false,
+            custom_seen: false,
+            tool_seen: false,
             thinking_input: String::new(),
             thinking_signature: None,
             thinking_parts: Vec::new(),
@@ -113,11 +124,14 @@ impl StreamEncoder {
                         self.block_open = true;
                         self.open_tool = false;
                         self.open_thinking = false;
-                        self.open_index = *index;
+                        self.open_custom = false;
+                        self.open_ir_index = *index;
+                        self.open_index = self.next_wire_index;
+                        self.next_wire_index += 1;
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_TEXT.to_string(),
                                     text: text.clone(),
@@ -136,7 +150,10 @@ impl StreamEncoder {
                         self.block_open = true;
                         self.open_tool = false;
                         self.open_thinking = true;
-                        self.open_index = *index;
+                        self.open_custom = false;
+                        self.open_ir_index = *index;
+                        self.open_index = self.next_wire_index;
+                        self.next_wire_index += 1;
                         self.thinking_input = thinking.clone();
                         self.thinking_signature = signature.clone();
                         self.thinking_parts.clear();
@@ -144,7 +161,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_THINKING.to_string(),
                                     thinking: None,
@@ -170,7 +187,11 @@ impl StreamEncoder {
                         self.block_open = true;
                         self.open_tool = true;
                         self.open_thinking = false;
-                        self.open_index = *index;
+                        self.open_custom = false;
+                        self.tool_seen = true;
+                        self.open_ir_index = *index;
+                        self.open_index = self.next_wire_index;
+                        self.next_wire_index += 1;
                         self.tool_input = input.clone();
                         self.tool_parts.clear();
                         let empty_object = RawValue::from_string("{}".to_string())
@@ -178,7 +199,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_TOOL_USE.to_string(),
                                     id: id.clone(),
@@ -191,16 +212,37 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    Block::CustomToolUse { .. } => {
+                        self.next_index += 1;
+                        self.block_open = true;
+                        self.open_tool = false;
+                        self.open_thinking = false;
+                        self.open_custom = true;
+                        self.custom_seen = true;
+                        self.open_ir_index = *index;
+                        Ok((
+                            Vec::new(),
+                            vec![loss(
+                                format!("events[{index}].block"),
+                                "type",
+                                LossReason::UnsupportedSemantic,
+                                "Anthropic Messages streaming does not support custom tools",
+                            )],
+                        ))
+                    }
                     _ => Err(Error::new(
                         "anthropic: ContentBlockStart carries an unsupported block",
                     )),
                 }
             }
             Event::ContentBlockDelta { index, delta } => {
-                if !self.block_open || *index != self.open_index {
+                if !self.block_open || *index != self.open_ir_index {
                     return Err(Error::new(
                         "anthropic: ContentBlockDelta out of grammar order",
                     ));
+                }
+                if self.open_custom {
+                    return Ok((Vec::new(), Vec::new()));
                 }
                 match delta {
                     Delta::ThinkingDelta { text } => {
@@ -218,7 +260,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 delta: Some(StreamDelta {
                                     kind: DELTA_TYPE_THINKING_DELTA.to_string(),
                                     thinking: Some(text.clone()),
@@ -242,7 +284,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 delta: Some(StreamDelta {
                                     kind: DELTA_TYPE_SIGNATURE_DELTA.to_string(),
                                     signature: Some(signature.clone()),
@@ -260,7 +302,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 delta: Some(StreamDelta {
                                     kind: DELTA_TYPE_TEXT_DELTA.to_string(),
                                     text: text.clone(),
@@ -279,7 +321,7 @@ impl StreamEncoder {
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                                index: Some(*index),
+                                index: Some(self.open_index),
                                 delta: Some(StreamDelta {
                                     kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
                                     partial_json: Some(partial_json.clone()),
@@ -290,20 +332,26 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    Delta::CustomToolInputDelta { .. } => Ok((Vec::new(), Vec::new())),
                 }
             }
             Event::ContentBlockStop { index } => {
-                if !self.block_open || *index != self.open_index {
+                if !self.block_open || *index != self.open_ir_index {
                     return Err(Error::new(
                         "anthropic: ContentBlockStop out of grammar order",
                     ));
+                }
+                if self.open_custom {
+                    self.block_open = false;
+                    self.open_custom = false;
+                    return Ok((Vec::new(), Vec::new()));
                 }
                 if self.open_thinking {
                     let mut events = Vec::new();
                     if self.thinking_parts.is_empty() && !self.thinking_input.is_empty() {
                         events.push(StreamEvent {
                             kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                            index: Some(*index),
+                            index: Some(self.open_index),
                             delta: Some(StreamDelta {
                                 kind: DELTA_TYPE_THINKING_DELTA.to_string(),
                                 thinking: Some(self.thinking_input.clone()),
@@ -320,7 +368,7 @@ impl StreamEncoder {
                     {
                         events.push(StreamEvent {
                             kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                            index: Some(*index),
+                            index: Some(self.open_index),
                             delta: Some(StreamDelta {
                                 kind: DELTA_TYPE_SIGNATURE_DELTA.to_string(),
                                 signature: self.thinking_signature.clone(),
@@ -331,7 +379,7 @@ impl StreamEncoder {
                     }
                     events.push(StreamEvent {
                         kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
-                        index: Some(*index),
+                        index: Some(self.open_index),
                         ..Default::default()
                     });
                     self.block_open = false;
@@ -347,7 +395,7 @@ impl StreamEncoder {
                     if self.tool_parts.is_empty() {
                         events.push(StreamEvent {
                             kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                            index: Some(*index),
+                            index: Some(self.open_index),
                             delta: Some(StreamDelta {
                                 kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
                                 partial_json: Some(self.tool_input.clone()),
@@ -363,7 +411,7 @@ impl StreamEncoder {
                 }
                 events.push(StreamEvent {
                     kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
-                    index: Some(*index),
+                    index: Some(self.open_index),
                     ..Default::default()
                 });
                 self.block_open = false;
@@ -381,7 +429,21 @@ impl StreamEncoder {
                 if !self.started || self.block_open || self.delta_seen {
                     return Err(Error::new("anthropic: MessageDelta out of grammar order"));
                 }
-                let (reason, seq) = encode_stop_reason(*stop_reason, stop_sequence.as_deref())?;
+                let effective_stop = if *stop_reason == StopReason::ToolUse && !self.tool_seen {
+                    StopReason::EndTurn
+                } else {
+                    *stop_reason
+                };
+                let (reason, seq) = encode_stop_reason(effective_stop, stop_sequence.as_deref())?;
+                let mut losses = Vec::new();
+                if *stop_reason == StopReason::ToolUse && !self.tool_seen && self.custom_seen {
+                    losses.push(loss(
+                        "stop_reason",
+                        "stop_reason",
+                        LossReason::Degraded,
+                        "custom tool calls were dropped; stop_reason was degraded to end_turn",
+                    ));
+                }
                 self.delta_seen = true;
                 Ok((
                     vec![StreamEvent {
@@ -399,7 +461,7 @@ impl StreamEncoder {
                         }),
                         ..Default::default()
                     }],
-                    Vec::new(),
+                    losses,
                 ))
             }
             Event::MessageDone {} => {

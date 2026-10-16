@@ -45,6 +45,20 @@ export interface ToolUseBlock {
   readonly name: string;
   readonly input: JsonText;
 }
+export interface CustomToolUseBlock {
+  readonly type: "custom_tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: string;
+}
+export type CustomToolResultOutput =
+  | string
+  | readonly (TextBlock | ImageBlock)[];
+export interface CustomToolResultBlock {
+  readonly type: "custom_tool_result";
+  readonly tool_use_id: string;
+  readonly output: CustomToolResultOutput;
+}
 export interface ToolResultBlock {
   readonly type: "tool_result";
   readonly tool_use_id: string;
@@ -56,7 +70,9 @@ export type Block =
   | ThinkingBlock
   | ImageBlock
   | ToolUseBlock
-  | ToolResultBlock;
+  | ToolResultBlock
+  | CustomToolUseBlock
+  | CustomToolResultBlock;
 export interface TextDelta {
   readonly type: "text_delta";
   readonly text: string;
@@ -73,7 +89,16 @@ export interface InputJsonDelta {
   readonly type: "input_json_delta";
   readonly partial_json: JsonText;
 }
-export type Delta = TextDelta | ThinkingDelta | SignatureDelta | InputJsonDelta;
+export interface CustomToolInputDelta {
+  readonly type: "custom_tool_input_delta";
+  readonly text: string;
+}
+export type Delta =
+  | TextDelta
+  | ThinkingDelta
+  | SignatureDelta
+  | InputJsonDelta
+  | CustomToolInputDelta;
 export interface MessageStart {
   readonly type: "message_start";
   readonly id: string;
@@ -116,14 +141,35 @@ export interface Message {
   readonly role: "user" | "assistant";
   readonly content: readonly Block[];
 }
-export interface Tool {
-  readonly name: string;
-  readonly description?: string;
-  readonly input_schema: JsonObject;
-}
+export type CustomToolFormat =
+  | { readonly type: "text" }
+  | {
+      readonly type: "grammar";
+      readonly syntax: "lark" | "regex";
+      readonly definition: string;
+    };
+export type Tool =
+  | {
+      readonly type?: "function";
+      readonly name: string;
+      readonly description?: string;
+      readonly input_schema: JsonObject;
+      readonly format?: never;
+    }
+  | {
+      readonly type: "custom";
+      readonly name: string;
+      readonly description?: string;
+      readonly input_schema?: never;
+      readonly format?: CustomToolFormat;
+    };
 export type ToolChoice =
   | { readonly mode: "auto" | "any" | "none" }
-  | { readonly mode: "tool"; readonly name: string };
+  | {
+      readonly mode: "tool";
+      readonly name: string;
+      readonly tool_type?: "function" | "custom";
+    };
 export interface ResponseFormatText {
   readonly type: "text";
 }

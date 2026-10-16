@@ -17,6 +17,8 @@ from oxa.ir import (
     ContentBlockStart,
     ContentBlockStop,
     Event,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     InputJsonDelta,
     Loss,
     MessageDelta,
@@ -39,6 +41,8 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_FAILED,
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA,
     EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA,
+    EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE,
     EVENT_TYPE_RESPONSE_INCOMPLETE,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
     EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
@@ -49,6 +53,7 @@ from oxa.openai.responses.constants import (
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA,
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_FUNCTION_CALL,
+    ITEM_TYPE_CUSTOM_TOOL_CALL,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
     OBJECT_RESPONSE,
@@ -103,6 +108,7 @@ class StreamEncoder:
         "_next_output_index",
         "_next_message_item",
         "_next_function_item",
+        "_next_custom_item",
         "_next_reasoning_item",
         "_active_item",
         "_active_block",
@@ -120,6 +126,7 @@ class StreamEncoder:
         self._next_output_index = 0
         self._next_message_item = 0
         self._next_function_item = 0
+        self._next_custom_item = 0
         self._next_reasoning_item = 0
         self._active_item: _StreamOutputItem | None = None
         self._active_block: _StreamEncodeBlock | None = None
@@ -162,9 +169,9 @@ class StreamEncoder:
             if isinstance(ev.block, ThinkingBlock):
                 return self._start_thinking_block(ev.index, ev.block)
             if isinstance(ev.block, ToolUseBlock):
-                return self._start_function_call_block(
-                    ev.index, ev.block.id, ev.block.name, ev.block.input
-                )
+                return self._start_function_call_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
+            if isinstance(ev.block, CustomToolUseBlock):
+                return self._start_custom_tool_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
             raise ValueError("responses: ContentBlockStart carries unsupported block")
 
         if isinstance(ev, ContentBlockDelta):
@@ -215,14 +222,12 @@ class StreamEncoder:
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("responses: ToolUseBlock received non-input-json delta")
                 self._active_block.fragments.append(ev.delta.partial_json)
-                return [
-                    {
-                        "type": EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA,
-                        "item_id": active_item.id,
-                        "output_index": active_item.output_index,
-                        "delta": ev.delta.partial_json,
-                    }
-                ], []
+                return [{"type": EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DELTA, "item_id": active_item.id, "output_index": active_item.output_index, "delta": ev.delta.partial_json}], []
+            if self._active_block.kind == "custom_tool_call":
+                if not isinstance(ev.delta, CustomToolInputDelta):
+                    raise ValueError("responses: CustomToolUseBlock received non-custom-input delta")
+                self._active_block.fragments.append(ev.delta.text)
+                return [{"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA, "item_id": active_item.id, "output_index": active_item.output_index, "delta": ev.delta.text}], []
 
         if isinstance(ev, ContentBlockStop):
             if self._active_block is None or ev.index != self._active_block.index:
@@ -231,6 +236,8 @@ class StreamEncoder:
                 return self._stop_text_block()
             if self._active_block.kind == "reasoning":
                 return self._stop_thinking_block()
+            if self._active_block.kind == "custom_tool_call":
+                return self._stop_custom_tool_block()
             return self._stop_function_call_block()
 
         if isinstance(ev, MessageDelta):
@@ -449,6 +456,45 @@ class StreamEncoder:
                 "part": part,
             }
         ], losses
+
+    def _start_custom_tool_block(self, index: int, call_id: str, name: str, input_text: str) -> tuple[list[dict[str, Any]], list[Loss]]:
+        if not call_id or not name:
+            raise ValueError("responses: CustomToolUseBlock requires nonempty ID and name")
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind in ("message", "reasoning"):
+                out.append(self._close_message_item() if self._active_item.kind == "message" else self._close_reasoning_item())
+            else:
+                raise ValueError("responses: custom_tool_call cannot open before the active tool item completes")
+        item_id = f"ctc_{self._next_custom_item}"
+        self._next_custom_item += 1
+        output_index = self._next_output_index
+        self._next_output_index += 1
+        item = _StreamOutputItem(kind="custom_tool_call", id=item_id, output_index=output_index, call_id=call_id, name=name)
+        self._active_item = item
+        self._active_block = _StreamEncodeBlock(index=index, kind="custom_tool_call", content_index=0, tool_input=input_text)
+        out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, "output_index": output_index, "item": {"id": item_id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": call_id, "name": name, "input": ""}})
+        return out, []
+
+    def _stop_custom_tool_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
+        if self._active_item is None or self._active_item.kind != "custom_tool_call":
+            raise ValueError("responses: custom tool block without an active custom_tool_call item")
+        assert self._active_block is not None
+        block = self._active_block
+        self._active_block = None
+        synthetic = not block.fragments
+        fragments = block.fragments if block.fragments else [block.tool_input]
+        if "".join(fragments) != block.tool_input:
+            raise ValueError("responses: CustomToolUseBlock input does not equal concatenated custom-input deltas")
+        out: list[dict[str, Any]] = []
+        if synthetic:
+            out.extend({"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA, "item_id": self._active_item.id, "output_index": self._active_item.output_index, "delta": part} for part in fragments)
+        item = {"id": self._active_item.id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": self._active_item.call_id, "name": self._active_item.name, "input": block.tool_input}
+        out.append({"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE, "item_id": self._active_item.id, "output_index": self._active_item.output_index, "input": block.tool_input})
+        out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, "output_index": self._active_item.output_index, "item": item})
+        self._completed.append(item)
+        self._active_item = None
+        return out, []
 
     def _stop_function_call_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
         if self._active_item is None or self._active_item.kind != "function_call":

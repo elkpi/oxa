@@ -39,25 +39,64 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         ..Request::default()
     };
     if let Some(tools) = &req.tools {
-        out.tools = Some(
-            tools
-                .iter()
-                .map(|tool| ToolWire {
-                    kind: TOOL_TYPE_FUNCTION.to_string(),
-                    function: FunctionWire {
-                        name: tool.name.clone(),
-                        description: tool.description.clone().unwrap_or_default(),
-                        parameters: non_null(&tool.input_schema),
-                        arguments: String::new(),
-                    },
-                })
-                .collect(),
-        );
+        let mut supported = Vec::new();
+        for (index, tool) in tools.iter().enumerate() {
+            if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
+                losses.push(loss(
+                    format!("tools[{index}]"),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    "Chat Completions has no native custom tool mapping",
+                ));
+                continue;
+            }
+            supported.push(ToolWire {
+                kind: TOOL_TYPE_FUNCTION.to_string(),
+                function: FunctionWire {
+                    name: tool.name.clone(),
+                    description: tool.description.clone().unwrap_or_default(),
+                    parameters: non_null(
+                        tool.input_schema
+                            .as_ref()
+                            .unwrap_or(&serde_json::Value::Null),
+                    ),
+                    arguments: String::new(),
+                },
+            });
+        }
+        if !supported.is_empty() {
+            out.tools = Some(supported);
+        }
     }
-    let (choice, choice_loss) = encode_tool_choice(req.tool_choice.as_ref());
+    let (mut choice, choice_loss) = encode_tool_choice(req.tool_choice.as_ref());
+    if req.tool_choice.as_ref().is_some_and(|c| {
+        c.mode == oxa_ir::ToolChoiceMode::Tool && c.tool_type == Some(oxa_ir::ToolType::Custom)
+    }) {
+        choice = None;
+        losses.push(loss(
+            "tool_choice",
+            "tool_choice",
+            LossReason::UnsupportedSemantic,
+            "Chat Completions has no native custom tool choice mapping",
+        ));
+    }
+    if req
+        .tool_choice
+        .as_ref()
+        .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
+        && req.tools.as_ref().is_some_and(|ts| {
+            !ts.is_empty()
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::Custom))
+        })
+    {
+        choice = None;
+        losses.push(loss("tool_choice","tool_choice",LossReason::UnsupportedSemantic,"all declared tools were dropped because Chat Completions does not support custom tools"));
+    }
     out.tool_choice = choice;
-    if let Some(choice_loss) = choice_loss {
-        losses.push(choice_loss);
+    if let Some(loss) = choice_loss {
+        losses.push(loss);
     }
     if !req.system.is_empty() {
         let mut text = String::new();
@@ -84,15 +123,19 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
             oxa_ir::Role::User => {
                 let mut normal: Vec<Block> = Vec::new();
-                let mut results: Vec<Block> = Vec::new();
+                let mut results: Vec<(usize, Block)> = Vec::new();
+                let mut retained_results = 0usize;
                 // N-CC-9: tool messages are hoisted ahead of the trailing user
                 // content. When ordinary content precedes a tool result in the
                 // source turn, that hoisting does not preserve the source order.
                 let mut last_result: Option<usize> = None;
                 let mut first_normal: Option<usize> = None;
                 for (position, block) in message.content.iter().enumerate() {
-                    if matches!(block, Block::ToolResult { .. }) {
-                        results.push(block.clone());
+                    if matches!(
+                        block,
+                        Block::ToolResult { .. } | Block::CustomToolResult { .. }
+                    ) {
+                        results.push((position, block.clone()));
                         last_result = Some(position);
                         continue;
                     }
@@ -115,7 +158,17 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 // immediately. If the IR user turn also carries normal content,
                 // render it after the tool-result run as a separate user
                 // message.
-                for (position, result) in results.iter().enumerate() {
+                for (position, result) in &results {
+                    if matches!(result, Block::CustomToolResult { .. }) {
+                        losses.push(loss(
+                            format!("messages[{index}].content[{position}]"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            "Chat Completions has no native custom tool result mapping",
+                        ));
+                        continue;
+                    }
+                    retained_results += 1;
                     let (tool_message, result_losses) = encode_tool_result(
                         result,
                         &format!("messages[{index}].content[{position}]"),
@@ -123,7 +176,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     out.messages.push(tool_message);
                     losses.extend(result_losses);
                 }
-                if !normal.is_empty() || results.is_empty() {
+                if !normal.is_empty() || retained_results == 0 {
                     let (content, content_losses) =
                         encode_user_content(&normal, &format!("messages[{index}].content"));
                     out.messages.push(Message {
@@ -215,7 +268,22 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .checked_add(resp.usage.output_tokens)
         .ok_or_else(|| Error::new("chatcompletions: derived total_tokens exceeds int64"))?;
     let (message, mut losses) = encode_assistant_message(&resp.content, "content");
-    let (finish, finish_loss) = encode_finish_reason(resp.stop_reason)?;
+    let has_native_call = resp
+        .content
+        .iter()
+        .any(|b| matches!(b, Block::ToolUse { .. }));
+    let effective_stop = if resp.stop_reason == StopReason::ToolUse && !has_native_call {
+        losses.push(loss(
+            "stop_reason",
+            "stop_reason",
+            LossReason::Degraded,
+            "custom tool calls were dropped; stop_reason was degraded to end_turn",
+        ));
+        StopReason::EndTurn
+    } else {
+        resp.stop_reason
+    };
+    let (finish, finish_loss) = encode_finish_reason(effective_stop)?;
     if let Some(l) = finish_loss {
         losses.push(l);
     }

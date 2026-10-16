@@ -115,7 +115,8 @@ void codec_tests() {
         if (request.ok()) {
             auto encoded = dump_request(*request);
             CHECK(encoded.find("specVersion")->as_string() == "0.2.0");
-            CHECK(oxa::json::structurally_equal(*request_v2, encoded));
+            auto expected = *request_v2; expected.set("specVersion", Value::string("0.2.0"));
+            CHECK(oxa::json::structurally_equal(expected, encoded));
         }
 
         auto response_v2 = oxa::json::parse(R"({
@@ -133,7 +134,8 @@ void codec_tests() {
         CHECK_MSG(response.ok(), std::string(response.status().message()));
         if (response.ok()) {
             auto encoded = dump_response(*response);
-            CHECK(oxa::json::structurally_equal(*response_v2, encoded));
+            auto expected = *response_v2; expected.set("specVersion", Value::string("0.2.0"));
+            CHECK(oxa::json::structurally_equal(expected, encoded));
         }
 
         auto stream_v2 = oxa::json::parse(R"({
@@ -152,7 +154,8 @@ void codec_tests() {
         auto events = load_event_stream(*stream_v2);
         CHECK_MSG(events.ok(), std::string(events.status().message()));
         if (events.ok()) {
-            CHECK(oxa::json::structurally_equal(*stream_v2, dump_event_stream(*events)));
+            auto expected = *stream_v2; expected.set("specVersion", Value::string("0.2.0"));
+            CHECK(oxa::json::structurally_equal(expected, dump_event_stream(*events)));
         }
     }
 
@@ -170,7 +173,9 @@ void codec_tests() {
         CHECK(request.ok());
         if (request.ok()) {
             auto encoded = dump_request(*request);
-            CHECK(oxa::json::structurally_equal(*request_with_format, encoded));
+            auto expected = *request_with_format;
+            expected.set("specVersion", Value::string("0.2.0"));
+            CHECK(oxa::json::structurally_equal(expected, encoded));
         }
     }
 
@@ -197,6 +202,49 @@ void codec_tests() {
         CHECK(b.ok());
         CHECK(std::holds_alternative<ToolUseBlock>(*b));
         CHECK(std::get<ToolUseBlock>(*b).input == "{}");
+    }
+
+    // Custom tools preserve their distinct string/list shapes and opaque input text.
+    {
+        const std::string custom_raw = "print(\"你好\")\r\nnot JSON\t";
+        Value call = Value::object();
+        call.set("type", Value::string("custom_tool_use"));
+        call.set("id", Value::string("call_custom"));
+        call.set("name", Value::string("code_exec"));
+        call.set("input", Value::string(custom_raw));
+        auto parsed_call = load_block(call);
+        CHECK(parsed_call.ok());
+        CHECK(std::holds_alternative<CustomToolUseBlock>(*parsed_call));
+        CHECK(oxa::json::structurally_equal(call, dump_block(*parsed_call)));
+        Value missing_input = call; missing_input.as_object().erase("input");
+        CHECK(!load_block(missing_input).ok());
+
+        auto output_string = oxa::json::parse(R"({"type":"custom_tool_result","tool_use_id":"call_custom","output":""})");
+        auto output_list = oxa::json::parse(R"({"type":"custom_tool_result","tool_use_id":"call_custom","output":[]})");
+        CHECK(output_string.ok() && output_list.ok());
+        auto loaded_string = load_block(*output_string); auto loaded_list = load_block(*output_list);
+        CHECK(loaded_string.ok() && loaded_list.ok());
+        CHECK(oxa::json::structurally_equal(*output_string, dump_block(*loaded_string)));
+        CHECK(oxa::json::structurally_equal(*output_list, dump_block(*loaded_list)));
+        auto nested = oxa::json::parse(R"({"type":"custom_tool_result","tool_use_id":"c","output":[{"type":"thinking","thinking":"x"}]})");
+        CHECK(nested.ok() && !load_block(*nested).ok());
+
+        auto custom_request = oxa::json::parse(R"({"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"go"}]}],"tools":[{"type":"custom","name":"code_exec","format":{"type":"grammar","syntax":"lark","definition":"start: \"hi\""}}],"tool_choice":{"mode":"tool","name":"code_exec","tool_type":"custom"}})");
+        CHECK(custom_request.ok());
+        auto request = load_request(*custom_request);
+        CHECK(request.ok());
+        if (request.ok()) CHECK(oxa::json::structurally_equal(*custom_request, dump_request(*request)));
+        auto invalid_tool = oxa::json::parse(R"({"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"x"}]}],"tools":[{"type":"custom","name":"x","input_schema":{}}]})");
+        CHECK(invalid_tool.ok() && !load_request(*invalid_tool).ok());
+
+        auto delta = oxa::json::parse(R"({"type":"content_block_delta","index":0,"delta":{"type":"custom_tool_input_delta","text":""}})");
+        CHECK(delta.ok()); auto parsed_delta = load_event(*delta);
+        CHECK(parsed_delta.ok());
+        CHECK(oxa::json::structurally_equal(*delta, dump_event(*parsed_delta)));
+        auto missing_delta = oxa::json::parse(R"({"type":"content_block_delta","index":0,"delta":{"type":"custom_tool_input_delta"}})");
+        auto null_delta = oxa::json::parse(R"({"type":"content_block_delta","index":0,"delta":{"type":"custom_tool_input_delta","text":null}})");
+        CHECK(missing_delta.ok() && null_delta.ok());
+        CHECK(!load_event(*missing_delta).ok() && !load_event(*null_delta).ok());
     }
 
     // Absent and zero are distinct in params.
@@ -326,6 +374,13 @@ void checker_tests() {
 
     CHECK(validate_event_stream({start(), tool_start(0, ""), block_stop(0),
                                  msg_delta(std::string(STOP_TOOL_USE)), done()}).ok());
+    CHECK(validate_event_stream({start(),
+        ContentBlockStart{0, CustomToolUseBlock{"c", "code_exec", "arbitrary"}},
+        ContentBlockDelta{0, CustomToolInputDelta{"arbitrary"}}, block_stop(0),
+        msg_delta(std::string(STOP_TOOL_USE)), done()}).ok());
+    assert_rejects({start(), ContentBlockStart{0, CustomToolUseBlock{"c", "code_exec", "x"}},
+                    ContentBlockDelta{0, InputJsonDelta{"x"}}, block_stop(0),
+                    msg_delta(std::string(STOP_TOOL_USE)), done()}, 2, "delta type");
 
     CHECK(validate_event_stream({start(), msg_delta(std::string(STOP_STOP_SEQUENCE), "END"), done()}).ok());
 

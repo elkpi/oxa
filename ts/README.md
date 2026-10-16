@@ -105,4 +105,4 @@ Apache-2.0. See `LICENSE` and `NOTICE`.
 各 face 导出 `decodeRequestJSON(raw, options)` 和 `decodeResponseJSON(raw, options)`；
 stream decoder 支持 `feedJSON(raw)`。raw 入口使用 `parseJson` 保留原始数字 token、
 对象键序和工具参数文本；对象接口也执行相同字段审计。不要用原生 `JSON.parse`
-预先丢掉大整数精度。该能力自 v2.1.1 起已发布，当前 v2.1.2 源码保留支持。
+预先丢掉大整数精度。该能力自 v2.1.1 起已发布，当前 v2.2.0 源码保留支持。

@@ -8,7 +8,8 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.2.0**。IR contract 保持 **0.2.0**。Custom Tools 扩展见 [13](13-custom-tools.md)。
+Current spec version: **2.3.0（未发布）**。IR contract 保持 **0.2.0**。
+Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)。
 
 上一冻结规范版本为 **2.1.0**。Go, TypeScript, Rust, Python, and C++ share
 one golden suite of **205 vectors**, covering reasoning, usage granularity,
@@ -22,10 +23,9 @@ The specification carries two version axes:
 
 - **Spec version** — declared here and recorded in
   [CHANGELOG.md](CHANGELOG.md): the version of the written specification
-  itself. A patch release (0.0.x, 1.0.x) clarifies wording without changing any
-  rule; a minor release (0.x → 0.(x+1)) may add semantics under the
-  evolution rules below; a major release (2.0.0) is required for sealed-union
-  or enum extensions.
+  itself. 版本位的含义以本文的最新 evolution ladder 为准：BUG/小 feature 升 patch，
+  框架内补充能力升 minor，大的架构重构升 major。新增 sealed-union/enum 变体
+  必须说明消费者穷尽匹配的迁移要求，但不自动提升 major。
 - **IR contract version** — the `specVersion` property declared in
   [`spec/schema/ir.schema.json`](schema/ir.schema.json) and echoed by
   every vector's `spec_version`: the version of the IR document shapes

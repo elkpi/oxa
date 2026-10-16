@@ -47,13 +47,9 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 			if b.ID == "" || b.Name == "" || len(b.Input) == 0 || b.Input[0] != '"' {
 				return fail()
 			}
-			if err := json.Unmarshal(b.Input, &f.input); err != nil {
-				return nil, nil, err
-			}
-			f.custom = true
-			f.dropped = true
-			f.fragments = nil
-			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "custom tool calls are not supported by this target profile"}}, nil
+			f.functionSeen = true
+			e.Index = f.outputIndex
+			return e, nil, nil
 		}
 		if b, ok := e.Block.(ir.ApplyPatchToolUseBlock); ok {
 			if b.ID == "" || b.Status == "" || b.Operation == nil {

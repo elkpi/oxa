@@ -10,9 +10,90 @@ import (
 	cc "github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 )
 
-func TestUnsupportedCustomToolsNeverBecomeFunctions(t *testing.T) {
+func TestCustomToolsSupportedInCCAndAnthropic(t *testing.T) {
 	max := int64(32)
-	req := &ir.Request{Model: "m", Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hello"}}}}, Tools: []ir.Tool{{Type: ir.ToolTypeCustom, Name: "run"}}, ToolChoice: &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: "run", ToolType: ir.ToolTypeCustom}, Params: ir.Params{MaxTokens: &max}}
+	req := &ir.Request{
+		Model: "m",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hello"}}},
+		},
+		Tools: []ir.Tool{
+			{Type: ir.ToolTypeCustom, Name: "run"},
+		},
+		ToolChoice: &ir.ToolChoice{
+			Mode:     ir.ToolChoiceTool,
+			Name:     "run",
+			ToolType: ir.ToolTypeCustom,
+		},
+		Params: ir.Params{MaxTokens: &max},
+	}
+	t.Run("cc", func(t *testing.T) {
+		w, losses, err := cc.EncodeRequest(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(losses) != 0 {
+			t.Fatalf("unexpected losses: %+v", losses)
+		}
+		raw, err := json.Marshal(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"type":"custom"`) {
+			t.Fatalf("expected custom tool in cc wire: %s", raw)
+		}
+	})
+	t.Run("an", func(t *testing.T) {
+		w, losses, err := an.EncodeRequest(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(losses) != 0 {
+			t.Fatalf("unexpected losses: %+v", losses)
+		}
+		raw, err := json.Marshal(w)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(raw), `"input_schema"`) {
+			t.Fatalf("expected input_schema wrapper in anthropic wire: %s", raw)
+		}
+	})
+}
+
+func TestCustomMixedResultsHandled(t *testing.T) {
+	empty := ""
+	req := &ir.Request{Model: "m", Messages: []ir.Message{
+		{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "go"}}},
+		{Role: ir.RoleAssistant, Content: []ir.Block{ir.CustomToolUseBlock{ID: "c", Name: "run", Input: json.RawMessage(`"code"`)}, ir.ToolUseBlock{ID: "f", Name: "clock", Input: json.RawMessage(`"{}"`)}}},
+		{Role: ir.RoleUser, Content: []ir.Block{ir.CustomToolResultBlock{ToolUseID: "c", Output: ir.CustomToolOutput{Text: &empty}}, ir.ToolResultBlock{ToolUseID: "f", Content: []ir.Block{ir.TextBlock{Text: "ok"}}}}},
+	}}
+	wire, _, err := cc.EncodeRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(wire.Messages) != 4 || wire.Messages[2].Role != "tool" || wire.Messages[3].Role != "tool" {
+		t.Fatalf("unexpected wire messages: %+v", wire.Messages)
+	}
+}
+
+func TestUnsupportedApplyPatchToolsNeverBecomeFunctions(t *testing.T) {
+	max := int64(32)
+	req := &ir.Request{
+		Model: "m",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hello"}}},
+		},
+		Tools: []ir.Tool{
+			{Type: ir.ToolTypeApplyPatch, Name: "apply_patch"},
+		},
+		ToolChoice: &ir.ToolChoice{
+			Mode:     ir.ToolChoiceTool,
+			Name:     "apply_patch",
+			ToolType: ir.ToolTypeApplyPatch,
+		},
+		Params: ir.Params{MaxTokens: &max},
+	}
 	for _, face := range []string{"cc", "an"} {
 		t.Run(face, func(t *testing.T) {
 			var raw []byte
@@ -34,8 +115,8 @@ func TestUnsupportedCustomToolsNeverBecomeFunctions(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if strings.Contains(string(raw), `"tools"`) || strings.Contains(string(raw), `"tool_choice"`) {
-				t.Fatalf("custom coerced: %s", raw)
+			if strings.Contains(string(raw), `"apply_patch"`) {
+				t.Fatalf("apply_patch coerced: %s", raw)
 			}
 			if len(losses) != 2 || losses[0].Reason != ir.LossUnsupportedSemantic || losses[1].Reason != ir.LossUnsupportedSemantic {
 				t.Fatalf("losses: %+v", losses)
@@ -44,24 +125,15 @@ func TestUnsupportedCustomToolsNeverBecomeFunctions(t *testing.T) {
 	}
 }
 
-func TestUnsupportedCustomMixedResultsDoNotAddTurn(t *testing.T) {
-	empty := ""
-	req := &ir.Request{Model: "m", Messages: []ir.Message{
-		{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "go"}}},
-		{Role: ir.RoleAssistant, Content: []ir.Block{ir.CustomToolUseBlock{ID: "c", Name: "run", Input: json.RawMessage(`"code"`)}, ir.ToolUseBlock{ID: "f", Name: "clock", Input: json.RawMessage(`"{}"`)}}},
-		{Role: ir.RoleUser, Content: []ir.Block{ir.CustomToolResultBlock{ToolUseID: "c", Output: ir.CustomToolOutput{Text: &empty}}, ir.ToolResultBlock{ToolUseID: "f", Content: []ir.Block{ir.TextBlock{Text: "ok"}}}}},
-	}}
-	wire, _, err := cc.EncodeRequest(req)
-	if err != nil {
-		t.Fatal(err)
+func TestUnsupportedApplyPatchResponseNormalizesStop(t *testing.T) {
+	resp := &ir.Response{
+		ID:    "r",
+		Model: "m",
+		Content: []ir.Block{
+			ir.ApplyPatchToolUseBlock{ID: "p", Status: "in_progress", Operation: ir.ApplyPatchCreateFileOperation{Path: "a.txt"}},
+		},
+		StopReason: ir.StopToolUse,
 	}
-	if len(wire.Messages) != 3 || wire.Messages[2].Role != "tool" {
-		t.Fatalf("dropping custom result introduced an extra user turn: %+v", wire.Messages)
-	}
-}
-
-func TestUnsupportedCustomResponseNormalizesStop(t *testing.T) {
-	resp := &ir.Response{ID: "r", Model: "m", Content: []ir.Block{ir.CustomToolUseBlock{ID: "c", Name: "run", Input: json.RawMessage(`"code"`)}}, StopReason: ir.StopToolUse}
 	for _, face := range []string{"cc", "an"} {
 		t.Run(face, func(t *testing.T) {
 			var raw []byte
@@ -93,11 +165,10 @@ func TestUnsupportedCustomResponseNormalizesStop(t *testing.T) {
 	}
 }
 
-func TestUnsupportedCustomStreamDropsOnceAndCompacts(t *testing.T) {
+func TestUnsupportedApplyPatchStreamDropsOnceAndCompacts(t *testing.T) {
 	events := []ir.Event{
 		ir.MessageStart{ID: "r", Model: "m"},
-		ir.ContentBlockStart{Index: 0, Block: ir.CustomToolUseBlock{ID: "c", Name: "run", Input: json.RawMessage(`"code"`)}},
-		ir.ContentBlockDelta{Index: 0, Delta: ir.CustomToolInputDelta{Text: json.RawMessage(`"code"`)}},
+		ir.ContentBlockStart{Index: 0, Block: ir.ApplyPatchToolUseBlock{ID: "p", Status: "in_progress", Operation: ir.ApplyPatchCreateFileOperation{Path: "a.txt"}}},
 		ir.ContentBlockStop{Index: 0},
 		ir.ContentBlockStart{Index: 1, Block: ir.TextBlock{Text: ""}},
 		ir.ContentBlockDelta{Index: 1, Delta: ir.TextDelta{Text: "kept"}},

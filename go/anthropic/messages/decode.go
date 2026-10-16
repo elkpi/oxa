@@ -39,9 +39,19 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		Model:  o.models.Map(wire.Model),
 		Params: ir.Params{MaxTokens: &maxTokens},
 	}
+	customTools := make(map[string]bool)
 	for i, tool := range wire.Tools {
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
+		}
+		if isCustomToolInputSchema(tool.InputSchema) {
+			customTools[tool.Name] = true
+			req.Tools = append(req.Tools, ir.Tool{
+				Type:        ir.ToolTypeCustom,
+				Name:        tool.Name,
+				Description: tool.Description,
+			})
+			continue
 		}
 		req.Tools = append(req.Tools, ir.Tool{
 			Name:        tool.Name,
@@ -49,7 +59,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			InputSchema: tool.InputSchema,
 		})
 	}
-	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice)
+	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice, customTools)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -63,6 +73,37 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	losses = append(losses, sysLosses...)
 	req.System = system
 
+	customCallIDs := make(map[string]bool)
+	for _, m := range wire.Messages {
+		if m.Role == RoleAssistant {
+			if blocks, ok := m.Content.([]BlockWire); ok {
+				for _, b := range blocks {
+					if b.Type == BlockTypeToolUse {
+						if customTools[b.Name] {
+							customCallIDs[b.ID] = true
+						} else if _, ok := extractCustomInput(b.Input); ok {
+							customCallIDs[b.ID] = true
+						}
+					}
+				}
+			} else if rawList, ok := m.Content.([]any); ok {
+				for _, item := range rawList {
+					if mp, ok := item.(map[string]any); ok && mp["type"] == BlockTypeToolUse {
+						name, _ := mp["name"].(string)
+						id, _ := mp["id"].(string)
+						if customTools[name] {
+							customCallIDs[id] = true
+						} else if in, ok := mp["input"].(map[string]any); ok && len(in) == 1 {
+							if _, ok := in["input"].(string); ok {
+								customCallIDs[id] = true
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+
 	for i, m := range wire.Messages {
 		var role ir.Role
 		switch m.Role {
@@ -73,7 +114,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		default:
 			return nil, nil, fmt.Errorf("anthropic: messages[%d]: unknown role %q", i, m.Role)
 		}
-		blocks, blockLosses, err := decodeBlocks(m.Content, fmt.Sprintf("messages[%d].content", i))
+		blocks, blockLosses, err := decodeBlocks(m.Content, fmt.Sprintf("messages[%d].content", i), customCallIDs)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -172,7 +213,41 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 	}
 }
 
-func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
+func isCustomToolInputSchema(raw json.RawMessage) bool {
+	var obj struct {
+		Type       string `json:"type"`
+		Properties map[string]struct {
+			Type string `json:"type"`
+		} `json:"properties"`
+		Required []string `json:"required"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return false
+	}
+	if obj.Type != "object" {
+		return false
+	}
+	inputProp, ok := obj.Properties["input"]
+	if !ok || inputProp.Type != "string" {
+		return false
+	}
+	return len(obj.Properties) == 1
+}
+
+func extractCustomInput(raw json.RawMessage) (string, bool) {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return "", false
+	}
+	if len(m) == 1 {
+		if val, ok := m["input"].(string); ok {
+			return val, true
+		}
+	}
+	return "", false
+}
+
+func decodeBlocks(content any, path string, customCallIDs map[string]bool) ([]ir.Block, []ir.Loss, error) {
 	switch v := content.(type) {
 	case nil:
 		return nil, nil, fmt.Errorf("anthropic: %s is missing", path)
@@ -190,7 +265,7 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 			if err := json.Unmarshal(raw, &w); err != nil {
 				return nil, nil, fmt.Errorf("anthropic: %s[%d]: %w", path, j, err)
 			}
-			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j))
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -204,7 +279,7 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 		blocks := make([]ir.Block, 0, len(v))
 		var losses []ir.Loss
 		for j, w := range v {
-			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j))
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -219,7 +294,7 @@ func decodeBlocks(content any, path string) ([]ir.Block, []ir.Loss, error) {
 	}
 }
 
-func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
+func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool) (ir.Block, []ir.Loss, bool, error) {
 	var block ir.Block
 	var losses []ir.Loss
 	switch w.Type {
@@ -246,21 +321,45 @@ func decodeBlock(w BlockWire, path string) (ir.Block, []ir.Loss, bool, error) {
 		if err := requireJSONObject(w.Input, path+".input"); err != nil {
 			return nil, nil, false, err
 		}
-		input, err := inputToIRString(w.Input)
-		if err != nil {
-			return nil, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
+		if customInput, ok := extractCustomInput(w.Input); ok {
+			input, _ := json.Marshal(customInput)
+			block = ir.CustomToolUseBlock{ID: w.ID, Name: w.Name, Input: json.RawMessage(input)}
+		} else {
+			input, err := inputToIRString(w.Input)
+			if err != nil {
+				return nil, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
+			}
+			block = ir.ToolUseBlock{ID: w.ID, Name: w.Name, Input: input}
 		}
-		block = ir.ToolUseBlock{ID: w.ID, Name: w.Name, Input: input}
 	case BlockTypeToolResult:
 		if w.ToolUseID == "" {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
 		}
-		content, contentLosses, err := decodeBlocks(w.Content, path+".content")
-		if err != nil {
-			return nil, nil, false, err
+		if customCallIDs != nil && customCallIDs[w.ToolUseID] {
+			if str, ok := w.Content.(string); ok {
+				block = ir.CustomToolResultBlock{
+					ToolUseID: w.ToolUseID,
+					Output:    ir.CustomToolOutput{Text: &str},
+				}
+			} else {
+				content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs)
+				if err != nil {
+					return nil, nil, false, err
+				}
+				losses = append(losses, contentLosses...)
+				block = ir.CustomToolResultBlock{
+					ToolUseID: w.ToolUseID,
+					Output:    ir.CustomToolOutput{Content: content},
+				}
+			}
+		} else {
+			content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs)
+			if err != nil {
+				return nil, nil, false, err
+			}
+			block = ir.ToolResultBlock{ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError}
+			losses = append(losses, contentLosses...)
 		}
-		block = ir.ToolResultBlock{ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError}
-		losses = append(losses, contentLosses...)
 	default:
 		return nil, []ir.Loss{{
 			Path:   path,
@@ -319,7 +418,7 @@ func requireJSONObject(raw json.RawMessage, path string) error {
 	return nil
 }
 
-func decodeToolChoice(choice *ToolChoiceWire) (*ir.ToolChoice, []ir.Loss, error) {
+func decodeToolChoice(choice *ToolChoiceWire, customTools map[string]bool) (*ir.ToolChoice, []ir.Loss, error) {
 	if choice == nil {
 		return nil, nil, nil
 	}
@@ -332,7 +431,11 @@ func decodeToolChoice(choice *ToolChoiceWire) (*ir.ToolChoice, []ir.Loss, error)
 		if choice.Name == "" {
 			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for type tool")
 		}
-		decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: choice.Name}
+		if customTools != nil && customTools[choice.Name] {
+			decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, ToolType: ir.ToolTypeCustom, Name: choice.Name}
+		} else {
+			decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: choice.Name}
+		}
 	default:
 		losses = append(losses, ir.Loss{
 			Path:   "tool_choice",
@@ -369,7 +472,7 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		Model: o.models.Map(wire.Model),
 	}
 	for i, b := range wire.Content {
-		block, blockLosses, mapped, err := decodeBlock(b, fmt.Sprintf("content[%d]", i))
+		block, blockLosses, mapped, err := decodeBlock(b, fmt.Sprintf("content[%d]", i), nil)
 		if err != nil {
 			return nil, nil, err
 		}

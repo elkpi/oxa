@@ -29,15 +29,18 @@ func (d *StreamDecoder) replayApplyPatchCall(item *OutputItem) ([]ir.Event, erro
 		return nil, err
 	}
 	if statusLoss != nil {
-		return nil, fmt.Errorf("responses: %s", statusLoss.Detail)
+		d.losses = append(d.losses, *statusLoss)
+		return nil, nil
 	}
 	op, opLoss, err := decodeApplyPatchOperation(item.Operation, fmt.Sprintf("output[%d].operation", d.outputIndex))
 	if err != nil {
 		return nil, err
 	}
 	if opLoss != nil {
-		return nil, fmt.Errorf("responses: %s", opLoss.Detail)
+		d.losses = append(d.losses, *opLoss)
+		return nil, nil
 	}
+	d.toolUseSeen = true
 	index := d.nextBlockIndex
 	d.nextBlockIndex++
 	return []ir.Event{
@@ -62,7 +65,8 @@ func (d *StreamDecoder) replayApplyPatchResult(item *OutputItem) ([]ir.Event, er
 		return nil, err
 	}
 	if statusLoss != nil {
-		return nil, fmt.Errorf("responses: %s", statusLoss.Detail)
+		d.losses = append(d.losses, *statusLoss)
+		return nil, nil
 	}
 	var outputStr *string
 	if item.Output != nil {

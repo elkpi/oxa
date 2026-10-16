@@ -8,21 +8,31 @@ import (
 
 func decodeApplyPatchOperation(wire *ApplyPatchOperationWire, path string) (ir.ApplyPatchOperation, *ir.Loss, error) {
 	if wire == nil {
-		return nil, ptrLoss(loss(path, "operation", ir.LossUnsupportedSemantic, "operation is required")), nil
+		return nil, nil, fmt.Errorf("responses: %s.operation is required", path)
+	}
+	if wire.Type == "" {
+		return nil, nil, fmt.Errorf("responses: %s.operation.type is required", path)
 	}
 	switch wire.Type {
-	case ir.ApplyPatchOperationCreateFile:
-		if wire.Diff == nil {
-			return nil, nil, fmt.Errorf("responses: %s.diff is required for create_file", path)
+	case ir.ApplyPatchOperationCreateFile, ir.ApplyPatchOperationUpdateFile:
+		pathStr, ok := wire.Path.(string)
+		if !ok {
+			return nil, nil, fmt.Errorf("responses: %s.operation.path must be a string", path)
 		}
-		return ir.ApplyPatchCreateFileOperation{Path: wire.Path, Diff: *wire.Diff}, nil, nil
+		diffStr, ok := wire.Diff.(string)
+		if !ok {
+			return nil, nil, fmt.Errorf("responses: %s.diff is required for %s", path, wire.Type)
+		}
+		if wire.Type == ir.ApplyPatchOperationCreateFile {
+			return ir.ApplyPatchCreateFileOperation{Path: pathStr, Diff: diffStr}, nil, nil
+		}
+		return ir.ApplyPatchUpdateFileOperation{Path: pathStr, Diff: diffStr}, nil, nil
 	case ir.ApplyPatchOperationDeleteFile:
-		return ir.ApplyPatchDeleteFileOperation{Path: wire.Path}, nil, nil
-	case ir.ApplyPatchOperationUpdateFile:
-		if wire.Diff == nil {
-			return nil, nil, fmt.Errorf("responses: %s.diff is required for update_file", path)
+		pathStr, ok := wire.Path.(string)
+		if !ok {
+			return nil, nil, fmt.Errorf("responses: %s.operation.path must be a string", path)
 		}
-		return ir.ApplyPatchUpdateFileOperation{Path: wire.Path, Diff: *wire.Diff}, nil, nil
+		return ir.ApplyPatchDeleteFileOperation{Path: pathStr}, nil, nil
 	default:
 		return nil, ptrLoss(loss(path, "operation", ir.LossUnsupportedSemantic, fmt.Sprintf("unsupported operation type %q", wire.Type))), nil
 	}
@@ -44,6 +54,9 @@ func encodeApplyPatchOperation(op ir.ApplyPatchOperation) (*ApplyPatchOperationW
 }
 
 func decodeApplyPatchCallStatus(status string, path string) (ir.ApplyPatchCallStatus, *ir.Loss, error) {
+	if status == "" {
+		return "", nil, fmt.Errorf("responses: %s.status is required", path)
+	}
 	switch status {
 	case string(ir.ApplyPatchCallInProgress), string(ir.ApplyPatchCallCompleted):
 		return ir.ApplyPatchCallStatus(status), nil, nil
@@ -53,6 +66,9 @@ func decodeApplyPatchCallStatus(status string, path string) (ir.ApplyPatchCallSt
 }
 
 func decodeApplyPatchResultStatus(status string, path string) (ir.ApplyPatchResultStatus, *ir.Loss, error) {
+	if status == "" {
+		return "", nil, fmt.Errorf("responses: %s.status is required", path)
+	}
 	switch status {
 	case string(ir.ApplyPatchResultCompleted), string(ir.ApplyPatchResultFailed):
 		return ir.ApplyPatchResultStatus(status), nil, nil

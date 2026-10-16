@@ -193,9 +193,9 @@ type ToolDef struct {
 }
 
 type ApplyPatchOperationWire struct {
-	Type string  `json:"type"`
-	Path string  `json:"path"`
-	Diff *string `json:"diff,omitempty"`
+	Type string `json:"type"`
+	Path any    `json:"path,omitempty"`
+	Diff any    `json:"diff,omitempty"`
 }
 
 type CustomToolFormatWire struct {

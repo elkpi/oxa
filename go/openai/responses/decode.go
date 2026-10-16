@@ -250,6 +250,9 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 	i := 0
 	for i < len(items) {
 		item := items[i]
+		if item.Type == ItemTypeApplyPatchCallOutput {
+			return nil, nil, nil, nil, fmt.Errorf("responses: input[%d]: apply_patch tool result without preceding tool calls (INV-3)", i)
+		}
 		isAssistantItem := (item.Type == "" && item.Role == RoleAssistant) ||
 			(item.Type == ItemTypeMessage && item.Role == RoleAssistant) ||
 			item.Type == ItemTypeFunctionCall || item.Type == ItemTypeCustomToolCall ||
@@ -261,21 +264,38 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		}
 
 		var calls []toolItemRef
+		seenCallIDs := make(map[string]bool)
 		aStart := i
 		for aStart < len(items) {
 			it := items[aStart]
-			if it.Type == ItemTypeFunctionCall {
-				calls = append(calls, toolItemRef{it.CallID, "function", aStart})
-			} else if it.Type == ItemTypeCustomToolCall {
-				calls = append(calls, toolItemRef{it.CallID, "custom", aStart})
-			} else if it.Type == ItemTypeApplyPatchCall {
-				calls = append(calls, toolItemRef{it.CallID, "apply_patch", aStart})
-			} else if it.Type == ItemTypeReasoning {
-				// reasoning is assistant
-			} else if (it.Type == "" || it.Type == ItemTypeMessage) && it.Role == RoleAssistant {
-				// assistant message
-			} else {
+			kind := ""
+			switch it.Type {
+			case ItemTypeFunctionCall:
+				kind = "function"
+			case ItemTypeCustomToolCall:
+				kind = "custom"
+			case ItemTypeApplyPatchCall:
+				kind = "apply_patch"
+			case ItemTypeReasoning:
+			case "", ItemTypeMessage:
+				if it.Role != RoleAssistant {
+					kind = "stop"
+				}
+			default:
+				kind = "stop"
+			}
+			if kind == "stop" {
 				break
+			}
+			if kind != "" {
+				if kind == "apply_patch" && it.CallID == "" {
+					return nil, nil, nil, nil, fmt.Errorf("responses: input[%d]: apply_patch tool call requires nonempty call_id (INV-3)", aStart)
+				}
+				if seenCallIDs[it.CallID] {
+					return nil, nil, nil, nil, fmt.Errorf("responses: input[%d]: duplicate call_id %q in turn (INV-3)", aStart, it.CallID)
+				}
+				seenCallIDs[it.CallID] = true
+				calls = append(calls, toolItemRef{it.CallID, kind, aStart})
 			}
 			aStart++
 		}
@@ -297,77 +317,93 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 			if matchedKind == "" {
 				break
 			}
+			if matchedKind == "apply_patch" && it.CallID == "" {
+				return nil, nil, nil, nil, fmt.Errorf("responses: input[%d]: apply_patch tool result requires nonempty call_id (INV-3)", oStart)
+			}
 			results = append(results, toolItemRef{it.CallID, matchedKind, oStart})
 			oStart++
 		}
 
-		if len(calls) > 0 && len(calls) == len(results) {
-			matched := true
+		hasApplyPatch := false
+		for _, c := range calls {
+			if c.kind == "apply_patch" {
+				hasApplyPatch = true
+				break
+			}
+		}
+		for _, r := range results {
+			if r.kind == "apply_patch" {
+				hasApplyPatch = true
+				break
+			}
+		}
+
+		if hasApplyPatch {
+			if len(calls) != len(results) {
+				return nil, nil, nil, nil, fmt.Errorf("responses: tool calls count (%d) and results count (%d) mismatch (INV-3)", len(calls), len(results))
+			}
 			for k := range calls {
 				if calls[k].callID != results[k].callID || calls[k].kind != results[k].kind {
-					matched = false
-					break
+					return nil, nil, nil, nil, fmt.Errorf("responses: tool result identity/type/order mismatch (INV-3)")
 				}
 			}
-			if matched {
-				for k := range calls {
-					if calls[k].kind != "apply_patch" {
-						continue
-					}
-					cIdx := calls[k].index
-					oIdx := results[k].index
-					cItem := items[cIdx]
-					oItem := items[oIdx]
+			for k := range calls {
+				if calls[k].kind != "apply_patch" {
+					continue
+				}
+				cIdx := calls[k].index
+				oIdx := results[k].index
+				cItem := items[cIdx]
+				oItem := items[oIdx]
 
-					op, opLoss, err := decodeApplyPatchOperation(cItem.Operation, fmt.Sprintf("input[%d]", cIdx))
-					if err != nil {
-						return nil, nil, nil, nil, err
-					}
-					cStatus, cStatusLoss, err := decodeApplyPatchCallStatus(cItem.Status, fmt.Sprintf("input[%d]", cIdx))
-					if err != nil {
-						return nil, nil, nil, nil, err
-					}
-					rStatus, rStatusLoss, err := decodeApplyPatchResultStatus(oItem.Status, fmt.Sprintf("input[%d]", oIdx))
-					if err != nil {
-						return nil, nil, nil, nil, err
-					}
-					outputStr, err := decodeApplyPatchResultOutput(oItem.Output, fmt.Sprintf("input[%d]", oIdx))
-					if err != nil {
-						return nil, nil, nil, nil, err
-					}
+				op, opLoss, err := decodeApplyPatchOperation(cItem.Operation, fmt.Sprintf("input[%d]", cIdx))
+				if err != nil {
+					return nil, nil, nil, nil, err
+				}
+				cStatus, cStatusLoss, err := decodeApplyPatchCallStatus(cItem.Status, fmt.Sprintf("input[%d]", cIdx))
+				if err != nil {
+					return nil, nil, nil, nil, err
+				}
+				rStatus, rStatusLoss, err := decodeApplyPatchResultStatus(oItem.Status, fmt.Sprintf("input[%d]", oIdx))
+				if err != nil {
+					return nil, nil, nil, nil, err
+				}
+				outputStr, err := decodeApplyPatchResultOutput(oItem.Output, fmt.Sprintf("input[%d]", oIdx))
+				if err != nil {
+					return nil, nil, nil, nil, err
+				}
 
-					hasCallLoss := opLoss != nil || cStatusLoss != nil
-					hasResLoss := rStatusLoss != nil
+				hasCallLoss := opLoss != nil || cStatusLoss != nil
+				hasResLoss := rStatusLoss != nil
 
-					if hasCallLoss || hasResLoss {
-						dropped[cIdx] = true
-						dropped[oIdx] = true
-						if hasCallLoss {
-							if opLoss != nil {
-								losses = append(losses, *opLoss)
-							}
-							if cStatusLoss != nil {
-								losses = append(losses, *cStatusLoss)
-							}
-						} else {
-							losses = append(losses, loss(fmt.Sprintf("input[%d]", cIdx), "type", ir.LossUnsupportedSemantic, "paired apply_patch result has unsupported semantic"))
+				if hasCallLoss || hasResLoss {
+					dropped[cIdx] = true
+					dropped[oIdx] = true
+					if hasCallLoss {
+						if opLoss != nil {
+							losses = append(losses, *opLoss)
 						}
-						if hasResLoss {
-							losses = append(losses, *rStatusLoss)
-						} else {
-							losses = append(losses, loss(fmt.Sprintf("input[%d]", oIdx), "type", ir.LossUnsupportedSemantic, "paired apply_patch call has unsupported semantic"))
+						if cStatusLoss != nil {
+							losses = append(losses, *cStatusLoss)
 						}
 					} else {
-						decodedCalls[cIdx] = ir.ApplyPatchToolUseBlock{
-							ID:        cItem.CallID,
-							Status:    cStatus,
-							Operation: op,
-						}
-						decodedResults[oIdx] = ir.ApplyPatchToolResultBlock{
-							ToolUseID: oItem.CallID,
-							Status:    rStatus,
-							Output:    outputStr,
-						}
+						losses = append(losses, loss(fmt.Sprintf("input[%d]", cIdx), "type", ir.LossUnsupportedSemantic, "paired apply_patch result has unsupported semantic"))
+					}
+					if hasResLoss {
+						losses = append(losses, *rStatusLoss)
+					} else {
+						losses = append(losses, loss(fmt.Sprintf("input[%d]", oIdx), "type", ir.LossUnsupportedSemantic, "paired apply_patch call has unsupported semantic"))
+					}
+				} else {
+					decodedCalls[cIdx] = ir.ApplyPatchToolUseBlock{
+						ID:        cItem.CallID,
+						Status:    cStatus,
+						Operation: op,
+					}
+					decodedResults[oIdx] = ir.ApplyPatchToolResultBlock{
+						ToolUseID: oItem.CallID,
+						Status:    rStatus,
+						Output:    outputStr,
 					}
 				}
 			}
@@ -455,28 +491,7 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 				calls = append(calls, block)
 				continue
 			}
-			status, statusLoss, err := decodeApplyPatchCallStatus(item.Status, fmt.Sprintf("input[%d]", i))
-			if err != nil {
-				return nil, 0, nil, err
-			}
-			if statusLoss != nil {
-				losses = append(losses, *statusLoss)
-				continue
-			}
-			op, opLoss, err := decodeApplyPatchOperation(item.Operation, fmt.Sprintf("input[%d]", i))
-			if err != nil {
-				return nil, 0, nil, err
-			}
-			if opLoss != nil {
-				losses = append(losses, *opLoss)
-				continue
-			}
-			calls = append(calls, ir.ApplyPatchToolUseBlock{
-				ID:        item.CallID,
-				Status:    status,
-				Operation: op,
-			})
-			continue
+			return nil, 0, nil, fmt.Errorf("responses: input[%d]: unpaired apply_patch_call (INV-3)", i)
 		}
 		if item.Type == ItemTypeCustomToolCall {
 			call, err := decodeCustomCall(item.CallID, item.Name, item.Input)
@@ -539,24 +554,7 @@ func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Blo
 				content = append(content, block)
 				continue
 			}
-			status, statusLoss, err := decodeApplyPatchResultStatus(item.Status, fmt.Sprintf("input[%d]", i))
-			if err != nil {
-				return nil, 0, nil, err
-			}
-			if statusLoss != nil {
-				losses = append(losses, *statusLoss)
-				continue
-			}
-			outputStr, err := decodeApplyPatchResultOutput(item.Output, fmt.Sprintf("input[%d]", i))
-			if err != nil {
-				return nil, 0, nil, err
-			}
-			content = append(content, ir.ApplyPatchToolResultBlock{
-				ToolUseID: item.CallID,
-				Status:    status,
-				Output:    outputStr,
-			})
-			continue
+			return nil, 0, nil, fmt.Errorf("responses: input[%d]: unpaired apply_patch_call_output (INV-3)", i)
 		}
 		if item.Type == ItemTypeCustomToolCallOutput {
 			if item.CallID == "" {
@@ -676,6 +674,12 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	for i, item := range wire.Output {
 		switch item.Type {
 		case ItemTypeApplyPatchCall:
+			if item.ID == "" {
+				return nil, nil, fmt.Errorf("responses: output[%d].id is required", i)
+			}
+			if item.CallID == "" {
+				return nil, nil, fmt.Errorf("responses: output[%d].call_id is required", i)
+			}
 			status, statusLoss, err := decodeApplyPatchCallStatus(item.Status, fmt.Sprintf("output[%d]", i))
 			if err != nil {
 				return nil, nil, err
@@ -699,6 +703,12 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			})
 			hasToolUse = true
 		case ItemTypeApplyPatchCallOutput:
+			if item.ID == "" {
+				return nil, nil, fmt.Errorf("responses: output[%d].id is required", i)
+			}
+			if item.CallID == "" {
+				return nil, nil, fmt.Errorf("responses: output[%d].call_id is required", i)
+			}
 			status, statusLoss, err := decodeApplyPatchResultStatus(item.Status, fmt.Sprintf("output[%d]", i))
 			if err != nil {
 				return nil, nil, err

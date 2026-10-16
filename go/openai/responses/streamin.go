@@ -399,7 +399,6 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			if err != nil {
 				return nil, err
 			}
-			d.toolUseSeen = true
 			if d.completedApplyPatchCalls == nil {
 				d.completedApplyPatchCalls = map[string]OutputItem{}
 			}
@@ -485,11 +484,13 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 				if item.Operation == nil || prior.Operation == nil || item.Operation.Type != prior.Operation.Type || item.Operation.Path != prior.Operation.Path {
 					return nil, fmt.Errorf("responses: terminal apply patch operation mismatch")
 				}
-				if (item.Operation.Diff == nil) != (prior.Operation.Diff == nil) {
-					return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
-				}
-				if item.Operation.Diff != nil && *item.Operation.Diff != *prior.Operation.Diff {
-					return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
+				if item.Operation.Type != ir.ApplyPatchOperationDeleteFile {
+					if (item.Operation.Diff == nil) != (prior.Operation.Diff == nil) {
+						return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
+					}
+					if item.Operation.Diff != nil && item.Operation.Diff != prior.Operation.Diff {
+						return nil, fmt.Errorf("responses: terminal apply patch diff mismatch")
+					}
 				}
 			case ItemTypeApplyPatchCallOutput:
 				prior, ok := d.completedApplyPatchResults[item.ID]

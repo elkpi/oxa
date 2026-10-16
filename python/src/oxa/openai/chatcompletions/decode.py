@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from oxa._wire import RawDocument, audit_decode
-
 from typing import Any, cast
 
+from oxa._wire import RawDocument, audit_decode
 from oxa.ir import (
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
@@ -15,6 +14,8 @@ from oxa.ir import (
     STOP_OTHER,
     STOP_REFUSAL,
     STOP_TOOL_USE,
+    CustomToolFormatGrammar,
+    CustomToolFormatText,
     InputTokensDetails,
     Loss,
     OutputTokensDetails,
@@ -96,6 +97,28 @@ def decode_request(
         tools = []
         for index, tool in enumerate(wire["tools"]):
             kind = tool.get("type", "")
+            if kind == "custom":
+                custom = tool.get("custom", {})
+                fmt_dict = custom.get("format")
+                format_obj = None
+                if isinstance(fmt_dict, dict):
+                    ftype = fmt_dict.get("type", "text")
+                    if ftype == "grammar":
+                        format_obj = CustomToolFormatGrammar(
+                            syntax=fmt_dict.get("syntax", "lark"),
+                            definition=fmt_dict.get("definition", ""),
+                        )
+                    else:
+                        format_obj = CustomToolFormatText()
+                tools.append(
+                    Tool(
+                        name=custom.get("name", ""),
+                        description=custom.get("description"),
+                        type="custom",
+                        format=format_obj or CustomToolFormatText(),
+                    )
+                )
+                continue
             if kind != TOOL_TYPE_FUNCTION:
                 losses.append(
                     loss(
@@ -123,12 +146,21 @@ def decode_request(
     messages: list[IrMessage] = []
     raw_messages = wire.get("messages", [])
 
+    custom_call_ids: set[str] = set()
+    for m in raw_messages:
+        if m.get("role") == ROLE_ASSISTANT and isinstance(m.get("tool_calls"), list):
+            for tc in m["tool_calls"]:
+                if isinstance(tc, dict) and tc.get("type") == "custom":
+                    custom_call_ids.add(str(tc.get("id", "")))
+
     index = 0
     while index < len(raw_messages):
         msg = raw_messages[index]
         role = msg.get("role", "")
         if role == ROLE_TOOL:
-            merged, next_idx, result_losses = decode_tool_result_run(raw_messages, index)
+            merged, next_idx, result_losses = decode_tool_result_run(
+                raw_messages, index, custom_call_ids=custom_call_ids
+            )
             messages.append(merged)
             losses.extend(result_losses)
             index = next_idx

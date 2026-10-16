@@ -159,6 +159,16 @@ def decode_tool_calls(calls: list[dict[str, Any]], path: str) -> tuple[list[Bloc
     losses: list[Loss] = []
     for index, call in enumerate(calls):
         call_type = call.get("type", "")
+        if call_type == "custom":
+            custom = call.get("custom", {})
+            blocks.append(
+                CustomToolUseBlock(
+                    id=call.get("id", ""),
+                    name=custom.get("name", ""),
+                    input=custom.get("input", ""),
+                )
+            )
+            continue
         if call_type != TOOL_TYPE_FUNCTION:
             losses.append(
                 loss(
@@ -183,6 +193,7 @@ def decode_tool_calls(calls: list[dict[str, Any]], path: str) -> tuple[list[Bloc
 def decode_tool_result_run(
     messages: list[dict[str, Any]],
     start: int,
+    custom_call_ids: set[str] | None = None,
 ) -> tuple[IrMessage, int, list[Loss]]:
     """N-CC-4 merges consecutive role:tool messages into one user message."""
     content: list[Block] = []
@@ -192,13 +203,21 @@ def decode_tool_result_run(
         msg = messages[index]
         blocks, block_losses = decode_content(msg.get("content"), f"messages[{index}].content")
         losses.extend(block_losses)
-        content.append(
-            ToolResultBlock(
-                tool_use_id=msg.get("tool_call_id", ""),
-                content=blocks,
-                is_error=False,
+        call_id = msg.get("tool_call_id", "")
+        if custom_call_ids and call_id in custom_call_ids:
+            raw_c = msg.get("content")
+            if isinstance(raw_c, str):
+                content.append(CustomToolResultBlock(tool_use_id=call_id, output=raw_c))
+            else:
+                content.append(CustomToolResultBlock(tool_use_id=call_id, output=blocks))
+        else:
+            content.append(
+                ToolResultBlock(
+                    tool_use_id=call_id,
+                    content=blocks,
+                    is_error=False,
+                )
             )
-        )
         if "function_call" in msg and msg["function_call"] is not None:
             losses.append(
                 loss(
@@ -233,6 +252,11 @@ def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
         ]
     if isinstance(value, dict):
         kind = value.get("type", "")
+        if kind == "custom":
+            custom = value.get("custom", {})
+            name = custom.get("name", "") if isinstance(custom, dict) else ""
+            if name:
+                return ToolChoice(mode=TOOL_CHOICE_TOOL, name=name, tool_type="custom"), []
         func = value.get("function", {})
         name = func.get("name", "") if isinstance(func, dict) else ""
         if kind == TOOL_TYPE_FUNCTION and name:
@@ -242,7 +266,7 @@ def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
                 "tool_choice",
                 "tool_choice",
                 LOSS_UNSUPPORTED_SEMANTIC,
-                "only named function Chat Completions tool_choice values are supported",
+                "only named function or custom Chat Completions tool_choice values are supported",
             )
         ]
     return None, [
@@ -266,8 +290,12 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[Any | None, Loss | No
     if choice.mode == TOOL_CHOICE_ANY:
         return CC_TOOL_CHOICE_REQUIRED, None
     if choice.mode == TOOL_CHOICE_TOOL:
-        if choice.tool_type in ("custom", "apply_patch"):
-            return None, loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "custom tool_choice has no Chat Completions mapping")
+        if choice.tool_type == "custom":
+            if choice.name:
+                return {"type": "custom", "custom": {"name": choice.name}}, None
+            return None, loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "IR named custom tool choice has no name")
+        if choice.tool_type == "apply_patch":
+            return None, loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool_choice has no Chat Completions mapping")
         if choice.name:
             return {"type": TOOL_TYPE_FUNCTION, "function": {"name": choice.name}}, None
         return None, loss(
@@ -389,8 +417,17 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                 )
         elif isinstance(block, ToolUseBlock):
             tool_calls.append({"id": block.id, "type": TOOL_TYPE_FUNCTION, "function": {"name": block.name, "arguments": block.input}})
-        elif isinstance(block, (CustomToolUseBlock, CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
-            losses.append(loss(f"{path}[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Chat Completions mapping"))
+        elif isinstance(block, CustomToolUseBlock):
+            tool_calls.append({
+                "id": block.id,
+                "type": "custom",
+                "custom": {
+                    "name": block.name,
+                    "input": block.input,
+                },
+            })
+        elif isinstance(block, (CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+            losses.append(loss(f"{path}[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "unsupported block in assistant message"))
         elif isinstance(block, ImageBlock):
             losses.append(
                 loss(
@@ -455,6 +492,21 @@ def encode_tool_result(block: Block, path: str) -> tuple[dict[str, Any], list[Lo
     return {
         "role": ROLE_TOOL,
         "content": "".join(text_chunks),
+        "tool_call_id": block.tool_use_id,
+    }, losses
+
+
+def encode_custom_tool_result(block: CustomToolResultBlock, path: str) -> tuple[dict[str, Any], list[Loss]]:
+    if isinstance(block.output, str):
+        return {
+            "role": ROLE_TOOL,
+            "content": block.output,
+            "tool_call_id": block.tool_use_id,
+        }, []
+    content, losses = encode_user_content(block.output or [], f"{path}.output")
+    return {
+        "role": ROLE_TOOL,
+        "content": content,
         "tool_call_id": block.tool_use_id,
     }, losses
 

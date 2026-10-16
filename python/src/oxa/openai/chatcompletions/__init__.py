@@ -18,7 +18,12 @@ from oxa.openai.chatcompletions.constants import (
     TOOL_CHOICE_REQUIRED,
     TOOL_TYPE_FUNCTION,
 )
-from oxa.openai.chatcompletions.decode import decode_request, decode_response, decode_request_json, decode_response_json
+from oxa.openai.chatcompletions.decode import (
+    decode_request,
+    decode_request_json,
+    decode_response,
+    decode_response_json,
+)
 from oxa.openai.chatcompletions.encode import encode_request, encode_response
 from oxa.openai.chatcompletions.streamin import StreamDecoder
 from oxa.openai.chatcompletions.streamout import StreamEncoder

@@ -7,9 +7,9 @@ from typing import Any
 
 from oxa.ir import (
     LOSS_DEGRADED,
+    LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
-    LOSS_UNMAPPED_FIELD,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
     ContentBlockDelta,
@@ -50,6 +50,7 @@ class _StreamEncodeBlock:
     fragments: list[str] = field(default_factory=list)
     native_index: int = 0
     tool_started: bool = False
+    tool_type: str = "function"
 
 
 class StreamEncoder:
@@ -121,7 +122,18 @@ class StreamEncoder:
             if isinstance(ev.block, CustomToolUseBlock):
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("chatcompletions: CustomToolUseBlock requires nonempty ID and name")
-                self._active = _StreamEncodeBlock(kind="custom", index=ev.index, tool_id=ev.block.id, tool_name=ev.block.name, tool_input=ev.block.input)
+                native_idx = self._next_native_tool
+                self._next_native_tool += 1
+                self._tool_seen = True
+                self._active = _StreamEncodeBlock(
+                    kind="tool",
+                    index=ev.index,
+                    tool_id=ev.block.id,
+                    tool_name=ev.block.name,
+                    tool_input=ev.block.input,
+                    native_index=native_idx,
+                    tool_type="custom",
+                )
                 return [], []
             if isinstance(ev.block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
                 self._active = _StreamEncodeBlock(kind="apply_patch", index=ev.index)
@@ -139,6 +151,7 @@ class StreamEncoder:
                     tool_name=ev.block.name,
                     tool_input=ev.block.input,
                     native_index=native_idx,
+                    tool_type="function",
                 )
                 return [], []
             raise ValueError("chatcompletions: ContentBlockStart carries unsupported block")
@@ -167,12 +180,14 @@ class StreamEncoder:
                 raise ValueError("chatcompletions: ThinkingBlock received non-thinking delta")
             if self._active.kind == "apply_patch":
                 raise ValueError("chatcompletions: apply patch block does not accept deltas")
-            if self._active.kind == "custom":
-                if not isinstance(ev.delta, CustomToolInputDelta):
-                    raise ValueError("chatcompletions: CustomToolUseBlock received non-custom-input delta")
-                self._active.fragments.append(ev.delta.text)
-                return [], []
             if self._active.kind == "tool":
+                if self._active.tool_type == "custom":
+                    if not isinstance(ev.delta, CustomToolInputDelta):
+                        raise ValueError("chatcompletions: CustomToolUseBlock received non-custom-input delta")
+                    self._active.fragments.append(ev.delta.text)
+                    chunk = self._make_custom_tool_argument_chunk(self._active, ev.delta.text)
+                    self._pending_tools.append(chunk)
+                    return [], []
                 if not isinstance(ev.delta, InputJsonDelta):
                     raise ValueError("chatcompletions: ToolUseBlock received non-input-json delta")
                 self._active.fragments.append(ev.delta.partial_json)
@@ -189,21 +204,20 @@ class StreamEncoder:
 
             if active.kind == "apply_patch":
                 return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool calls have no Chat Completions streaming mapping")]
-            if active.kind == "custom":
-                if active.fragments and "".join(active.fragments) != active.tool_input:
-                    raise ValueError("chatcompletions: CustomToolUseBlock input does not equal custom input deltas")
-                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool calls have no Chat Completions streaming mapping")]
             if active.kind == "tool":
                 if not active.fragments:
                     # Synthesize full argument delta
                     full = active.tool_input
                     active.fragments.append(full)
-                    chunk = self._make_tool_argument_chunk(active, full)
+                    if active.tool_type == "custom":
+                        chunk = self._make_custom_tool_argument_chunk(active, full)
+                    else:
+                        chunk = self._make_tool_argument_chunk(active, full)
                     self._pending_tools.append(chunk)
 
                 if "".join(active.fragments) != active.tool_input:
                     raise ValueError(
-                        "chatcompletions: ToolUseBlock input does not equal concatenated InputJSONDelta fragments"
+                        "chatcompletions: ToolUseBlock input does not equal concatenated fragments"
                     )
             return [], []
 
@@ -301,6 +315,36 @@ class StreamEncoder:
             func["name"] = block.tool_name
 
         call_delta["function"] = func
+        block.tool_started = True
+
+        return {
+            "id": self._id,
+            "object": OBJECT_CHAT_COMPLETION_CHUNK,
+            "created": 0,
+            "model": self._model,
+            "choices": [
+                {
+                    "index": 0,
+                    "delta": {
+                        "tool_calls": [call_delta],
+                    },
+                    "finish_reason": None,
+                }
+            ],
+        }
+
+    def _make_custom_tool_argument_chunk(self, block: _StreamEncodeBlock, input_delta: str) -> dict[str, Any]:
+        call_delta: dict[str, Any] = {
+            "index": block.native_index,
+        }
+        custom: dict[str, Any] = {"input": input_delta}
+
+        if not block.tool_started:
+            call_delta["id"] = block.tool_id
+            call_delta["type"] = "custom"
+            custom["name"] = block.tool_name
+
+        call_delta["custom"] = custom
         block.tool_started = True
 
         return {

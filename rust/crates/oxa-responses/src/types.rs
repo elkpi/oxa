@@ -12,6 +12,7 @@ pub const ROLE_DEVELOPER: &str = "developer";
 
 pub const TOOL_TYPE_FUNCTION: &str = "function";
 pub const TOOL_TYPE_CUSTOM: &str = "custom";
+pub const TOOL_TYPE_APPLY_PATCH: &str = "apply_patch";
 
 pub const TOOL_CHOICE_AUTO: &str = "auto";
 pub const TOOL_CHOICE_NONE: &str = "none";
@@ -22,6 +23,8 @@ pub const ITEM_TYPE_FUNCTION_CALL: &str = "function_call";
 pub const ITEM_TYPE_FUNCTION_CALL_OUTPUT: &str = "function_call_output";
 pub const ITEM_TYPE_CUSTOM_TOOL_CALL: &str = "custom_tool_call";
 pub const ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT: &str = "custom_tool_call_output";
+pub const ITEM_TYPE_APPLY_PATCH_CALL: &str = "apply_patch_call";
+pub const ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT: &str = "apply_patch_call_output";
 pub const ITEM_TYPE_REASONING: &str = "reasoning";
 
 pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
@@ -128,6 +131,16 @@ impl Default for Input {
     }
 }
 
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ApplyPatchOperationWire {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "path", default)]
+    pub path: String,
+    #[serde(rename = "diff", default, skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+}
+
 /// One Responses input item.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct InputItem {
@@ -135,6 +148,8 @@ pub struct InputItem {
     pub kind: String,
     #[serde(rename = "id", default, skip_serializing_if = "String::is_empty")]
     pub id: String,
+    #[serde(rename = "status", default, skip_serializing_if = "String::is_empty")]
+    pub status: String,
     #[serde(rename = "role", default, skip_serializing_if = "String::is_empty")]
     pub role: String,
     #[serde(rename = "content", default, skip_serializing_if = "Option::is_none")]
@@ -155,6 +170,8 @@ pub struct InputItem {
     pub input: Option<String>,
     #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
     pub output: Option<OutputValue>,
+    #[serde(rename = "operation", default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ApplyPatchOperationWire>,
 }
 
 /// Responses message content, either text shorthand or a part array.
@@ -278,6 +295,8 @@ pub struct OutputItem {
     pub input: Option<String>,
     #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
     pub output: Option<OutputValue>,
+    #[serde(rename = "operation", default, skip_serializing_if = "Option::is_none")]
+    pub operation: Option<ApplyPatchOperationWire>,
 }
 
 /// A custom-tool output string or ordered input-content list.

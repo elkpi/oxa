@@ -18,7 +18,7 @@ use crate::types::{
     EVENT_TYPE_RESPONSE_REASONING_SUMMARY_TEXT_DELTA, ErrorWire,
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_FUNCTION_CALL,
     ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, InputTokenDetailsWire, OBJECT_RESPONSE,
-    OutputItem, OutputPart, OutputTokenDetailsWire, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
+    OutputItem, OutputPart, OutputTokenDetailsWire, OutputValue, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT,
     Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_IN_PROGRESS, STATUS_INCOMPLETE, StreamEvent,
     UsageWire,
 };
@@ -29,6 +29,8 @@ enum StreamOutputItemKind {
     Reasoning,
     FunctionCall,
     CustomToolCall,
+    ApplyPatchCall,
+    ApplyPatchResult,
 }
 
 struct StreamOutputItem {
@@ -63,9 +65,13 @@ pub struct StreamEncoder {
     next_message_item: usize,
     next_function_item: usize,
     next_custom_item: usize,
+    next_apply_patch_call_item: usize,
+    next_apply_patch_result_item: usize,
     next_reasoning_item: usize,
     active_item: Option<StreamOutputItem>,
     active_block: Option<StreamEncodeBlock>,
+    active_apply_patch_call: Option<Block>,
+    active_apply_patch_result: Option<Block>,
     completed: Vec<OutputItem>,
 }
 
@@ -84,9 +90,13 @@ impl StreamEncoder {
             next_message_item: 0,
             next_function_item: 0,
             next_custom_item: 0,
+            next_apply_patch_call_item: 0,
+            next_apply_patch_result_item: 0,
             next_reasoning_item: 0,
             active_item: None,
             active_block: None,
+            active_apply_patch_call: None,
+            active_apply_patch_result: None,
             completed: Vec::new(),
         }
     }
@@ -147,6 +157,12 @@ impl StreamEncoder {
                     }
                     Block::CustomToolUse { id, name, input } => {
                         self.start_custom_tool_call_block(*index, id, name, input)
+                    }
+                    Block::ApplyPatchToolUse { .. } => {
+                        self.start_apply_patch_call_block(*index, block)
+                    }
+                    Block::ApplyPatchToolResult { .. } => {
+                        self.start_apply_patch_result_block(*index, block)
                     }
                     _ => Err(Error::new(
                         "responses: ContentBlockStart carries unsupported block",
@@ -248,6 +264,9 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    StreamOutputItemKind::ApplyPatchCall | StreamOutputItemKind::ApplyPatchResult => {
+                        Err(Error::new("responses: apply patch item does not accept deltas"))
+                    }
                 }
             }
             Event::ContentBlockStop { index } => {
@@ -266,6 +285,8 @@ impl StreamEncoder {
                     StreamOutputItemKind::Reasoning => self.stop_thinking_block(),
                     StreamOutputItemKind::FunctionCall => self.stop_function_call_block(),
                     StreamOutputItemKind::CustomToolCall => self.stop_custom_tool_call_block(),
+                    StreamOutputItemKind::ApplyPatchCall => self.stop_apply_patch_call_block(),
+                    StreamOutputItemKind::ApplyPatchResult => self.stop_apply_patch_result_block(),
                 }
             }
             Event::MessageDelta { .. } => {
@@ -278,7 +299,9 @@ impl StreamEncoder {
                         StreamOutputItemKind::Message => out.push(self.close_message_item()),
                         StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
                         StreamOutputItemKind::FunctionCall
-                        | StreamOutputItemKind::CustomToolCall => {
+                        | StreamOutputItemKind::CustomToolCall
+                        | StreamOutputItemKind::ApplyPatchCall
+                        | StreamOutputItemKind::ApplyPatchResult => {
                             return Err(Error::new(
                                 "responses: MessageDelta with an uncompleted tool-call item",
                             ));
@@ -313,7 +336,10 @@ impl StreamEncoder {
             match active.kind {
                 StreamOutputItemKind::Message => {}
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
+                StreamOutputItemKind::FunctionCall
+                | StreamOutputItemKind::CustomToolCall
+                | StreamOutputItemKind::ApplyPatchCall
+                | StreamOutputItemKind::ApplyPatchResult => {
                     return Err(Error::new(
                         "responses: TextBlock cannot open before the active tool item completes",
                     ));
@@ -366,7 +392,10 @@ impl StreamEncoder {
                 // Consecutive thinking blocks merge into one reasoning item,
                 // mirroring the Go reference encoder.
                 StreamOutputItemKind::Reasoning => {}
-                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
+                StreamOutputItemKind::FunctionCall
+                | StreamOutputItemKind::CustomToolCall
+                | StreamOutputItemKind::ApplyPatchCall
+                | StreamOutputItemKind::ApplyPatchResult => {
                     return Err(Error::new(
                         "responses: ThinkingBlock cannot open before the active tool item completes",
                     ));
@@ -434,7 +463,10 @@ impl StreamEncoder {
             match active.kind {
                 StreamOutputItemKind::Message => out.push(self.close_message_item()),
                 StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
-                StreamOutputItemKind::FunctionCall | StreamOutputItemKind::CustomToolCall => {
+                StreamOutputItemKind::FunctionCall
+                | StreamOutputItemKind::CustomToolCall
+                | StreamOutputItemKind::ApplyPatchCall
+                | StreamOutputItemKind::ApplyPatchResult => {
                     return Err(Error::new(
                         "responses: ToolUseBlock cannot open before the active tool item completes",
                     ));
@@ -698,6 +730,184 @@ impl StreamEncoder {
             item: Some(completed.clone()),
             ..Default::default()
         });
+        self.completed.push(completed);
+        self.active_item = None;
+        Ok((out, Vec::new()))
+    }
+
+    fn start_apply_patch_call_block(
+        &mut self,
+        index: i64,
+        block: &Block,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let Block::ApplyPatchToolUse { id, operation, .. } = block else { unreachable!() };
+        if id.is_empty() {
+            return Err(Error::new("responses: apply_patch_call requires nonempty id"));
+        }
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                _ => return Err(Error::new("responses: apply_patch_call cannot open before active item completes")),
+            }
+        }
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        let item_id = format!("apc_{}", self.next_apply_patch_call_item);
+        self.next_apply_patch_call_item += 1;
+        self.active_item = Some(StreamOutputItem {
+            kind: StreamOutputItemKind::ApplyPatchCall,
+            id: item_id.clone(),
+            output_index,
+            content: Vec::new(),
+            next_content_index: 0,
+            call_id: id.clone(),
+            name: String::new(),
+        });
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::ApplyPatchCall,
+            content_index: 0,
+            text: String::new(),
+            tool_input: String::new(),
+            fragments: Vec::new(),
+        });
+        self.active_apply_patch_call = Some(block.clone());
+        let op_wire = crate::normalize::encode_apply_patch_operation(operation);
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
+            output_index: Some(output_index),
+            item: Some(OutputItem {
+                id: item_id,
+                kind: "apply_patch_call".to_string(),
+                call_id: id.clone(),
+                status: "in_progress".to_string(),
+                operation: Some(op_wire),
+                ..OutputItem::default()
+            }),
+            ..Default::default()
+        });
+        Ok((out, Vec::new()))
+    }
+
+    fn stop_apply_patch_call_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let Some(active_item) = &mut self.active_item else {
+            return Err(Error::new("responses: apply_patch_call block without active item"));
+        };
+        let Some(Block::ApplyPatchToolUse { id, status, operation }) = self.active_apply_patch_call.take() else {
+            return Err(Error::new("responses: apply_patch_call missing block"));
+        };
+        self.active_block = None;
+        let status_str = match status {
+            oxa_ir::ApplyPatchCallStatus::InProgress => "in_progress",
+            oxa_ir::ApplyPatchCallStatus::Completed => "completed",
+        };
+        let op_wire = crate::normalize::encode_apply_patch_operation(&operation);
+        let completed = OutputItem {
+            id: active_item.id.clone(),
+            kind: "apply_patch_call".to_string(),
+            call_id: id,
+            status: status_str.to_string(),
+            operation: Some(op_wire),
+            ..OutputItem::default()
+        };
+        let out = vec![StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
+            output_index: Some(active_item.output_index),
+            item: Some(completed.clone()),
+            ..Default::default()
+        }];
+        self.completed.push(completed);
+        self.active_item = None;
+        Ok((out, Vec::new()))
+    }
+
+    fn start_apply_patch_result_block(
+        &mut self,
+        index: i64,
+        block: &Block,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let Block::ApplyPatchToolResult { tool_use_id, status, output } = block else { unreachable!() };
+        if tool_use_id.is_empty() {
+            return Err(Error::new("responses: apply_patch_call_output requires nonempty tool_use_id"));
+        }
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                _ => return Err(Error::new("responses: apply_patch_call_output cannot open before active item completes")),
+            }
+        }
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        let item_id = format!("apco_{}", self.next_apply_patch_result_item);
+        self.next_apply_patch_result_item += 1;
+        self.active_item = Some(StreamOutputItem {
+            kind: StreamOutputItemKind::ApplyPatchResult,
+            id: item_id.clone(),
+            output_index,
+            content: Vec::new(),
+            next_content_index: 0,
+            call_id: tool_use_id.clone(),
+            name: String::new(),
+        });
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::ApplyPatchResult,
+            content_index: 0,
+            text: String::new(),
+            tool_input: String::new(),
+            fragments: Vec::new(),
+        });
+        self.active_apply_patch_result = Some(block.clone());
+        let status_str = match status {
+            oxa_ir::ApplyPatchResultStatus::Completed => "completed",
+            oxa_ir::ApplyPatchResultStatus::Failed => "failed",
+        };
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
+            output_index: Some(output_index),
+            item: Some(OutputItem {
+                id: item_id,
+                kind: "apply_patch_call_output".to_string(),
+                call_id: tool_use_id.clone(),
+                status: status_str.to_string(),
+                output: output.as_ref().map(|s| OutputValue::Text(s.clone())),
+                ..OutputItem::default()
+            }),
+            ..Default::default()
+        });
+        Ok((out, Vec::new()))
+    }
+
+    fn stop_apply_patch_result_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let Some(active_item) = &mut self.active_item else {
+            return Err(Error::new("responses: apply_patch_call_output block without active item"));
+        };
+        let Some(Block::ApplyPatchToolResult { tool_use_id, status, output }) = self.active_apply_patch_result.take() else {
+            return Err(Error::new("responses: apply_patch_call_output missing block"));
+        };
+        self.active_block = None;
+        let status_str = match status {
+            oxa_ir::ApplyPatchResultStatus::Completed => "completed",
+            oxa_ir::ApplyPatchResultStatus::Failed => "failed",
+        };
+        let completed = OutputItem {
+            id: active_item.id.clone(),
+            kind: "apply_patch_call_output".to_string(),
+            call_id: tool_use_id,
+            status: status_str.to_string(),
+            output: output.map(OutputValue::Text),
+            ..OutputItem::default()
+        };
+        let out = vec![StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
+            output_index: Some(active_item.output_index),
+            item: Some(completed.clone()),
+            ..Default::default()
+        }];
         self.completed.push(completed);
         self.active_item = None;
         Ok((out, Vec::new()))

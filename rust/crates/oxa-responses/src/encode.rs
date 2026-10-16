@@ -67,6 +67,13 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     if let Some(tools) = &req.tools {
         for (index, tool) in tools.iter().enumerate() {
+            if tool.tool_type == Some(ToolType::ApplyPatch) {
+                out.tools.push(ToolDef {
+                    kind: "apply_patch".to_string(),
+                    ..ToolDef::default()
+                });
+                continue;
+            }
             if tool.tool_type == Some(ToolType::Custom) {
                 if tool.name.is_empty() {
                     return Err(Error::new(format!(
@@ -250,6 +257,8 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let mut text = String::new();
     let mut has_text = false;
     let mut calls = Vec::new();
+    let mut apc_index = 0usize;
+    let mut apco_index = 0usize;
     for (index, block) in resp.content.iter().enumerate() {
         match block {
             Block::Text { text: value } => {
@@ -276,6 +285,36 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         "Responses reasoning output items carry no provider signature",
                     ));
                 }
+            }
+            Block::ApplyPatchToolUse { id, status, operation } => {
+                let status_str = match status {
+                    oxa_ir::ApplyPatchCallStatus::InProgress => "in_progress",
+                    oxa_ir::ApplyPatchCallStatus::Completed => "completed",
+                };
+                calls.push(OutputItem {
+                    kind: "apply_patch_call".to_string(),
+                    id: format!("apc_{apc_index}"),
+                    status: status_str.to_string(),
+                    call_id: id.clone(),
+                    operation: Some(crate::normalize::encode_apply_patch_operation(operation)),
+                    ..OutputItem::default()
+                });
+                apc_index += 1;
+            }
+            Block::ApplyPatchToolResult { tool_use_id, status, output } => {
+                let status_str = match status {
+                    oxa_ir::ApplyPatchResultStatus::Completed => "completed",
+                    oxa_ir::ApplyPatchResultStatus::Failed => "failed",
+                };
+                calls.push(OutputItem {
+                    kind: "apply_patch_call_output".to_string(),
+                    id: format!("apco_{apco_index}"),
+                    status: status_str.to_string(),
+                    call_id: tool_use_id.clone(),
+                    output: output.as_ref().map(|s| OutputValue::Text(s.clone())),
+                    ..OutputItem::default()
+                });
+                apco_index += 1;
             }
             Block::ToolUse { id, name, input } => calls.push(OutputItem {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),

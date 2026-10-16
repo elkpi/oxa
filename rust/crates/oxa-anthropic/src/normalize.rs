@@ -143,8 +143,12 @@ pub(crate) fn decode_content(
             let mut out = Vec::with_capacity(blocks.len());
             let mut losses = Vec::new();
             for (index, block) in blocks.iter().enumerate() {
-                let (decoded, block_losses, mapped) =
-                    decode_block(block, &format!("{path}[{index}]"), custom_tools, custom_call_ids)?;
+                let (decoded, block_losses, mapped) = decode_block(
+                    block,
+                    &format!("{path}[{index}]"),
+                    custom_tools,
+                    custom_call_ids,
+                )?;
                 if mapped {
                     out.extend(decoded);
                 }
@@ -255,8 +259,12 @@ pub(crate) fn decode_block(
                 let output = match wire.content.as_ref() {
                     Some(ContentValue::Text(t)) => oxa_ir::CustomToolOutput::Text(t.clone()),
                     _ => {
-                        let (content, content_losses) =
-                            decode_content(wire.content.as_ref(), &format!("{path}.content"), custom_tools, custom_call_ids)?;
+                        let (content, content_losses) = decode_content(
+                            wire.content.as_ref(),
+                            &format!("{path}.content"),
+                            custom_tools,
+                            custom_call_ids,
+                        )?;
                         losses.extend(content_losses);
                         oxa_ir::CustomToolOutput::Content(content)
                     }
@@ -266,8 +274,12 @@ pub(crate) fn decode_block(
                     output,
                 });
             } else {
-                let (content, content_losses) =
-                    decode_content(wire.content.as_ref(), &format!("{path}.content"), custom_tools, custom_call_ids)?;
+                let (content, content_losses) = decode_content(
+                    wire.content.as_ref(),
+                    &format!("{path}.content"),
+                    custom_tools,
+                    custom_call_ids,
+                )?;
                 losses.extend(content_losses);
                 block = Some(Block::ToolResult {
                     tool_use_id: wire.tool_use_id.clone(),

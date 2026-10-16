@@ -611,7 +611,11 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
 /// N-CC-10 renders tool_result blocks as role:tool messages and reports
 /// result content that Chat Completions cannot represent instead of panicking.
 pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Loss>) {
-    if let Block::CustomToolResult { tool_use_id, output } = block {
+    if let Block::CustomToolResult {
+        tool_use_id,
+        output,
+    } = block
+    {
         return match output {
             oxa_ir::CustomToolOutput::Text(t) => (
                 Message {

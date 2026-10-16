@@ -321,7 +321,11 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         },
         "function_tool" => Some(&[("type", ""), ("function", "function")]),
         "custom_tool" => Some(&[("type", ""), ("custom", "custom_decl")]),
-        "custom_decl" => Some(&[("name", ""), ("description", ""), ("format", "custom_format")]),
+        "custom_decl" => Some(&[
+            ("name", ""),
+            ("description", ""),
+            ("format", "custom_format"),
+        ]),
         "custom_format" => Some(&[("type", ""), ("syntax", ""), ("definition", "")]),
         "function" => Some(&[
             ("name", ""),

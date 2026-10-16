@@ -243,11 +243,9 @@ impl StreamEncoder {
                     StreamBlockKind::Atomic => Err(Error::new(
                         "chatcompletions: atomic block does not accept deltas",
                     )),
-                    StreamBlockKind::Custom => {
-                        Err(Error::new(
-                            "chatcompletions: custom block does not accept deltas",
-                        ))
-                    }
+                    StreamBlockKind::Custom => Err(Error::new(
+                        "chatcompletions: custom block does not accept deltas",
+                    )),
                     StreamBlockKind::CustomTool => {
                         let Delta::CustomToolInputDelta { text } = delta else {
                             return Err(Error::new(

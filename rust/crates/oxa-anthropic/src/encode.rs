@@ -110,9 +110,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
         && req.tools.as_ref().is_some_and(|ts| {
             !ts.is_empty()
-                && ts.iter().all(|t| {
-                    t.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
-                })
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
         })
     {
         choice = None;
@@ -317,9 +317,14 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 true,
             ))
         }
-        Block::CustomToolResult { tool_use_id, output } => {
+        Block::CustomToolResult {
+            tool_use_id,
+            output,
+        } => {
             if tool_use_id.is_empty() {
-                return Err(Error::new(format!("anthropic: {path}.tool_use_id is required")));
+                return Err(Error::new(format!(
+                    "anthropic: {path}.tool_use_id is required"
+                )));
             }
             match output {
                 oxa_ir::CustomToolOutput::Text(t) => Ok((
@@ -336,7 +341,8 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                     let mut content_wires = Vec::new();
                     let mut losses = Vec::new();
                     for (i, inner) in blocks.iter().enumerate() {
-                        let (w, l, mapped) = encode_request_block(inner, &format!("{path}.content[{i}]"))?;
+                        let (w, l, mapped) =
+                            encode_request_block(inner, &format!("{path}.content[{i}]"))?;
                         if mapped {
                             content_wires.push(w);
                         }
@@ -534,12 +540,10 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .content
         .iter()
         .any(|block| matches!(block, Block::ToolUse { .. } | Block::CustomToolUse { .. }));
-    let has_unsupported = resp.content.iter().any(|block| {
-        matches!(
-            block,
-            Block::ApplyPatchToolUse { .. }
-        )
-    });
+    let has_unsupported = resp
+        .content
+        .iter()
+        .any(|block| matches!(block, Block::ApplyPatchToolUse { .. }));
     let effective_stop =
         if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
             losses.push(loss(

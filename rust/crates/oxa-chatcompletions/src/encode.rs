@@ -42,11 +42,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut supported = Vec::new();
         for (index, tool) in tools.iter().enumerate() {
             if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
-                let fmt = tool.format.as_ref().map(|f| crate::types::CustomFormatWire {
-                    kind: f.format_type.clone(),
-                    syntax: f.syntax.clone(),
-                    definition: f.definition.clone(),
-                });
+                let fmt = tool
+                    .format
+                    .as_ref()
+                    .map(|f| crate::types::CustomFormatWire {
+                        kind: f.format_type.clone(),
+                        syntax: f.syntax.clone(),
+                        definition: f.definition.clone(),
+                    });
                 supported.push(ToolWire {
                     kind: crate::types::TOOL_TYPE_CUSTOM.to_string(),
                     function: None,
@@ -97,9 +100,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
         && req.tools.as_ref().is_some_and(|ts| {
             !ts.is_empty()
-                && ts.iter().all(|t| {
-                    t.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
-                })
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
         })
     {
         choice = None;
@@ -285,9 +288,10 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .content
         .iter()
         .any(|b| matches!(b, Block::ToolUse { .. } | Block::CustomToolUse { .. }));
-    let has_unsupported = resp.content.iter().any(|b| {
-        matches!(b, Block::ApplyPatchToolUse { .. })
-    });
+    let has_unsupported = resp
+        .content
+        .iter()
+        .any(|b| matches!(b, Block::ApplyPatchToolUse { .. }));
     let effective_stop =
         if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
             losses.push(loss(

@@ -16,11 +16,21 @@ use crate::types::{
 };
 
 fn is_custom_tool_input_schema(schema: &serde_json::Value) -> bool {
-    let Some(obj) = schema.as_object() else { return false; };
-    if obj.get("type").and_then(|v| v.as_str()) != Some("object") { return false; }
-    let Some(props) = obj.get("properties").and_then(|v| v.as_object()) else { return false; };
-    if props.len() != 1 { return false; }
-    let Some(input_prop) = props.get("input").and_then(|v| v.as_object()) else { return false; };
+    let Some(obj) = schema.as_object() else {
+        return false;
+    };
+    if obj.get("type").and_then(|v| v.as_str()) != Some("object") {
+        return false;
+    }
+    let Some(props) = obj.get("properties").and_then(|v| v.as_object()) else {
+        return false;
+    };
+    if props.len() != 1 {
+        return false;
+    }
+    let Some(input_prop) = props.get("input").and_then(|v| v.as_object()) else {
+        return false;
+    };
     input_prop.get("type").and_then(|v| v.as_str()) == Some("string")
 }
 

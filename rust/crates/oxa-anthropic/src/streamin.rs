@@ -355,9 +355,7 @@ impl StreamDecoder {
                             },
                             Event::ContentBlockDelta {
                                 index: self.open_ir_index,
-                                delta: Delta::CustomToolInputDelta {
-                                    text: custom_text,
-                                },
+                                delta: Delta::CustomToolInputDelta { text: custom_text },
                             },
                             Event::ContentBlockStop {
                                 index: self.open_ir_index,

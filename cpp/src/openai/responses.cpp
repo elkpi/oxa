@@ -303,32 +303,39 @@ std::vector<ir::Block> decode_reasoning_summary(
 StatusOr<std::optional<ir::ApplyPatchOperation>> decode_apply_patch_operation(
     const json::Value* op, const std::string& path, std::vector<ir::Loss>& losses) {
     if (!op || !op->is_object()) {
-        losses.push_back(make_resp_loss(path, "operation", ir::LOSS_UNSUPPORTED_SEMANTIC,
-            "operation must be an object"));
-        return std::optional<ir::ApplyPatchOperation>{};
+        return invalid_argument("responses: " + path + ".operation is required");
     }
     const auto* type_val = op->find("type");
-    std::string op_type = type_val && type_val->is_string() ? type_val->as_string() : "";
+    if (!type_val || !type_val->is_string() || type_val->as_string().empty()) {
+        return invalid_argument("responses: " + path + ".operation.type is required");
+    }
+    std::string op_type = type_val->as_string();
     if (op_type == "create_file") {
         const auto* path_val = op->find("path");
         const auto* diff_val = op->find("diff");
-        if (!path_val || !path_val->is_string() || !diff_val || !diff_val->is_string()) {
-            return invalid_argument("create_file requires string path and diff");
+        if (!path_val || !path_val->is_string()) {
+            return invalid_argument("responses: " + path + ".operation.path must be a string");
+        }
+        if (!diff_val || !diff_val->is_string()) {
+            return invalid_argument("responses: " + path + ".operation.diff is required for create_file");
         }
         return std::optional<ir::ApplyPatchOperation>{ir::CreateFileOperation{path_val->as_string(), diff_val->as_string()}};
     }
     if (op_type == "delete_file") {
         const auto* path_val = op->find("path");
         if (!path_val || !path_val->is_string()) {
-            return invalid_argument("delete_file requires string path");
+            return invalid_argument("responses: " + path + ".operation.path must be a string");
         }
         return std::optional<ir::ApplyPatchOperation>{ir::DeleteFileOperation{path_val->as_string()}};
     }
     if (op_type == "update_file") {
         const auto* path_val = op->find("path");
         const auto* diff_val = op->find("diff");
-        if (!path_val || !path_val->is_string() || !diff_val || !diff_val->is_string()) {
-            return invalid_argument("update_file requires string path and diff");
+        if (!path_val || !path_val->is_string()) {
+            return invalid_argument("responses: " + path + ".operation.path must be a string");
+        }
+        if (!diff_val || !diff_val->is_string()) {
+            return invalid_argument("responses: " + path + ".operation.diff is required for update_file");
         }
         return std::optional<ir::ApplyPatchOperation>{ir::UpdateFileOperation{path_val->as_string(), diff_val->as_string()}};
     }
@@ -337,22 +344,30 @@ StatusOr<std::optional<ir::ApplyPatchOperation>> decode_apply_patch_operation(
     return std::optional<ir::ApplyPatchOperation>{};
 }
 
-std::optional<std::string> decode_apply_patch_call_status(
-    std::string_view status, const std::string& path, std::vector<ir::Loss>& losses) {
-    if (status == "in_progress") return "in_progress";
-    if (status == "completed") return "completed";
+StatusOr<std::optional<std::string>> decode_apply_patch_call_status(
+    const json::Value* status_val, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (!status_val || !status_val->is_string() || status_val->as_string().empty()) {
+        return invalid_argument("responses: " + path + ".status is required");
+    }
+    std::string_view status = status_val->as_string();
+    if (status == "in_progress") return std::optional<std::string>("in_progress");
+    if (status == "completed") return std::optional<std::string>("completed");
     losses.push_back(make_resp_loss(path + ".status", "status", ir::LOSS_UNMAPPED_VALUE,
         "unknown apply_patch_call status: " + std::string(status)));
-    return std::nullopt;
+    return std::optional<std::string>{};
 }
 
-std::optional<std::string> decode_apply_patch_result_status(
-    std::string_view status, const std::string& path, std::vector<ir::Loss>& losses) {
-    if (status == "completed") return "completed";
-    if (status == "failed") return "failed";
+StatusOr<std::optional<std::string>> decode_apply_patch_result_status(
+    const json::Value* status_val, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (!status_val || !status_val->is_string() || status_val->as_string().empty()) {
+        return invalid_argument("responses: " + path + ".status is required");
+    }
+    std::string_view status = status_val->as_string();
+    if (status == "completed") return std::optional<std::string>("completed");
+    if (status == "failed") return std::optional<std::string>("failed");
     losses.push_back(make_resp_loss(path + ".status", "status", ir::LOSS_UNMAPPED_VALUE,
         "unknown apply_patch_call_output status: " + std::string(status)));
-    return std::nullopt;
+    return std::optional<std::string>{};
 }
 
 json::Value encode_apply_patch_operation(const ir::ApplyPatchOperation& op) {
@@ -386,6 +401,9 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
         const auto& item = items[i];
         const auto* type_val = item.find("type");
         std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
+        if (kind == "apply_patch_call_output") {
+            return invalid_argument("responses: input[" + std::to_string(i) + "]: apply_patch tool result without preceding tool calls (INV-3)");
+        }
         const auto* role_val = item.find("role");
         std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
 
@@ -404,6 +422,7 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
             std::size_t index = 0;
         };
         std::vector<CallInfo> calls;
+        std::set<std::string> seen_call_ids;
         std::size_t a_start = i;
         while (a_start < items.size()) {
             const auto& it = items[a_start];
@@ -412,22 +431,29 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
             const auto* it_role = it.find("role");
             std::string it_role_str = it_role && it_role->is_string() ? it_role->as_string() : "";
 
+            std::string cur_kind;
             if (it_kind == "function_call") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                calls.push_back({id, "function", a_start});
+                cur_kind = "function";
             } else if (it_kind == "custom_tool_call") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                calls.push_back({id, "custom", a_start});
+                cur_kind = "custom";
             } else if (it_kind == "apply_patch_call") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                calls.push_back({id, "apply_patch", a_start});
+                cur_kind = "apply_patch";
             } else if (it_kind == "reasoning" || ((it_kind.empty() || it_kind == "message") && it_role_str == "assistant")) {
                 // continues assistant turn
             } else {
                 break;
+            }
+            if (!cur_kind.empty()) {
+                const auto* cid = it.find("call_id");
+                std::string id = cid && cid->is_string() ? cid->as_string() : "";
+                if (cur_kind == "apply_patch" && id.empty()) {
+                    return invalid_argument("responses: input[" + std::to_string(a_start) + "]: apply_patch tool call requires nonempty call_id (INV-3)");
+                }
+                if (seen_call_ids.count(id)) {
+                    return invalid_argument("responses: input[" + std::to_string(a_start) + "]: duplicate call_id \"" + id + "\" in turn (INV-3)");
+                }
+                seen_call_ids.insert(id);
+                calls.push_back({id, cur_kind, a_start});
             }
             ++a_start;
         }
@@ -438,78 +464,76 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
             const auto& it = items[o_start];
             const auto* it_type = it.find("type");
             std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
-
+            std::string matched_kind;
             if (it_kind == "function_call_output") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                results.push_back({id, "function", o_start});
+                matched_kind = "function";
             } else if (it_kind == "custom_tool_call_output") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                results.push_back({id, "custom", o_start});
+                matched_kind = "custom";
             } else if (it_kind == "apply_patch_call_output") {
-                const auto* cid = it.find("call_id");
-                std::string id = cid && cid->is_string() ? cid->as_string() : "";
-                results.push_back({id, "apply_patch", o_start});
+                matched_kind = "apply_patch";
             } else {
                 break;
             }
+            const auto* cid = it.find("call_id");
+            std::string id = cid && cid->is_string() ? cid->as_string() : "";
+            if (matched_kind == "apply_patch" && id.empty()) {
+                return invalid_argument("responses: input[" + std::to_string(o_start) + "]: apply_patch tool result requires nonempty call_id (INV-3)");
+            }
+            results.push_back({id, matched_kind, o_start});
             ++o_start;
         }
 
-        if (!calls.empty() && calls.size() == results.size()) {
-            bool matched = true;
+        const bool has_apply_patch = std::any_of(calls.begin(), calls.end(), [](const CallInfo& c) { return c.cat == "apply_patch"; }) ||
+                                     std::any_of(results.begin(), results.end(), [](const CallInfo& r) { return r.cat == "apply_patch"; });
+
+        if (has_apply_patch) {
+            if (calls.size() != results.size()) {
+                return invalid_argument("responses: tool calls count (" + std::to_string(calls.size()) + ") and results count (" + std::to_string(results.size()) + ") mismatch (INV-3)");
+            }
             for (std::size_t k = 0; k < calls.size(); ++k) {
                 if (calls[k].call_id != results[k].call_id || calls[k].cat != results[k].cat) {
-                    matched = false;
-                    break;
+                    return invalid_argument("responses: tool result identity/type/order mismatch (INV-3)");
                 }
             }
-            if (matched) {
-                for (std::size_t k = 0; k < calls.size(); ++k) {
-                    if (calls[k].cat != "apply_patch") continue;
-                    std::size_t c_idx = calls[k].index;
-                    std::size_t o_idx = results[k].index;
-                    const auto& c_item = items[c_idx];
-                    const auto& o_item = items[o_idx];
+            for (std::size_t k = 0; k < calls.size(); ++k) {
+                if (calls[k].cat != "apply_patch") continue;
+                std::size_t c_idx = calls[k].index;
+                std::size_t o_idx = results[k].index;
+                const auto& c_item = items[c_idx];
+                const auto& o_item = items[o_idx];
 
-                    std::vector<ir::Loss> call_losses;
-                    OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(c_item.find("operation"), "input[" + std::to_string(c_idx) + "]", call_losses));
-                    const auto* st_val = c_item.find("status");
-                    std::string c_status_str = st_val && st_val->is_string() ? st_val->as_string() : "";
-                    auto call_status = decode_apply_patch_call_status(c_status_str, "input[" + std::to_string(c_idx) + "]", call_losses);
+                std::vector<ir::Loss> call_losses;
+                OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(c_item.find("operation"), "input[" + std::to_string(c_idx) + "]", call_losses));
+                OXA_ASSIGN_OR_RETURN(auto call_status, decode_apply_patch_call_status(c_item.find("status"), "input[" + std::to_string(c_idx) + "]", call_losses));
 
-                    std::vector<ir::Loss> res_losses;
-                    const auto* ost_val = o_item.find("status");
-                    std::string o_status_str = ost_val && ost_val->is_string() ? ost_val->as_string() : "";
-                    auto res_status = decode_apply_patch_result_status(o_status_str, "input[" + std::to_string(o_idx) + "]", res_losses);
+                std::vector<ir::Loss> res_losses;
+                OXA_ASSIGN_OR_RETURN(auto res_status, decode_apply_patch_result_status(o_item.find("status"), "input[" + std::to_string(o_idx) + "]", res_losses));
 
-                    std::optional<std::string> output_str;
-                    if (const auto* ov = o_item.find("output"); ov != nullptr && !ov->is_null()) {
-                        if (!ov->is_string()) return invalid_argument("responses: input[" + std::to_string(o_idx) + "].output must be a string");
-                        output_str = ov->as_string();
+                std::optional<std::string> output_str;
+                if (const auto* ov = o_item.find("output"); ov != nullptr && !ov->is_null()) {
+                    if (!ov->is_string()) return invalid_argument("responses: input[" + std::to_string(o_idx) + "].output must be a string");
+                    output_str = ov->as_string();
+                }
+
+                const bool has_call_loss = !call_losses.empty();
+                const bool has_res_loss = !res_losses.empty();
+
+                if (has_call_loss || has_res_loss) {
+                    res.dropped.insert(c_idx);
+                    res.dropped.insert(o_idx);
+                    if (has_call_loss) {
+                        res.losses.insert(res.losses.end(), call_losses.begin(), call_losses.end());
+                    } else {
+                        res.losses.push_back(make_resp_loss("input[" + std::to_string(c_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"));
                     }
-
-                    const bool has_call_loss = !call_losses.empty();
-                    const bool has_res_loss = !res_losses.empty();
-
-                    if (has_call_loss || has_res_loss) {
-                        res.dropped.insert(c_idx);
-                        res.dropped.insert(o_idx);
-                        if (has_call_loss) {
-                            res.losses.insert(res.losses.end(), call_losses.begin(), call_losses.end());
-                        } else {
-                            res.losses.push_back(make_resp_loss("input[" + std::to_string(c_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch result has unsupported semantic"));
-                        }
-                        if (has_res_loss) {
-                            res.losses.insert(res.losses.end(), res_losses.begin(), res_losses.end());
-                        } else {
-                            res.losses.push_back(make_resp_loss("input[" + std::to_string(o_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"));
-                        }
-                    } else if (op.has_value() && call_status.has_value() && res_status.has_value()) {
-                        res.decoded_calls.emplace(c_idx, ir::ApplyPatchToolUseBlock{calls[k].call_id, *call_status, *op});
-                        res.decoded_results.emplace(o_idx, ir::ApplyPatchToolResultBlock{results[k].call_id, *res_status, output_str});
+                    if (has_res_loss) {
+                        res.losses.insert(res.losses.end(), res_losses.begin(), res_losses.end());
+                    } else {
+                        res.losses.push_back(make_resp_loss("input[" + std::to_string(o_idx) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "paired apply_patch call has unsupported semantic"));
                     }
+                } else if (op.has_value() && call_status.has_value() && res_status.has_value()) {
+                    res.decoded_calls.emplace(c_idx, ir::ApplyPatchToolUseBlock{calls[k].call_id, *call_status, *op});
+                    res.decoded_results.emplace(o_idx, ir::ApplyPatchToolResultBlock{results[k].call_id, *res_status, output_str});
                 }
             }
         }
@@ -1268,26 +1292,30 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                 OXA_ASSIGN_OR_RETURN(auto decoded, decode_custom_output(*output, item_path + ".output", losses));
                 resp.content.push_back(ir::CustomToolResultBlock{cid->as_string(), std::move(decoded)});
             } else if (kind == "apply_patch_call") {
+                const auto* id_val = item.find("id");
+                if (!id_val || !id_val->is_string() || id_val->as_string().empty())
+                    return invalid_argument("responses: " + item_path + ".id is required");
                 const auto* cid = item.find("call_id");
-                std::string call_id = cid && cid->is_string() ? cid->as_string() : "";
-                const auto* st_val = item.find("status");
-                std::string st = st_val && st_val->is_string() ? st_val->as_string() : "";
+                if (!cid || !cid->is_string() || cid->as_string().empty())
+                    return invalid_argument("responses: " + item_path + ".call_id is required");
                 std::vector<ir::Loss> item_losses;
-                auto call_status = decode_apply_patch_call_status(st, item_path, item_losses);
+                OXA_ASSIGN_OR_RETURN(auto call_status, decode_apply_patch_call_status(item.find("status"), item_path, item_losses));
                 OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(item.find("operation"), item_path + ".operation", item_losses));
                 if (!item_losses.empty()) {
                     losses.insert(losses.end(), item_losses.begin(), item_losses.end());
                 } else if (call_status.has_value() && op.has_value()) {
-                    resp.content.push_back(ir::ApplyPatchToolUseBlock{std::move(call_id), *call_status, *op});
+                    resp.content.push_back(ir::ApplyPatchToolUseBlock{cid->as_string(), *call_status, *op});
                     has_tool_use = true;
                 }
             } else if (kind == "apply_patch_call_output") {
+                const auto* id_val = item.find("id");
+                if (!id_val || !id_val->is_string() || id_val->as_string().empty())
+                    return invalid_argument("responses: " + item_path + ".id is required");
                 const auto* cid = item.find("call_id");
-                std::string call_id = cid && cid->is_string() ? cid->as_string() : "";
-                const auto* st_val = item.find("status");
-                std::string st = st_val && st_val->is_string() ? st_val->as_string() : "";
+                if (!cid || !cid->is_string() || cid->as_string().empty())
+                    return invalid_argument("responses: " + item_path + ".call_id is required");
                 std::vector<ir::Loss> item_losses;
-                auto res_status = decode_apply_patch_result_status(st, item_path, item_losses);
+                OXA_ASSIGN_OR_RETURN(auto res_status, decode_apply_patch_result_status(item.find("status"), item_path, item_losses));
                 std::optional<std::string> output;
                 if (const auto* ov = item.find("output"); ov != nullptr && !ov->is_null()) {
                     if (!ov->is_string()) return invalid_argument("responses: " + item_path + ".output must be a string");
@@ -1296,7 +1324,7 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                 if (!item_losses.empty()) {
                     losses.insert(losses.end(), item_losses.begin(), item_losses.end());
                 } else if (res_status.has_value()) {
-                    resp.content.push_back(ir::ApplyPatchToolResultBlock{std::move(call_id), *res_status, std::move(output)});
+                    resp.content.push_back(ir::ApplyPatchToolResultBlock{cid->as_string(), *res_status, std::move(output)});
                 }
             } else {
                 losses.push_back(make_resp_loss(
@@ -1613,6 +1641,15 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
 
     const auto* t = chunk.find("type");
     std::string type = t && t->is_string() ? t->as_string() : "";
+
+    if ((apply_patch_call_.has_value() || apply_patch_result_.has_value()) &&
+        (type.rfind("response.content_part.", 0) == 0 ||
+         type.rfind("response.output_text.", 0) == 0 ||
+         type.rfind("response.reasoning_summary_", 0) == 0 ||
+         type.rfind("response.function_call_arguments.", 0) == 0 ||
+         type.rfind("response.custom_tool_call_input.", 0) == 0)) {
+        return invalid_argument("responses: content or delta event on apply patch item");
+    }
 
     std::vector<ir::Event> events;
 
@@ -2067,20 +2104,23 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             if (cid != apply_patch_call_->call_id) {
                 return invalid_argument("responses: response.output_item.done does not match the active apply patch call");
             }
-            std::string st;
-            if (const auto* sv = item->find("status"); sv && sv->is_string()) st = sv->as_string();
-            auto call_status = decode_apply_patch_call_status(st, "output[" + std::to_string(output_index_) + "]", losses_);
-            if (!call_status.has_value()) {
-                return invalid_argument("responses: invalid apply_patch_call status: " + st);
+            std::vector<ir::Loss> item_losses;
+            OXA_ASSIGN_OR_RETURN(auto call_status, decode_apply_patch_call_status(item->find("status"), "output[" + std::to_string(output_index_) + "]", item_losses));
+            OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(item->find("operation"), "output[" + std::to_string(output_index_) + "].operation", item_losses));
+            if (!item_losses.empty()) {
+                losses_.insert(losses_.end(), item_losses.begin(), item_losses.end());
+            } else if (call_status.has_value() && op.has_value()) {
+                std::int64_t b_idx = next_block_index_++;
+                events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolUseBlock{cid, *call_status, *op}});
+                events.push_back(ir::ContentBlockStop{b_idx});
+                tool_use_seen_ = true;
             }
-            OXA_ASSIGN_OR_RETURN(auto op, decode_apply_patch_operation(item->find("operation"), "output[" + std::to_string(output_index_) + "].operation", losses_));
-            if (!op.has_value()) {
-                return invalid_argument("responses: invalid apply_patch_call operation");
-            }
-            std::int64_t b_idx = next_block_index_++;
-            events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolUseBlock{cid, *call_status, *op}});
-            events.push_back(ir::ContentBlockStop{b_idx});
-            tool_use_seen_ = true;
+            const auto* st_v = item->find("status");
+            const auto* op_v = item->find("operation");
+            completed_apply_patch_calls_.push_back(CompletedApplyPatchCall{
+                item_id_, cid, st_v && st_v->is_string() ? st_v->as_string() : "",
+                op_v ? *op_v : json::Value::null()
+            });
             apply_patch_call_ = std::nullopt;
         }
         if (apply_patch_result_.has_value()) {
@@ -2089,20 +2129,24 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             if (cid != apply_patch_result_->call_id) {
                 return invalid_argument("responses: response.output_item.done does not match the active apply patch result");
             }
-            std::string st;
-            if (const auto* sv = item->find("status"); sv && sv->is_string()) st = sv->as_string();
-            auto res_status = decode_apply_patch_result_status(st, "output[" + std::to_string(output_index_) + "]", losses_);
-            if (!res_status.has_value()) {
-                return invalid_argument("responses: invalid apply_patch_call_output status: " + st);
-            }
+            std::vector<ir::Loss> item_losses;
+            OXA_ASSIGN_OR_RETURN(auto res_status, decode_apply_patch_result_status(item->find("status"), "output[" + std::to_string(output_index_) + "]", item_losses));
             std::optional<std::string> output;
             if (const auto* ov = item->find("output"); ov != nullptr && !ov->is_null()) {
                 if (!ov->is_string()) return invalid_argument("responses: apply_patch_call_output output must be a string");
                 output = ov->as_string();
             }
-            std::int64_t b_idx = next_block_index_++;
-            events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolResultBlock{cid, *res_status, output}});
-            events.push_back(ir::ContentBlockStop{b_idx});
+            if (!item_losses.empty()) {
+                losses_.insert(losses_.end(), item_losses.begin(), item_losses.end());
+            } else if (res_status.has_value()) {
+                std::int64_t b_idx = next_block_index_++;
+                events.push_back(ir::ContentBlockStart{b_idx, ir::ApplyPatchToolResultBlock{cid, *res_status, output}});
+                events.push_back(ir::ContentBlockStop{b_idx});
+            }
+            const auto* st_v = item->find("status");
+            completed_apply_patch_results_.push_back(CompletedApplyPatchResult{
+                item_id_, cid, st_v && st_v->is_string() ? st_v->as_string() : "", output
+            });
             apply_patch_result_ = std::nullopt;
         }
 
@@ -2121,6 +2165,64 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         }
         const auto* resp = chunk.find("response");
         if (!resp || !resp->is_object()) return invalid_argument("responses: " + type + " without response");
+
+        if (const auto* out_arr = resp->find("output"); out_arr && out_arr->is_array()) {
+            for (const auto& it : out_arr->as_array()) {
+                const auto* it_type = it.find("type");
+                std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
+                if (it_kind == "apply_patch_call") {
+                    std::string it_id = it.find("id") && it.find("id")->is_string() ? it.find("id")->as_string() : "";
+                    auto prior = std::find_if(completed_apply_patch_calls_.begin(), completed_apply_patch_calls_.end(),
+                        [&](const CompletedApplyPatchCall& p) { return p.id == it_id; });
+                    if (prior == completed_apply_patch_calls_.end())
+                        return invalid_argument("responses: terminal apply patch snapshot mismatch");
+                    std::string cid = it.find("call_id") && it.find("call_id")->is_string() ? it.find("call_id")->as_string() : "";
+                    std::string st = it.find("status") && it.find("status")->is_string() ? it.find("status")->as_string() : "";
+                    if (cid != prior->call_id || st != prior->status)
+                        return invalid_argument("responses: terminal apply patch snapshot mismatch");
+                    const auto* op = it.find("operation");
+                    if (!op || !op->is_object())
+                        return invalid_argument("responses: terminal apply patch operation mismatch");
+                    const auto* opt1 = op->find("type");
+                    const auto* opt2 = prior->operation.find("type");
+                    if (!opt1 || !opt2 || opt1->as_string() != opt2->as_string())
+                        return invalid_argument("responses: terminal apply patch operation mismatch");
+                    if (opt1->as_string() != "create_file" && opt1->as_string() != "update_file" && opt1->as_string() != "delete_file") {
+                        if (!json::structurally_equal(*op, prior->operation))
+                            return invalid_argument("responses: terminal apply patch operation mismatch");
+                    } else {
+                        const auto* opp1 = op->find("path");
+                        const auto* opp2 = prior->operation.find("path");
+                        if ((opp1 == nullptr) != (opp2 == nullptr))
+                            return invalid_argument("responses: terminal apply patch operation mismatch");
+                        if (opp1 && opp1->as_string() != opp2->as_string())
+                            return invalid_argument("responses: terminal apply patch operation mismatch");
+                        if (opt1->as_string() != "delete_file") {
+                            const auto* opd1 = op->find("diff");
+                            const auto* opd2 = prior->operation.find("diff");
+                            if ((opd1 == nullptr) != (opd2 == nullptr))
+                                return invalid_argument("responses: terminal apply patch diff mismatch");
+                            if (opd1 && opd1->as_string() != opd2->as_string())
+                                return invalid_argument("responses: terminal apply patch diff mismatch");
+                        }
+                    }
+                } else if (it_kind == "apply_patch_call_output") {
+                    std::string it_id = it.find("id") && it.find("id")->is_string() ? it.find("id")->as_string() : "";
+                    auto prior = std::find_if(completed_apply_patch_results_.begin(), completed_apply_patch_results_.end(),
+                        [&](const CompletedApplyPatchResult& p) { return p.id == it_id; });
+                    if (prior == completed_apply_patch_results_.end())
+                        return invalid_argument("responses: terminal apply patch snapshot mismatch");
+                    std::string cid = it.find("call_id") && it.find("call_id")->is_string() ? it.find("call_id")->as_string() : "";
+                    std::string st = it.find("status") && it.find("status")->is_string() ? it.find("status")->as_string() : "";
+                    if (cid != prior->call_id || st != prior->status)
+                        return invalid_argument("responses: terminal apply patch snapshot mismatch");
+                    std::optional<std::string> output;
+                    if (const auto* ov = it.find("output"); ov && ov->is_string()) output = ov->as_string();
+                    if (output != prior->output)
+                        return invalid_argument("responses: terminal apply patch output mismatch");
+                }
+            }
+        }
 
         auto [stop_reason, s_losses] = decode_status(*resp, tool_use_seen_);
         losses_.insert(losses_.end(), s_losses.begin(), s_losses.end());

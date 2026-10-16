@@ -125,6 +125,7 @@ private:
     bool started_ = false;
     bool block_open_ = false;
     bool skipped_custom_ = false;
+    bool skipped_atomic_ = false;
     bool open_tool_ = false;
     bool open_thinking_ = false;
     bool tool_seen_ = false;

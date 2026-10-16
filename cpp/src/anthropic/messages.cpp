@@ -1043,12 +1043,20 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
             (void)ap;
-            skipped_custom_ = true; open_tool_ = false; open_thinking_ = false;
+            skipped_atomic_ = true; skipped_custom_ = false; open_tool_ = false; open_thinking_ = false;
             losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages streaming does not support apply_patch tools"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
+        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
+            (void)apr;
+            skipped_atomic_ = true; skipped_custom_ = false; open_tool_ = false; open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
         skipped_custom_ = false;
+        skipped_atomic_ = false;
         open_index_ = next_index_++;
         json::Value chunk = json::Value::object();
         chunk.set("type", json::Value::string("content_block_start"));
@@ -1090,6 +1098,9 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
         if (!block_open_ || cbd->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockDelta out of grammar order");
+        }
+        if (skipped_atomic_) {
+            return invalid_argument("anthropic: atomic block does not accept deltas");
         }
         if (skipped_custom_) {
             if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
@@ -1136,6 +1147,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
         if (!block_open_ || cst->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (skipped_atomic_) {
+            block_open_ = false; skipped_atomic_ = false;
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (skipped_custom_) {
             block_open_ = false; skipped_custom_ = false;

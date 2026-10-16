@@ -110,7 +110,7 @@ private:
     std::size_t next_native_tool_ = 0;
 
     struct ActiveBlock {
-        enum class Kind { Text, Thinking, Tool, SkippedCustom } kind;
+        enum class Kind { Text, Thinking, Tool, SkippedCustom, SkippedAtomic } kind;
         std::int64_t index = 0;
         std::string tool_id;
         std::string tool_name;

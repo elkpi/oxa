@@ -1249,7 +1249,15 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             (void)ap;
             losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools are not implemented by this profile"));
-            ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedCustom; act.index = cbs->index;
+            ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
+            active_ = std::move(act);
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
+            (void)apr;
+            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
+            ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
@@ -1259,6 +1267,9 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
         if (!active_.has_value() || cbd->index != active_->index) {
             return invalid_argument("chatcompletions: ContentBlockDelta out of grammar order");
+        }
+        if (active_->kind == ActiveBlock::Kind::SkippedAtomic) {
+            return invalid_argument("chatcompletions: atomic block does not accept deltas");
         }
         if (active_->kind == ActiveBlock::Kind::SkippedCustom) {
             if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
@@ -1322,7 +1333,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (!active_.has_value() || cst->index != active_->index) {
             return invalid_argument("chatcompletions: ContentBlockStop out of grammar order");
         }
-        if (active_->kind == ActiveBlock::Kind::SkippedCustom) {
+        if (active_->kind == ActiveBlock::Kind::SkippedCustom || active_->kind == ActiveBlock::Kind::SkippedAtomic) {
             active_.reset();
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }

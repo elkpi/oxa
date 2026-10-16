@@ -170,6 +170,22 @@ private:
         std::optional<std::string> output;
     };
     std::optional<StreamApplyPatchResult> apply_patch_result_;
+
+    struct CompletedApplyPatchCall {
+        std::string id;
+        std::string call_id;
+        std::string status;
+        json::Value operation;
+    };
+    std::vector<CompletedApplyPatchCall> completed_apply_patch_calls_;
+
+    struct CompletedApplyPatchResult {
+        std::string id;
+        std::string call_id;
+        std::string status;
+        std::optional<std::string> output;
+    };
+    std::vector<CompletedApplyPatchResult> completed_apply_patch_results_;
 };
 
 class StreamEncoder {

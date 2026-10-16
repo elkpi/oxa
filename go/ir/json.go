@@ -48,6 +48,10 @@ type wireThinkingBlock struct {
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
+	case ApplyPatchToolUseBlock:
+		return marshalApplyPatchUse(v)
+	case ApplyPatchToolResultBlock:
+		return marshalApplyPatchResult(v)
 	case CustomToolUseBlock:
 		if v.ID == "" || v.Name == "" {
 			return nil, fmt.Errorf("ir: custom call requires id/name")
@@ -121,6 +125,8 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return nil, err
 	}
 	switch head.Type {
+	case BlockTypeApplyPatchToolUse, BlockTypeApplyPatchToolResult:
+		return unmarshalApplyPatchBlock(data, head.Type)
 	case BlockTypeCustomToolUse:
 		var b CustomToolUseBlock
 		if err := json.Unmarshal(data, &b); err != nil {
@@ -228,7 +234,7 @@ type wireMessage struct {
 }
 
 type wireTool struct {
-	Name        string            `json:"name"`
+	Name        string            `json:"name,omitempty"`
 	Description string            `json:"description,omitempty"`
 	InputSchema json.RawMessage   `json:"input_schema,omitempty"`
 	Type        string            `json:"type,omitempty"`

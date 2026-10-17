@@ -75,6 +75,46 @@ function decodeRequestObject(
           c.format !== undefined
             ? object(c.format, `tools[${index}].custom.format`)
             : undefined;
+        let format:
+          | {
+              readonly type: "grammar";
+              readonly syntax: "lark" | "regex";
+              readonly definition: string;
+            }
+          | { readonly type: "text" }
+          | undefined;
+        if (fmt !== undefined) {
+          if (fmt.type === "grammar") {
+            if (fmt.syntax === "lark" || fmt.syntax === "regex") {
+              format = {
+                type: "grammar",
+                syntax: fmt.syntax,
+                definition: string(
+                  fmt.definition,
+                  `tools[${index}].custom.format.definition`,
+                ),
+              };
+            } else {
+              losses.push(
+                loss(
+                  `tools[${index}].custom.format`,
+                  "syntax",
+                  "unsupported-semantic",
+                ),
+              );
+            }
+          } else if (fmt.type === "text") {
+            format = { type: "text" };
+          } else {
+            losses.push(
+              loss(
+                `tools[${index}].custom.format`,
+                "type",
+                "unsupported-semantic",
+              ),
+            );
+          }
+        }
         return [
           {
             type: "custom" as const,
@@ -87,20 +127,7 @@ function decodeRequestObject(
                     `tools[${index}].custom.description`,
                   ),
                 }),
-            format:
-              fmt !== undefined && fmt.type === "grammar"
-                ? {
-                    type: "grammar" as const,
-                    syntax: string(
-                      fmt.syntax,
-                      `tools[${index}].custom.format.syntax`,
-                    ) as "lark" | "regex",
-                    definition: string(
-                      fmt.definition,
-                      `tools[${index}].custom.format.definition`,
-                    ),
-                  }
-                : { type: "text" as const },
+            ...(format === undefined ? {} : { format }),
           },
         ];
       }
@@ -487,14 +514,18 @@ export function encodeRequest(
               ...(tool.description === undefined
                 ? {}
                 : { description: tool.description }),
-              format:
-                tool.format?.type === "grammar"
-                  ? {
-                      type: "grammar",
-                      syntax: tool.format.syntax,
-                      definition: tool.format.definition,
-                    }
-                  : { type: "text" },
+              ...(tool.format === undefined
+                ? {}
+                : {
+                    format:
+                      tool.format.type === "grammar"
+                        ? {
+                            type: "grammar",
+                            syntax: tool.format.syntax,
+                            definition: tool.format.definition,
+                          }
+                        : { type: "text" },
+                  }),
             },
           },
         ];
@@ -799,7 +830,31 @@ function encodeCustomToolResult(
   if (typeof result.output === "string") {
     content = result.output;
   } else {
-    content = encodeUserContent(result.output, `${path}.output`, losses);
+    const parts: JsonValue[] = [];
+    for (let index = 0; index < result.output.length; index += 1) {
+      const block = result.output[index]!;
+      if (block.type === "text") {
+        parts.push({ type: "text", text: block.text });
+      } else if (block.type === "image") {
+        const image = encodeImage(block, `${path}.output[${index}]`);
+        if (image === undefined)
+          losses.push(
+            loss(
+              `${path}.output[${index}]`,
+              "media_type",
+              "unsupported-semantic",
+            ),
+          );
+        else {
+          parts.push({ type: "image_url", image_url: image });
+        }
+      } else {
+        losses.push(
+          loss(`${path}.output[${index}]`, "content", "unsupported-semantic"),
+        );
+      }
+    }
+    content = parts;
   }
   return {
     role: "tool",

@@ -111,12 +111,14 @@ function decodeRequestObject(
         );
     }
   }
+  const declaredTools = new Set<string>();
   const customTools = new Set<string>();
   const customCallIds = new Set<string>();
   const tools = optionalArray(wire.tools, "tools").map<Tool>((entry, index) => {
     const tool = object(entry, `tools[${index}]`);
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
     const name = string(tool.name, `tools[${index}].name`);
+    declaredTools.add(name);
     if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
@@ -158,6 +160,7 @@ function decodeRequestObject(
       losses,
       customTools,
       customCallIds,
+      declaredTools,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
@@ -339,6 +342,11 @@ export function encodeRequest(
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
       if (tool.type === "custom") {
+        if (tool.format?.type === "grammar") {
+          losses.push(
+            loss(`tools[${index}].format`, "format", "unsupported-semantic"),
+          );
+        }
         return [
           {
             name: tool.name,
@@ -477,6 +485,7 @@ function decodeContent(
   losses: Loss[],
   customTools?: ReadonlySet<string>,
   customCallIds?: Set<string>,
+  declaredTools?: ReadonlySet<string>,
 ): Block[] {
   if (typeof value === "string") return [{ type: "text", text: value }];
   const blocks: Block[] = [];
@@ -527,13 +536,32 @@ function decodeContent(
       const id = string(block.id, `${path}[${index}].id`);
       const name = string(block.name, `${path}[${index}].name`);
       const customInput = extractCustomInput(input);
-      if (customTools?.has(name) || customInput !== undefined) {
+      if (customTools?.has(name)) {
         customCallIds?.add(id);
         blocks.push({
           type: "custom_tool_use",
           id,
           name,
           input: customInput ?? "",
+        });
+      } else if (declaredTools?.has(name)) {
+        const inputText =
+          block.inputText === undefined
+            ? (sourceTextOf(input) ?? jsonText(stringifyJson(input)))
+            : toolInputText(block.inputText, `${path}[${index}].inputText`);
+        blocks.push({
+          type: "tool_use",
+          id,
+          name,
+          input: inputText,
+        });
+      } else if (customInput !== undefined) {
+        customCallIds?.add(id);
+        blocks.push({
+          type: "custom_tool_use",
+          id,
+          name,
+          input: customInput,
         });
       } else {
         const inputText =
@@ -565,6 +593,7 @@ function decodeContent(
                   losses,
                   customTools,
                   customCallIds,
+                  declaredTools,
                 ).filter(
                   (b): b is TextBlock | ImageBlock =>
                     b.type === "text" || b.type === "image",
@@ -580,6 +609,7 @@ function decodeContent(
             losses,
             customTools,
             customCallIds,
+            declaredTools,
           ),
           ...(block.is_error === undefined
             ? {}

@@ -737,17 +737,7 @@ export class AnthropicStreamEncoder {
       if (event.delta.type !== "custom_tool_input_delta")
         this.#lifecycle("custom tool block received non-custom-input delta");
       this.#openBlock.fragments.push(event.delta.text);
-      const partialJson = JSON.stringify({ input: event.delta.text });
-      return this.#result([
-        {
-          type: "content_block_delta",
-          index: this.#openBlock.index,
-          delta: {
-            type: "input_json_delta",
-            partial_json: jsonText(partialJson),
-          },
-        },
-      ]);
+      return this.#result([]);
     }
     if (this.#openBlock.kind === "text") {
       if (event.delta.type !== "text_delta")
@@ -814,21 +804,25 @@ export class AnthropicStreamEncoder {
     }
     if (block.kind === "custom_tool") {
       const events: AnthropicStreamEvent[] = [];
+      let fullInput = block.input;
       if (block.fragments.length === 0) {
         block.fragments.push(block.input);
-        events.push({
-          type: "content_block_delta",
-          index: block.index,
-          delta: {
-            type: "input_json_delta",
-            partial_json: jsonText(JSON.stringify({ input: block.input })),
-          },
-        });
-      } else if (block.fragments.join("") !== block.input) {
-        this.#lifecycle(
-          "custom_tool_use input does not equal concatenated fragments",
-        );
+      } else {
+        fullInput = block.fragments.join("");
+        if (fullInput !== block.input) {
+          this.#lifecycle(
+            "custom_tool_use input does not equal concatenated fragments",
+          );
+        }
       }
+      events.push({
+        type: "content_block_delta",
+        index: block.index,
+        delta: {
+          type: "input_json_delta",
+          partial_json: jsonText(JSON.stringify({ input: fullInput })),
+        },
+      });
       events.push({ type: "content_block_stop", index: block.index });
       this.#openBlock = undefined;
       return this.#result(events);

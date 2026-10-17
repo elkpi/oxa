@@ -100,6 +100,7 @@ def decode_content(
     raw_text: str = "",
     custom_tools: set[str] | None = None,
     custom_call_ids: set[str] | None = None,
+    declared_tools: set[str] | None = None,
 ) -> tuple[list[Block], list[Loss]]:
     """Decodes wire message content: string or block array."""
     if content is None:
@@ -113,7 +114,7 @@ def decode_content(
             if not isinstance(block, dict):
                 raise ValueError(f"anthropic: {path}[{index}] must be a block object")
             decoded, b_losses, mapped = decode_block(
-                block, f"{path}[{index}]", raw_text, custom_tools, custom_call_ids
+                block, f"{path}[{index}]", raw_text, custom_tools, custom_call_ids, declared_tools
             )
             if mapped:
                 out.extend(decoded)
@@ -132,6 +133,7 @@ def decode_block(
     raw_text: str = "",
     custom_tools: set[str] | None = None,
     custom_call_ids: set[str] | None = None,
+    declared_tools: set[str] | None = None,
 ) -> tuple[list[Block], list[Loss], bool]:
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
@@ -233,16 +235,18 @@ def decode_block(
 
         is_custom = False
         custom_input = None
-        if (
+        if custom_tools and name in custom_tools:
+            is_custom = True
+            custom_input = str(raw_input.get("input", ""))
+        elif declared_tools and name in declared_tools:
+            is_custom = False
+        elif (
             isinstance(raw_input, dict)
             and list(raw_input.keys()) == ["input"]
             and isinstance(raw_input["input"], str)
         ):
             is_custom = True
             custom_input = raw_input["input"]
-        elif custom_tools and name in custom_tools:
-            is_custom = True
-            custom_input = str(raw_input.get("input", ""))
 
         if is_custom:
             if custom_call_ids is not None:
@@ -284,7 +288,7 @@ def decode_block(
                     True,
                 )
             content_blocks, c_losses = decode_content(
-                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids
+                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
             )
             losses.extend(c_losses)
             return (
@@ -298,7 +302,7 @@ def decode_block(
             content_blocks = [TextBlock(text=inner_content)]
         else:
             content_blocks, c_losses = decode_content(
-                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids
+                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
             )
             losses.extend(c_losses)
         is_error = bool(wire.get("is_error", False))

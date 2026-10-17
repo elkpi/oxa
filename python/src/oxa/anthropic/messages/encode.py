@@ -92,6 +92,15 @@ def encode_request(
     if req.tools:
         for index, tool in enumerate(req.tools):
             if tool.type == "custom":
+                if tool.format is not None and getattr(tool.format, "type", "") == "grammar":
+                    losses.append(
+                        loss(
+                            f"tools[{index}].format",
+                            "format",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
+                        )
+                    )
                 t_dict = {
                     "name": tool.name,
                     "input_schema": {

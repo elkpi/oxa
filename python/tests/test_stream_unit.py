@@ -1,5 +1,6 @@
 """Streaming unit tests beyond golden vectors: lifecycle order, error paths, and grammar constraints."""
 
+import json
 import unittest
 
 from oxa.anthropic.messages import (
@@ -121,6 +122,27 @@ class StreamUnitTests(unittest.TestCase):
                 losses.extend(event_losses)
             self.assertEqual(len(losses), 0)
             self.assertTrue(len(wire) > 0)
+
+    def test_anthropic_custom_tool_multi_fragment_stream(self) -> None:
+        stream = [
+            MessageStart(id="r", model="m"),
+            ContentBlockStart(index=0, block=CustomToolUseBlock(id="c", name="exec", input="ab")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="a")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="b")),
+            ContentBlockStop(index=0),
+            MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()),
+            MessageDone(),
+        ]
+        encoder = AnthropicStreamEncoder()
+        wire, losses = [], []
+        for event in stream:
+            emitted, event_losses = encoder.apply(event)
+            wire.extend(emitted)
+            losses.extend(event_losses)
+        self.assertEqual(len(losses), 0)
+        joined = "".join(w["delta"]["partial_json"] for w in wire if w.get("type") == "content_block_delta" and "delta" in w)
+        parsed = json.loads(joined)
+        self.assertEqual(parsed, {"input": "ab"})
 
     def test_chatcompletions_decoder_flush_twice_is_error(self) -> None:
         dec = ChatCompletionsStreamDecoder()

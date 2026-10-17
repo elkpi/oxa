@@ -3,6 +3,7 @@
 import json
 import unittest
 
+from oxa.anthropic.messages import decode_request as an_decode_request
 from oxa.anthropic.messages import encode_request as an_encode_request
 from oxa.anthropic.messages import encode_response as an_encode_response
 from oxa.ir import (
@@ -13,6 +14,7 @@ from oxa.ir import (
     ROLE_USER,
     STOP_OTHER,
     STOP_REFUSAL,
+    CustomToolFormatGrammar,
     CustomToolResultBlock,
     CustomToolUseBlock,
     Message,
@@ -26,6 +28,7 @@ from oxa.ir import (
     ToolUseBlock,
     Usage,
 )
+from oxa.openai.chatcompletions import decode_request as cc_decode_request
 from oxa.openai.chatcompletions import encode_request as cc_encode_request
 from oxa.openai.chatcompletions import encode_response as cc_encode_response
 from oxa.openai.responses import (
@@ -185,6 +188,105 @@ class ResponsesNonstreamTest(unittest.TestCase):
             self.assertNotIn("tools", wire)
             self.assertNotIn("tool_choice", wire)
             self.assertTrue(any(l.reason == LOSS_UNSUPPORTED_SEMANTIC for l in losses))
+
+    def test_conflicting_function_declaration_not_promoted_to_custom(self) -> None:
+        wire = {
+            "model": "claude-3-5-sonnet-20241022",
+            "max_tokens": 1024,
+            "tools": [
+                {
+                    "name": "echo",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}, "extra": {"type": "string"}},
+                        "required": ["input"],
+                    },
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": [
+                        {"type": "tool_use", "id": "call_1", "name": "echo", "input": {"input": "hello"}}
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "ok"}],
+                },
+            ],
+        }
+        req, losses = an_decode_request(wire)
+        self.assertEqual(len(losses), 0)
+        self.assertEqual(req.tools[0].type, "function")
+        self.assertIsInstance(req.messages[1].content[0], ToolUseBlock)
+        self.assertIsInstance(req.messages[2].content[0], ToolResultBlock)
+
+    def test_custom_tool_result_array_preserved(self) -> None:
+        req = Request(
+            model="m",
+            messages=[
+                Message(role=ROLE_USER, content=[TextBlock(text="hi")]),
+                Message(role=ROLE_ASSISTANT, content=[CustomToolUseBlock(id="c", name="run", input="cmd")]),
+                Message(
+                    role=ROLE_USER,
+                    content=[
+                        CustomToolResultBlock(
+                            tool_use_id="c",
+                            output=[TextBlock(text="line 1"), TextBlock(text="line 2")],
+                        )
+                    ],
+                ),
+            ],
+        )
+        wire, losses = cc_encode_request(req)
+        self.assertEqual(len(losses), 0)
+        self.assertIsInstance(wire["messages"][2]["content"], list)
+        self.assertEqual(len(wire["messages"][2]["content"]), 2)
+        decoded, decode_losses = cc_decode_request(wire)
+        self.assertEqual(len(decode_losses), 0)
+        result = decoded.messages[2].content[0]
+        self.assertIsInstance(result, CustomToolResultBlock)
+        self.assertIsInstance(result.output, list)
+        self.assertEqual(len(result.output), 2)
+
+    def test_grammar_format_loss_on_anthropic_encode(self) -> None:
+        req = Request(
+            model="m",
+            messages=[Message(role=ROLE_USER, content=[TextBlock(text="hi")])],
+            tools=[
+                Tool(
+                    name="calc",
+                    type="custom",
+                    format=CustomToolFormatGrammar(syntax="regex", definition="[0-9]+"),
+                )
+            ],
+            params=Params(max_tokens=1024),
+        )
+        _, losses = an_encode_request(req)
+        self.assertTrue(
+            any(l.path == "tools[0].format" and l.reason == LOSS_UNSUPPORTED_SEMANTIC for l in losses)
+        )
+
+    def test_chatcompletions_preserves_missing_format_and_reports_unknown_format(self) -> None:
+        wire_missing = {
+            "model": "m",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"type": "custom", "custom": {"name": "c"}}],
+        }
+        req_missing, losses_missing = cc_decode_request(wire_missing)
+        self.assertEqual(len(losses_missing), 0)
+        self.assertIsNone(req_missing.tools[0].format)
+
+        wire_unknown = {
+            "model": "m",
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"type": "custom", "custom": {"name": "c", "format": {"type": "unknown_fmt"}}}],
+        }
+        req_unknown, losses_unknown = cc_decode_request(wire_unknown)
+        self.assertTrue(any(l.reason == LOSS_UNSUPPORTED_SEMANTIC for l in losses_unknown))
+        self.assertIsNone(req_unknown.tools[0].format)
 
     def test_encoding_ir_stop_other_is_a_structural_error(self) -> None:
         resp = Response(

@@ -96,8 +96,6 @@ def encode_request(
                         }
                     else:
                         c_dict["format"] = {"type": "text"}
-                else:
-                    c_dict["format"] = {"type": "text"}
                 tools_wire.append({"type": "custom", "custom": c_dict})
                 continue
             if tool.type == "apply_patch":

@@ -503,10 +503,29 @@ def encode_custom_tool_result(block: CustomToolResultBlock, path: str) -> tuple[
             "content": block.output,
             "tool_call_id": block.tool_use_id,
         }, []
-    content, losses = encode_user_content(block.output or [], f"{path}.output")
+    content_parts: list[dict[str, Any]] = []
+    losses: list[Loss] = []
+    for index, inner in enumerate(block.output or []):
+        if isinstance(inner, TextBlock):
+            content_parts.append({"type": CONTENT_PART_TYPE_TEXT, "text": inner.text})
+        elif isinstance(inner, ImageBlock):
+            part, img_loss = encode_image_block(inner.media_type, inner.data, inner.url, f"{path}.output[{index}]")
+            if img_loss is not None:
+                losses.append(img_loss)
+            elif part is not None:
+                content_parts.append(part)
+        else:
+            losses.append(
+                loss(
+                    f"{path}.output[{index}]",
+                    "content",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in a Chat Completions tool result",
+                )
+            )
     return {
         "role": ROLE_TOOL,
-        "content": content,
+        "content": content_parts,
         "tool_call_id": block.tool_use_id,
     }, losses
 

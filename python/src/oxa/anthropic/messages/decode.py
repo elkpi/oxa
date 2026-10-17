@@ -92,17 +92,20 @@ def decode_request(
 
     tools: list[Tool] | None = None
     custom_tools: set[str] = set()
+    declared_tools: set[str] = set()
     if "tools" in wire and wire["tools"] is not None:
         tools = []
         for index, tool in enumerate(wire["tools"]):
+            name = tool["name"]
+            declared_tools.add(name)
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
             if is_custom_tool_input_schema(schema):
-                custom_tools.add(tool["name"])
+                custom_tools.add(name)
                 tools.append(
                     Tool(
-                        name=tool["name"],
+                        name=name,
                         description=desc if desc else None,
                         type="custom",
                     )
@@ -110,7 +113,7 @@ def decode_request(
             else:
                 tools.append(
                     Tool(
-                        name=tool["name"],
+                        name=name,
                         description=desc if desc else None,
                         input_schema=schema,
                     )
@@ -139,7 +142,7 @@ def decode_request(
 
         content_path = f"messages[{index}].content"
         blocks, b_losses = decode_content(
-            msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids
+            msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids, declared_tools
         )
         losses.extend(b_losses)
         messages.append(IrMessage(role=role, content=blocks))

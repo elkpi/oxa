@@ -101,21 +101,41 @@ def decode_request(
                 custom = tool.get("custom", {})
                 fmt_dict = custom.get("format")
                 format_obj = None
-                if isinstance(fmt_dict, dict):
-                    ftype = fmt_dict.get("type", "text")
+                if fmt_dict is not None and isinstance(fmt_dict, dict):
+                    ftype = fmt_dict.get("type")
                     if ftype == "grammar":
-                        format_obj = CustomToolFormatGrammar(
-                            syntax=fmt_dict.get("syntax", "lark"),
-                            definition=fmt_dict.get("definition", ""),
-                        )
-                    else:
+                        syntax = fmt_dict.get("syntax")
+                        if syntax in ("lark", "regex"):
+                            format_obj = CustomToolFormatGrammar(
+                                syntax=syntax,
+                                definition=fmt_dict.get("definition", ""),
+                            )
+                        else:
+                            losses.append(
+                                loss(
+                                    f"tools[{index}].custom.format",
+                                    "syntax",
+                                    LOSS_UNSUPPORTED_SEMANTIC,
+                                    f"unknown custom grammar syntax {syntax!r}",
+                                )
+                            )
+                    elif ftype == "text":
                         format_obj = CustomToolFormatText()
+                    else:
+                        losses.append(
+                            loss(
+                                f"tools[{index}].custom.format",
+                                "type",
+                                LOSS_UNSUPPORTED_SEMANTIC,
+                                f"unknown custom format {ftype!r}",
+                            )
+                        )
                 tools.append(
                     Tool(
                         name=custom.get("name", ""),
                         description=custom.get("description"),
                         type="custom",
-                        format=format_obj or CustomToolFormatText(),
+                        format=format_obj,
                     )
                 )
                 continue

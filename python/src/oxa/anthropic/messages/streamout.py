@@ -233,17 +233,7 @@ class StreamEncoder:
                 if not isinstance(ev.delta, CustomToolInputDelta):
                     raise ValueError("anthropic: CustomToolUseBlock received non-custom-input delta")
                 self._custom_parts.append(ev.delta.text)
-                wrapped = json.dumps({"input": ev.delta.text}, separators=(",", ":"), ensure_ascii=False)
-                return [
-                    {
-                        "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                        "index": self._native_index,
-                        "delta": {
-                            "type": DELTA_TYPE_INPUT_JSON_DELTA,
-                            "partial_json": wrapped,
-                        },
-                    }
-                ], []
+                return [], []
 
             if self._open_tool:
                 if not isinstance(ev.delta, InputJsonDelta):
@@ -346,26 +336,28 @@ class StreamEncoder:
 
             if self._open_custom:
                 if not self._custom_parts:
-                    wrapped = json.dumps(
-                        {"input": self._custom_input},
-                        separators=(",", ":"),
-                        ensure_ascii=False,
-                    )
-                    events.append(
-                        {
-                            "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
-                            "index": self._native_index,
-                            "delta": {
-                                "type": DELTA_TYPE_INPUT_JSON_DELTA,
-                                "partial_json": wrapped,
-                            },
-                        }
-                    )
+                    full_input = self._custom_input
                 else:
-                    if "".join(self._custom_parts) != self._custom_input:
+                    full_input = "".join(self._custom_parts)
+                    if full_input != self._custom_input:
                         raise ValueError(
                             "anthropic: CustomToolUseBlock input does not equal custom input deltas"
                         )
+                wrapped = json.dumps(
+                    {"input": full_input},
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                events.append(
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                        "index": self._native_index,
+                        "delta": {
+                            "type": DELTA_TYPE_INPUT_JSON_DELTA,
+                            "partial_json": wrapped,
+                        },
+                    }
+                )
                 self._open_custom = False
                 self._custom_input = ""
                 self._custom_parts.clear()

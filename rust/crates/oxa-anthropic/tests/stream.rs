@@ -518,10 +518,10 @@ fn test_anthropic_custom_tool_multi_fragment_stream() {
     }
     let mut joined = String::new();
     for ch in &wire {
-        if let Some(delta) = &ch.delta {
-            if let Some(p) = &delta.partial_json {
-                joined.push_str(p);
-            }
+        if let Some(delta) = &ch.delta
+            && let Some(p) = &delta.partial_json
+        {
+            joined.push_str(p);
         }
     }
     let val: serde_json::Value =

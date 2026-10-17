@@ -42,7 +42,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			}
 			out.Tools = append(out.Tools, ToolWire{
 				Type: ToolTypeFunction,
-				Function: &FunctionWire{
+				Function: FunctionWire{
 					Name:        tool.Name,
 					Description: tool.Description,
 					Parameters:  tool.InputSchema,

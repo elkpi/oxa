@@ -167,7 +167,7 @@ func decodeToolCalls(calls []ToolCall, path string) ([]ir.Block, []ir.Loss) {
 			))
 			continue
 		}
-		if call.Function == nil {
+		if call.Function.Name == "" {
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "function", ir.LossUnsupportedSemantic,
 				"function tool call missing function definition",
@@ -256,7 +256,7 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 		kind = choice.Type
 		if choice.Type == ir.ToolTypeCustom && choice.Custom != nil {
 			name = choice.Custom.Name
-		} else if choice.Function != nil {
+		} else {
 			name = choice.Function.Name
 		}
 	case *ToolChoiceWire:
@@ -266,7 +266,7 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 		kind = choice.Type
 		if choice.Type == ir.ToolTypeCustom && choice.Custom != nil {
 			name = choice.Custom.Name
-		} else if choice.Function != nil {
+		} else {
 			name = choice.Function.Name
 		}
 	case map[string]any:
@@ -321,9 +321,7 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 				"IR named tool choice has no function name"))
 		}
 		out := ToolChoiceWire{Type: ToolTypeFunction}
-		out.Function = &struct {
-			Name string `json:"name"`
-		}{Name: choice.Name}
+		out.Function.Name = choice.Name
 		return out, nil
 	default:
 		return nil, ptrLoss(loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
@@ -414,7 +412,7 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 			}
 			out.ToolCalls = append(out.ToolCalls, ToolCall{
 				ID: value.ID, Type: ToolTypeFunction,
-				Function: &FunctionWire{Name: value.Name, Arguments: arguments},
+				Function: FunctionWire{Name: value.Name, Arguments: arguments},
 			})
 		case ir.CustomToolUseBlock:
 			var inputStr string

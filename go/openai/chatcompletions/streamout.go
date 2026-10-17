@@ -293,7 +293,7 @@ func (e *StreamEncoder) queueToolArguments(block *streamEncodeBlock, arguments s
 }
 
 func (e *StreamEncoder) queueCustomArguments(block *streamEncodeBlock, input string) {
-	custom := &CustomCallWire{Input: input}
+	custom := &CustomCallDeltaWire{Input: &input}
 	call := ToolCallDelta{Index: block.nativeIndex, Custom: custom}
 	if !block.toolStarted {
 		id := block.toolID

@@ -218,13 +218,7 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				textStr = string(delta.Text)
 			}
 			e.toolParts = append(e.toolParts, textStr)
-			wrapped, err := json.Marshal(map[string]string{"input": textStr})
-			if err != nil {
-				return nil, nil, err
-			}
-			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
-				Type: DeltaTypeInputJSONDelta, PartialJSON: string(wrapped),
-			}}}, nil, nil
+			return nil, nil, nil
 		default:
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta carries an unsupported delta %T", event.Delta)
 		}
@@ -233,22 +227,31 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockStop out of grammar order")
 		}
 		if e.openTool {
-			if len(e.toolParts) == 0 {
-				if e.openCustom {
-					wrapped, _ := json.Marshal(map[string]string{"input": e.toolInput})
-					events := []*StreamEvent{
-						{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
-							Type: DeltaTypeInputJSONDelta, PartialJSON: string(wrapped),
-						}},
-						{Type: EventTypeContentBlockStop, Index: event.Index},
+			if e.openCustom {
+				var fullInput string
+				if len(e.toolParts) == 0 {
+					fullInput = e.toolInput
+				} else {
+					fullInput = strings.Join(e.toolParts, "")
+					if fullInput != e.toolInput {
+						return nil, nil, fmt.Errorf("anthropic: custom tool input fragments do not match CustomToolUseBlock input")
 					}
-					e.blockOpen = false
-					e.openTool = false
-					e.openCustom = false
-					e.toolInput = ""
-					e.toolParts = nil
-					return events, nil, nil
 				}
+				wrapped, _ := json.Marshal(map[string]string{"input": fullInput})
+				events := []*StreamEvent{
+					{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
+						Type: DeltaTypeInputJSONDelta, PartialJSON: string(wrapped),
+					}},
+					{Type: EventTypeContentBlockStop, Index: event.Index},
+				}
+				e.blockOpen = false
+				e.openTool = false
+				e.openCustom = false
+				e.toolInput = ""
+				e.toolParts = nil
+				return events, nil, nil
+			}
+			if len(e.toolParts) == 0 {
 				return e.toolStopWithSynthesizedDelta(event.Index), nil, nil
 			}
 			if strings.Join(e.toolParts, "") != e.toolInput {

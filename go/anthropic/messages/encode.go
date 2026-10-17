@@ -49,6 +49,14 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 
 	for i, tool := range req.Tools {
 		if tool.Type == ir.ToolTypeCustom {
+			if tool.Format != nil && tool.Format.Type == "grammar" {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("tools[%d].format", i),
+					Field:  "format",
+					Reason: ir.LossUnsupportedSemantic,
+					Detail: "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
+				})
+			}
 			schema := json.RawMessage(`{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`)
 			out.Tools = append(out.Tools, ToolWire{
 				Name:        tool.Name,

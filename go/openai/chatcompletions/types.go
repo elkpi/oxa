@@ -62,8 +62,39 @@ type JSONSchemaWire struct {
 // ToolWire is one element of a wire tools array.
 type ToolWire struct {
 	Type     string          `json:"type"`
-	Function *FunctionWire   `json:"function,omitempty"`
+	Function FunctionWire    `json:"function"`
 	Custom   *CustomToolWire `json:"custom,omitempty"`
+}
+
+func (w ToolWire) MarshalJSON() ([]byte, error) {
+	if w.Type == ir.ToolTypeCustom {
+		type wire struct {
+			Type   string          `json:"type"`
+			Custom *CustomToolWire `json:"custom"`
+		}
+		return json.Marshal(wire{Type: w.Type, Custom: w.Custom})
+	}
+	type wire struct {
+		Type     string       `json:"type"`
+		Function FunctionWire `json:"function"`
+	}
+	return json.Marshal(wire{Type: w.Type, Function: w.Function})
+}
+
+func (w *ToolWire) UnmarshalJSON(data []byte) error {
+	type wire struct {
+		Type     string          `json:"type"`
+		Function FunctionWire    `json:"function"`
+		Custom   *CustomToolWire `json:"custom"`
+	}
+	var aux wire
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	w.Type = aux.Type
+	w.Function = aux.Function
+	w.Custom = aux.Custom
+	return nil
 }
 
 type CustomToolWire struct {
@@ -109,12 +140,51 @@ type FunctionWire struct {
 // ToolChoiceWire forces one named function or custom tool.
 type ToolChoiceWire struct {
 	Type     string `json:"type"`
-	Function *struct {
+	Function struct {
 		Name string `json:"name"`
-	} `json:"function,omitempty"`
+	} `json:"function"`
 	Custom *struct {
 		Name string `json:"name"`
 	} `json:"custom,omitempty"`
+}
+
+func (c ToolChoiceWire) MarshalJSON() ([]byte, error) {
+	if c.Type == ir.ToolTypeCustom {
+		type wire struct {
+			Type   string `json:"type"`
+			Custom *struct {
+				Name string `json:"name"`
+			} `json:"custom"`
+		}
+		return json.Marshal(wire{Type: c.Type, Custom: c.Custom})
+	}
+	type wire struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+	}
+	return json.Marshal(wire{Type: c.Type, Function: c.Function})
+}
+
+func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
+	type wire struct {
+		Type     string `json:"type"`
+		Function struct {
+			Name string `json:"name"`
+		} `json:"function"`
+		Custom *struct {
+			Name string `json:"name"`
+		} `json:"custom"`
+	}
+	var aux wire
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	c.Type = aux.Type
+	c.Function = aux.Function
+	c.Custom = aux.Custom
+	return nil
 }
 
 // Message is a wire message. Content is a string or an array of ContentPart
@@ -133,13 +203,53 @@ type Message struct {
 type ToolCall struct {
 	ID       string          `json:"id"`
 	Type     string          `json:"type"`
-	Function *FunctionWire   `json:"function,omitempty"`
+	Function FunctionWire    `json:"function"`
 	Custom   *CustomCallWire `json:"custom,omitempty"`
 }
 
+func (c ToolCall) MarshalJSON() ([]byte, error) {
+	if c.Type == ir.ToolTypeCustom {
+		type wire struct {
+			ID     string          `json:"id"`
+			Type   string          `json:"type"`
+			Custom *CustomCallWire `json:"custom"`
+		}
+		return json.Marshal(wire{ID: c.ID, Type: c.Type, Custom: c.Custom})
+	}
+	type wire struct {
+		ID       string       `json:"id"`
+		Type     string       `json:"type"`
+		Function FunctionWire `json:"function"`
+	}
+	return json.Marshal(wire{ID: c.ID, Type: c.Type, Function: c.Function})
+}
+
+func (c *ToolCall) UnmarshalJSON(data []byte) error {
+	type wire struct {
+		ID       string          `json:"id"`
+		Type     string          `json:"type"`
+		Function FunctionWire    `json:"function"`
+		Custom   *CustomCallWire `json:"custom"`
+	}
+	var aux wire
+	if err := json.Unmarshal(data, &aux); err != nil {
+		return err
+	}
+	c.ID = aux.ID
+	c.Type = aux.Type
+	c.Function = aux.Function
+	c.Custom = aux.Custom
+	return nil
+}
+
 type CustomCallWire struct {
-	Name  string `json:"name,omitempty"`
-	Input string `json:"input,omitempty"`
+	Name  string `json:"name"`
+	Input string `json:"input"`
+}
+
+type CustomCallDeltaWire struct {
+	Name  string  `json:"name,omitempty"`
+	Input *string `json:"input,omitempty"`
 }
 
 // ContentPart is one element of a parts-array message content.
@@ -207,11 +317,11 @@ type DeltaPayload struct {
 // present in the wire shape, including index zero; its other fields are
 // pointers so absent fields remain distinct from present empty strings.
 type ToolCallDelta struct {
-	Index    int             `json:"index"`
-	ID       *string         `json:"id,omitempty"`
-	Type     *string         `json:"type,omitempty"`
-	Function *FunctionDelta  `json:"function,omitempty"`
-	Custom   *CustomCallWire `json:"custom,omitempty"`
+	Index    int                  `json:"index"`
+	ID       *string              `json:"id,omitempty"`
+	Type     *string              `json:"type,omitempty"`
+	Function *FunctionDelta       `json:"function,omitempty"`
+	Custom   *CustomCallDeltaWire `json:"custom,omitempty"`
 }
 
 // FunctionDelta is the incremental function payload of a tool call. Arguments

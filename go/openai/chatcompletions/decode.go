@@ -39,11 +39,32 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			if tool.Custom == nil || tool.Custom.Name == "" {
 				return nil, nil, fmt.Errorf("chatcompletions: custom tool requires custom.name")
 			}
+			var format *ir.CustomToolFormat
+			if tool.Custom.Format != nil {
+				switch tool.Custom.Format.Type {
+				case "text":
+					format = &ir.CustomToolFormat{Type: "text"}
+				case "grammar":
+					if tool.Custom.Format.Syntax == "lark" || tool.Custom.Format.Syntax == "regex" {
+						format = tool.Custom.Format
+					} else {
+						losses = append(losses, loss(
+							fmt.Sprintf("tools[%d].custom.format", i), "syntax", ir.LossUnsupportedSemantic,
+							fmt.Sprintf("unknown custom grammar syntax %q", tool.Custom.Format.Syntax),
+						))
+					}
+				default:
+					losses = append(losses, loss(
+						fmt.Sprintf("tools[%d].custom.format", i), "type", ir.LossUnsupportedSemantic,
+						fmt.Sprintf("unknown custom format %q", tool.Custom.Format.Type),
+					))
+				}
+			}
 			req.Tools = append(req.Tools, ir.Tool{
 				Type:        ir.ToolTypeCustom,
 				Name:        tool.Custom.Name,
 				Description: tool.Custom.Description,
-				Format:      tool.Custom.Format,
+				Format:      format,
 			})
 			continue
 		}
@@ -54,8 +75,8 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			))
 			continue
 		}
-		if tool.Function == nil {
-			return nil, nil, fmt.Errorf("chatcompletions: function tool requires function")
+		if tool.Function.Name == "" {
+			return nil, nil, fmt.Errorf("chatcompletions: function tool requires function.name")
 		}
 		req.Tools = append(req.Tools, ir.Tool{
 			Name:        tool.Function.Name,

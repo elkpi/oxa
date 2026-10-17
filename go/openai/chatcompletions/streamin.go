@@ -188,8 +188,8 @@ func (d *StreamDecoder) recordToolCalls(calls []ToolCallDelta) error {
 				if call.Custom.Name != "" {
 					record.name += call.Custom.Name
 				}
-				if call.Custom.Input != "" {
-					record.fragments = append(record.fragments, call.Custom.Input)
+				if call.Custom.Input != nil {
+					record.fragments = append(record.fragments, *call.Custom.Input)
 				}
 			}
 			continue

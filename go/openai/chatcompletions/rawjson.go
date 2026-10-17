@@ -296,10 +296,50 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
-			if kind != ToolTypeFunction {
+			switch kind {
+			case ToolTypeFunction:
+				return rawObjectSchema(t, []string{"type", "function"}, nil, seen)
+			case ir.ToolTypeCustom:
+				return rawObjectSchema(t, []string{"type", "custom"}, nil, seen)
+			default:
 				return nil
 			}
-			return rawObjectSchema(t, []string{"type", "function"}, nil, seen)
+		}
+		return schema
+	case reflect.TypeOf(ToolCall{}):
+		schema := &rawJSONSchema{}
+		seen[t] = schema
+		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			hasCustom := false
+			for _, f := range node.fields {
+				if f.name == "custom" {
+					hasCustom = true
+					break
+				}
+			}
+			if kind == ir.ToolTypeCustom || hasCustom {
+				return rawObjectSchema(t, []string{"id", "type", "custom"}, nil, seen)
+			}
+			return rawObjectSchema(t, []string{"id", "type", "function"}, nil, seen)
+		}
+		return schema
+	case reflect.TypeOf(ToolCallDelta{}):
+		schema := &rawJSONSchema{}
+		seen[t] = schema
+		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			hasCustom := false
+			for _, f := range node.fields {
+				if f.name == "custom" {
+					hasCustom = true
+					break
+				}
+			}
+			if kind == ir.ToolTypeCustom || hasCustom {
+				return rawObjectSchema(t, []string{"index", "id", "type", "custom"}, nil, seen)
+			}
+			return rawObjectSchema(t, []string{"index", "id", "type", "function"}, nil, seen)
 		}
 		return schema
 	case reflect.TypeOf(Choice{}):
@@ -349,12 +389,23 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				if node == nil || node.kind != '{' {
 					return nil
 				}
-				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}),
-					[]string{"type", "function"},
-					map[string]*rawJSONSchema{
-						"function": {fields: map[string]*rawJSONSchema{"name": nil}},
-					},
-					seen)
+				kind, _ := rawJSONStringField(node, "type")
+				switch kind {
+				case ir.ToolTypeCustom:
+					return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}),
+						[]string{"type", "custom"},
+						map[string]*rawJSONSchema{
+							"custom": {fields: map[string]*rawJSONSchema{"name": nil}},
+						},
+						seen)
+				default:
+					return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}),
+						[]string{"type", "function"},
+						map[string]*rawJSONSchema{
+							"function": {fields: map[string]*rawJSONSchema{"name": nil}},
+						},
+						seen)
+				}
 			}}
 			schema.fields["response_format"] = &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
 				if node == nil || node.kind != '{' {

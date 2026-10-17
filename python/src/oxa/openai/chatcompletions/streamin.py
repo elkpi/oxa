@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from oxa._wire import RawDocument, audit_feed
-
 from dataclasses import dataclass, field
 from typing import Any
 
+from oxa._wire import RawDocument, audit_feed
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     Event,
     InputJsonDelta,
     InputTokensDetails,
@@ -40,6 +41,7 @@ class _StreamToolCall:
     name: str = ""
     fragments: list[str] = field(default_factory=list)
     skipped: bool = False
+    tool_type: str = "function"
 
 
 class StreamDecoder:
@@ -207,7 +209,10 @@ class StreamDecoder:
                 record.id = call_id
 
             kind = call.get("type")
-            if kind is not None and kind != TOOL_TYPE_FUNCTION and not record.skipped:
+            if kind == "custom" or (isinstance(call.get("custom"), dict) and kind is None):
+                record.tool_type = "custom"
+
+            if kind is not None and kind != TOOL_TYPE_FUNCTION and kind != "custom" and not record.skipped:
                 self._losses.append(
                     loss(
                         f"choices[0].delta.tool_calls[{idx}]",
@@ -219,6 +224,15 @@ class StreamDecoder:
                 record.skipped = True
 
             if record.skipped:
+                continue
+
+            if record.tool_type == "custom":
+                custom = call.get("custom")
+                if isinstance(custom, dict):
+                    if custom.get("name"):
+                        record.name += custom["name"]
+                    if custom.get("input") is not None:
+                        record.fragments.append(custom["input"])
                 continue
 
             func = call.get("function")
@@ -256,24 +270,44 @@ class StreamDecoder:
             idx = self._next_ir_index
             self._next_ir_index += 1
             full_input = "".join(call.fragments)
-            events.append(
-                ContentBlockStart(
-                    index=idx,
-                    block=ToolUseBlock(
-                        id=call.id,
-                        name=call.name,
-                        input=full_input,
-                    ),
-                )
-            )
-            for fragment in call.fragments:
+            if call.tool_type == "custom":
                 events.append(
-                    ContentBlockDelta(
+                    ContentBlockStart(
                         index=idx,
-                        delta=InputJsonDelta(partial_json=fragment),
+                        block=CustomToolUseBlock(
+                            id=call.id,
+                            name=call.name,
+                            input=full_input,
+                        ),
                     )
                 )
-            events.append(ContentBlockStop(index=idx))
+                for fragment in call.fragments:
+                    events.append(
+                        ContentBlockDelta(
+                            index=idx,
+                            delta=CustomToolInputDelta(text=fragment),
+                        )
+                    )
+                events.append(ContentBlockStop(index=idx))
+            else:
+                events.append(
+                    ContentBlockStart(
+                        index=idx,
+                        block=ToolUseBlock(
+                            id=call.id,
+                            name=call.name,
+                            input=full_input,
+                        ),
+                    )
+                )
+                for fragment in call.fragments:
+                    events.append(
+                        ContentBlockDelta(
+                            index=idx,
+                            delta=InputJsonDelta(partial_json=fragment),
+                        )
+                    )
+                events.append(ContentBlockStop(index=idx))
 
         usage = self._usage or Usage(input_tokens=0, output_tokens=0)
         events.append(

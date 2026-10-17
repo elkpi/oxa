@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.3.1] - 2026-10-17
+
+### Added
+
+- OpenAI Chat Completions 官方原生 Custom Tools 支持（N-CC-14）：
+  - 工具声明：支持 `type: "custom"` 工具规范（`name`、`description`、`format`）。
+  - 工具选择：支持 `tool_choice: {type: "custom", custom: {name: "..."}}` 映射至 IR `ToolChoice`。
+  - 工具调用：支持 `tool_calls[i]: {id, type: "custom", custom: {name, input}}` 双向保真映射至 `CustomToolUseBlock`。
+  - 工具结果：支持 `role: "tool"` 消息承载字符串或 block 列表输出，正确映射至 `CustomToolResultBlock`。
+  - 流式增量：`ChoiceDelta.tool_calls` 支持增量发射与解析 `custom.input` 片断，结束于 chunk `finish_reason: "tool_calls"`。
+- Anthropic Messages 单属性结构化包装 Custom Tools 支持（N-AN-13）：
+  - 工具声明：生成单属性 `input_schema: {type: "object", properties: {input: {type: "string"}}, required: ["input"]}` 包装。
+  - 模型调用：文本输入无损包装为 `tool_use.input: {input: "<raw_text>"}`，解码时自动提取识别为 `CustomToolUseBlock`。
+  - 工具结果：`tool_result.content` 承载纯文本或 block 列表，与调用 ID 关联解码为 `CustomToolResultBlock`。
+  - 流式解包与回放：解码端缓冲 `input_json_delta`，闭合时解包提取原始文本并回放 `CustomToolUseBlock` 与 `CustomToolInputDelta`；编码端将 `CustomToolInputDelta` 包装发射为紧凑型 `input_json_delta`（`{"input":"..."}`）。
+- 新增 18 条 Custom Tools 黄金向量（含 2 条跨协议跨模式向量），黄金向量总数由 263 条扩展至 281 条（其中 spec 0.2.0 向量达到 130 条）。
+- Go、TypeScript、Python、Rust、C++ 五门语言参考实现 100% 验证通过。
+
+### Changed
+
+- 版本号升级为 `v2.3.1`（修订版本），IR contract 维持 `0.2.0`（双向兼容读取 `0.1.0`）。
+- Chat Completions 与 Anthropic Messages 面对 Apply Patch 继续保持规范丢弃降级并记录 `unsupported-semantic` loss。
+
 ## [v2.3.0] - 2026-10-16
 
 ### Added

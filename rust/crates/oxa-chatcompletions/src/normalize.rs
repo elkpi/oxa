@@ -1,5 +1,7 @@
 //! Normalization rules N-CC-1 through N-CC-10 (spec/10 §5).
 
+use std::collections::BTreeSet;
+
 use serde_json::{Value, json};
 
 use oxa_ir::{
@@ -8,9 +10,9 @@ use oxa_ir::{
 };
 
 use crate::types::{
-    CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, ContentPart, ContentValue, FunctionWire,
-    ImageURLWire, Message, ROLE_ASSISTANT, ROLE_TOOL, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE,
-    TOOL_CHOICE_REQUIRED, TOOL_TYPE_FUNCTION, ToolCall,
+    CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, ContentPart, ContentValue, CustomCallWire,
+    FunctionWire, ImageURLWire, Message, ROLE_ASSISTANT, ROLE_TOOL, TOOL_CHOICE_AUTO,
+    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION, ToolCall,
 };
 
 pub(crate) fn loss(
@@ -164,6 +166,16 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
     let mut blocks = Vec::with_capacity(calls.len());
     let mut losses = Vec::new();
     for (index, call) in calls.iter().enumerate() {
+        if call.kind == TOOL_TYPE_CUSTOM
+            && let Some(custom) = &call.custom
+        {
+            blocks.push(Block::CustomToolUse {
+                id: call.id.clone(),
+                name: custom.name.clone().unwrap_or_default(),
+                input: custom.input.clone().unwrap_or_default(),
+            });
+            continue;
+        }
         if call.kind != TOOL_TYPE_FUNCTION {
             losses.push(loss(
                 format!("{path}[{index}]"),
@@ -176,10 +188,11 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
             ));
             continue;
         }
+        let func = call.function.clone().unwrap_or_default();
         blocks.push(Block::ToolUse {
             id: call.id.clone(),
-            name: call.function.name.clone(),
-            input: call.function.arguments.clone(),
+            name: func.name,
+            input: func.arguments,
         });
     }
     (blocks, losses)
@@ -191,6 +204,7 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
 pub(crate) fn decode_tool_result_run(
     messages: &[Message],
     start: usize,
+    custom_call_ids: &BTreeSet<String>,
 ) -> Result<(IrMessage, usize, Vec<Loss>), crate::error::Error> {
     let mut content: Vec<Block> = Vec::new();
     let mut losses = Vec::new();
@@ -201,11 +215,23 @@ pub(crate) fn decode_tool_result_run(
             &format!("messages[{index}].content"),
         )?;
         losses.extend(block_losses);
-        content.push(Block::ToolResult {
-            tool_use_id: messages[index].tool_call_id.clone(),
-            content: blocks,
-            is_error: None,
-        });
+        let call_id = messages[index].tool_call_id.clone();
+        if custom_call_ids.contains(&call_id) {
+            let output = match &messages[index].content {
+                Some(ContentValue::Text(t)) => oxa_ir::CustomToolOutput::Text(t.clone()),
+                _ => oxa_ir::CustomToolOutput::Content(blocks),
+            };
+            content.push(Block::CustomToolResult {
+                tool_use_id: call_id,
+                output,
+            });
+        } else {
+            content.push(Block::ToolResult {
+                tool_use_id: call_id,
+                content: blocks,
+                is_error: None,
+            });
+        }
         if messages[index].function_call.is_some() {
             losses.push(loss(
                 format!("messages[{index}].function_call"),
@@ -272,6 +298,23 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                 .get("type")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            if kind == TOOL_TYPE_CUSTOM {
+                let name = choice
+                    .get("custom")
+                    .and_then(|c| c.get("name"))
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                if !name.is_empty() {
+                    return (
+                        Some(ToolChoice {
+                            mode: ToolChoiceMode::Tool,
+                            name: Some(name.to_string()),
+                            tool_type: Some(ToolType::Custom),
+                        }),
+                        Vec::new(),
+                    );
+                }
+            }
             let name = choice
                 .get("function")
                 .and_then(|function| function.get("name"))
@@ -293,7 +336,7 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                         "tool_choice",
                         "tool_choice",
                         LossReason::UnsupportedSemantic,
-                        "only named function Chat Completions tool_choice values are supported",
+                        "only named function or custom Chat Completions tool_choice values are supported",
                     )],
                 )
             }
@@ -320,16 +363,33 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
         ToolChoiceMode::None => (Some(json!(TOOL_CHOICE_NONE)), None),
         ToolChoiceMode::Any => (Some(json!(TOOL_CHOICE_REQUIRED)), None),
         ToolChoiceMode::Tool => {
-            if choice.tool_type == Some(ToolType::Custom)
-                || choice.tool_type == Some(ToolType::ApplyPatch)
-            {
+            if choice.tool_type == Some(ToolType::Custom) {
+                match choice.name.as_deref() {
+                    Some(name) if !name.is_empty() => (
+                        Some(json!({
+                            "type": TOOL_TYPE_CUSTOM,
+                            "custom": { "name": name }
+                        })),
+                        None,
+                    ),
+                    _ => (
+                        None,
+                        Some(loss(
+                            "tool_choice",
+                            "tool_choice",
+                            LossReason::UnsupportedSemantic,
+                            "IR named custom tool choice has no name",
+                        )),
+                    ),
+                }
+            } else if choice.tool_type == Some(ToolType::ApplyPatch) {
                 (
                     None,
                     Some(loss(
                         "tool_choice",
                         "tool_choice",
                         LossReason::UnsupportedSemantic,
-                        "custom and apply_patch tool choices have no Chat Completions equivalent",
+                        "apply_patch tool choices have no Chat Completions equivalent",
                     )),
                 )
             } else {
@@ -495,12 +555,24 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
                     id: id.clone(),
                     kind: TOOL_TYPE_FUNCTION.to_string(),
-                    function: FunctionWire {
+                    function: Some(FunctionWire {
                         name: name.clone(),
                         description: String::new(),
                         parameters: None,
                         arguments: input.clone(),
-                    },
+                    }),
+                    custom: None,
+                });
+            }
+            Block::CustomToolUse { id, name, input } => {
+                out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
+                    id: id.clone(),
+                    kind: TOOL_TYPE_CUSTOM.to_string(),
+                    function: None,
+                    custom: Some(CustomCallWire {
+                        name: Some(name.clone()),
+                        input: Some(input.clone()),
+                    }),
                 });
             }
             Block::Image { .. } => losses.push(loss(
@@ -514,12 +586,6 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 "content",
                 LossReason::UnsupportedSemantic,
                 "IR tool_result block cannot be rendered in a Chat Completions assistant message",
-            )),
-            Block::CustomToolUse { .. } => losses.push(loss(
-                format!("{path}[{index}]"),
-                "content",
-                LossReason::UnsupportedSemantic,
-                "IR custom_tool_use block cannot be rendered in a Chat Completions assistant message",
             )),
             Block::ApplyPatchToolUse { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
@@ -545,6 +611,68 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
 /// N-CC-10 renders tool_result blocks as role:tool messages and reports
 /// result content that Chat Completions cannot represent instead of panicking.
 pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Loss>) {
+    if let Block::CustomToolResult {
+        tool_use_id,
+        output,
+    } = block
+    {
+        return match output {
+            oxa_ir::CustomToolOutput::Text(t) => (
+                Message {
+                    role: ROLE_TOOL.to_string(),
+                    content: Some(ContentValue::Text(t.clone())),
+                    tool_call_id: tool_use_id.clone(),
+                    ..Message::default()
+                },
+                Vec::new(),
+            ),
+            oxa_ir::CustomToolOutput::Content(blocks) => {
+                let mut parts = Vec::new();
+                let mut losses = Vec::new();
+                for (index, inner) in blocks.iter().enumerate() {
+                    match inner {
+                        Block::Text { text: value } => {
+                            parts.push(ContentPart {
+                                kind: CONTENT_PART_TYPE_TEXT.to_string(),
+                                text: value.clone(),
+                                image_url: None,
+                            });
+                        }
+                        Block::Image {
+                            media_type,
+                            data,
+                            url,
+                        } => {
+                            match encode_image_block(
+                                media_type.as_deref(),
+                                data.as_deref(),
+                                url.as_deref(),
+                                &format!("{path}.output[{index}]"),
+                            ) {
+                                Ok(p) => parts.push(p),
+                                Err(l) => losses.push(l),
+                            }
+                        }
+                        _ => losses.push(loss(
+                            format!("{path}.output[{index}]"),
+                            "content",
+                            LossReason::UnsupportedSemantic,
+                            "this IR block cannot be rendered in a Chat Completions tool result",
+                        )),
+                    }
+                }
+                (
+                    Message {
+                        role: ROLE_TOOL.to_string(),
+                        content: Some(ContentValue::Parts(parts)),
+                        tool_call_id: tool_use_id.clone(),
+                        ..Message::default()
+                    },
+                    losses,
+                )
+            }
+        };
+    }
     let Block::ToolResult {
         tool_use_id,
         content,

@@ -20,12 +20,45 @@ import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
 import type {
   Block,
+  CustomToolResultBlock,
+  CustomToolUseBlock,
   ImageBlock,
   ReasoningEffort,
   Request,
   Response,
+  TextBlock,
+  Tool,
   ToolChoice,
 } from "../../ir/index.js";
+
+function isCustomToolInputSchema(schema: JsonObject): boolean {
+  if (schema.type !== "object") return false;
+  const props = schema.properties;
+  if (typeof props !== "object" || props === null || Array.isArray(props))
+    return false;
+  const keys = Object.keys(props);
+  if (keys.length !== 1 || keys[0] !== "input") return false;
+  const inputProp = (props as Record<string, unknown>).input;
+  if (
+    typeof inputProp !== "object" ||
+    inputProp === null ||
+    Array.isArray(inputProp)
+  )
+    return false;
+  return (inputProp as Record<string, unknown>).type === "string";
+}
+
+function extractCustomInput(input: JsonObject): string | undefined {
+  const keys = Object.keys(input);
+  if (
+    keys.length === 1 &&
+    keys[0] === "input" &&
+    typeof input.input === "string"
+  ) {
+    return input.input;
+  }
+  return undefined;
+}
 
 export interface NonstreamOptions {
   readonly modelMapper?: ModelMapper;
@@ -78,6 +111,43 @@ function decodeRequestObject(
         );
     }
   }
+  const declaredTools = new Set<string>();
+  const customTools = new Set<string>();
+  const customCallIds = new Set<string>();
+  const tools = optionalArray(wire.tools, "tools").map<Tool>((entry, index) => {
+    const tool = object(entry, `tools[${index}]`);
+    const schema = object(tool.input_schema, `tools[${index}].input_schema`);
+    const name = string(tool.name, `tools[${index}].name`);
+    declaredTools.add(name);
+    if (isCustomToolInputSchema(schema)) {
+      customTools.add(name);
+      return {
+        type: "custom" as const,
+        name,
+        ...(tool.description === undefined
+          ? {}
+          : {
+              description: string(
+                tool.description,
+                `tools[${index}].description`,
+              ),
+            }),
+      };
+    }
+    return {
+      name,
+      ...(tool.description === undefined
+        ? {}
+        : {
+            description: string(
+              tool.description,
+              `tools[${index}].description`,
+            ),
+          }),
+      input_schema: schema,
+    };
+  });
+  const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools);
   const messages = array(wire.messages, "messages").map((entry, index) => {
     const message = object(entry, `messages[${index}]`);
     const role = string(message.role, `messages[${index}].role`);
@@ -88,6 +158,9 @@ function decodeRequestObject(
       message.content,
       `messages[${index}].content`,
       losses,
+      customTools,
+      customCallIds,
+      declaredTools,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
@@ -103,22 +176,6 @@ function decodeRequestObject(
       losses.push(loss("thinking.budget_tokens", "budget_tokens", "degraded"));
     }
   }
-  const tools = optionalArray(wire.tools, "tools").map((entry, index) => {
-    const tool = object(entry, `tools[${index}]`);
-    return {
-      name: string(tool.name, `tools[${index}].name`),
-      ...(tool.description === undefined
-        ? {}
-        : {
-            description: string(
-              tool.description,
-              `tools[${index}].description`,
-            ),
-          }),
-      input_schema: object(tool.input_schema, `tools[${index}].input_schema`),
-    };
-  });
-  const toolChoice = decodeToolChoice(wire.tool_choice, losses);
   const params = {
     max_tokens: maxTokens,
     ...(wire.temperature === undefined
@@ -282,9 +339,29 @@ export function encodeRequest(
           : encoded,
     };
   });
-  const tools =
-    request.tools?.flatMap((tool, index) => {
-      if (tool.type === "custom" || tool.type === "apply_patch") {
+  const tools: JsonObject[] =
+    request.tools?.flatMap<JsonObject>((tool, index) => {
+      if (tool.type === "custom") {
+        if (tool.format?.type === "grammar") {
+          losses.push(
+            loss(`tools[${index}].format`, "format", "unsupported-semantic"),
+          );
+        }
+        return [
+          {
+            name: tool.name,
+            ...(tool.description === undefined
+              ? {}
+              : { description: tool.description }),
+            input_schema: {
+              type: "object",
+              properties: { input: { type: "string" } },
+              required: ["input"],
+            },
+          },
+        ];
+      }
+      if (tool.type === "apply_patch") {
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
         return [];
       }
@@ -354,7 +431,9 @@ export function encodeResponse(
   const losses: Loss[] = [];
   const stopReason =
     response.stop_reason === "tool_use" &&
-    !response.content.some((block) => block.type === "tool_use")
+    !response.content.some(
+      (block) => block.type === "tool_use" || block.type === "custom_tool_use",
+    )
       ? (losses.push(loss("stop_reason", "stop_reason", "degraded")),
         "end_turn" as const)
       : response.stop_reason;
@@ -404,6 +483,9 @@ function decodeContent(
   value: JsonValue | undefined,
   path: string,
   losses: Loss[],
+  customTools?: ReadonlySet<string>,
+  customCallIds?: Set<string>,
+  declaredTools?: ReadonlySet<string>,
 ): Block[] {
   if (typeof value === "string") return [{ type: "text", text: value }];
   const blocks: Block[] = [];
@@ -451,31 +533,91 @@ function decodeContent(
     } else if (type === "tool_use") {
       const inputPath = `${path}[${index}].input`;
       const input = object(block.input, inputPath);
-      const inputText =
-        block.inputText === undefined
-          ? (sourceTextOf(input) ?? jsonText(stringifyJson(input)))
-          : toolInputText(block.inputText, `${path}[${index}].inputText`);
-      blocks.push({
-        type: "tool_use",
-        id: string(block.id, `${path}[${index}].id`),
-        name: string(block.name, `${path}[${index}].name`),
-        input: inputText,
-      });
+      const id = string(block.id, `${path}[${index}].id`);
+      const name = string(block.name, `${path}[${index}].name`);
+      const customInput = extractCustomInput(input);
+      if (customTools?.has(name)) {
+        customCallIds?.add(id);
+        blocks.push({
+          type: "custom_tool_use",
+          id,
+          name,
+          input: customInput ?? "",
+        });
+      } else if (declaredTools?.has(name)) {
+        const inputText =
+          block.inputText === undefined
+            ? (sourceTextOf(input) ?? jsonText(stringifyJson(input)))
+            : toolInputText(block.inputText, `${path}[${index}].inputText`);
+        blocks.push({
+          type: "tool_use",
+          id,
+          name,
+          input: inputText,
+        });
+      } else if (customInput !== undefined) {
+        customCallIds?.add(id);
+        blocks.push({
+          type: "custom_tool_use",
+          id,
+          name,
+          input: customInput,
+        });
+      } else {
+        const inputText =
+          block.inputText === undefined
+            ? (sourceTextOf(input) ?? jsonText(stringifyJson(input)))
+            : toolInputText(block.inputText, `${path}[${index}].inputText`);
+        blocks.push({
+          type: "tool_use",
+          id,
+          name,
+          input: inputText,
+        });
+      }
     } else if (type === "tool_result") {
-      blocks.push({
-        type: "tool_result",
-        tool_use_id: string(block.tool_use_id, `${path}[${index}].tool_use_id`),
-        content: decodeContent(
-          block.content,
-          `${path}[${index}].content`,
-          losses,
-        ),
-        ...(block.is_error === undefined
-          ? {}
-          : {
-              is_error: boolean(block.is_error, `${path}[${index}].is_error`),
-            }),
-      });
+      const toolUseId = string(
+        block.tool_use_id,
+        `${path}[${index}].tool_use_id`,
+      );
+      if (customCallIds?.has(toolUseId)) {
+        blocks.push({
+          type: "custom_tool_result",
+          tool_use_id: toolUseId,
+          output:
+            typeof block.content === "string"
+              ? block.content
+              : (decodeContent(
+                  block.content,
+                  `${path}[${index}].content`,
+                  losses,
+                  customTools,
+                  customCallIds,
+                  declaredTools,
+                ).filter(
+                  (b): b is TextBlock | ImageBlock =>
+                    b.type === "text" || b.type === "image",
+                ) as readonly (TextBlock | ImageBlock)[]),
+        });
+      } else {
+        blocks.push({
+          type: "tool_result",
+          tool_use_id: toolUseId,
+          content: decodeContent(
+            block.content,
+            `${path}[${index}].content`,
+            losses,
+            customTools,
+            customCallIds,
+            declaredTools,
+          ),
+          ...(block.is_error === undefined
+            ? {}
+            : {
+                is_error: boolean(block.is_error, `${path}[${index}].is_error`),
+              }),
+        });
+      }
     } else {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
       continue;
@@ -563,9 +705,38 @@ function encodeContent(
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       });
+    } else if (block.type === "custom_tool_use") {
+      output.push({
+        type: "tool_use",
+        id: block.id,
+        name: block.name,
+        input: { input: block.input },
+      });
+    } else if (block.type === "custom_tool_result") {
+      if (typeof block.output === "string") {
+        output.push({
+          type: "tool_result",
+          tool_use_id: block.tool_use_id,
+          content: block.output,
+        });
+      } else {
+        const content: JsonValue[] = [];
+        for (let child = 0; child < block.output.length; child += 1) {
+          const nested = block.output[child]!;
+          if (nested.type === "text")
+            content.push({ type: "text", text: nested.text });
+          else if (nested.type === "image") {
+            const image = encodeImage(nested);
+            if (image !== undefined) content.push(image);
+          }
+        }
+        output.push({
+          type: "tool_result",
+          tool_use_id: block.tool_use_id,
+          content,
+        });
+      }
     } else if (
-      block.type === "custom_tool_use" ||
-      block.type === "custom_tool_result" ||
       block.type === "apply_patch_tool_use" ||
       block.type === "apply_patch_tool_result"
     ) {
@@ -597,6 +768,7 @@ function encodeImage(image: ImageBlock): JsonObject | undefined {
 function decodeToolChoice(
   value: JsonValue | undefined,
   losses: Loss[],
+  customTools?: ReadonlySet<string>,
 ): ToolChoice | undefined {
   if (value === undefined || value === null) return undefined;
   const choice = object(value, "tool_choice");
@@ -611,11 +783,14 @@ function decodeToolChoice(
   const type = string(choice.type, "tool_choice.type");
   if (type === "auto" || type === "any" || type === "none")
     return { mode: type };
-  if (type === "tool")
+  if (type === "tool") {
+    const name = string(choice.name, "tool_choice.name");
     return {
       mode: "tool",
-      name: string(choice.name, "tool_choice.name"),
+      name,
+      ...(customTools?.has(name) ? { tool_type: "custom" as const } : {}),
     };
+  }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   return undefined;
 }
@@ -626,11 +801,15 @@ function encodeToolChoice(
 ): JsonObject | undefined {
   if (value === undefined) return undefined;
   if (value.mode === "tool") {
-    if (value.name === "") fail("tool_choice.name must not be empty");
-    if (value.tool_type === "custom" || value.tool_type === "apply_patch") {
+    if (value.tool_type === "custom") {
+      if (value.name === "") fail("tool_choice.name must not be empty");
+      return { type: "tool", name: value.name };
+    }
+    if (value.tool_type === "apply_patch") {
       losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
       return undefined;
     }
+    if (value.name === "") fail("tool_choice.name must not be empty");
     return { type: "tool", name: value.name };
   }
   return { type: value.mode };

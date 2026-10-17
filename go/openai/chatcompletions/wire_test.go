@@ -587,7 +587,9 @@ func TestToolArgumentsPreserveRawText(t *testing.T) {
 }
 
 func TestToolChoiceMappings(t *testing.T) {
-	named := ToolChoiceWire{Type: "function"}
+	named := ToolChoiceWire{
+		Type: "function",
+	}
 	named.Function.Name = "weather"
 	cases := []struct {
 		name     string

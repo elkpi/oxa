@@ -214,23 +214,45 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    Block::CustomToolUse { .. } => {
+                    Block::CustomToolUse { id, name, input } => {
+                        if id.is_empty() {
+                            return Err(Error::new(
+                                "anthropic: ContentBlockStart custom_tool_use id is required",
+                            ));
+                        }
+                        if name.is_empty() {
+                            return Err(Error::new(
+                                "anthropic: ContentBlockStart custom_tool_use name is required",
+                            ));
+                        }
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
                         self.open_thinking = false;
                         self.open_custom = true;
                         self.open_atomic = false;
-                        self.custom_seen = true;
+                        self.tool_seen = true;
                         self.open_ir_index = *index;
+                        self.open_index = self.next_wire_index;
+                        self.next_wire_index += 1;
+                        self.tool_input = input.clone();
+                        self.tool_parts.clear();
+                        let empty_object = RawValue::from_string("{}".to_string())
+                            .expect("empty JSON object is valid");
                         Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
+                                index: Some(self.open_index),
+                                content_block: Some(BlockWire {
+                                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
+                                    id: id.clone(),
+                                    name: name.clone(),
+                                    input: Some(empty_object),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
                             Vec::new(),
-                            vec![loss(
-                                format!("events[{index}].block"),
-                                "type",
-                                LossReason::UnsupportedSemantic,
-                                "Anthropic Messages streaming does not support custom tools",
-                            )],
                         ))
                     }
                     Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => {
@@ -272,11 +294,12 @@ impl StreamEncoder {
                     return Err(Error::new("anthropic: atomic block does not accept deltas"));
                 }
                 if self.open_custom {
-                    if !matches!(delta, Delta::CustomToolInputDelta { .. }) {
+                    let Delta::CustomToolInputDelta { text } = delta else {
                         return Err(Error::new(
                             "anthropic: CustomToolUseBlock received non-custom-input delta",
                         ));
-                    }
+                    };
+                    self.tool_parts.push(text.clone());
                     return Ok((Vec::new(), Vec::new()));
                 }
                 match delta {
@@ -382,9 +405,39 @@ impl StreamEncoder {
                     return Ok((Vec::new(), Vec::new()));
                 }
                 if self.open_custom {
+                    let mut events = Vec::new();
+                    let full_input = if self.tool_parts.is_empty() {
+                        self.tool_input.clone()
+                    } else {
+                        let full = self.tool_parts.concat();
+                        if full != self.tool_input {
+                            return Err(Error::new(
+                                "anthropic: custom tool input fragments do not match CustomToolUseBlock input",
+                            ));
+                        }
+                        full
+                    };
+                    let wrapped = serde_json::json!({"input": full_input}).to_string();
+                    events.push(StreamEvent {
+                        kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                        index: Some(self.open_index),
+                        delta: Some(StreamDelta {
+                            kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
+                            partial_json: Some(wrapped),
+                            ..Default::default()
+                        }),
+                        ..Default::default()
+                    });
+                    events.push(StreamEvent {
+                        kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
+                        index: Some(self.open_index),
+                        ..Default::default()
+                    });
                     self.block_open = false;
                     self.open_custom = false;
-                    return Ok((Vec::new(), Vec::new()));
+                    self.tool_input.clear();
+                    self.tool_parts.clear();
+                    return Ok((events, Vec::new()));
                 }
                 if self.open_thinking {
                     let mut events = Vec::new();

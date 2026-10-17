@@ -314,11 +314,19 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         "tool" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "function" => shape("function_tool", object),
+                "custom" => shape("custom_tool", object),
                 _ => None,
             },
             None => None,
         },
         "function_tool" => Some(&[("type", ""), ("function", "function")]),
+        "custom_tool" => Some(&[("type", ""), ("custom", "custom_decl")]),
+        "custom_decl" => Some(&[
+            ("name", ""),
+            ("description", ""),
+            ("format", "custom_format"),
+        ]),
+        "custom_format" => Some(&[("type", ""), ("syntax", ""), ("definition", "")]),
         "function" => Some(&[
             ("name", ""),
             ("description", ""),
@@ -328,19 +336,24 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         "tool_call" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "function" => shape("function_call", object),
+                "custom" => shape("custom_call", object),
                 _ => None,
             },
             None => shape("function_call", object),
         },
         "function_call" => Some(&[("id", ""), ("type", ""), ("function", "function")]),
+        "custom_call" => Some(&[("id", ""), ("type", ""), ("custom", "custom_args")]),
+        "custom_args" => Some(&[("name", ""), ("input", "")]),
         "tool_choice" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "function" => shape("named_choice", object),
+                "custom" => shape("named_custom_choice", object),
                 _ => None,
             },
             None => None,
         },
         "named_choice" => Some(&[("type", ""), ("function", "named_function")]),
+        "named_custom_choice" => Some(&[("type", ""), ("custom", "named_function")]),
         "named_function" => Some(&[("name", "")]),
         "format" => match tag(object, "type") {
             Some(value) => match value.as_str() {
@@ -372,6 +385,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("id", ""),
             ("type", ""),
             ("function", "function_delta"),
+            ("custom", "custom_args"),
         ]),
         "function_delta" => Some(&[("name", ""), ("arguments", "")]),
         "usage" => Some(&[

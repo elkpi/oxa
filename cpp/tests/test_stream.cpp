@@ -91,7 +91,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 6);
+        CHECK(r->executed == 8);
         std::printf("test_stream (chatcompletions): all %zu vectors passed\n", r->executed);
     }
 
@@ -106,7 +106,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 7);
+        CHECK(r->executed == 9);
         std::printf("test_stream (anthropic): all %zu vectors passed\n", r->executed);
     }
 
@@ -239,18 +239,17 @@ int main() {
         CHECK(!missing.feed(R"({"type":"response.output_item.added","output_index":0,"item":{"type":"custom_tool_call","id":"ctc_0","call_id":"c","name":"x"}})").ok());
     }
 
-    // Unsupported target stream encoders absorb custom blocks and degrade stop only when needed.
+    // Unsupported target stream encoders absorb apply_patch blocks and degrade stop only when needed.
     {
         const oxa::ir::MessageStart start{"r", "m"};
-        const oxa::ir::ContentBlockStart custom_start{0, oxa::ir::CustomToolUseBlock{"c", "code_exec", "raw"}};
-        const oxa::ir::ContentBlockDelta custom_delta{0, oxa::ir::CustomToolInputDelta{"raw"}};
-        const oxa::ir::ContentBlockStop custom_stop{0};
+        const oxa::ir::ContentBlockStart patch_start{0, oxa::ir::ApplyPatchToolUseBlock{"p", "in_progress", oxa::ir::CreateFileOperation{"a.txt", ""}}};
+        const oxa::ir::ContentBlockStop patch_stop{0};
         const oxa::ir::MessageDelta stop{std::string(oxa::ir::STOP_TOOL_USE), std::nullopt, {1, 1}};
         oxa::openai::chatcompletions::StreamEncoder cc;
         CHECK(cc.apply(start).ok());
-        auto cc_start = cc.apply(custom_start);
+        auto cc_start = cc.apply(patch_start);
         CHECK(cc_start.ok() && cc_start->losses.size() == 1 && cc_start->value.empty());
-        CHECK(cc.apply(custom_delta).ok()); CHECK(cc.apply(custom_stop).ok());
+        CHECK(cc.apply(patch_stop).ok());
         auto cc_terminal = cc.apply(stop);
         CHECK(cc_terminal.ok() && cc_terminal->losses.size() == 1);
         if (cc_terminal.ok()) CHECK(cc_terminal->value.back().find("choices")->as_array()[0].find("finish_reason")->as_string() == "stop");
@@ -258,18 +257,18 @@ int main() {
 
         oxa::anthropic::messages::StreamEncoder ant;
         CHECK(ant.apply(start).ok());
-        auto ant_start = ant.apply(custom_start);
+        auto ant_start = ant.apply(patch_start);
         CHECK(ant_start.ok() && ant_start->losses.size() == 1 && ant_start->value.empty());
-        CHECK(ant.apply(custom_delta).ok()); CHECK(ant.apply(custom_stop).ok());
+        CHECK(ant.apply(patch_stop).ok());
         auto ant_terminal = ant.apply(stop);
         CHECK(ant_terminal.ok() && ant_terminal->losses.size() == 1);
         if (ant_terminal.ok()) CHECK(ant_terminal->value[0].find("delta")->find("stop_reason")->as_string() == "end_turn");
         CHECK(ant.apply(oxa::ir::MessageDone{}).ok());
 
-        // Dropped custom blocks do not consume target-native call/block indexes.
+        // Dropped apply_patch blocks do not consume target-native call/block indexes.
         oxa::openai::chatcompletions::StreamEncoder compact_cc;
         CHECK(compact_cc.apply(start).ok());
-        CHECK(compact_cc.apply(custom_start).ok()); CHECK(compact_cc.apply(custom_delta).ok()); CHECK(compact_cc.apply(custom_stop).ok());
+        CHECK(compact_cc.apply(patch_start).ok()); CHECK(compact_cc.apply(patch_stop).ok());
         CHECK(compact_cc.apply(oxa::ir::ContentBlockStart{1, oxa::ir::ToolUseBlock{"f", "clock", "{}"}}).ok());
         CHECK(compact_cc.apply(oxa::ir::ContentBlockDelta{1, oxa::ir::InputJsonDelta{"{}"}}).ok());
         CHECK(compact_cc.apply(oxa::ir::ContentBlockStop{1}).ok());
@@ -283,7 +282,7 @@ int main() {
 
         oxa::anthropic::messages::StreamEncoder compact_ant;
         CHECK(compact_ant.apply(start).ok());
-        CHECK(compact_ant.apply(custom_start).ok()); CHECK(compact_ant.apply(custom_delta).ok()); CHECK(compact_ant.apply(custom_stop).ok());
+        CHECK(compact_ant.apply(patch_start).ok()); CHECK(compact_ant.apply(patch_stop).ok());
         auto native_start = compact_ant.apply(oxa::ir::ContentBlockStart{1, oxa::ir::ToolUseBlock{"f", "clock", "{}"}});
         CHECK(native_start.ok());
         if (native_start.ok()) CHECK(native_start->value[0].find("index")->as_int() == 0);
@@ -291,6 +290,93 @@ int main() {
         CHECK(compact_ant.apply(oxa::ir::ContentBlockStop{1}).ok());
     }
 
-    std::puts("test_stream: all 24 stream vectors passed");
+    // Supported target stream encoders emit custom tool calls without loss.
+    {
+        const oxa::ir::MessageStart start{"r", "m"};
+        const oxa::ir::ContentBlockStart custom_start{0, oxa::ir::CustomToolUseBlock{"c", "code_exec", "raw"}};
+        const oxa::ir::ContentBlockDelta custom_delta{0, oxa::ir::CustomToolInputDelta{"raw"}};
+        const oxa::ir::ContentBlockStop custom_stop{0};
+        const oxa::ir::MessageDelta stop{std::string(oxa::ir::STOP_TOOL_USE), std::nullopt, {1, 1}};
+
+        oxa::openai::chatcompletions::StreamEncoder cc;
+        CHECK(cc.apply(start).ok());
+        auto cc_start = cc.apply(custom_start);
+        CHECK(cc_start.ok() && cc_start->losses.empty());
+        auto cc_delta = cc.apply(custom_delta);
+        CHECK(cc_delta.ok() && cc_delta->losses.empty());
+        CHECK(cc.apply(custom_stop).ok());
+        auto cc_stop = cc.apply(stop);
+        CHECK(cc_stop.ok() && cc_stop->losses.empty());
+        if (cc_stop.ok()) {
+            CHECK(cc_stop->value.back().find("choices")->as_array()[0].find("finish_reason")->as_string() == "tool_calls");
+        }
+
+        oxa::anthropic::messages::StreamEncoder ant;
+        CHECK(ant.apply(start).ok());
+        auto ant_start = ant.apply(custom_start);
+        CHECK(ant_start.ok() && ant_start->losses.empty());
+        auto ant_delta = ant.apply(custom_delta);
+        CHECK(ant_delta.ok() && ant_delta->losses.empty());
+        CHECK(ant.apply(custom_stop).ok());
+        auto ant_stop = ant.apply(stop);
+        CHECK(ant_stop.ok() && ant_stop->losses.empty());
+        if (ant_stop.ok()) {
+            CHECK(ant_stop->value[0].find("delta")->find("stop_reason")->as_string() == "tool_use");
+        }
+    }
+
+    // Anthropic multi-fragment streaming produces valid concatenated JSON object
+    {
+        oxa::anthropic::messages::StreamEncoder encoder;
+        std::vector<oxa::ir::Event> evs{
+            oxa::ir::MessageStart{"r", "m"},
+            oxa::ir::ContentBlockStart{0, oxa::ir::CustomToolUseBlock{"c", "exec", "ab"}},
+            oxa::ir::ContentBlockDelta{0, oxa::ir::CustomToolInputDelta{"a"}},
+            oxa::ir::ContentBlockDelta{0, oxa::ir::CustomToolInputDelta{"b"}},
+            oxa::ir::ContentBlockStop{0},
+            oxa::ir::MessageDelta{"tool_use", std::nullopt, {1, 1}},
+            oxa::ir::MessageDone{}
+        };
+        std::string joined;
+        for (const auto& ev : evs) {
+            auto chunks = encoder.apply(ev);
+            CHECK(chunks.ok());
+            for (const auto& ch : chunks->value) {
+                if (const auto* delta = ch.find("delta")) {
+                    if (const auto* pj = delta->find("partial_json")) {
+                        joined += pj->as_string();
+                    }
+                }
+            }
+        }
+        auto parsed = oxa::json::parse(joined);
+        CHECK(parsed.ok());
+        CHECK(parsed->find("input")->as_string() == "ab");
+    }
+
+    // Dropped block followed by custom block with no delta uses compact index
+    {
+        oxa::anthropic::messages::StreamEncoder encoder;
+        oxa::anthropic::messages::StreamDecoder decoder;
+        std::vector<oxa::ir::Event> evs{
+            oxa::ir::MessageStart{"r", "m"},
+            oxa::ir::ContentBlockStart{0, oxa::ir::ApplyPatchToolUseBlock{"p", "in_progress", oxa::ir::CreateFileOperation{"a", ""}}},
+            oxa::ir::ContentBlockStop{0},
+            oxa::ir::ContentBlockStart{1, oxa::ir::CustomToolUseBlock{"c", "exec", "hello"}},
+            oxa::ir::ContentBlockStop{1},
+            oxa::ir::MessageDelta{"tool_use", std::nullopt, {1, 1}},
+            oxa::ir::MessageDone{}
+        };
+        for (const auto& ev : evs) {
+            auto chunks = encoder.apply(ev);
+            CHECK(chunks.ok());
+            for (const auto& chunk : chunks->value) {
+                auto decoded = decoder.feed(chunk);
+                CHECK_MSG(decoded.ok(), decoded.status().to_string());
+            }
+        }
+    }
+
+    std::puts("test_stream: all 40 stream vectors passed");
     return 0;
 }

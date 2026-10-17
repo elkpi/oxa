@@ -1,0 +1,66 @@
+{
+  "name": "anthropic.nonstream.custom-tool-response-from-ir",
+  "description": "N-AN-13：IR 包含 custom 工具调用的响应转换为 Anthropic 包装响应。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "id": "msg_custom123",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "text",
+        "text": "executing"
+      },
+      {
+        "type": "custom_tool_use",
+        "id": "toolu_custom",
+        "name": "code_exec",
+        "input": "print(\"hello\\n\")"
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "response",
+    "n-an-13"
+  ],
+  "target": {
+    "protocol": "anthropic"
+  },
+  "expected_output": {
+    "id": "msg_custom123",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "text",
+        "text": "executing"
+      },
+      {
+        "type": "tool_use",
+        "id": "toolu_custom",
+        "name": "code_exec",
+        "input": {
+          "input": "print(\"hello\\n\")"
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5
+    }
+  }
+}

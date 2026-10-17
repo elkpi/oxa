@@ -66,6 +66,7 @@ export {
   type CustomToolUseBlock,
   type CustomToolFormat,
   type ImageBlock,
+  type TextBlock,
   type ThinkingBlock,
   type ContentBlockDelta,
   type ContentBlockStart,

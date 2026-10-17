@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
@@ -30,11 +31,11 @@ from oxa.ir import (
     STOP_TOOL_USE,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
-    CustomToolInputDelta,
-    CustomToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
+    CustomToolInputDelta,
+    CustomToolUseBlock,
     Event,
     InputJsonDelta,
     Loss,
@@ -171,11 +172,24 @@ class StreamEncoder:
                 if not ev.block.id or not ev.block.name:
                     raise ValueError("anthropic: CustomToolUseBlock requires nonempty ID and name")
                 self._open_index = ev.index
-                self._native_index = -1
+                self._native_index = self._next_native_index
+                self._next_native_index += 1
                 self._open_custom = True
+                self._tool_seen = True
                 self._custom_input = ev.block.input
                 self._custom_parts.clear()
-                return [], []
+                return [
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_START,
+                        "index": self._native_index,
+                        "content_block": {
+                            "type": BLOCK_TYPE_TOOL_USE,
+                            "id": ev.block.id,
+                            "name": ev.block.name,
+                            "input": {},
+                        },
+                    }
+                ], []
 
             if isinstance(ev.block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
                 self._open_index = ev.index
@@ -321,14 +335,32 @@ class StreamEncoder:
                 return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool has no Anthropic Messages streaming mapping")]
 
             if self._open_custom:
-                if self._custom_parts and "".join(self._custom_parts) != self._custom_input:
-                    raise ValueError("anthropic: CustomToolUseBlock input does not equal custom input deltas")
+                if not self._custom_parts:
+                    full_input = self._custom_input
+                else:
+                    full_input = "".join(self._custom_parts)
+                    if full_input != self._custom_input:
+                        raise ValueError(
+                            "anthropic: CustomToolUseBlock input does not equal custom input deltas"
+                        )
+                wrapped = json.dumps(
+                    {"input": full_input},
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                )
+                events.append(
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                        "index": self._native_index,
+                        "delta": {
+                            "type": DELTA_TYPE_INPUT_JSON_DELTA,
+                            "partial_json": wrapped,
+                        },
+                    }
+                )
                 self._open_custom = False
                 self._custom_input = ""
                 self._custom_parts.clear()
-                self._open_index = -1
-                self._native_index = -1
-                return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tools have no Anthropic streaming mapping")]
 
             if self._open_tool:
                 if not self._tool_parts:

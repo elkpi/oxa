@@ -41,7 +41,9 @@ The wire objects in scope are:
 - **ContentPart**: `type` (`text` | `image_url`), `text`,
   `image_url.url`.
 - **Tool**: `type: "function"` with `function.name`,
-  `function.description`, `function.parameters` (JSON Schema).
+  `function.description`, `function.parameters` (JSON Schema); or `type: "custom"` with
+  `custom.name`, `custom.description`, `custom.format` (spec/13, since 2.3.1).
+- **ToolChoice**: string mode (`none` | `auto` | `required`) or named object (`type: "function", function: {name}` / `type: "custom", custom: {name}`).
 - **Response**: `id`, `object`, `created`, `model`, `choices[]`,
   `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`).
 - **Choice**: `index`, `message`, `finish_reason`.
@@ -54,11 +56,12 @@ The wire objects in scope are:
 | `messages[role=system].content` | `Request.System[]` (in wire order) | N-CC-1 |
 | `messages[role=user].content` | `Messages[role=user].Content` blocks | N-CC-2 |
 | `messages[role=assistant].content` | `Messages[role=assistant].Content` blocks | N-CC-2 |
-| `messages[role=assistant].tool_calls[]` | `ToolUseBlock`s appended after the text blocks | N-CC-4 |
-| `messages[role=tool]` (consecutive run) | one user message of `ToolResultBlock`s | N-CC-5 |
-| `messages[].tool_call_id` | `ToolResultBlock.ToolUseID` | N-CC-5 |
+| `messages[role=assistant].tool_calls[]` | `ToolUseBlock`s and `CustomToolUseBlock`s appended after text blocks | N-CC-4, N-CC-14 |
+| `messages[role=tool]` (consecutive run) | one user message of `ToolResultBlock`s / `CustomToolResultBlock`s | N-CC-5, N-CC-14 |
+| `messages[].tool_call_id` | `ToolResultBlock.ToolUseID` / `CustomToolResultBlock.ToolUseID` | N-CC-5, N-CC-14 |
 | `tools[].function.{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1) |
-| `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; named function ⇄ mode `tool`) | N-CC-7 |
+| `tools[].custom.{name,description,format}` | `Tools[type=custom].{Name,Description,Format}` | N-CC-14 (since 2.3.1) |
+| `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; named function/custom ⇄ mode `tool`) | N-CC-7, N-CC-14 |
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_tokens` | `Params.MaxTokens` | 1:1 |
@@ -211,6 +214,19 @@ Each rule has a stable ID usable as a vector tag.
   On encode, IR `ResponseFormat` renders back as CC `response_format` with nested
   `json_schema` wrapping.
 
+- **Custom tool mapping (N-CC-14).** Chat Completions natively supports Custom Tools
+  (spec/13, since 2.3.1). `tools[type=custom].custom.{name,description,format}` maps
+  1:1 to IR `Tool{Type: "custom", Name, Description, Format}`. When `custom.format` is omitted,
+  IR `Tool.Format` is absent; when `custom.format` is present with `type: "text"` or valid `grammar`,
+  it maps to the corresponding IR format. Unrecognized format types or grammars record an
+  `unsupported-semantic` loss on `tools[i].custom.format`. `tool_choice: {type: "custom", custom: {name}}`
+  maps 1:1 to IR `ToolChoice{Mode: "tool", ToolType: "custom", Name}`. Assistant message
+  `tool_calls[type=custom].custom.{name,input}` maps to IR `CustomToolUseBlock`, where `input`
+  is a required string (even if empty). Tool messages (`role: "tool"`) answering custom tool calls
+  map to IR `CustomToolResultBlock`. When `output` is a string, it encodes as string `content`;
+  when `output` is an array of text/image content blocks, it encodes as an array of `ContentPart`s
+  without collapsing to a plain string. Both directions preserve string vs array distinction (spec/13 §2).
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -227,7 +243,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `response_format.type` unknown value | unmapped-value | request → IR | unknown response_format type dropped (N-CC-13) |
 | `content[i].signature` | unmapped-field | IR → response/request | Chat Completions carries no signature field on reasoning_content (N-CC-12) |
 | `reasoning_effort` unknown value | unmapped-value | request → IR | unknown effort values are dropped (N-CC-12) |
-| `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
+| `tools[i].type` ∉ {`function`,`custom`} | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | content part `type` ∉ {`text`,`image_url`} | unsupported-semantic | request → IR | part has no IR equivalent |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |
 | `tool_choice` unsupported forms | unsupported-semantic | both | see N-CC-7 |

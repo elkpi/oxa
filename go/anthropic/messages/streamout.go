@@ -24,6 +24,7 @@ type StreamEncoder struct {
 	openIndex     int
 	blockOpen     bool
 	openTool      bool
+	openCustom    bool
 	openThinking  bool
 	toolInput     string
 	toolParts     []string
@@ -141,9 +142,32 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.nextIndex++
 			e.blockOpen = true
 			e.openTool = true
+			e.openCustom = false
 			e.openThinking = false
 			e.openIndex = event.Index
 			e.toolInput = string(input)
+			e.toolParts = nil
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
+				Type: BlockTypeToolUse, ID: block.ID, Name: block.Name, Input: json.RawMessage("{}"),
+			}}}, nil, nil
+		case ir.CustomToolUseBlock:
+			if block.ID == "" {
+				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart custom_tool_use id is required")
+			}
+			if block.Name == "" {
+				return nil, nil, fmt.Errorf("anthropic: ContentBlockStart custom_tool_use name is required")
+			}
+			var inputStr string
+			if err := json.Unmarshal(block.Input, &inputStr); err != nil {
+				inputStr = string(block.Input)
+			}
+			e.nextIndex++
+			e.blockOpen = true
+			e.openTool = true
+			e.openCustom = true
+			e.openThinking = false
+			e.openIndex = event.Index
+			e.toolInput = inputStr
 			e.toolParts = nil
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
 				Type: BlockTypeToolUse, ID: block.ID, Name: block.Name, Input: json.RawMessage("{}"),
@@ -185,6 +209,16 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
 				Type: DeltaTypeInputJSONDelta, PartialJSON: fragment,
 			}}}, nil, nil
+		case ir.CustomToolInputDelta:
+			if !e.openTool || !e.openCustom {
+				return nil, nil, fmt.Errorf("anthropic: CustomToolInputDelta on non-custom tool block")
+			}
+			var textStr string
+			if err := json.Unmarshal(delta.Text, &textStr); err != nil {
+				textStr = string(delta.Text)
+			}
+			e.toolParts = append(e.toolParts, textStr)
+			return nil, nil, nil
 		default:
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta carries an unsupported delta %T", event.Delta)
 		}
@@ -193,6 +227,30 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockStop out of grammar order")
 		}
 		if e.openTool {
+			if e.openCustom {
+				var fullInput string
+				if len(e.toolParts) == 0 {
+					fullInput = e.toolInput
+				} else {
+					fullInput = strings.Join(e.toolParts, "")
+					if fullInput != e.toolInput {
+						return nil, nil, fmt.Errorf("anthropic: custom tool input fragments do not match CustomToolUseBlock input")
+					}
+				}
+				wrapped, _ := json.Marshal(map[string]string{"input": fullInput})
+				events := []*StreamEvent{
+					{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
+						Type: DeltaTypeInputJSONDelta, PartialJSON: string(wrapped),
+					}},
+					{Type: EventTypeContentBlockStop, Index: event.Index},
+				}
+				e.blockOpen = false
+				e.openTool = false
+				e.openCustom = false
+				e.toolInput = ""
+				e.toolParts = nil
+				return events, nil, nil
+			}
 			if len(e.toolParts) == 0 {
 				return e.toolStopWithSynthesizedDelta(event.Index), nil, nil
 			}
@@ -226,6 +284,7 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		}
 		e.blockOpen = false
 		e.openTool = false
+		e.openCustom = false
 		e.openThinking = false
 		e.toolInput = ""
 		e.toolParts = nil

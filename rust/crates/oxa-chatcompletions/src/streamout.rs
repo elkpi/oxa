@@ -7,9 +7,9 @@ use crate::encode::{encode_finish_reason, validate_usage};
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    ChoiceDelta, Chunk, CompletionTokensDetailsWire, DeltaPayload, FunctionDelta,
-    OBJECT_CHAT_COMPLETION_CHUNK, PromptTokensDetailsWire, ROLE_ASSISTANT, TOOL_TYPE_FUNCTION,
-    ToolCallDelta, UsageWire,
+    ChoiceDelta, Chunk, CompletionTokensDetailsWire, CustomCallWire, DeltaPayload, FunctionDelta,
+    OBJECT_CHAT_COMPLETION_CHUNK, PromptTokensDetailsWire, ROLE_ASSISTANT, TOOL_TYPE_CUSTOM,
+    TOOL_TYPE_FUNCTION, ToolCallDelta, UsageWire,
 };
 
 #[derive(Copy, Clone, PartialEq, Eq)]
@@ -17,6 +17,7 @@ enum StreamBlockKind {
     Text,
     Thinking,
     Tool,
+    CustomTool,
     Custom,
     Atomic,
 }
@@ -172,28 +173,27 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
-                    Block::CustomToolUse { .. } => {
+                    Block::CustomToolUse { id, name, input } => {
+                        if id.is_empty() || name.is_empty() {
+                            return Err(Error::new(
+                                "chatcompletions: CustomToolUse requires nonempty ID and name",
+                            ));
+                        }
+                        let native_index = self.next_native_tool;
+                        self.next_native_tool += 1;
+                        self.tool_seen = true;
                         self.active = Some(StreamEncodeBlock {
-                            kind: StreamBlockKind::Custom,
+                            kind: StreamBlockKind::CustomTool,
                             index: *index,
-                            tool_id: String::new(),
-                            tool_name: String::new(),
-                            tool_input: String::new(),
+                            tool_id: id.clone(),
+                            tool_name: name.clone(),
+                            tool_input: input.clone(),
                             fragments: Vec::new(),
-                            native_index: 0,
+                            native_index,
                             tool_started: false,
                             signature_seen: false,
                         });
-                        self.custom_seen = true;
-                        Ok((
-                            Vec::new(),
-                            vec![loss(
-                                format!("events[{index}].block"),
-                                "type",
-                                LossReason::UnsupportedSemantic,
-                                "Chat Completions streaming does not support custom tools",
-                            )],
-                        ))
+                        Ok((Vec::new(), Vec::new()))
                     }
                     Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => {
                         self.active = Some(StreamEncodeBlock {
@@ -243,12 +243,19 @@ impl StreamEncoder {
                     StreamBlockKind::Atomic => Err(Error::new(
                         "chatcompletions: atomic block does not accept deltas",
                     )),
-                    StreamBlockKind::Custom => {
-                        if !matches!(delta, Delta::CustomToolInputDelta { .. }) {
+                    StreamBlockKind::Custom => Err(Error::new(
+                        "chatcompletions: custom block does not accept deltas",
+                    )),
+                    StreamBlockKind::CustomTool => {
+                        let Delta::CustomToolInputDelta { text } = delta else {
                             return Err(Error::new(
                                 "chatcompletions: CustomToolUseBlock received non-custom-input delta",
                             ));
-                        }
+                        };
+                        active.fragments.push(text.clone());
+                        let chunk =
+                            make_custom_tool_argument_chunk(&self.id, &self.model, active, text);
+                        self.pending_tools.push(chunk);
                         Ok((Vec::new(), Vec::new()))
                     }
                     StreamBlockKind::Text => {
@@ -328,6 +335,22 @@ impl StreamEncoder {
                 }
                 if active.kind == StreamBlockKind::Custom || active.kind == StreamBlockKind::Atomic
                 {
+                    return Ok((Vec::new(), Vec::new()));
+                }
+                if active.kind == StreamBlockKind::CustomTool {
+                    let mut act = active;
+                    if act.fragments.is_empty() {
+                        let full = act.tool_input.clone();
+                        act.fragments.push(full.clone());
+                        let chunk =
+                            make_custom_tool_argument_chunk(&self.id, &self.model, &mut act, &full);
+                        self.pending_tools.push(chunk);
+                    }
+                    if act.fragments.concat() != act.tool_input {
+                        return Err(Error::new(
+                            "chatcompletions: CustomToolUseBlock input does not equal custom input deltas",
+                        ));
+                    }
                     return Ok((Vec::new(), Vec::new()));
                 }
                 if active.kind == StreamBlockKind::Tool {
@@ -478,6 +501,54 @@ fn make_tool_argument_chunk(
             None
         },
         function: Some(function),
+        custom: None,
+    };
+    block.tool_started = true;
+    Chunk {
+        id: id.to_string(),
+        object: OBJECT_CHAT_COMPLETION_CHUNK.to_string(),
+        created: 0,
+        model: model.to_string(),
+        choices: vec![ChoiceDelta {
+            index: 0,
+            delta: DeltaPayload {
+                tool_calls: Some(vec![call]),
+                ..Default::default()
+            },
+            finish_reason: None,
+        }],
+        usage: None,
+    }
+}
+
+fn make_custom_tool_argument_chunk(
+    id: &str,
+    model: &str,
+    block: &mut StreamEncodeBlock,
+    input: &str,
+) -> Chunk {
+    let custom = CustomCallWire {
+        input: Some(input.to_string()),
+        name: if !block.tool_started {
+            Some(block.tool_name.clone())
+        } else {
+            None
+        },
+    };
+    let call = ToolCallDelta {
+        index: block.native_index,
+        id: if !block.tool_started {
+            Some(block.tool_id.clone())
+        } else {
+            None
+        },
+        kind: if !block.tool_started {
+            Some(TOOL_TYPE_CUSTOM.to_string())
+        } else {
+            None
+        },
+        function: None,
+        custom: Some(custom),
     };
     block.tool_started = true;
     Chunk {

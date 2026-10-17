@@ -7,18 +7,17 @@ from typing import Any
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
-    LOSS_UNSUPPORTED_SEMANTIC,
     LOSS_UNMAPPED_VALUE,
+    LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_REFUSAL,
     STOP_STOP_SEQUENCE,
     STOP_TOOL_USE,
     ApplyPatchToolResultBlock,
-    ApplyPatchToolUseBlock,
     Block,
+    CustomToolFormatGrammar,
     CustomToolResultBlock,
-    CustomToolUseBlock,
     Loss,
     Request,
     Response,
@@ -27,7 +26,6 @@ from oxa.ir import (
     ResponseFormatJsonSchema,
     ResponseFormatText,
     ToolResultBlock,
-    ToolUseBlock,
 )
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
@@ -48,6 +46,7 @@ from oxa.openai.chatcompletions.constants import (
 )
 from oxa.openai.chatcompletions.normalize import (
     encode_assistant_message,
+    encode_custom_tool_result,
     encode_tool_choice,
     encode_tool_result,
     encode_user_content,
@@ -84,8 +83,23 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
-            if tool.type in ("custom", "apply_patch"):
-                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool declarations have no Chat Completions mapping"))
+            if tool.type == "custom":
+                c_dict: dict[str, Any] = {"name": tool.name}
+                if tool.description is not None:
+                    c_dict["description"] = tool.description
+                if tool.format is not None:
+                    if isinstance(tool.format, CustomToolFormatGrammar):
+                        c_dict["format"] = {
+                            "type": "grammar",
+                            "syntax": tool.format.syntax,
+                            "definition": tool.format.definition,
+                        }
+                    else:
+                        c_dict["format"] = {"type": "text"}
+                tools_wire.append({"type": "custom", "custom": c_dict})
+                continue
+            if tool.type == "apply_patch":
+                losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no Chat Completions mapping"))
                 continue
             func: dict[str, Any] = {"name": tool.name}
             if tool.description:
@@ -124,10 +138,10 @@ def encode_request(
 
             for pos, block in enumerate(message.content):
                 if isinstance(block, (ToolResultBlock, CustomToolResultBlock, ApplyPatchToolResultBlock)):
-                    if isinstance(block, ToolResultBlock):
+                    if isinstance(block, (ToolResultBlock, CustomToolResultBlock)):
                         results.append(block)
                     else:
-                        losses.append(loss(f"messages[{index}].content[{pos}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "custom tool results have no Chat Completions mapping"))
+                        losses.append(loss(f"messages[{index}].content[{pos}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results have no Chat Completions mapping"))
                     last_result = pos
                 else:
                     if first_normal is None:
@@ -145,7 +159,10 @@ def encode_request(
                 )
 
             for pos, res in enumerate(results):
-                tool_msg, tool_losses = encode_tool_result(res, f"messages[{index}].content[{pos}]")
+                if isinstance(res, CustomToolResultBlock):
+                    tool_msg, tool_losses = encode_custom_tool_result(res, f"messages[{index}].content[{pos}]")
+                else:
+                    tool_msg, tool_losses = encode_tool_result(res, f"messages[{index}].content[{pos}]")
                 out["messages"].append(tool_msg)
                 losses.extend(tool_losses)
 

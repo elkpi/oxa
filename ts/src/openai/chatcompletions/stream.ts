@@ -47,6 +47,7 @@ export interface ChatCompletionsToolCallDelta {
   readonly id?: string;
   readonly type?: string;
   readonly function?: { readonly name?: string; readonly arguments?: string };
+  readonly custom?: { readonly name?: string; readonly input?: string };
 }
 export interface ChatCompletionsUsage {
   readonly prompt_tokens: bigint | JsonNumber;
@@ -66,6 +67,7 @@ interface ToolCall {
   readonly nativeIndex: number;
   id: string | undefined;
   name: string;
+  type?: "function" | "custom";
   readonly fragments: string[];
   skipped: boolean;
 }
@@ -240,23 +242,46 @@ export class ChatCompletionsStreamDecoder {
         this.#lifecycle(
           `tool_calls[${call.nativeIndex}] is missing final function name`,
         );
-      events.push({
-        type: "content_block_start",
-        index,
-        block: {
-          type: "tool_use",
-          id: call.id,
-          name: call.name,
-          input: jsonText(call.fragments.join("")),
-        },
-      });
-      for (const fragment of call.fragments)
+      if (call.type === "custom") {
         events.push({
-          type: "content_block_delta",
+          type: "content_block_start",
           index,
-          delta: { type: "input_json_delta", partial_json: jsonText(fragment) },
+          block: {
+            type: "custom_tool_use",
+            id: call.id,
+            name: call.name,
+            input: call.fragments.join(""),
+          },
         });
-      events.push({ type: "content_block_stop", index });
+        for (const fragment of call.fragments)
+          events.push({
+            type: "content_block_delta",
+            index,
+            delta: { type: "custom_tool_input_delta", text: fragment },
+          });
+        events.push({ type: "content_block_stop", index });
+      } else {
+        events.push({
+          type: "content_block_start",
+          index,
+          block: {
+            type: "tool_use",
+            id: call.id,
+            name: call.name,
+            input: jsonText(call.fragments.join("")),
+          },
+        });
+        for (const fragment of call.fragments)
+          events.push({
+            type: "content_block_delta",
+            index,
+            delta: {
+              type: "input_json_delta",
+              partial_json: jsonText(fragment),
+            },
+          });
+        events.push({ type: "content_block_stop", index });
+      }
       index += 1;
       this.#nextIrIndex = index;
     }
@@ -302,8 +327,15 @@ export class ChatCompletionsStreamDecoder {
         call.id = delta.id;
       }
       if (
+        delta.type === "custom" ||
+        (delta.custom !== undefined && delta.type === undefined)
+      ) {
+        call.type = "custom";
+      }
+      if (
         delta.type !== undefined &&
         delta.type !== "function" &&
+        delta.type !== "custom" &&
         !call.skipped
       ) {
         this.#losses.push({
@@ -314,7 +346,14 @@ export class ChatCompletionsStreamDecoder {
         });
         call.skipped = true;
       }
-      if (call.skipped || delta.function === undefined) continue;
+      if (call.skipped) continue;
+      if (call.type === "custom") {
+        if (delta.custom?.name !== undefined) call.name += delta.custom.name;
+        if (delta.custom?.input !== undefined)
+          call.fragments.push(delta.custom.input);
+        continue;
+      }
+      if (delta.function === undefined) continue;
       if (delta.function.name !== undefined) call.name += delta.function.name;
       if (delta.function.arguments !== undefined)
         call.fragments.push(delta.function.arguments);
@@ -356,7 +395,6 @@ type EncoderBlock =
       readonly kind: "custom";
       readonly index: number;
       readonly blockType:
-        | "custom_tool_use"
         | "custom_tool_result"
         | "apply_patch_tool_use"
         | "apply_patch_tool_result";
@@ -374,6 +412,7 @@ type EncoderBlock =
       readonly input: string;
       readonly nativeIndex: number;
       readonly fragments: string[];
+      readonly toolType?: "function" | "custom";
       started: boolean;
     };
 
@@ -457,17 +496,28 @@ export class ChatCompletionsStreamEncoder {
         ],
       };
     }
+    if (event.block.type === "custom_tool_use") {
+      if (event.block.id === "" || event.block.name === "")
+        this.#lifecycle("custom_tool_use requires nonempty id and name");
+      this.#active = {
+        kind: "tool",
+        index: event.index,
+        id: event.block.id,
+        name: event.block.name,
+        input: event.block.input,
+        nativeIndex: this.#nextNativeTool++,
+        fragments: [],
+        toolType: "custom",
+        started: false,
+      };
+      this.#toolSeen = true;
+      return this.#result([]);
+    }
     if (
-      event.block.type === "custom_tool_use" ||
       event.block.type === "custom_tool_result" ||
       event.block.type === "apply_patch_tool_use" ||
       event.block.type === "apply_patch_tool_result"
     ) {
-      if (
-        event.block.type === "custom_tool_use" &&
-        (event.block.id === "" || event.block.name === "")
-      )
-        this.#lifecycle("custom_tool_use requires nonempty id and name");
       if (
         event.block.type === "custom_tool_result" &&
         event.block.tool_use_id === ""
@@ -518,13 +568,7 @@ export class ChatCompletionsStreamEncoder {
       return this.#result([this.#chunk({ content: event.delta.text })]);
     }
     if (this.#active.kind === "custom") {
-      if (
-        this.#active.blockType !== "custom_tool_use" ||
-        event.delta.type !== "custom_tool_input_delta" ||
-        typeof event.delta.text !== "string"
-      )
-        this.#lifecycle("delta does not match skipped custom block");
-      return this.#result([]);
+      this.#lifecycle("delta does not match skipped custom block");
     }
     if (this.#active.kind === "thinking") {
       if (event.delta.type === "thinking_delta") {
@@ -553,11 +597,22 @@ export class ChatCompletionsStreamEncoder {
       }
       this.#lifecycle("thinking block received non-thinking delta");
     }
-    if (event.delta.type !== "input_json_delta")
-      this.#lifecycle("tool block received non-input-json delta");
-    const fragment = event.delta.partial_json as string;
-    this.#active.fragments.push(fragment);
-    this.#queueToolArguments(this.#active, fragment);
+    if (this.#active.kind === "tool") {
+      if (this.#active.toolType === "custom") {
+        if (event.delta.type !== "custom_tool_input_delta")
+          this.#lifecycle("custom tool block received non-custom-input delta");
+        const fragment = event.delta.text;
+        this.#active.fragments.push(fragment);
+        this.#queueCustomToolArguments(this.#active, fragment);
+        return this.#result([]);
+      }
+      if (event.delta.type !== "input_json_delta")
+        this.#lifecycle("tool block received non-input-json delta");
+      const fragment = event.delta.partial_json as string;
+      this.#active.fragments.push(fragment);
+      this.#queueToolArguments(this.#active, fragment);
+      return this.#result([]);
+    }
     return this.#result([]);
   }
 
@@ -571,12 +626,14 @@ export class ChatCompletionsStreamEncoder {
     if (this.#active.kind === "tool") {
       if (this.#active.fragments.length === 0) {
         this.#active.fragments.push(this.#active.input);
-        this.#queueToolArguments(this.#active, this.#active.input);
+        if (this.#active.toolType === "custom") {
+          this.#queueCustomToolArguments(this.#active, this.#active.input);
+        } else {
+          this.#queueToolArguments(this.#active, this.#active.input);
+        }
       }
       if (this.#active.fragments.join("") !== this.#active.input)
-        this.#lifecycle(
-          "tool_use input does not equal concatenated input_json_delta fragments",
-        );
+        this.#lifecycle("tool_use input does not equal concatenated fragments");
     }
     this.#active = undefined;
     return this.#result([]);
@@ -665,6 +722,22 @@ export class ChatCompletionsStreamEncoder {
           function: { name: block.name, arguments: arguments_ },
         }
       : { index: block.nativeIndex, function: { arguments: arguments_ } };
+    block.started = true;
+    this.#pendingTools.push(this.#chunk({ tool_calls: [toolCall] }));
+  }
+
+  #queueCustomToolArguments(
+    block: Extract<EncoderBlock, { kind: "tool" }>,
+    input: string,
+  ): void {
+    const toolCall: ChatCompletionsToolCallDelta = !block.started
+      ? {
+          index: block.nativeIndex,
+          id: block.id,
+          type: "custom",
+          custom: { name: block.name, input },
+        }
+      : { index: block.nativeIndex, custom: { input } };
     block.started = true;
     this.#pendingTools.push(this.#chunk({ tool_calls: [toolCall] }));
   }

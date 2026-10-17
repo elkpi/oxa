@@ -18,6 +18,7 @@ type streamToolCall struct {
 	name      string
 	fragments []string
 	skipped   bool
+	isCustom  bool
 }
 
 // StreamDecoder incrementally converts a Chat Completions chunk stream into IR
@@ -166,16 +167,34 @@ func (d *StreamDecoder) recordToolCalls(calls []ToolCallDelta) error {
 			}
 			record.id = *call.ID
 		}
-		if call.Type != nil && *call.Type != ToolTypeFunction {
-			if !record.skipped {
-				d.losses = append(d.losses, loss(
-					fmt.Sprintf("choices[0].delta.tool_calls[%d]", call.Index), "type", ir.LossUnsupportedSemantic,
-					fmt.Sprintf("Chat Completions streamed tool type %q has no IR equivalent", *call.Type),
-				))
-				record.skipped = true
+		if call.Type != nil {
+			if *call.Type == ir.ToolTypeCustom && call.Custom != nil {
+				record.isCustom = true
+			} else if *call.Type != ToolTypeFunction || call.Custom != nil {
+				if !record.skipped {
+					d.losses = append(d.losses, loss(
+						fmt.Sprintf("choices[0].delta.tool_calls[%d]", call.Index), "type", ir.LossUnsupportedSemantic,
+						fmt.Sprintf("Chat Completions streamed tool type %q has no IR equivalent", *call.Type),
+					))
+					record.skipped = true
+				}
 			}
 		}
-		if record.skipped || call.Function == nil {
+		if record.skipped {
+			continue
+		}
+		if record.isCustom {
+			if call.Custom != nil {
+				if call.Custom.Name != "" {
+					record.name += call.Custom.Name
+				}
+				if call.Custom.Input != nil {
+					record.fragments = append(record.fragments, *call.Custom.Input)
+				}
+			}
+			continue
+		}
+		if call.Function == nil {
 			continue
 		}
 		if call.Function.Name != nil {
@@ -225,6 +244,24 @@ func (d *StreamDecoder) Flush() ([]ir.Event, error) {
 		}
 		index := d.nextIRIndex
 		d.nextIRIndex++
+		if call.isCustom {
+			events = append(events, ir.ContentBlockStart{
+				Index: index,
+				Block: ir.CustomToolUseBlock{ID: call.id, Name: call.name, Input: json.RawMessage(input)},
+			})
+			for _, fragment := range call.fragments {
+				partial, err := json.Marshal(fragment)
+				if err != nil {
+					return nil, fmt.Errorf("chatcompletions: wrap custom tool_calls[%d] fragment: %w", call.index, err)
+				}
+				events = append(events, ir.ContentBlockDelta{
+					Index: index,
+					Delta: ir.CustomToolInputDelta{Text: json.RawMessage(partial)},
+				})
+			}
+			events = append(events, ir.ContentBlockStop{Index: index})
+			continue
+		}
 		events = append(events, ir.ContentBlockStart{
 			Index: index,
 			Block: ir.ToolUseBlock{ID: call.id, Name: call.name, Input: input},

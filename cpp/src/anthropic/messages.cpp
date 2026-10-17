@@ -9,8 +9,35 @@ ir::Loss make_ant_loss(std::string path, std::string field, std::string_view rea
     return ir::make_loss(std::move(path), std::move(field), reason, std::move(detail));
 }
 
+bool is_custom_tool_input_schema(const json::Value& schema) {
+    if (!schema.is_object()) return false;
+    const auto* type_val = schema.find("type");
+    if (!type_val || !type_val->is_string() || type_val->as_string() != "object") return false;
+    const auto* props_val = schema.find("properties");
+    if (!props_val || !props_val->is_object()) return false;
+    const auto& props = props_val->as_object();
+    if (props.size() != 1) return false;
+    const auto* input_val = props_val->find("input");
+    if (!input_val || !input_val->is_object()) return false;
+    const auto* itype = input_val->find("type");
+    return itype && itype->is_string() && itype->as_string() == "string";
+}
+
+std::optional<std::string> extract_custom_input(const json::Value& input) {
+    if (!input.is_object()) return std::nullopt;
+    const auto& obj = input.as_object();
+    if (obj.size() == 1) {
+        if (const auto* iv = input.find("input"); iv && iv->is_string()) {
+            return iv->as_string();
+        }
+    }
+    return std::nullopt;
+}
+
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
-    const json::Value* content, const std::string& path, bool keep_raw_input = true) {
+    const json::Value* content, const std::string& path, bool keep_raw_input = true,
+    const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
+    const std::set<std::string>& declared_tools = {}) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -84,32 +111,77 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             if (!inp || !inp->is_object()) {
                 return invalid_argument(block_path + ".input must be an object");
             }
-            ir::ToolUseBlock tu;
-            tu.id = id_val->as_string();
-            tu.name = name_val->as_string();
-            if (keep_raw_input && !inp->raw_slice().empty()) {
-                tu.input = std::string(inp->raw_slice());
-            } else {
-                tu.input = json::serialize(*inp);
-            }
-            blocks.push_back(std::move(tu));
-        } else if (kind == "tool_result") {
-            ir::ToolResultBlock tr;
-            if (const auto* tcid = item.find("tool_use_id"); tcid && tcid->is_string()) {
-                tr.tool_use_id = tcid->as_string();
-            }
-            if (const auto* ie = item.find("is_error"); ie && ie->is_bool()) {
-                tr.is_error = ie->as_bool();
-            }
-            const auto* c_val = item.find("content");
-            if (c_val) {
-                OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content"));
-                losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
-                for (auto& b : inner_res.first) {
-                    tr.content.push_back(ir::BlockHolder{std::move(b)});
+            auto custom_in = extract_custom_input(*inp);
+            if (custom_tools.count(name_val->as_string())) {
+                if (custom_call_ids) custom_call_ids->insert(id_val->as_string());
+                ir::CustomToolUseBlock ctu;
+                ctu.id = id_val->as_string();
+                ctu.name = name_val->as_string();
+                ctu.input = custom_in.value_or("");
+                blocks.push_back(std::move(ctu));
+            } else if (declared_tools.count(name_val->as_string())) {
+                ir::ToolUseBlock tu;
+                tu.id = id_val->as_string();
+                tu.name = name_val->as_string();
+                if (keep_raw_input && !inp->raw_slice().empty()) {
+                    tu.input = std::string(inp->raw_slice());
+                } else {
+                    tu.input = json::serialize(*inp);
                 }
+                blocks.push_back(std::move(tu));
+            } else if (custom_in.has_value()) {
+                if (custom_call_ids) custom_call_ids->insert(id_val->as_string());
+                ir::CustomToolUseBlock ctu;
+                ctu.id = id_val->as_string();
+                ctu.name = name_val->as_string();
+                ctu.input = *custom_in;
+                blocks.push_back(std::move(ctu));
+            } else {
+                ir::ToolUseBlock tu;
+                tu.id = id_val->as_string();
+                tu.name = name_val->as_string();
+                if (keep_raw_input && !inp->raw_slice().empty()) {
+                    tu.input = std::string(inp->raw_slice());
+                } else {
+                    tu.input = json::serialize(*inp);
+                }
+                blocks.push_back(std::move(tu));
             }
-            blocks.push_back(std::move(tr));
+        } else if (kind == "tool_result") {
+            std::string tcid_str;
+            if (const auto* tcid = item.find("tool_use_id"); tcid && tcid->is_string()) {
+                tcid_str = tcid->as_string();
+            }
+            if (custom_call_ids && custom_call_ids->count(tcid_str)) {
+                ir::CustomToolResultBlock ctr;
+                ctr.tool_use_id = std::move(tcid_str);
+                const auto* c_val = item.find("content");
+                if (c_val && c_val->is_string()) {
+                    ctr.output = c_val->as_string();
+                } else if (c_val) {
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids));
+                    losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
+                    std::vector<ir::BlockHolder> holders;
+                    for (auto& b : inner_res.first) holders.push_back(ir::BlockHolder{std::move(b)});
+                    ctr.output = std::move(holders);
+                }
+                blocks.push_back(std::move(ctr));
+            } else {
+                ir::ToolResultBlock tr;
+                tr.tool_use_id = std::move(tcid_str);
+                if (const auto* ie = item.find("is_error"); ie && ie->is_bool()) {
+                    tr.is_error = ie->as_bool();
+                }
+                const auto* c_val = item.find("content");
+                if (c_val) {
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids));
+                    losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
+                    for (auto& b : inner_res.first) {
+                        tr.content.push_back(ir::BlockHolder{std::move(b)});
+                    }
+                }
+                blocks.push_back(std::move(tr));
+            }
         } else {
             losses.push_back(make_ant_loss(
                 block_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -170,6 +242,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!mv || !mv->is_string()) return invalid_argument("anthropic: request missing model");
     req.model = opts.model_map.map(mv->as_string());
 
+    std::set<std::string> custom_tools;
+    std::set<std::string> declared_tools;
     if (const auto* tools_val = wire.find("tools"); tools_val && tools_val->is_array()) {
         std::vector<ir::Tool> tools;
         for (std::size_t i = 0; i < tools_val->as_array().size(); ++i) {
@@ -182,7 +256,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     "Anthropic prompt caching (cache_control) has no IR equivalent in v1."));
             }
             ir::Tool tool;
-            if (const auto* nv = t.find("name"); nv && nv->is_string()) tool.name = nv->as_string();
+            if (const auto* nv = t.find("name"); nv && nv->is_string()) {
+                tool.name = nv->as_string();
+                declared_tools.insert(tool.name);
+            }
             if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
                 tool.description = dv->as_string();
                 tool.has_description = true;
@@ -191,7 +268,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             if (!is_val || !is_val->is_object()) {
                 return invalid_argument(tool_path + ".input_schema: must be a JSON object");
             }
-            tool.input_schema = *is_val;
+            if (is_custom_tool_input_schema(*is_val)) {
+                tool.type = "custom";
+                custom_tools.insert(tool.name);
+            } else {
+                tool.input_schema = *is_val;
+            }
             tools.push_back(std::move(tool));
         }
         if (!tools.empty()) req.tools = std::move(tools);
@@ -209,7 +291,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         } else if (kind == "tool") {
             std::string name;
             if (const auto* nv = tc_val->find("name"); nv && nv->is_string()) name = nv->as_string();
-            req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name};
+            auto tt = custom_tools.count(name) ? std::optional<std::string>("custom") : std::nullopt;
+            req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name, tt};
         }
         if (tc_val->find("disable_parallel_tool_use") != nullptr) {
             losses.push_back(make_ant_loss(
@@ -246,6 +329,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!msgs_val || !msgs_val->is_array() || msgs_val->as_array().empty()) {
         return invalid_argument("anthropic: request carries no messages");
     }
+    std::set<std::string> custom_call_ids;
     for (std::size_t i = 0; i < msgs_val->as_array().size(); ++i) {
         const auto& m = msgs_val->as_array()[i];
         const auto* role_val = m.find("role");
@@ -254,7 +338,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: unknown role \"" + role + "\"");
         }
         std::string content_path = "messages[" + std::to_string(i) + "].content";
-        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path));
+        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         req.messages.push_back(ir::Message{role, std::move(c_res.first)});
     }
@@ -332,17 +416,37 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("system", std::move(sys_arr));
     }
 
-    const bool all_tools_custom = req.tools.has_value() && !req.tools->empty() &&
+    const bool all_tools_dropped = req.tools.has_value() && !req.tools->empty() &&
         std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) {
-            return tool.type == "custom" || tool.type == ir::TOOL_TYPE_APPLY_PATCH;
+            return tool.type == ir::TOOL_TYPE_APPLY_PATCH;
         });
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
             const auto& t = (*req.tools)[ti];
             if (t.type == "custom") {
-                losses.push_back(make_ant_loss("tools[" + std::to_string(ti) + "]", "type",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                if (t.format.has_value() && t.format->find("type") && t.format->find("type")->is_string() && t.format->find("type")->as_string() == "grammar") {
+                    losses.push_back(make_ant_loss(
+                        "tools[" + std::to_string(ti) + "].format", "format", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints"));
+                }
+                json::Value tw = json::Value::object();
+                tw.set("name", json::Value::string(t.name));
+                if (t.has_description && !t.description.empty()) {
+                    tw.set("description", json::Value::string(t.description));
+                }
+                json::Value schema = json::Value::object();
+                schema.set("type", json::Value::string("object"));
+                json::Value props = json::Value::object();
+                json::Value in_prop = json::Value::object();
+                in_prop.set("type", json::Value::string("string"));
+                props.set("input", std::move(in_prop));
+                schema.set("properties", std::move(props));
+                json::Value req_arr = json::Value::array();
+                req_arr.push_back(json::Value::string("input"));
+                schema.set("required", std::move(req_arr));
+                tw.set("input_schema", std::move(schema));
+                tools_arr.push_back(std::move(tw));
                 continue;
             }
             if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
@@ -370,7 +474,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tco.set("type", json::Value::string("auto"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
-            if (all_tools_custom) losses.push_back(make_ant_loss("tool_choice", "tool_choice",
+            if (all_tools_dropped) losses.push_back(make_ant_loss("tool_choice", "tool_choice",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
             else {
                 json::Value tco = json::Value::object();
@@ -382,7 +486,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tco.set("type", json::Value::string("none"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
-            if (tc.tool_type.has_value() && (*tc.tool_type == "custom" || *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH)) {
+            if (tc.tool_type.has_value() && *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH) {
                 losses.push_back(make_ant_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "tool choice has no equivalent"));
             } else {
@@ -455,12 +559,52 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("input", json::Value::raw(tu->input));
                     }
                     content_arr.push_back(std::move(bw));
-                } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
-                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "custom_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
-                } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
-                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "custom_tool_result", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+                } else if (const auto* ctu = std::get_if<ir::CustomToolUseBlock>(&b)) {
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("tool_use"));
+                    bw.set("id", json::Value::string(ctu->id));
+                    bw.set("name", json::Value::string(ctu->name));
+                    json::Value inp = json::Value::object();
+                    inp.set("input", json::Value::string(ctu->input));
+                    bw.set("input", std::move(inp));
+                    content_arr.push_back(std::move(bw));
+                } else if (const auto* ctr = std::get_if<ir::CustomToolResultBlock>(&b)) {
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("tool_result"));
+                    bw.set("tool_use_id", json::Value::string(ctr->tool_use_id));
+                    if (const auto* str = std::get_if<std::string>(&ctr->output)) {
+                        bw.set("content", json::Value::string(*str));
+                    } else if (const auto* vec = std::get_if<std::vector<ir::BlockHolder>>(&ctr->output)) {
+                        json::Value c_arr = json::Value::array();
+                        for (std::size_t ci = 0; ci < vec->size(); ++ci) {
+                            const auto& inner = (*vec)[ci].block;
+                            if (const auto* itb = std::get_if<ir::TextBlock>(&inner)) {
+                                json::Value ib = json::Value::object();
+                                ib.set("type", json::Value::string("text"));
+                                ib.set("text", json::Value::string(itb->text));
+                                c_arr.push_back(std::move(ib));
+                            } else if (const auto* img = std::get_if<ir::ImageBlock>(&inner)) {
+                                json::Value ib = json::Value::object();
+                                ib.set("type", json::Value::string("image"));
+                                json::Value src = json::Value::object();
+                                if (img->data.has_value() && !img->data->empty()) {
+                                    src.set("type", json::Value::string("base64"));
+                                    src.set("media_type", json::Value::string(img->media_type.value_or("image/jpeg")));
+                                    src.set("data", json::Value::string(*img->data));
+                                } else if (img->url.has_value()) {
+                                    src.set("type", json::Value::string("url"));
+                                    src.set("url", json::Value::string(*img->url));
+                                }
+                                ib.set("source", std::move(src));
+                                c_arr.push_back(std::move(ib));
+                            } else {
+                                losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].output[" + std::to_string(ci) + "]",
+                                    "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "this IR block cannot be rendered in an Anthropic tool result"));
+                            }
+                        }
+                        bw.set("content", std::move(c_arr));
+                    }
+                    content_arr.push_back(std::move(bw));
                 } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
@@ -633,12 +777,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             }
             content_arr.push_back(std::move(bw));
             retained_tool_use = true;
-        } else if (std::holds_alternative<ir::CustomToolUseBlock>(b)) {
-            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "custom_tool_use",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
-        } else if (std::holds_alternative<ir::CustomToolResultBlock>(b)) {
-            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "custom_tool_result",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no native custom tool mapping"));
+        } else if (const auto* ctu = std::get_if<ir::CustomToolUseBlock>(&b)) {
+            json::Value bw = json::Value::object();
+            bw.set("type", json::Value::string("tool_use"));
+            bw.set("id", json::Value::string(ctu->id));
+            bw.set("name", json::Value::string(ctu->name));
+            json::Value inp = json::Value::object();
+            inp.set("input", json::Value::string(ctu->input));
+            bw.set("input", std::move(inp));
+            content_arr.push_back(std::move(bw));
+            retained_tool_use = true;
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
@@ -914,13 +1062,28 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             } else {
                 return invalid_argument("anthropic: tool_use input is required");
             }
-            events.push_back(ir::ContentBlockStart{
-                open_ir_index_, ir::ToolUseBlock{tool_id_, tool_name_, full_input}});
-            for (const auto& p : parts) {
-                events.push_back(ir::ContentBlockDelta{
-                    open_ir_index_, ir::InputJsonDelta{p}});
+
+            auto parsed_json = json::parse(full_input);
+            std::optional<std::string> custom_in;
+            if (parsed_json.ok()) {
+                custom_in = extract_custom_input(*parsed_json);
             }
-            events.push_back(ir::ContentBlockStop{open_ir_index_});
+
+            if (custom_in.has_value()) {
+                events.push_back(ir::ContentBlockStart{
+                    open_ir_index_, ir::CustomToolUseBlock{tool_id_, tool_name_, *custom_in}});
+                events.push_back(ir::ContentBlockDelta{
+                    open_ir_index_, ir::CustomToolInputDelta{*custom_in}});
+                events.push_back(ir::ContentBlockStop{open_ir_index_});
+            } else {
+                events.push_back(ir::ContentBlockStart{
+                    open_ir_index_, ir::ToolUseBlock{tool_id_, tool_name_, full_input}});
+                for (const auto& p : parts) {
+                    events.push_back(ir::ContentBlockDelta{
+                        open_ir_index_, ir::InputJsonDelta{p}});
+                }
+                events.push_back(ir::ContentBlockStop{open_ir_index_});
+            }
             open_tool_ = false;
             tool_id_.clear();
             tool_name_.clear();
@@ -1035,10 +1198,26 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         block_open_ = true;
         open_ir_index_ = cbs->index;
         if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&cbs->block)) {
-            (void)custom;
-            skipped_custom_ = true; open_tool_ = false; open_thinking_ = false;
-            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages streaming does not support custom tools"));
+            if (custom->id.empty() || custom->name.empty()) {
+                return invalid_argument("anthropic: ContentBlockStart custom_tool_use id and name are required");
+            }
+            open_tool_ = false;
+            open_thinking_ = false;
+            open_custom_ = true;
+            tool_seen_ = true;
+            tool_input_ = custom->input;
+            tool_parts_.clear();
+            open_index_ = next_index_++;
+            json::Value chunk = json::Value::object();
+            chunk.set("type", json::Value::string("content_block_start"));
+            chunk.set("index", json::Value::integer(open_index_));
+            json::Value cb = json::Value::object();
+            cb.set("type", json::Value::string("tool_use"));
+            cb.set("id", json::Value::string(custom->id));
+            cb.set("name", json::Value::string(custom->name));
+            cb.set("input", json::Value::object());
+            chunk.set("content_block", std::move(cb));
+            chunks.push_back(std::move(chunk));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
@@ -1102,9 +1281,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (skipped_atomic_) {
             return invalid_argument("anthropic: atomic block does not accept deltas");
         }
-        if (skipped_custom_) {
-            if (!std::holds_alternative<ir::CustomToolInputDelta>(cbd->delta))
-                return invalid_argument("anthropic: custom tool block received wrong delta type");
+        if (open_custom_) {
+            const auto* ctd = std::get_if<ir::CustomToolInputDelta>(&cbd->delta);
+            if (!ctd) return invalid_argument("anthropic: custom tool block received wrong delta type");
+            tool_parts_.push_back(ctd->text);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         json::Value chunk = json::Value::object();
@@ -1152,9 +1332,29 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             block_open_ = false; skipped_atomic_ = false;
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
-        if (skipped_custom_) {
-            block_open_ = false; skipped_custom_ = false;
-            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        if (open_custom_) {
+            std::string full_input = tool_input_;
+            if (!tool_parts_.empty()) {
+                std::string joined;
+                for (const auto& p : tool_parts_) joined += p;
+                if (joined != tool_input_) {
+                    return invalid_argument("anthropic: custom tool input fragments do not match CustomToolUseBlock input");
+                }
+                full_input = joined;
+            }
+            json::Value d_chunk = json::Value::object();
+            d_chunk.set("type", json::Value::string("content_block_delta"));
+            d_chunk.set("index", json::Value::integer(open_index_));
+            json::Value delta = json::Value::object();
+            delta.set("type", json::Value::string("input_json_delta"));
+            json::Value wrapped_obj = json::Value::object();
+            wrapped_obj.set("input", json::Value::string(full_input));
+            delta.set("partial_json", json::Value::string(json::serialize(wrapped_obj)));
+            d_chunk.set("delta", std::move(delta));
+            chunks.push_back(std::move(d_chunk));
+            open_custom_ = false;
+            tool_input_.clear();
+            tool_parts_.clear();
         }
         if (open_thinking_) {
             if (thinking_parts_.empty() && !thinking_input_.empty()) {

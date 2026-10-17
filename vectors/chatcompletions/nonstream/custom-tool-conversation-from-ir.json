@@ -1,0 +1,86 @@
+{
+  "name": "chatcompletions.nonstream.custom-tool-conversation-from-ir",
+  "description": "N-CC-14：Chat Completions 原生 Custom Tools 调用与结果会话多轮转换。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "run code"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "executing"
+          },
+          {
+            "type": "custom_tool_use",
+            "id": "call_c",
+            "name": "code_exec",
+            "input": "print(\"hello\\n\")"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "custom_tool_result",
+            "tool_use_id": "call_c",
+            "output": "hello\n"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "n-cc-14"
+  ],
+  "target": {
+    "protocol": "chatcompletions"
+  },
+  "expected_output": {
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": "run code"
+      },
+      {
+        "role": "assistant",
+        "content": "executing",
+        "tool_calls": [
+          {
+            "id": "call_c",
+            "type": "custom",
+            "custom": {
+              "name": "code_exec",
+              "input": "print(\"hello\\n\")"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_c",
+        "content": "hello\n"
+      }
+    ]
+  }
+}

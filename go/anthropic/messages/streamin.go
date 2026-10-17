@@ -212,6 +212,32 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, fmt.Errorf("anthropic: content_block_stop index %d does not match the open block", ev.Index)
 		}
 		if d.openTool {
+			var fullInput []byte
+			if len(d.toolParts) > 0 {
+				fullInput = []byte(strings.Join(d.toolParts, ""))
+			} else {
+				fullInput = d.toolInput
+			}
+			if customInput, ok := extractCustomInput(fullInput); ok {
+				inputBytes, _ := json.Marshal(customInput)
+				events := []ir.Event{
+					ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.CustomToolUseBlock{
+						ID: d.toolID, Name: d.toolName, Input: inputBytes,
+					}},
+					ir.ContentBlockDelta{
+						Index: d.openIRIndex,
+						Delta: ir.CustomToolInputDelta{Text: inputBytes},
+					},
+					ir.ContentBlockStop{Index: d.openIRIndex},
+				}
+				d.blockOpen = false
+				d.openTool = false
+				d.toolID = ""
+				d.toolName = ""
+				d.toolInput = nil
+				d.toolParts = nil
+				return events, nil
+			}
 			var input json.RawMessage
 			var deltas []ir.Event
 			if len(d.toolParts) > 0 {

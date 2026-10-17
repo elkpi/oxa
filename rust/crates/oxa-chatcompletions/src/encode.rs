@@ -42,12 +42,27 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut supported = Vec::new();
         for (index, tool) in tools.iter().enumerate() {
             if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
-                losses.push(loss(
-                    format!("tools[{index}]"),
-                    "type",
-                    LossReason::UnsupportedSemantic,
-                    "Chat Completions has no native custom tool mapping",
-                ));
+                let fmt = tool
+                    .format
+                    .as_ref()
+                    .map(|f| crate::types::CustomFormatWire {
+                        kind: f.format_type.clone(),
+                        syntax: f.syntax.clone(),
+                        definition: f.definition.clone(),
+                    });
+                supported.push(ToolWire {
+                    kind: crate::types::TOOL_TYPE_CUSTOM.to_string(),
+                    function: None,
+                    custom: Some(crate::types::CustomToolWire {
+                        name: tool.name.clone(),
+                        description: tool.description.clone(),
+                        format: Some(fmt.unwrap_or(crate::types::CustomFormatWire {
+                            kind: "text".to_string(),
+                            syntax: None,
+                            definition: None,
+                        })),
+                    }),
+                });
                 continue;
             }
             if tool.tool_type == Some(oxa_ir::ToolType::ApplyPatch) {
@@ -61,7 +76,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
             supported.push(ToolWire {
                 kind: TOOL_TYPE_FUNCTION.to_string(),
-                function: FunctionWire {
+                function: Some(FunctionWire {
                     name: tool.name.clone(),
                     description: tool.description.clone().unwrap_or_default(),
                     parameters: non_null(
@@ -70,7 +85,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                             .unwrap_or(&serde_json::Value::Null),
                     ),
                     arguments: String::new(),
-                },
+                }),
+                custom: None,
             });
         }
         if !supported.is_empty() {
@@ -84,14 +100,13 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
         && req.tools.as_ref().is_some_and(|ts| {
             !ts.is_empty()
-                && ts.iter().all(|t| {
-                    t.tool_type == Some(oxa_ir::ToolType::Custom)
-                        || t.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
-                })
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
         })
     {
         choice = None;
-        losses.push(loss("tool_choice","tool_choice",LossReason::UnsupportedSemantic,"all declared tools were dropped because Chat Completions does not support custom tools"));
+        losses.push(loss("tool_choice","tool_choice",LossReason::UnsupportedSemantic,"all declared tools were dropped because Chat Completions does not support apply_patch tools"));
     }
     out.tool_choice = choice;
     if let Some(loss) = choice_loss {
@@ -160,15 +175,6 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 // render it after the tool-result run as a separate user
                 // message.
                 for (position, result) in &results {
-                    if matches!(result, Block::CustomToolResult { .. }) {
-                        losses.push(loss(
-                            format!("messages[{index}].content[{position}]"),
-                            "type",
-                            LossReason::UnsupportedSemantic,
-                            "Chat Completions has no native custom tool result mapping",
-                        ));
-                        continue;
-                    }
                     if matches!(result, Block::ApplyPatchToolResult { .. }) {
                         losses.push(loss(
                             format!("messages[{index}].content[{position}]"),
@@ -281,20 +287,18 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let has_native_call = resp
         .content
         .iter()
-        .any(|b| matches!(b, Block::ToolUse { .. }));
-    let has_custom = resp.content.iter().any(|b| {
-        matches!(
-            b,
-            Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. }
-        )
-    });
+        .any(|b| matches!(b, Block::ToolUse { .. } | Block::CustomToolUse { .. }));
+    let has_unsupported = resp
+        .content
+        .iter()
+        .any(|b| matches!(b, Block::ApplyPatchToolUse { .. }));
     let effective_stop =
-        if resp.stop_reason == StopReason::ToolUse && has_custom && !has_native_call {
+        if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
             losses.push(loss(
                 "stop_reason",
                 "stop_reason",
                 LossReason::Degraded,
-                "custom calls were dropped; tool_use normalized to end_turn",
+                "apply_patch calls were dropped; tool_use normalized to end_turn",
             ));
             StopReason::EndTurn
         } else {

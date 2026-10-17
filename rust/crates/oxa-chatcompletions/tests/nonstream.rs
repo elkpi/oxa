@@ -2,7 +2,8 @@
 //! boundaries, loss details, and the modelmap injection point.
 
 use oxa_chatcompletions::{
-    Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
+    Config, ContentValue, Request, Response, decode_request, decode_response, encode_request,
+    encode_response,
 };
 use oxa_ir::{
     Block, InputTokensDetails, LossReason, OutputTokensDetails, Params, ReasoningEffort, Role,
@@ -636,5 +637,88 @@ fn tool_argument_text_is_preserved_verbatim() {
     let (wire, _) = encode_request(&req, &Config::default()).expect("encode");
     let assistant = &wire.messages[1];
     let calls = assistant.tool_calls.as_ref().expect("tool calls");
-    assert_eq!(calls[0].function.arguments, r#"{"x":1e+01,"y":"café"}"#);
+    assert_eq!(
+        calls[0].function.as_ref().unwrap().arguments,
+        r#"{"x":1e+01,"y":"café"}"#
+    );
+}
+
+#[test]
+fn test_custom_tool_result_array_preserved() {
+    let req = oxa_ir::Request {
+        model: "m".to_string(),
+        system: Vec::new(),
+        messages: vec![
+            oxa_ir::Message {
+                role: oxa_ir::Role::User,
+                content: vec![Block::Text {
+                    text: "hi".to_string(),
+                }],
+            },
+            oxa_ir::Message {
+                role: oxa_ir::Role::Assistant,
+                content: vec![Block::CustomToolUse {
+                    id: "c".to_string(),
+                    name: "run".to_string(),
+                    input: "cmd".to_string(),
+                }],
+            },
+            oxa_ir::Message {
+                role: oxa_ir::Role::User,
+                content: vec![Block::CustomToolResult {
+                    tool_use_id: "c".to_string(),
+                    output: oxa_ir::CustomToolOutput::Content(vec![
+                        Block::Text {
+                            text: "line 1".to_string(),
+                        },
+                        Block::Text {
+                            text: "line 2".to_string(),
+                        },
+                    ]),
+                }],
+            },
+        ],
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+    };
+    let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
+    assert!(losses.is_empty());
+    assert!(matches!(
+        wire.messages[2].content,
+        Some(ContentValue::Parts(_))
+    ));
+    let (decoded, decode_losses) =
+        decode_request(&wire, &Config::default()).expect("decode request");
+    assert!(decode_losses.is_empty());
+    let Block::CustomToolResult { output, .. } = &decoded.messages[2].content[0] else {
+        panic!("expected CustomToolResult");
+    };
+    assert!(matches!(output, oxa_ir::CustomToolOutput::Content(parts) if parts.len() == 2));
+}
+
+#[test]
+fn test_chatcompletions_preserves_missing_format_and_reports_unknown_format() {
+    let wire_missing = wire_request(serde_json::json!({
+        "model": "m",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "tools": [{ "type": "custom", "custom": { "name": "c" } }]
+    }));
+    let (req, losses) = decode_request(&wire_missing, &Config::default()).expect("decode");
+    assert!(losses.is_empty());
+    assert_eq!(req.tools.as_ref().unwrap()[0].format, None);
+
+    let wire_unknown = wire_request(serde_json::json!({
+        "model": "m",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "tools": [{ "type": "custom", "custom": { "name": "c", "format": { "type": "unknown_fmt" } } }]
+    }));
+    let (req, losses) = decode_request(&wire_unknown, &Config::default()).expect("decode");
+    assert!(
+        losses
+            .iter()
+            .any(|l| l.reason == LossReason::UnsupportedSemantic)
+    );
+    assert_eq!(req.tools.as_ref().unwrap()[0].format, None);
 }

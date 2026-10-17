@@ -9,6 +9,9 @@ Status: normative. The current spec version is declared in [README.md](README.md
 规范 2.3 的 Apply Patch 原子项流式规则见 [14](14-apply-patch.md#4-原子项流式--n-ap-4)：
 专用调用/结果在 output_item.done 后发 start/stop，不接受 Delta；不新增专用 wire delta 事件。
 
+规范 2.3.1 的 Chat Completions 原生 custom 流式及 Anthropic Messages 结构化包装流式规则见
+[10](10-mapping-openai-chat-completions.md)、[12](12-mapping-anthropic-messages.md) 与 [13 §5](13-custom-tools.md#5-跨协议支持与目标映射--n-c-5)。
+
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT",
 "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this
 document are to be interpreted as described in RFC 2119 and RFC 8174 when,

@@ -2,11 +2,10 @@
 
 from __future__ import annotations
 
-from oxa._wire import raw_field
-
 import json
 from typing import Any
 
+from oxa._wire import raw_field
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
@@ -28,6 +27,8 @@ from oxa.ir import (
     TOOL_CHOICE_NONE,
     TOOL_CHOICE_TOOL,
     Block,
+    CustomToolResultBlock,
+    CustomToolUseBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -97,6 +98,9 @@ def decode_content(
     content: Any,
     path: str,
     raw_text: str = "",
+    custom_tools: set[str] | None = None,
+    custom_call_ids: set[str] | None = None,
+    declared_tools: set[str] | None = None,
 ) -> tuple[list[Block], list[Loss]]:
     """Decodes wire message content: string or block array."""
     if content is None:
@@ -109,7 +113,9 @@ def decode_content(
         for index, block in enumerate(content):
             if not isinstance(block, dict):
                 raise ValueError(f"anthropic: {path}[{index}] must be a block object")
-            decoded, b_losses, mapped = decode_block(block, f"{path}[{index}]", raw_text)
+            decoded, b_losses, mapped = decode_block(
+                block, f"{path}[{index}]", raw_text, custom_tools, custom_call_ids, declared_tools
+            )
             if mapped:
                 out.extend(decoded)
             losses.extend(b_losses)
@@ -125,6 +131,9 @@ def decode_block(
     wire: dict[str, Any],
     path: str,
     raw_text: str = "",
+    custom_tools: set[str] | None = None,
+    custom_call_ids: set[str] | None = None,
+    declared_tools: set[str] | None = None,
 ) -> tuple[list[Block], list[Loss], bool]:
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
@@ -224,6 +233,31 @@ def decode_block(
         if not isinstance(raw_input, dict):
             raise ValueError(f"anthropic: {path}.input must be a JSON object")
 
+        is_custom = False
+        custom_input = None
+        if custom_tools and name in custom_tools:
+            is_custom = True
+            custom_input = str(raw_input.get("input", ""))
+        elif declared_tools and name in declared_tools:
+            is_custom = False
+        elif (
+            isinstance(raw_input, dict)
+            and list(raw_input.keys()) == ["input"]
+            and isinstance(raw_input["input"], str)
+        ):
+            is_custom = True
+            custom_input = raw_input["input"]
+
+        if is_custom:
+            if custom_call_ids is not None:
+                custom_call_ids.add(tool_id)
+            block = CustomToolUseBlock(
+                id=tool_id,
+                name=name,
+                input=custom_input if custom_input is not None else "",
+            )
+            return [block], losses, True
+
         raw_slice = extract_tool_input_raw(raw_text, f"{path}.input")
         if raw_slice is not None:
             input_text = raw_slice
@@ -246,11 +280,30 @@ def decode_block(
         if not tool_use_id:
             raise ValueError(f"anthropic: {path}.tool_use_id is required")
         inner_content = wire.get("content", [])
+        if custom_call_ids and tool_use_id in custom_call_ids:
+            if isinstance(inner_content, str):
+                return (
+                    [CustomToolResultBlock(tool_use_id=tool_use_id, output=inner_content)],
+                    losses,
+                    True,
+                )
+            content_blocks, c_losses = decode_content(
+                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
+            )
+            losses.extend(c_losses)
+            return (
+                [CustomToolResultBlock(tool_use_id=tool_use_id, output=content_blocks)],
+                losses,
+                True,
+            )
+
         content_blocks: list[Block]
         if isinstance(inner_content, str):
             content_blocks = [TextBlock(text=inner_content)]
         else:
-            content_blocks, c_losses = decode_content(inner_content, f"{path}.content", raw_text)
+            content_blocks, c_losses = decode_content(
+                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
+            )
             losses.extend(c_losses)
         is_error = bool(wire.get("is_error", False))
         block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
@@ -276,7 +329,10 @@ def decode_block(
     return [], losses, False
 
 
-def decode_tool_choice(choice: Any) -> tuple[ToolChoice | None, list[Loss]]:
+def decode_tool_choice(
+    choice: Any,
+    custom_tools: set[str] | None = None,
+) -> tuple[ToolChoice | None, list[Loss]]:
     """Decodes the wire tool_choice object (N-AN-6)."""
     if choice is None:
         return None, []
@@ -296,7 +352,8 @@ def decode_tool_choice(choice: Any) -> tuple[ToolChoice | None, list[Loss]]:
         name = choice.get("name", "")
         if not name:
             raise ValueError("anthropic: tool_choice.name is required for type tool")
-        decoded = ToolChoice(mode=TOOL_CHOICE_TOOL, name=name)
+        tool_type = "custom" if (custom_tools and name in custom_tools) else "function"
+        decoded = ToolChoice(mode=TOOL_CHOICE_TOOL, name=name, tool_type=tool_type)
     else:
         losses.append(
             loss(
@@ -330,8 +387,14 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[dict[str, Any] | None
     if choice.mode == TOOL_CHOICE_NONE:
         return {"type": TOOL_CHOICE_TYPE_NONE}, []
     if choice.mode == TOOL_CHOICE_TOOL:
-        if choice.tool_type in ("custom", "apply_patch"):
-            return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages has no tool choice mapping")]
+        if choice.tool_type == "apply_patch":
+            return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch has no Anthropic tool choice mapping")]
+        if not choice.name:
+            raise ValueError("anthropic: tool_choice.name is required for mode tool")
+        return {
+            "type": TOOL_CHOICE_TYPE_TOOL,
+            "name": choice.name,
+        }, []
         if not choice.name:
             raise ValueError("anthropic: tool_choice.name is required for mode tool")
         return {

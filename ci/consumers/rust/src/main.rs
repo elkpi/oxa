@@ -52,6 +52,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     name: Some("lookup".to_string()),
                     arguments: Some("{\"q\"".to_string()),
                 }),
+                ..Default::default()
             }]),
             ..Default::default()
         },

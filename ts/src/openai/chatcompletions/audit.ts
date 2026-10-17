@@ -21,8 +21,28 @@ const FUNCTION: WireAuditSpec = {
   },
 };
 
+const CUSTOM: WireAuditSpec = {
+  fields: {
+    name: undefined,
+    description: undefined,
+    format: {
+      fields: {
+        type: undefined,
+        syntax: undefined,
+        definition: undefined,
+      },
+    },
+    input: undefined,
+  },
+};
+
 const TOOL_CALL: WireAuditSpec = {
-  fields: { id: undefined, type: undefined, function: FUNCTION },
+  fields: {
+    id: undefined,
+    type: undefined,
+    function: FUNCTION,
+    custom: CUSTOM,
+  },
 };
 
 const MESSAGE: WireAuditSpec = {
@@ -37,8 +57,13 @@ const MESSAGE: WireAuditSpec = {
 
 const TOOL: WireAuditSpec = {
   variant: (tool) => {
-    if (tool.type !== "function") return undefined;
-    return { fields: { type: undefined, function: FUNCTION } };
+    if (tool.type === "function") {
+      return { fields: { type: undefined, function: FUNCTION } };
+    }
+    if (tool.type === "custom") {
+      return { fields: { type: undefined, custom: CUSTOM } };
+    }
+    return undefined;
   },
 };
 
@@ -46,10 +71,17 @@ const FUNCTION_CHOICE: WireAuditSpec = {
   fields: { name: undefined },
 };
 
+const CUSTOM_CHOICE: WireAuditSpec = {
+  fields: { name: undefined },
+};
+
 const TOOL_CHOICE: WireAuditSpec = {
   variant: (choice) => {
     if (choice.type === "function") {
       return { fields: { type: undefined, function: FUNCTION_CHOICE } };
+    }
+    if (choice.type === "custom") {
+      return { fields: { type: undefined, custom: CUSTOM_CHOICE } };
     }
     return undefined;
   },
@@ -121,6 +153,7 @@ const TOOL_CALL_DELTA: WireAuditSpec = {
     id: undefined,
     type: undefined,
     function: FUNCTION,
+    custom: CUSTOM,
   },
 };
 

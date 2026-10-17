@@ -1,9 +1,12 @@
 """Streaming unit tests beyond golden vectors: lifecycle order, error paths, and grammar constraints."""
 
+import json
 import unittest
 
 from oxa.anthropic.messages import (
     StreamDecoder as AnthropicStreamDecoder,
+)
+from oxa.anthropic.messages import (
     StreamEncoder as AnthropicStreamEncoder,
 )
 from oxa.ir import (
@@ -11,6 +14,8 @@ from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
     STOP_TOOL_USE,
+    ApplyPatchCreateFileOperation,
+    ApplyPatchToolUseBlock,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -23,6 +28,8 @@ from oxa.ir import (
 )
 from oxa.openai.chatcompletions import (
     StreamDecoder as ChatCompletionsStreamDecoder,
+)
+from oxa.openai.chatcompletions import (
     StreamEncoder as ChatCompletionsStreamEncoder,
 )
 from oxa.openai.responses import (
@@ -70,12 +77,21 @@ class StreamUnitTests(unittest.TestCase):
         events = dec.feed({"type": "response.output_item.done", "output_index": 0, "item": {"type": "custom_tool_call", "id": "ctc_0", "call_id": "c", "name": "exec", "input": ""}})
         self.assertEqual(events[1].delta, CustomToolInputDelta(text=""))
 
-    def test_unsupported_stream_encoders_absorb_custom_blocks_and_degrade_stop(self) -> None:
-        stream = [MessageStart(id="r", model="m"),
-                  ContentBlockStart(index=0, block=CustomToolUseBlock(id="c", name="exec", input="raw")),
-                  ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="raw")),
-                  ContentBlockStop(index=0),
-                  MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()), MessageDone()]
+    def test_unsupported_stream_encoders_absorb_apply_patch_and_degrade_stop(self) -> None:
+        stream = [
+            MessageStart(id="r", model="m"),
+            ContentBlockStart(
+                index=0,
+                block=ApplyPatchToolUseBlock(
+                    id="p",
+                    status="in_progress",
+                    operation=ApplyPatchCreateFileOperation(path="a.txt", diff=""),
+                ),
+            ),
+            ContentBlockStop(index=0),
+            MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()),
+            MessageDone(),
+        ]
         for encoder, terminal in ((ChatCompletionsStreamEncoder(), "stop"), (AnthropicStreamEncoder(), "end_turn")):
             wire, losses = [], []
             for event in stream:
@@ -88,6 +104,45 @@ class StreamUnitTests(unittest.TestCase):
                 self.assertEqual(wire[-1]["choices"][0]["finish_reason"], "stop")
             else:
                 self.assertEqual(wire[-2]["delta"]["stop_reason"], "end_turn")
+
+    def test_supported_stream_encoders_emit_custom_tool_calls(self) -> None:
+        stream = [
+            MessageStart(id="r", model="m"),
+            ContentBlockStart(index=0, block=CustomToolUseBlock(id="c", name="exec", input="raw")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="raw")),
+            ContentBlockStop(index=0),
+            MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()),
+            MessageDone(),
+        ]
+        for encoder in (ChatCompletionsStreamEncoder(), AnthropicStreamEncoder()):
+            wire, losses = [], []
+            for event in stream:
+                emitted, event_losses = encoder.apply(event)
+                wire.extend(emitted)
+                losses.extend(event_losses)
+            self.assertEqual(len(losses), 0)
+            self.assertTrue(len(wire) > 0)
+
+    def test_anthropic_custom_tool_multi_fragment_stream(self) -> None:
+        stream = [
+            MessageStart(id="r", model="m"),
+            ContentBlockStart(index=0, block=CustomToolUseBlock(id="c", name="exec", input="ab")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="a")),
+            ContentBlockDelta(index=0, delta=CustomToolInputDelta(text="b")),
+            ContentBlockStop(index=0),
+            MessageDelta(stop_reason=STOP_TOOL_USE, usage=Usage()),
+            MessageDone(),
+        ]
+        encoder = AnthropicStreamEncoder()
+        wire, losses = [], []
+        for event in stream:
+            emitted, event_losses = encoder.apply(event)
+            wire.extend(emitted)
+            losses.extend(event_losses)
+        self.assertEqual(len(losses), 0)
+        joined = "".join(w["delta"]["partial_json"] for w in wire if w.get("type") == "content_block_delta" and "delta" in w)
+        parsed = json.loads(joined)
+        self.assertEqual(parsed, {"input": "ab"})
 
     def test_chatcompletions_decoder_flush_twice_is_error(self) -> None:
         dec = ChatCompletionsStreamDecoder()

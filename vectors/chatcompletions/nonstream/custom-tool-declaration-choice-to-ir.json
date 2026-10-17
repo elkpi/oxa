@@ -1,0 +1,72 @@
+{
+  "name": "chatcompletions.nonstream.custom-tool-declaration-choice-to-ir",
+  "description": "N-CC-14：Chat Completions 原生 Custom Tools 声明与 choice 双向转换。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "tools": [
+      {
+        "type": "custom",
+        "custom": {
+          "name": "code_exec",
+          "description": "Executes text verbatim.",
+          "format": {
+            "type": "text"
+          }
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "custom",
+      "custom": {
+        "name": "code_exec"
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "n-cc-14"
+  ],
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hello"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "custom",
+        "name": "code_exec",
+        "description": "Executes text verbatim.",
+        "format": {
+          "type": "text"
+        }
+      }
+    ],
+    "tool_choice": {
+      "mode": "tool",
+      "name": "code_exec",
+      "tool_type": "custom"
+    }
+  }
+}

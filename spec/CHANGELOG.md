@@ -5,6 +5,15 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.3.1 - Unreleased
+
+### Added
+
+- OpenAI Chat Completions 原生 Custom Tools 支持（N-CC-14）：嵌套 `custom: {name, description?, format}` 声明、`custom: {name}` choice、`tool_calls[type=custom].custom.{name, input}` 调用、`role: "tool"` 结果及流式双向映射。
+- Anthropic Messages 结构化包装 Custom Tools 支持（N-AN-13）：单属性 `input_schema: {"type":"object","properties":{"input":{"type":"string"}}}` 声明、`tool_use.input: {"input": "..."}` 调用、`tool_result` 结果及流式缓冲/解包回放双向映射。
+- 消除 Responses ⇄ Chat Completions / Anthropic 转换中的 Custom Tools 降级损耗，达成跨三大协议面对等互通。
+- IR contract 保持 `0.2.0`（兼容读取 `0.1.0`）。
+
 ## 2.3.0 - 2026-10-16
 
 ### Added

@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::decode::{decode_finish_reason, decode_usage};
 use crate::error::Error;
 use crate::normalize::loss;
-use crate::types::{Chunk, TOOL_TYPE_FUNCTION, ToolCallDelta};
+use crate::types::{Chunk, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION, ToolCallDelta};
 
 #[derive(Default)]
 struct StreamToolCall {
@@ -15,6 +15,7 @@ struct StreamToolCall {
     name: String,
     fragments: Vec<String>,
     skipped: bool,
+    tool_type: String,
 }
 
 /// Incrementally converts a Chat Completions chunk stream into IR events.
@@ -208,8 +209,14 @@ impl StreamDecoder {
                 }
                 record.id = id.clone();
             }
+            let is_custom = call.kind.as_deref() == Some(TOOL_TYPE_CUSTOM)
+                || (call.custom.is_some() && call.kind.is_none());
+            if is_custom {
+                record.tool_type = TOOL_TYPE_CUSTOM.to_string();
+            }
             if let Some(kind) = &call.kind
                 && kind != TOOL_TYPE_FUNCTION
+                && kind != TOOL_TYPE_CUSTOM
                 && !record.skipped
             {
                 self.losses.push(loss(
@@ -224,6 +231,17 @@ impl StreamDecoder {
                 record.skipped = true;
             }
             if record.skipped {
+                continue;
+            }
+            if record.tool_type == TOOL_TYPE_CUSTOM {
+                if let Some(custom) = &call.custom {
+                    if let Some(name) = &custom.name {
+                        record.name.push_str(name);
+                    }
+                    if let Some(input) = &custom.input {
+                        record.fragments.push(input.clone());
+                    }
+                }
                 continue;
             }
             if let Some(function) = &call.function {
@@ -283,23 +301,43 @@ impl StreamDecoder {
             let index = self.next_ir_index;
             self.next_ir_index += 1;
             let full_input = call.fragments.concat();
-            events.push(Event::ContentBlockStart {
-                index,
-                block: Block::ToolUse {
-                    id: call.id.clone(),
-                    name: call.name.clone(),
-                    input: full_input,
-                },
-            });
-            for fragment in &call.fragments {
-                events.push(Event::ContentBlockDelta {
+            if call.tool_type == TOOL_TYPE_CUSTOM {
+                events.push(Event::ContentBlockStart {
                     index,
-                    delta: Delta::InputJsonDelta {
-                        partial_json: fragment.clone(),
+                    block: Block::CustomToolUse {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        input: full_input,
                     },
                 });
+                for fragment in &call.fragments {
+                    events.push(Event::ContentBlockDelta {
+                        index,
+                        delta: Delta::CustomToolInputDelta {
+                            text: fragment.clone(),
+                        },
+                    });
+                }
+                events.push(Event::ContentBlockStop { index });
+            } else {
+                events.push(Event::ContentBlockStart {
+                    index,
+                    block: Block::ToolUse {
+                        id: call.id.clone(),
+                        name: call.name.clone(),
+                        input: full_input,
+                    },
+                });
+                for fragment in &call.fragments {
+                    events.push(Event::ContentBlockDelta {
+                        index,
+                        delta: Delta::InputJsonDelta {
+                            partial_json: fragment.clone(),
+                        },
+                    });
+                }
+                events.push(Event::ContentBlockStop { index });
             }
-            events.push(Event::ContentBlockStop { index });
         }
 
         let usage = self.usage.unwrap_or_default();

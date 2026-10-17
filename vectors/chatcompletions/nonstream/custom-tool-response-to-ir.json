@@ -1,0 +1,69 @@
+{
+  "name": "chatcompletions.nonstream.custom-tool-response-to-ir",
+  "description": "N-CC-14：Chat Completions 包含 custom 工具调用的响应转换为 IR 响应。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "id": "chatcmpl-custom123",
+    "object": "chat.completion",
+    "created": 1720000000,
+    "model": "m",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "executing",
+          "tool_calls": [
+            {
+              "id": "call_c",
+              "type": "custom",
+              "custom": {
+                "name": "code_exec",
+                "input": "print(\"hello\\n\")"
+              }
+            }
+          ]
+        },
+        "finish_reason": "tool_calls"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 5,
+      "total_tokens": 15
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "response",
+    "n-cc-14"
+  ],
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "chatcmpl-custom123",
+    "model": "m",
+    "content": [
+      {
+        "type": "text",
+        "text": "executing"
+      },
+      {
+        "type": "custom_tool_use",
+        "id": "call_c",
+        "name": "code_exec",
+        "input": "print(\"hello\\n\")"
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5
+    }
+  }
+}

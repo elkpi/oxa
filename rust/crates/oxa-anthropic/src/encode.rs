@@ -66,12 +66,25 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut wire_tools = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
             if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
-                losses.push(loss(
-                    format!("tools[{index}]"),
-                    "type",
-                    LossReason::UnsupportedSemantic,
-                    "Anthropic Messages has no native custom tool mapping",
-                ));
+                if let Some(fmt) = &tool.format
+                    && fmt.format_type == "grammar"
+                {
+                    losses.push(loss(
+                        format!("tools[{index}].format"),
+                        "format",
+                        LossReason::UnsupportedSemantic,
+                        "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
+                    ));
+                }
+                wire_tools.push(ToolWire {
+                    name: tool.name.clone(),
+                    description: tool.description.clone().unwrap_or_default(),
+                    input_schema: serde_json::json!({
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}},
+                        "required": ["input"],
+                    }),
+                });
                 continue;
             }
             if tool.tool_type == Some(oxa_ir::ToolType::ApplyPatch) {
@@ -107,10 +120,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
         && req.tools.as_ref().is_some_and(|ts| {
             !ts.is_empty()
-                && ts.iter().all(|t| {
-                    t.tool_type == Some(oxa_ir::ToolType::Custom)
-                        || t.tool_type == Some(oxa_ir::ToolType::ApplyPatch)
-                })
+                && ts
+                    .iter()
+                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
         })
     {
         choice = None;
@@ -294,10 +306,72 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             ))
         }
         Block::ToolResult { .. } => encode_tool_result_block(block, path),
-        Block::CustomToolUse { .. }
-        | Block::CustomToolResult { .. }
-        | Block::ApplyPatchToolUse { .. }
-        | Block::ApplyPatchToolResult { .. } => Ok((
+        Block::CustomToolUse { id, name, input } => {
+            if id.is_empty() {
+                return Err(Error::new(format!("anthropic: {path}.id is required")));
+            }
+            if name.is_empty() {
+                return Err(Error::new(format!("anthropic: {path}.name is required")));
+            }
+            let raw_json = serde_json::json!({"input": input}).to_string();
+            let raw = RawValue::from_string(raw_json).map_err(|e| Error::new(e.to_string()))?;
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: Some(raw),
+                    ..BlockWire::default()
+                },
+                Vec::new(),
+                true,
+            ))
+        }
+        Block::CustomToolResult {
+            tool_use_id,
+            output,
+        } => {
+            if tool_use_id.is_empty() {
+                return Err(Error::new(format!(
+                    "anthropic: {path}.tool_use_id is required"
+                )));
+            }
+            match output {
+                oxa_ir::CustomToolOutput::Text(t) => Ok((
+                    BlockWire {
+                        kind: BLOCK_TYPE_TOOL_RESULT.to_string(),
+                        tool_use_id: tool_use_id.clone(),
+                        content: Some(ContentValue::Text(t.clone())),
+                        ..BlockWire::default()
+                    },
+                    Vec::new(),
+                    true,
+                )),
+                oxa_ir::CustomToolOutput::Content(blocks) => {
+                    let mut content_wires = Vec::new();
+                    let mut losses = Vec::new();
+                    for (i, inner) in blocks.iter().enumerate() {
+                        let (w, l, mapped) =
+                            encode_request_block(inner, &format!("{path}.content[{i}]"))?;
+                        if mapped {
+                            content_wires.push(w);
+                        }
+                        losses.extend(l);
+                    }
+                    Ok((
+                        BlockWire {
+                            kind: BLOCK_TYPE_TOOL_RESULT.to_string(),
+                            tool_use_id: tool_use_id.clone(),
+                            content: Some(ContentValue::Blocks(content_wires)),
+                            ..BlockWire::default()
+                        },
+                        losses,
+                        true,
+                    ))
+                }
+            }
+        }
+        Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => Ok((
             BlockWire::default(),
             vec![loss(
                 path,
@@ -475,20 +549,18 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let has_native_call = resp
         .content
         .iter()
-        .any(|block| matches!(block, Block::ToolUse { .. }));
-    let has_custom = resp.content.iter().any(|block| {
-        matches!(
-            block,
-            Block::CustomToolUse { .. } | Block::ApplyPatchToolUse { .. }
-        )
-    });
+        .any(|block| matches!(block, Block::ToolUse { .. } | Block::CustomToolUse { .. }));
+    let has_unsupported = resp
+        .content
+        .iter()
+        .any(|block| matches!(block, Block::ApplyPatchToolUse { .. }));
     let effective_stop =
-        if resp.stop_reason == StopReason::ToolUse && has_custom && !has_native_call {
+        if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
             losses.push(loss(
                 "stop_reason",
                 "stop_reason",
                 LossReason::Degraded,
-                "custom calls were dropped; tool_use normalized to end_turn",
+                "apply_patch calls were dropped; tool_use normalized to end_turn",
             ));
             StopReason::EndTurn
         } else {
@@ -576,6 +648,27 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 return Err(Error::new(format!("anthropic: {path}.name is required")));
             }
             let raw: Box<RawValue> = input_from_ir_string(input, path)?;
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_TOOL_USE.to_string(),
+                    id: id.clone(),
+                    name: name.clone(),
+                    input: Some(raw),
+                    ..BlockWire::default()
+                },
+                Vec::new(),
+                true,
+            ))
+        }
+        Block::CustomToolUse { id, name, input } => {
+            if id.is_empty() {
+                return Err(Error::new(format!("anthropic: {path}.id is required")));
+            }
+            if name.is_empty() {
+                return Err(Error::new(format!("anthropic: {path}.name is required")));
+            }
+            let raw_json = serde_json::json!({"input": input}).to_string();
+            let raw = RawValue::from_string(raw_json).map_err(|e| Error::new(e.to_string()))?;
             Ok((
                 BlockWire {
                     kind: BLOCK_TYPE_TOOL_USE.to_string(),

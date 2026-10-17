@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -48,7 +49,20 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 
 	for i, tool := range req.Tools {
 		if tool.Type == ir.ToolTypeCustom {
-			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tools[%d]", i), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "custom tools have no equivalent in Anthropic Messages"})
+			if tool.Format != nil && tool.Format.Type == "grammar" {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("tools[%d].format", i),
+					Field:  "format",
+					Reason: ir.LossUnsupportedSemantic,
+					Detail: "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
+				})
+			}
+			schema := json.RawMessage(`{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`)
+			out.Tools = append(out.Tools, ToolWire{
+				Name:        tool.Name,
+				Description: tool.Description,
+				InputSchema: schema,
+			})
 			continue
 		}
 		if tool.Type == ir.ToolTypeApplyPatch {
@@ -161,8 +175,11 @@ func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error)
 	if choice == nil {
 		return nil, nil, nil
 	}
-	if choice.ToolType == ir.ToolTypeCustom || choice.ToolType == ir.ToolTypeApplyPatch {
-		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "tool choice has no equivalent"}}, nil
+	if choice.ToolType == ir.ToolTypeApplyPatch {
+		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool choice has no equivalent"}}, nil
+	}
+	if choice.ToolType == ir.ToolTypeCustom {
+		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
 	}
 	switch choice.Mode {
 	case ir.ToolChoiceAuto:
@@ -238,6 +255,47 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 			return BlockWire{}, nil, false, err
 		}
 		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+	case ir.CustomToolUseBlock:
+		if b.ID == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
+		}
+		if b.Name == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.name is required", path)
+		}
+		var inputStr string
+		if err := json.Unmarshal(b.Input, &inputStr); err != nil {
+			inputStr = string(b.Input)
+		}
+		wrapped, _ := json.Marshal(map[string]string{"input": inputStr})
+		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: wrapped}, nil, true, nil
+	case ir.CustomToolResultBlock:
+		if b.ToolUseID == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
+		}
+		if b.Output.Text != nil {
+			return BlockWire{Type: BlockTypeToolResult, ToolUseID: b.ToolUseID, Content: *b.Output.Text}, nil, true, nil
+		}
+		content := make([]BlockWire, 0, len(b.Output.Content))
+		var losses []ir.Loss
+		for j, inner := range b.Output.Content {
+			innerPath := fmt.Sprintf("%s.content[%d]", path, j)
+			switch ib := inner.(type) {
+			case ir.TextBlock:
+				content = append(content, BlockWire{Type: BlockTypeText, Text: ib.Text})
+			case ir.ImageBlock:
+				imgWire, imgLosses, ok, err := encodeImageBlock(ib, innerPath)
+				if err != nil {
+					return BlockWire{}, nil, false, err
+				}
+				losses = append(losses, imgLosses...)
+				if ok {
+					content = append(content, imgWire)
+				}
+			default:
+				losses = append(losses, unsupportedBlockLoss(innerPath, inner))
+			}
+		}
+		return BlockWire{Type: BlockTypeToolResult, ToolUseID: b.ToolUseID, Content: content}, losses, true, nil
 	case ir.ToolResultBlock:
 		return encodeToolResultBlock(b, path)
 	default:
@@ -356,18 +414,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		}
 	case ir.StopToolUse:
 		out.StopReason = StopReasonToolUse
-		hasCustom, hasFunction := false, false
+		hasCustomOrFunction, hasApplyPatch := false, false
 		for _, b := range resp.Content {
 			switch b.(type) {
-			case ir.CustomToolUseBlock, ir.ApplyPatchToolUseBlock:
-				hasCustom = true
-			case ir.ToolUseBlock:
-				hasFunction = true
+			case ir.ToolUseBlock, ir.CustomToolUseBlock:
+				hasCustomOrFunction = true
+			case ir.ApplyPatchToolUseBlock:
+				hasApplyPatch = true
 			}
 		}
-		if hasCustom && !hasFunction {
+		if hasApplyPatch && !hasCustomOrFunction {
 			out.StopReason = StopReasonEndTurn
-			losses = append(losses, ir.Loss{Path: "stop_reason", Field: "stop_reason", Reason: ir.LossDegraded, Detail: "custom calls were dropped; tool_use normalized to end_turn"})
+			losses = append(losses, ir.Loss{Path: "stop_reason", Field: "stop_reason", Reason: ir.LossDegraded, Detail: "apply_patch calls were dropped; tool_use normalized to end_turn"})
 		}
 	case ir.StopRefusal:
 		out.StopReason = StopReasonRefusal
@@ -413,6 +471,19 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 			return BlockWire{}, nil, false, err
 		}
 		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: input}, nil, true, nil
+	case ir.CustomToolUseBlock:
+		if b.ID == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
+		}
+		if b.Name == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.name is required", path)
+		}
+		var inputStr string
+		if err := json.Unmarshal(b.Input, &inputStr); err != nil {
+			inputStr = string(b.Input)
+		}
+		wrapped, _ := json.Marshal(map[string]string{"input": inputStr})
+		return BlockWire{Type: BlockTypeToolUse, ID: b.ID, Name: b.Name, Input: wrapped}, nil, true, nil
 	default:
 		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
 	}

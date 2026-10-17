@@ -209,6 +209,22 @@ Each rule has a stable ID usable as a vector tag.
   tools or mutate `tools`/`tool_choice`; instead, exactly one `unmapped-field`
   loss is recorded:
   `{path: "params.response_format", field: "response_format", reason: "unmapped-field", detail: "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."}`.
+- **N-AN-13 (custom tool structured wrapper mapping).** Anthropic Messages supports
+  Custom Tools via a canonical single-property wrapper (spec/13, since 2.3.1).
+  On encode, an IR `Tool{Type: "custom", Name, Description, Format}` renders as a
+  tool with `input_schema: {"type":"object","properties":{"input":{"type":"string"}},"required":["input"],"additionalProperties":false}`.
+  When the IR tool carries a `format` with `type: "grammar"`, an `unsupported-semantic`
+  loss is recorded on `tools[i].format` because the wrapper cannot enforce grammar constraints.
+  An IR `CustomToolUseBlock` renders as a `tool_use` content block with `input: {"input": "<raw_text>"}`.
+  An IR `CustomToolResultBlock` renders as a `tool_result` content block supporting string content
+  or arrays of text and image content blocks.
+  On decode, a `tool_use` is decoded to `CustomToolUseBlock` when its declaration in the request matches
+  a custom tool, or when its input matches the single-field `{"input": "<string>"}` shape and the tool
+  was NOT declared as a standard function tool in the same request. If the tool was declared as a function
+  tool, it MUST NOT be promoted to `CustomToolUseBlock`.
+  In streaming (IR → Messages), `CustomToolInputDelta` fragments are accumulated, and at `content_block_stop`
+  a single canonical `input_json_delta` containing the complete wrapped JSON `{"input":"<concatenated>"}`
+  is emitted, guaranteeing that the stream's accumulated `partial_json` remains a single valid JSON document.
 
 ## 8. Loss Catalog
 

@@ -56,18 +56,19 @@ SDK 的 async/caller/namespace/allowed_callers/defer_loading 等未纳入当前 
 
 反向编码产生 custom output_item.added、input.delta、input.done、output_item.done；无 IR delta 时合成一个完整输入 delta。流式合成 item id 为 `ctc_<顺序号>`，从 0 起。不能产生 function_call_arguments 事件。重复快照不构成额外 IR delta。
 
-## 5. 不支持目标 — N-C-5
+## 5. 跨协议支持与目标映射 — N-C-5
 
-本阶段 Chat Completions profile 尚未实现原生 custom 映射（协议非流式 schema 存在该能力）；Anthropic Messages 无本规范等价映射。两个编码器 MUST 为每个 custom 声明、指定 custom choice、custom 调用或结果记录一次 unsupported-semantic 并丢弃，不得转成 function、普通文本代码或按名称猜测。
+自规范 2.3.1 起，三大协议面均支持 Custom Tools：
+- **OpenAI Responses**：原生 `custom_tool_call` 与 `custom_tool_call_output`；
+- **OpenAI Chat Completions**：原生 `type: "custom"` 嵌套结构（`custom: {name, description?, format}`、`tool_calls[type=custom].custom.{name, input}`、`role: "tool"`）。format 缺失保持缺失，未知 format 记录 unsupported-semantic；custom result 内容数组编码为 ContentPart 列表，与纯文本结果严格区分；
+- **Anthropic Messages**：采用单属性结构化包装契约（`input_schema: {"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`、`tool_use.input: {"input": "..."}`、`tool_result`）。若声明带有 grammar format 则记录 unsupported-semantic loss；流式累加文本增量并在 content_block_stop 发射单个合法紧凑 `input_json_delta`；同请求中已被声明为 function 的工具在遇到单属性 input 时不发生类别误判。
 
-丢弃后空消息编码为包含空文本的合法消息。若原 stop_reason=tool_use 但无保留调用，改为 end_turn 并在 stop_reason 记录 degraded。若 any/required 的全部声明都被丢弃，则省略该 choice 并记录 unsupported-semantic。流式一个块一次 loss，吸收该块 delta/stop，压紧保留的原生索引；保持终止和 usage。
+若目标协议存在未知不支持变体，丢弃后空消息编码为包含空文本的合法消息。若原 stop_reason=tool_use 但无保留调用，改为 end_turn 并在 stop_reason 记录 degraded。若 any/required 的全部声明都被丢弃，则省略该 choice 并记录 unsupported-semantic。流式一个块一次 loss，吸收该块 delta/stop，压紧保留的原生索引；保持终止和 usage。
 
-## 6. 后续版本规划（Roadmap）
+## 6. 版本发布历史
 
-本次规范 2.2.0 首发支持 OpenAI Responses 的 Custom Tools 原生映射；Chat Completions 与 Anthropic Messages 暂时通过显式 `unsupported-semantic` loss 进行确定性降级。
-在后续版本（例如 2.3.0）中将规划补齐另外两个协议面的对等能力：
-1. **OpenAI Chat Completions 补齐**：Chat Completions 官方 SDK 已提供原生 Custom Tools 类型（`ChatCompletionCustomToolParam`、`ChatCompletionMessageCustomToolCall`、`ChatCompletionNamedToolChoiceCustomParam`），后续版本将实现其原生非流式与流式（如有协议事件支持）双向转换，消除跨 OpenAI 两协议间的降级损耗；
-2. **Anthropic Messages 补齐**：针对原生缺乏自由文本/自定义语法的 Anthropic Messages 协议，探索基于提示词注入、结构化包装或语义等价映射的补齐方案，实现跨协议平滑互通。
+- **2.2.0**：首发支持 OpenAI Responses 的 Custom Tools 原生映射；Chat Completions 与 Anthropic Messages 暂时通过显式 `unsupported-semantic` loss 进行确定性降级。
+- **2.3.1**：全面补齐 OpenAI Chat Completions（原生 custom wire 结构）与 Anthropic Messages（单属性结构化包装契约）的非流式与流式双向映射，消除跨协议转换降级损耗。
 
 ## 7. 固定参考
 

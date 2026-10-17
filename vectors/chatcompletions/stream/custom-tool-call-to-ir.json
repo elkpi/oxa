@@ -1,0 +1,151 @@
+{
+  "name": "chatcompletions.stream.custom-tool-call-to-ir",
+  "description": "N-CC-14：Chat Completions 流式原生 Custom Tool 块增量聚合与转换为 IR 事件流。",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "events": [
+      {
+        "id": "chatcmpl-stream-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "role": "assistant"
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "id": "call_custom",
+                  "type": "custom",
+                  "custom": {
+                    "name": "code_exec",
+                    "input": "print(\"你好\")"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {
+              "tool_calls": [
+                {
+                  "index": 0,
+                  "custom": {
+                    "input": "\r\nnot JSON"
+                  }
+                }
+              ]
+            },
+            "finish_reason": null
+          }
+        ]
+      },
+      {
+        "id": "chatcmpl-stream-1",
+        "object": "chat.completion.chunk",
+        "created": 0,
+        "model": "m",
+        "choices": [
+          {
+            "index": 0,
+            "delta": {},
+            "finish_reason": "tool_calls"
+          }
+        ],
+        "usage": {
+          "prompt_tokens": 10,
+          "completion_tokens": 5,
+          "total_tokens": 15
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "custom-tools",
+    "stream",
+    "n-cc-14"
+  ],
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      {
+        "type": "message_start",
+        "id": "chatcmpl-stream-1",
+        "model": "m"
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "block": {
+          "type": "custom_tool_use",
+          "id": "call_custom",
+          "name": "code_exec",
+          "input": "print(\"你好\")\r\nnot JSON"
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "custom_tool_input_delta",
+          "text": "print(\"你好\")"
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 0,
+        "delta": {
+          "type": "custom_tool_input_delta",
+          "text": "\r\nnot JSON"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "message_delta",
+        "stop_reason": "tool_use",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 5
+        }
+      },
+      {
+        "type": "message_done"
+      }
+    ]
+  }
+}

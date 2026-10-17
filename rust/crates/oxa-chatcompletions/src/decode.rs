@@ -7,6 +7,8 @@ use oxa_ir::{
     Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
 };
 
+use std::collections::BTreeSet;
+
 use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{
@@ -16,7 +18,7 @@ use crate::normalize::{
 use crate::types::{
     FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL, ROLE_USER, Request, Response,
-    TOOL_TYPE_FUNCTION,
+    TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
 };
 
 /// Converts a Chat Completions wire request to the IR (face → IR). Semantic
@@ -73,6 +75,52 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
+            if tool.kind == TOOL_TYPE_CUSTOM
+                && let Some(custom) = &tool.custom
+            {
+                let mut fmt: Option<oxa_ir::CustomToolFormat> = None;
+                if let Some(f) = &custom.format {
+                    if f.kind == "grammar" {
+                        if f.syntax.as_deref() == Some("lark")
+                            || f.syntax.as_deref() == Some("regex")
+                        {
+                            fmt = Some(oxa_ir::CustomToolFormat {
+                                format_type: "grammar".to_string(),
+                                syntax: f.syntax.clone(),
+                                definition: f.definition.clone(),
+                            });
+                        } else {
+                            losses.push(loss(
+                                format!("tools[{index}].custom.format"),
+                                "syntax",
+                                LossReason::UnsupportedSemantic,
+                                format!("unknown custom grammar syntax {:?}", f.syntax),
+                            ));
+                        }
+                    } else if f.kind == "text" {
+                        fmt = Some(oxa_ir::CustomToolFormat {
+                            format_type: "text".to_string(),
+                            syntax: None,
+                            definition: None,
+                        });
+                    } else {
+                        losses.push(loss(
+                            format!("tools[{index}].custom.format"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            format!("unknown custom format {:?}", f.kind),
+                        ));
+                    }
+                }
+                tools.push(oxa_ir::Tool {
+                    tool_type: Some(oxa_ir::ToolType::Custom),
+                    name: custom.name.clone(),
+                    description: custom.description.clone(),
+                    input_schema: None,
+                    format: fmt,
+                });
+                continue;
+            }
             if tool.kind != TOOL_TYPE_FUNCTION {
                 losses.push(loss(
                     format!("tools[{index}]"),
@@ -85,11 +133,12 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 ));
                 continue;
             }
+            let func = tool.function.clone().unwrap_or_default();
             tools.push(oxa_ir::Tool {
                 tool_type: None,
-                name: tool.function.name.clone(),
-                description: non_empty(tool.function.description.clone()),
-                input_schema: Some(tool.function.parameters.clone().unwrap_or(Value::Null)),
+                name: func.name,
+                description: non_empty(func.description),
+                input_schema: Some(func.parameters.unwrap_or(Value::Null)),
                 format: None,
             });
         }
@@ -101,13 +150,27 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     req.tool_choice = choice;
     losses.extend(choice_losses);
 
+    let mut custom_call_ids = BTreeSet::new();
+    for msg in &wire.messages {
+        if msg.role == ROLE_ASSISTANT
+            && let Some(calls) = &msg.tool_calls
+        {
+            for c in calls {
+                if c.kind == TOOL_TYPE_CUSTOM {
+                    custom_call_ids.insert(c.id.clone());
+                }
+            }
+        }
+    }
+
     let mut system: Vec<oxa_ir::SystemBlock> = Vec::new();
     let mut messages: Vec<oxa_ir::Message> = Vec::new();
     let mut index = 0usize;
     while index < wire.messages.len() {
         let message = &wire.messages[index];
         if message.role == ROLE_TOOL {
-            let (merged, next, result_losses) = decode_tool_result_run(&wire.messages, index)?;
+            let (merged, next, result_losses) =
+                decode_tool_result_run(&wire.messages, index, &custom_call_ids)?;
             messages.push(merged);
             losses.extend(result_losses);
             index = next;

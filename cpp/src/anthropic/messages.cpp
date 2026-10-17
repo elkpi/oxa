@@ -36,7 +36,8 @@ std::optional<std::string> extract_custom_input(const json::Value& input) {
 
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
     const json::Value* content, const std::string& path, bool keep_raw_input = true,
-    const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr) {
+    const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
+    const std::set<std::string>& declared_tools = {}) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -111,12 +112,29 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 return invalid_argument(block_path + ".input must be an object");
             }
             auto custom_in = extract_custom_input(*inp);
-            if (custom_tools.count(name_val->as_string()) || custom_in.has_value()) {
+            if (custom_tools.count(name_val->as_string())) {
                 if (custom_call_ids) custom_call_ids->insert(id_val->as_string());
                 ir::CustomToolUseBlock ctu;
                 ctu.id = id_val->as_string();
                 ctu.name = name_val->as_string();
                 ctu.input = custom_in.value_or("");
+                blocks.push_back(std::move(ctu));
+            } else if (declared_tools.count(name_val->as_string())) {
+                ir::ToolUseBlock tu;
+                tu.id = id_val->as_string();
+                tu.name = name_val->as_string();
+                if (keep_raw_input && !inp->raw_slice().empty()) {
+                    tu.input = std::string(inp->raw_slice());
+                } else {
+                    tu.input = json::serialize(*inp);
+                }
+                blocks.push_back(std::move(tu));
+            } else if (custom_in.has_value()) {
+                if (custom_call_ids) custom_call_ids->insert(id_val->as_string());
+                ir::CustomToolUseBlock ctu;
+                ctu.id = id_val->as_string();
+                ctu.name = name_val->as_string();
+                ctu.input = *custom_in;
                 blocks.push_back(std::move(ctu));
             } else {
                 ir::ToolUseBlock tu;
@@ -225,6 +243,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     req.model = opts.model_map.map(mv->as_string());
 
     std::set<std::string> custom_tools;
+    std::set<std::string> declared_tools;
     if (const auto* tools_val = wire.find("tools"); tools_val && tools_val->is_array()) {
         std::vector<ir::Tool> tools;
         for (std::size_t i = 0; i < tools_val->as_array().size(); ++i) {
@@ -237,7 +256,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     "Anthropic prompt caching (cache_control) has no IR equivalent in v1."));
             }
             ir::Tool tool;
-            if (const auto* nv = t.find("name"); nv && nv->is_string()) tool.name = nv->as_string();
+            if (const auto* nv = t.find("name"); nv && nv->is_string()) {
+                tool.name = nv->as_string();
+                declared_tools.insert(tool.name);
+            }
             if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
                 tool.description = dv->as_string();
                 tool.has_description = true;
@@ -316,7 +338,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: unknown role \"" + role + "\"");
         }
         std::string content_path = "messages[" + std::to_string(i) + "].content";
-        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids));
+        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         req.messages.push_back(ir::Message{role, std::move(c_res.first)});
     }
@@ -403,6 +425,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
             const auto& t = (*req.tools)[ti];
             if (t.type == "custom") {
+                if (t.format.has_value() && t.format->find("type") && t.format->find("type")->is_string() && t.format->find("type")->as_string() == "grammar") {
+                    losses.push_back(make_ant_loss(
+                        "tools[" + std::to_string(ti) + "].format", "format", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints"));
+                }
                 json::Value tw = json::Value::object();
                 tw.set("name", json::Value::string(t.name));
                 if (t.has_description && !t.description.empty()) {
@@ -556,6 +583,23 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 ib.set("type", json::Value::string("text"));
                                 ib.set("text", json::Value::string(itb->text));
                                 c_arr.push_back(std::move(ib));
+                            } else if (const auto* img = std::get_if<ir::ImageBlock>(&inner)) {
+                                json::Value ib = json::Value::object();
+                                ib.set("type", json::Value::string("image"));
+                                json::Value src = json::Value::object();
+                                if (img->data.has_value() && !img->data->empty()) {
+                                    src.set("type", json::Value::string("base64"));
+                                    src.set("media_type", json::Value::string(img->media_type.value_or("image/jpeg")));
+                                    src.set("data", json::Value::string(*img->data));
+                                } else if (img->url.has_value()) {
+                                    src.set("type", json::Value::string("url"));
+                                    src.set("url", json::Value::string(*img->url));
+                                }
+                                ib.set("source", std::move(src));
+                                c_arr.push_back(std::move(ib));
+                            } else {
+                                losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].output[" + std::to_string(ci) + "]",
+                                    "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "this IR block cannot be rendered in an Anthropic tool result"));
                             }
                         }
                         bw.set("content", std::move(c_arr));
@@ -1241,16 +1285,6 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             const auto* ctd = std::get_if<ir::CustomToolInputDelta>(&cbd->delta);
             if (!ctd) return invalid_argument("anthropic: custom tool block received wrong delta type");
             tool_parts_.push_back(ctd->text);
-            json::Value chunk = json::Value::object();
-            chunk.set("type", json::Value::string("content_block_delta"));
-            chunk.set("index", json::Value::integer(open_index_));
-            json::Value delta = json::Value::object();
-            delta.set("type", json::Value::string("input_json_delta"));
-            json::Value wrapped_obj = json::Value::object();
-            wrapped_obj.set("input", json::Value::string(ctd->text));
-            delta.set("partial_json", json::Value::string(json::serialize(wrapped_obj)));
-            chunk.set("delta", std::move(delta));
-            chunks.push_back(std::move(chunk));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         json::Value chunk = json::Value::object();
@@ -1299,24 +1333,25 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (open_custom_) {
-            if (tool_parts_.empty()) {
-                json::Value d_chunk = json::Value::object();
-                d_chunk.set("type", json::Value::string("content_block_delta"));
-                d_chunk.set("index", json::Value::integer(cst->index));
-                json::Value delta = json::Value::object();
-                delta.set("type", json::Value::string("input_json_delta"));
-                json::Value wrapped_obj = json::Value::object();
-                wrapped_obj.set("input", json::Value::string(tool_input_));
-                delta.set("partial_json", json::Value::string(json::serialize(wrapped_obj)));
-                d_chunk.set("delta", std::move(delta));
-                chunks.push_back(std::move(d_chunk));
-            } else {
+            std::string full_input = tool_input_;
+            if (!tool_parts_.empty()) {
                 std::string joined;
                 for (const auto& p : tool_parts_) joined += p;
                 if (joined != tool_input_) {
                     return invalid_argument("anthropic: custom tool input fragments do not match CustomToolUseBlock input");
                 }
+                full_input = joined;
             }
+            json::Value d_chunk = json::Value::object();
+            d_chunk.set("type", json::Value::string("content_block_delta"));
+            d_chunk.set("index", json::Value::integer(open_index_));
+            json::Value delta = json::Value::object();
+            delta.set("type", json::Value::string("input_json_delta"));
+            json::Value wrapped_obj = json::Value::object();
+            wrapped_obj.set("input", json::Value::string(full_input));
+            delta.set("partial_json", json::Value::string(json::serialize(wrapped_obj)));
+            d_chunk.set("delta", std::move(delta));
+            chunks.push_back(std::move(d_chunk));
             open_custom_ = false;
             tool_input_.clear();
             tool_parts_.clear();

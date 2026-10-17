@@ -324,11 +324,27 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         tool.has_description = true;
                     }
                     if (const auto* fv = cu->find("format"); fv && fv->is_object()) {
-                        tool.format = *fv;
-                    } else {
-                        json::Value def_fmt = json::Value::object();
-                        def_fmt.set("type", json::Value::string("text"));
-                        tool.format = std::move(def_fmt);
+                        const auto* ft = fv->find("type");
+                        std::string ftype = ft && ft->is_string() ? ft->as_string() : "";
+                        if (ftype == "grammar") {
+                            const auto* st = fv->find("syntax");
+                            std::string syntax = st && st->is_string() ? st->as_string() : "";
+                            if (syntax == "lark" || syntax == "regex") {
+                                tool.format = *fv;
+                            } else {
+                                losses.push_back(make_cc_loss(
+                                    "tools[" + std::to_string(i) + "].custom.format", "syntax", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                    "unknown custom grammar syntax " + syntax));
+                            }
+                        } else if (ftype == "text") {
+                            json::Value def_fmt = json::Value::object();
+                            def_fmt.set("type", json::Value::string("text"));
+                            tool.format = std::move(def_fmt);
+                        } else {
+                            losses.push_back(make_cc_loss(
+                                "tools[" + std::to_string(i) + "].custom.format", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "unknown custom format " + ftype));
+                        }
                     }
                 }
                 tools.push_back(std::move(tool));
@@ -599,10 +615,6 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 }
                 if (t.format.has_value()) {
                     c.set("format", *t.format);
-                } else {
-                    json::Value def_fmt = json::Value::object();
-                    def_fmt.set("type", json::Value::string("text"));
-                    c.set("format", std::move(def_fmt));
                 }
                 tw.set("custom", std::move(c));
                 tools_arr.push_back(std::move(tw));
@@ -776,13 +788,33 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (const auto* s = std::get_if<std::string>(&ctr->output)) {
                         tm.set("content", json::Value::string(*s));
                     } else if (const auto* vec = std::get_if<std::vector<ir::BlockHolder>>(&ctr->output)) {
-                        std::string res_txt;
-                        for (const auto& inner : *vec) {
-                            if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
-                                res_txt += itb->text;
+                        json::Value parts = json::Value::array();
+                        for (std::size_t bi = 0; bi < vec->size(); ++bi) {
+                            const auto& inner = (*vec)[bi].block;
+                            if (const auto* tb = std::get_if<ir::TextBlock>(&inner)) {
+                                json::Value part = json::Value::object();
+                                part.set("type", json::Value::string(std::string(CONTENT_PART_TYPE_TEXT)));
+                                part.set("text", json::Value::string(tb->text));
+                                parts.push_back(std::move(part));
+                            } else if (const auto* img = std::get_if<ir::ImageBlock>(&inner)) {
+                                json::Value part = json::Value::object();
+                                part.set("type", json::Value::string(std::string(CONTENT_PART_TYPE_IMAGE_URL)));
+                                json::Value iuo = json::Value::object();
+                                if (img->data.has_value() && !img->data->empty()) {
+                                    std::string mt = img->media_type.value_or("image/jpeg");
+                                    iuo.set("url", json::Value::string("data:" + mt + ";base64," + *img->data));
+                                } else if (img->url.has_value()) {
+                                    iuo.set("url", json::Value::string(*img->url));
+                                }
+                                part.set("image_url", std::move(iuo));
+                                parts.push_back(std::move(part));
+                            } else {
+                                losses.push_back(make_cc_loss(
+                                    "messages[" + std::to_string(i) + "].output[" + std::to_string(bi) + "]", "content",
+                                    ir::LOSS_UNSUPPORTED_SEMANTIC, "this IR block cannot be rendered in a Chat Completions tool result"));
                             }
                         }
-                        tm.set("content", json::Value::string(std::move(res_txt)));
+                        tm.set("content", std::move(parts));
                     }
                     messages_arr.push_back(std::move(tm));
                     continue;

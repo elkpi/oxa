@@ -325,6 +325,58 @@ int main() {
         }
     }
 
+    // Anthropic multi-fragment streaming produces valid concatenated JSON object
+    {
+        oxa::anthropic::messages::StreamEncoder encoder;
+        std::vector<oxa::ir::Event> evs{
+            oxa::ir::MessageStart{"r", "m"},
+            oxa::ir::ContentBlockStart{0, oxa::ir::CustomToolUseBlock{"c", "exec", "ab"}},
+            oxa::ir::ContentBlockDelta{0, oxa::ir::CustomToolInputDelta{"a"}},
+            oxa::ir::ContentBlockDelta{0, oxa::ir::CustomToolInputDelta{"b"}},
+            oxa::ir::ContentBlockStop{0},
+            oxa::ir::MessageDelta{"tool_use", std::nullopt, {1, 1}},
+            oxa::ir::MessageDone{}
+        };
+        std::string joined;
+        for (const auto& ev : evs) {
+            auto chunks = encoder.apply(ev);
+            CHECK(chunks.ok());
+            for (const auto& ch : chunks->value) {
+                if (const auto* delta = ch.find("delta")) {
+                    if (const auto* pj = delta->find("partial_json")) {
+                        joined += pj->as_string();
+                    }
+                }
+            }
+        }
+        auto parsed = oxa::json::parse(joined);
+        CHECK(parsed.ok());
+        CHECK(parsed->find("input")->as_string() == "ab");
+    }
+
+    // Dropped block followed by custom block with no delta uses compact index
+    {
+        oxa::anthropic::messages::StreamEncoder encoder;
+        oxa::anthropic::messages::StreamDecoder decoder;
+        std::vector<oxa::ir::Event> evs{
+            oxa::ir::MessageStart{"r", "m"},
+            oxa::ir::ContentBlockStart{0, oxa::ir::ApplyPatchToolUseBlock{"p", "in_progress", oxa::ir::CreateFileOperation{"a", ""}}},
+            oxa::ir::ContentBlockStop{0},
+            oxa::ir::ContentBlockStart{1, oxa::ir::CustomToolUseBlock{"c", "exec", "hello"}},
+            oxa::ir::ContentBlockStop{1},
+            oxa::ir::MessageDelta{"tool_use", std::nullopt, {1, 1}},
+            oxa::ir::MessageDone{}
+        };
+        for (const auto& ev : evs) {
+            auto chunks = encoder.apply(ev);
+            CHECK(chunks.ok());
+            for (const auto& chunk : chunks->value) {
+                auto decoded = decoder.feed(chunk);
+                CHECK_MSG(decoded.ok(), decoded.status().to_string());
+            }
+        }
+    }
+
     std::puts("test_stream: all 40 stream vectors passed");
     return 0;
 }

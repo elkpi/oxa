@@ -627,11 +627,44 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
                 Vec::new(),
             ),
             oxa_ir::CustomToolOutput::Content(blocks) => {
-                let (content, losses) = encode_user_content(blocks, &format!("{path}.output"));
+                let mut parts = Vec::new();
+                let mut losses = Vec::new();
+                for (index, inner) in blocks.iter().enumerate() {
+                    match inner {
+                        Block::Text { text: value } => {
+                            parts.push(ContentPart {
+                                kind: CONTENT_PART_TYPE_TEXT.to_string(),
+                                text: value.clone(),
+                                image_url: None,
+                            });
+                        }
+                        Block::Image {
+                            media_type,
+                            data,
+                            url,
+                        } => {
+                            match encode_image_block(
+                                media_type.as_deref(),
+                                data.as_deref(),
+                                url.as_deref(),
+                                &format!("{path}.output[{index}]"),
+                            ) {
+                                Ok(p) => parts.push(p),
+                                Err(l) => losses.push(l),
+                            }
+                        }
+                        _ => losses.push(loss(
+                            format!("{path}.output[{index}]"),
+                            "content",
+                            LossReason::UnsupportedSemantic,
+                            "this IR block cannot be rendered in a Chat Completions tool result",
+                        )),
+                    }
+                }
                 (
                     Message {
                         role: ROLE_TOOL.to_string(),
-                        content: Some(content),
+                        content: Some(ContentValue::Parts(parts)),
                         tool_call_id: tool_use_id.clone(),
                         ..Message::default()
                     },

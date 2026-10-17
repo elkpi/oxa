@@ -472,3 +472,59 @@ fn stream_encoder_happy_path() {
     assert_eq!(evs.len(), 1);
     assert_eq!(evs[0].kind, "message_stop");
 }
+
+#[test]
+fn test_anthropic_custom_tool_multi_fragment_stream() {
+    let config = Config::default();
+    let mut enc = StreamEncoder::new(&config);
+    let events = vec![
+        Event::MessageStart {
+            id: "r".to_string(),
+            model: "m".to_string(),
+        },
+        Event::ContentBlockStart {
+            index: 0,
+            block: Block::CustomToolUse {
+                id: "c".to_string(),
+                name: "exec".to_string(),
+                input: "ab".to_string(),
+            },
+        },
+        Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::CustomToolInputDelta {
+                text: "a".to_string(),
+            },
+        },
+        Event::ContentBlockDelta {
+            index: 0,
+            delta: Delta::CustomToolInputDelta {
+                text: "b".to_string(),
+            },
+        },
+        Event::ContentBlockStop { index: 0 },
+        Event::MessageDelta {
+            stop_reason: StopReason::ToolUse,
+            stop_sequence: None,
+            usage: Usage::default(),
+        },
+        Event::MessageDone {},
+    ];
+    let mut wire = Vec::new();
+    for ev in &events {
+        let (chunks, losses) = enc.apply(ev).unwrap();
+        assert!(losses.is_empty());
+        wire.extend(chunks);
+    }
+    let mut joined = String::new();
+    for ch in &wire {
+        if let Some(delta) = &ch.delta {
+            if let Some(p) = &delta.partial_json {
+                joined.push_str(p);
+            }
+        }
+    }
+    let val: serde_json::Value =
+        serde_json::from_str(&joined).expect("concatenated partial_json must be valid JSON");
+    assert_eq!(val["input"], "ab");
+}

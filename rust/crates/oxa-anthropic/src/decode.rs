@@ -67,9 +67,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         metadata: None,
     };
     let mut custom_tools = BTreeSet::new();
+    let mut declared_tools = BTreeSet::new();
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
+            declared_tools.insert(tool.name.clone());
             let schema = serde_json::to_string(&tool.input_schema).unwrap_or_default();
             crate::normalize::require_json_object(
                 &schema,
@@ -122,6 +124,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             &format!("messages[{index}].content"),
             &custom_tools,
             &mut custom_call_ids,
+            &declared_tools,
         )?;
         losses.extend(block_losses);
         req.messages.push(oxa_ir::Message {
@@ -187,6 +190,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             &format!("content[{index}]"),
             &BTreeSet::new(),
             &mut BTreeSet::new(),
+            &BTreeSet::new(),
         )?;
         if mapped {
             content.extend(decoded);

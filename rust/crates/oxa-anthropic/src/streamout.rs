@@ -300,20 +300,7 @@ impl StreamEncoder {
                         ));
                     };
                     self.tool_parts.push(text.clone());
-                    let wrapped = serde_json::json!({"input": text}).to_string();
-                    return Ok((
-                        vec![StreamEvent {
-                            kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                            index: Some(self.open_index),
-                            delta: Some(StreamDelta {
-                                kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
-                                partial_json: Some(wrapped),
-                                ..Default::default()
-                            }),
-                            ..Default::default()
-                        }],
-                        Vec::new(),
-                    ));
+                    return Ok((Vec::new(), Vec::new()));
                 }
                 match delta {
                     Delta::ThinkingDelta { text } => {
@@ -419,23 +406,28 @@ impl StreamEncoder {
                 }
                 if self.open_custom {
                     let mut events = Vec::new();
-                    if self.tool_parts.is_empty() {
-                        let wrapped = serde_json::json!({"input": self.tool_input}).to_string();
-                        events.push(StreamEvent {
-                            kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
-                            index: Some(self.open_index),
-                            delta: Some(StreamDelta {
-                                kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
-                                partial_json: Some(wrapped),
-                                ..Default::default()
-                            }),
+                    let full_input = if self.tool_parts.is_empty() {
+                        self.tool_input.clone()
+                    } else {
+                        let full = self.tool_parts.concat();
+                        if full != self.tool_input {
+                            return Err(Error::new(
+                                "anthropic: custom tool input fragments do not match CustomToolUseBlock input",
+                            ));
+                        }
+                        full
+                    };
+                    let wrapped = serde_json::json!({"input": full_input}).to_string();
+                    events.push(StreamEvent {
+                        kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                        index: Some(self.open_index),
+                        delta: Some(StreamDelta {
+                            kind: DELTA_TYPE_INPUT_JSON_DELTA.to_string(),
+                            partial_json: Some(wrapped),
                             ..Default::default()
-                        });
-                    } else if self.tool_parts.concat() != self.tool_input {
-                        return Err(Error::new(
-                            "anthropic: custom tool input fragments do not match CustomToolUseBlock input",
-                        ));
-                    }
+                        }),
+                        ..Default::default()
+                    });
                     events.push(StreamEvent {
                         kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
                         index: Some(self.open_index),

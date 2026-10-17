@@ -78,21 +78,46 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             if tool.kind == TOOL_TYPE_CUSTOM
                 && let Some(custom) = &tool.custom
             {
-                let fmt = custom.format.as_ref().map(|f| oxa_ir::CustomToolFormat {
-                    format_type: f.kind.clone(),
-                    syntax: f.syntax.clone(),
-                    definition: f.definition.clone(),
-                });
+                let mut fmt: Option<oxa_ir::CustomToolFormat> = None;
+                if let Some(f) = &custom.format {
+                    if f.kind == "grammar" {
+                        if f.syntax.as_deref() == Some("lark")
+                            || f.syntax.as_deref() == Some("regex")
+                        {
+                            fmt = Some(oxa_ir::CustomToolFormat {
+                                format_type: "grammar".to_string(),
+                                syntax: f.syntax.clone(),
+                                definition: f.definition.clone(),
+                            });
+                        } else {
+                            losses.push(loss(
+                                format!("tools[{index}].custom.format"),
+                                "syntax",
+                                LossReason::UnsupportedSemantic,
+                                format!("unknown custom grammar syntax {:?}", f.syntax),
+                            ));
+                        }
+                    } else if f.kind == "text" {
+                        fmt = Some(oxa_ir::CustomToolFormat {
+                            format_type: "text".to_string(),
+                            syntax: None,
+                            definition: None,
+                        });
+                    } else {
+                        losses.push(loss(
+                            format!("tools[{index}].custom.format"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            format!("unknown custom format {:?}", f.kind),
+                        ));
+                    }
+                }
                 tools.push(oxa_ir::Tool {
                     tool_type: Some(oxa_ir::ToolType::Custom),
                     name: custom.name.clone(),
                     description: custom.description.clone(),
                     input_schema: None,
-                    format: Some(fmt.unwrap_or(oxa_ir::CustomToolFormat {
-                        format_type: "text".to_string(),
-                        syntax: None,
-                        definition: None,
-                    })),
+                    format: fmt,
                 });
                 continue;
             }

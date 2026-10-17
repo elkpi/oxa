@@ -531,3 +531,79 @@ fn empty_signature_is_treated_as_unsigned_on_encode() {
     assert_eq!(loss.reason, LossReason::Degraded);
     assert_eq!(wire.content[0].signature, None);
 }
+
+#[test]
+fn test_conflicting_function_declaration_not_promoted_to_custom() {
+    let wire = wire_request(serde_json::json!({
+        "model": "claude-3-5-sonnet-20241022",
+        "max_tokens": 1024,
+        "tools": [
+            {
+                "name": "echo",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {"input": {"type": "string"}, "extra": {"type": "string"}},
+                    "required": ["input"]
+                }
+            }
+        ],
+        "messages": [
+            {"role": "user", "content": "hi"},
+            {
+                "role": "assistant",
+                "content": [
+                    {"type": "tool_use", "id": "call_1", "name": "echo", "input": {"input": "hello"}}
+                ]
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "call_1", "content": "ok"}]
+            }
+        ]
+    }));
+    let (req, losses) = decode_request(&wire, &Config::default()).expect("decode request");
+    assert!(losses.is_empty());
+    assert_eq!(req.tools.as_ref().unwrap()[0].tool_type, None);
+    assert!(matches!(req.messages[1].content[0], Block::ToolUse { .. }));
+    assert!(matches!(
+        req.messages[2].content[0],
+        Block::ToolResult { .. }
+    ));
+}
+
+#[test]
+fn test_grammar_format_loss_on_anthropic_encode() {
+    let req = oxa_ir::Request {
+        model: "claude".to_string(),
+        system: Vec::new(),
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "hi".to_string(),
+            }],
+        }],
+        tools: Some(vec![oxa_ir::Tool {
+            tool_type: Some(oxa_ir::ToolType::Custom),
+            name: "calc".to_string(),
+            description: None,
+            input_schema: None,
+            format: Some(oxa_ir::CustomToolFormat {
+                format_type: "grammar".to_string(),
+                syntax: Some("regex".to_string()),
+                definition: Some("[0-9]+".to_string()),
+            }),
+        }]),
+        tool_choice: None,
+        params: Some(oxa_ir::Params {
+            max_tokens: Some(1024),
+            ..Default::default()
+        }),
+        metadata: None,
+    };
+    let (_, losses) = encode_request(&req, &Config::default()).expect("encode request");
+    assert!(
+        losses
+            .iter()
+            .any(|l| l.path == "tools[0].format" && l.reason == LossReason::UnsupportedSemantic)
+    );
+}

@@ -133,6 +133,7 @@ pub(crate) fn decode_content(
     path: &str,
     custom_tools: &BTreeSet<String>,
     custom_call_ids: &mut BTreeSet<String>,
+    declared_tools: &BTreeSet<String>,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Err(Error::new(format!("anthropic: {path} is missing")));
@@ -148,6 +149,7 @@ pub(crate) fn decode_content(
                     &format!("{path}[{index}]"),
                     custom_tools,
                     custom_call_ids,
+                    declared_tools,
                 )?;
                 if mapped {
                     out.extend(decoded);
@@ -167,6 +169,7 @@ pub(crate) fn decode_block(
     path: &str,
     custom_tools: &BTreeSet<String>,
     custom_call_ids: &mut BTreeSet<String>,
+    declared_tools: &BTreeSet<String>,
 ) -> Result<(Vec<Block>, Vec<Loss>, bool), Error> {
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
@@ -234,7 +237,14 @@ pub(crate) fn decode_block(
             let raw = wire.input.as_deref().map(RawValue::get).unwrap_or_default();
             require_json_object(raw, &format!("{path}.input"))?;
             let custom_input = extract_custom_input(raw);
-            if custom_tools.contains(&wire.name) || custom_input.is_some() {
+            let is_custom = if custom_tools.contains(&wire.name) {
+                true
+            } else if declared_tools.contains(&wire.name) {
+                false
+            } else {
+                custom_input.is_some()
+            };
+            if is_custom {
                 custom_call_ids.insert(wire.id.clone());
                 block = Some(Block::CustomToolUse {
                     id: wire.id.clone(),
@@ -264,6 +274,7 @@ pub(crate) fn decode_block(
                             &format!("{path}.content"),
                             custom_tools,
                             custom_call_ids,
+                            declared_tools,
                         )?;
                         losses.extend(content_losses);
                         oxa_ir::CustomToolOutput::Content(content)
@@ -279,6 +290,7 @@ pub(crate) fn decode_block(
                     &format!("{path}.content"),
                     custom_tools,
                     custom_call_ids,
+                    declared_tools,
                 )?;
                 losses.extend(content_losses);
                 block = Some(Block::ToolResult {

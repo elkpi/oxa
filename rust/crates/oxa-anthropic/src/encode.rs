@@ -66,6 +66,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut wire_tools = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
             if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
+                if let Some(fmt) = &tool.format
+                    && fmt.format_type == "grammar"
+                {
+                    losses.push(loss(
+                        format!("tools[{index}].format"),
+                        "format",
+                        LossReason::UnsupportedSemantic,
+                        "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
+                    ));
+                }
                 wire_tools.push(ToolWire {
                     name: tool.name.clone(),
                     description: tool.description.clone().unwrap_or_default(),

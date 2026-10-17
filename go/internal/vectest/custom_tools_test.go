@@ -435,11 +435,11 @@ func TestGrammarFormatLossOnAnthropicEncode(t *testing.T) {
 func TestChatCompletionsFormatPreservationAndLoss(t *testing.T) {
 	// Missing format remains nil on decode
 	wireMissing := &cc.Request{
-		Model: "m",
+		Model:    "m",
 		Messages: []cc.Message{{Role: "user", Content: "hi"}},
 		Tools: []cc.ToolWire{
 			{
-				Type: "custom",
+				Type:   "custom",
 				Custom: &cc.CustomToolWire{Name: "c"},
 			},
 		},
@@ -454,13 +454,13 @@ func TestChatCompletionsFormatPreservationAndLoss(t *testing.T) {
 
 	// Unknown format produces unsupported-semantic loss
 	wireUnknown := &cc.Request{
-		Model: "m",
+		Model:    "m",
 		Messages: []cc.Message{{Role: "user", Content: "hi"}},
 		Tools: []cc.ToolWire{
 			{
 				Type: "custom",
 				Custom: &cc.CustomToolWire{
-					Name: "c",
+					Name:   "c",
 					Format: &ir.CustomToolFormat{Type: "unknown_fmt"},
 				},
 			},

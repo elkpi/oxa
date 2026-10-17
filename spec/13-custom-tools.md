@@ -60,8 +60,8 @@ SDK 的 async/caller/namespace/allowed_callers/defer_loading 等未纳入当前 
 
 自规范 2.3.1 起，三大协议面均支持 Custom Tools：
 - **OpenAI Responses**：原生 `custom_tool_call` 与 `custom_tool_call_output`；
-- **OpenAI Chat Completions**：原生 `type: "custom"` 嵌套结构（`custom: {name, description?, format}`、`tool_calls[type=custom].custom.{name, input}`、`role: "tool"`）；
-- **Anthropic Messages**：采用单属性结构化包装契约（`input_schema: {"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`、`tool_use.input: {"input": "..."}`、`tool_result`）。
+- **OpenAI Chat Completions**：原生 `type: "custom"` 嵌套结构（`custom: {name, description?, format}`、`tool_calls[type=custom].custom.{name, input}`、`role: "tool"`）。format 缺失保持缺失，未知 format 记录 unsupported-semantic；custom result 内容数组编码为 ContentPart 列表，与纯文本结果严格区分；
+- **Anthropic Messages**：采用单属性结构化包装契约（`input_schema: {"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`、`tool_use.input: {"input": "..."}`、`tool_result`）。若声明带有 grammar format 则记录 unsupported-semantic loss；流式累加文本增量并在 content_block_stop 发射单个合法紧凑 `input_json_delta`；同请求中已被声明为 function 的工具在遇到单属性 input 时不发生类别误判。
 
 若目标协议存在未知不支持变体，丢弃后空消息编码为包含空文本的合法消息。若原 stop_reason=tool_use 但无保留调用，改为 end_turn 并在 stop_reason 记录 degraded。若 any/required 的全部声明都被丢弃，则省略该 choice 并记录 unsupported-semantic。流式一个块一次 loss，吸收该块 delta/stop，压紧保留的原生索引；保持终止和 usage。
 

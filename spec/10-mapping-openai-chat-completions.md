@@ -216,11 +216,16 @@ Each rule has a stable ID usable as a vector tag.
 
 - **Custom tool mapping (N-CC-14).** Chat Completions natively supports Custom Tools
   (spec/13, since 2.3.1). `tools[type=custom].custom.{name,description,format}` maps
-  1:1 to IR `Tool{Type: "custom", Name, Description, Format}`. `tool_choice: {type: "custom", custom: {name}}`
+  1:1 to IR `Tool{Type: "custom", Name, Description, Format}`. When `custom.format` is omitted,
+  IR `Tool.Format` is absent; when `custom.format` is present with `type: "text"` or valid `grammar`,
+  it maps to the corresponding IR format. Unrecognized format types or grammars record an
+  `unsupported-semantic` loss on `tools[i].custom.format`. `tool_choice: {type: "custom", custom: {name}}`
   maps 1:1 to IR `ToolChoice{Mode: "tool", ToolType: "custom", Name}`. Assistant message
-  `tool_calls[type=custom].custom.{name,input}` maps to IR `CustomToolUseBlock`. Tool messages
-  (`role: "tool"`) answering custom tool calls map to IR `CustomToolResultBlock` with opaque
-  input/output text fidelity (INV-1).
+  `tool_calls[type=custom].custom.{name,input}` maps to IR `CustomToolUseBlock`, where `input`
+  is a required string (even if empty). Tool messages (`role: "tool"`) answering custom tool calls
+  map to IR `CustomToolResultBlock`. When `output` is a string, it encodes as string `content`;
+  when `output` is an array of text/image content blocks, it encodes as an array of `ContentPart`s
+  without collapsing to a plain string. Both directions preserve string vs array distinction (spec/13 §2).
 
 ## 8. Loss Catalog
 

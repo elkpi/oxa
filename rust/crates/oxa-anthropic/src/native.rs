@@ -2,11 +2,11 @@ use oxa_ir::{
     Loss, LossReason, NATIVE_KIND_CACHE_CONTROL, NATIVE_KIND_CONTEXT_MANAGEMENT,
     NATIVE_KIND_OUTPUT_EFFORT, NATIVE_KIND_THINKING_BUDGET, NATIVE_KIND_THINKING_DISPLAY,
     NATIVE_KIND_THINKING_MODE, NATIVE_SOURCE_ANTHROPIC, NativeAnnotation, NativeOmission,
-    NativeProjection, ReasoningEffort, Request as IrRequest, SystemBlock,
+    NativeProjection, ReasoningEffort, Request as IrRequest,
 };
 use serde_json::Value;
 
-use crate::types::{ContextManagementWire, OutputConfigWire, Request, SystemValue, ThinkingWire};
+use crate::types::{ContextManagementWire, OutputConfigWire, Request, ThinkingWire};
 
 pub fn parse_cache_control(raw: &Value, path: &str) -> (Option<String>, Option<Loss>) {
     let Some(obj) = raw.as_object() else {
@@ -71,35 +71,169 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
             .unwrap_or_default();
         match edit_type {
             "clear_tool_uses_20250919" => {
+                for k in edit.keys() {
+                    if k != "type"
+                        && k != "trigger"
+                        && k != "keep"
+                        && k != "clear_at_least"
+                        && k != "exclude_tools"
+                        && k != "clear_tool_inputs"
+                    {
+                        losses.push(Loss {
+                            path: format!("{edit_path}.{k}"),
+                            field: k.clone(),
+                            reason: LossReason::UnmappedField,
+                            detail: String::new(),
+                        });
+                    }
+                }
                 let mut valid = true;
-                if let Some(trig) = edit.get("trigger").and_then(|v| v.as_object())
-                    && trig.get("type").and_then(|v| v.as_str()) != Some("input_tokens")
-                {
-                    losses.push(Loss {
-                        path: format!("{edit_path}.trigger"),
-                        field: "trigger".into(),
-                        reason: LossReason::UnmappedValue,
-                        detail: String::new(),
-                    });
-                    valid = false;
+                let mut canon_edit = serde_json::Map::new();
+                canon_edit.insert("type".into(), Value::String("clear_tool_uses_20250919".into()));
+
+                if let Some(trig_val) = edit.get("trigger") {
+                    if let Some(trig) = trig_val.as_object() {
+                        for k in trig.keys() {
+                            if k != "type" && k != "value" {
+                                losses.push(Loss {
+                                    path: format!("{edit_path}.trigger.{k}"),
+                                    field: k.clone(),
+                                    reason: LossReason::UnmappedField,
+                                    detail: String::new(),
+                                });
+                            }
+                        }
+                        if trig.get("type").and_then(|v| v.as_str()) != Some("input_tokens") {
+                            losses.push(Loss {
+                                path: format!("{edit_path}.trigger"),
+                                field: "trigger".into(),
+                                reason: LossReason::UnmappedValue,
+                                detail: String::new(),
+                            });
+                            valid = false;
+                        } else {
+                            let mut trig_obj = serde_json::Map::new();
+                            trig_obj.insert("type".into(), Value::String("input_tokens".into()));
+                            if let Some(v) = trig.get("value") {
+                                trig_obj.insert("value".into(), v.clone());
+                            }
+                            canon_edit.insert("trigger".into(), Value::Object(trig_obj));
+                        }
+                    } else {
+                        losses.push(Loss {
+                            path: format!("{edit_path}.trigger"),
+                            field: "trigger".into(),
+                            reason: LossReason::UnmappedValue,
+                            detail: String::new(),
+                        });
+                        valid = false;
+                    }
                 }
-                if let Some(keep) = edit.get("keep").and_then(|v| v.as_object())
-                    && keep.get("type").and_then(|v| v.as_str()) != Some("tool_uses")
-                {
-                    losses.push(Loss {
-                        path: format!("{edit_path}.keep"),
-                        field: "keep".into(),
-                        reason: LossReason::UnmappedValue,
-                        detail: String::new(),
-                    });
-                    valid = false;
+
+                if let Some(keep_val) = edit.get("keep") {
+                    if let Some(keep) = keep_val.as_object() {
+                        for k in keep.keys() {
+                            if k != "type" && k != "value" {
+                                losses.push(Loss {
+                                    path: format!("{edit_path}.keep.{k}"),
+                                    field: k.clone(),
+                                    reason: LossReason::UnmappedField,
+                                    detail: String::new(),
+                                });
+                            }
+                        }
+                        if keep.get("type").and_then(|v| v.as_str()) != Some("tool_uses") {
+                            losses.push(Loss {
+                                path: format!("{edit_path}.keep"),
+                                field: "keep".into(),
+                                reason: LossReason::UnmappedValue,
+                                detail: String::new(),
+                            });
+                            valid = false;
+                        } else {
+                            let mut keep_obj = serde_json::Map::new();
+                            keep_obj.insert("type".into(), Value::String("tool_uses".into()));
+                            if let Some(v) = keep.get("value") {
+                                keep_obj.insert("value".into(), v.clone());
+                            }
+                            canon_edit.insert("keep".into(), Value::Object(keep_obj));
+                        }
+                    } else {
+                        losses.push(Loss {
+                            path: format!("{edit_path}.keep"),
+                            field: "keep".into(),
+                            reason: LossReason::UnmappedValue,
+                            detail: String::new(),
+                        });
+                        valid = false;
+                    }
                 }
+
+                if let Some(cal_val) = edit.get("clear_at_least") {
+                    if let Some(cal) = cal_val.as_object() {
+                        for k in cal.keys() {
+                            if k != "type" && k != "value" {
+                                losses.push(Loss {
+                                    path: format!("{edit_path}.clear_at_least.{k}"),
+                                    field: k.clone(),
+                                    reason: LossReason::UnmappedField,
+                                    detail: String::new(),
+                                });
+                            }
+                        }
+                        if cal.get("type").and_then(|v| v.as_str()) != Some("input_tokens") {
+                            losses.push(Loss {
+                                path: format!("{edit_path}.clear_at_least"),
+                                field: "clear_at_least".into(),
+                                reason: LossReason::UnmappedValue,
+                                detail: String::new(),
+                            });
+                            valid = false;
+                        } else {
+                            let mut cal_obj = serde_json::Map::new();
+                            cal_obj.insert("type".into(), Value::String("input_tokens".into()));
+                            if let Some(v) = cal.get("value") {
+                                cal_obj.insert("value".into(), v.clone());
+                            }
+                            canon_edit.insert("clear_at_least".into(), Value::Object(cal_obj));
+                        }
+                    } else {
+                        losses.push(Loss {
+                            path: format!("{edit_path}.clear_at_least"),
+                            field: "clear_at_least".into(),
+                            reason: LossReason::UnmappedValue,
+                            detail: String::new(),
+                        });
+                        valid = false;
+                    }
+                }
+
+                if let Some(et) = edit.get("exclude_tools") {
+                    canon_edit.insert("exclude_tools".into(), et.clone());
+                }
+                if let Some(cti) = edit.get("clear_tool_inputs") {
+                    canon_edit.insert("clear_tool_inputs".into(), cti.clone());
+                }
+
                 if valid {
-                    valid_edits.push(Value::Object(edit.clone()));
+                    valid_edits.push(Value::Object(canon_edit));
                 }
             }
             "clear_thinking_20251015" => {
+                for k in edit.keys() {
+                    if k != "type" && k != "keep" {
+                        losses.push(Loss {
+                            path: format!("{edit_path}.{k}"),
+                            field: k.clone(),
+                            reason: LossReason::UnmappedField,
+                            detail: String::new(),
+                        });
+                    }
+                }
                 let mut valid = true;
+                let mut canon_edit = serde_json::Map::new();
+                canon_edit.insert("type".into(), Value::String("clear_thinking_20251015".into()));
+
                 if let Some(keep) = edit.get("keep") {
                     if let Some(str_val) = keep.as_str() {
                         if str_val != "all" {
@@ -110,8 +244,20 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
                                 detail: String::new(),
                             });
                             valid = false;
+                        } else {
+                            canon_edit.insert("keep".into(), Value::String("all".into()));
                         }
                     } else if let Some(obj_val) = keep.as_object() {
+                        for k in obj_val.keys() {
+                            if k != "type" && k != "value" {
+                                losses.push(Loss {
+                                    path: format!("{edit_path}.keep.{k}"),
+                                    field: k.clone(),
+                                    reason: LossReason::UnmappedField,
+                                    detail: String::new(),
+                                });
+                            }
+                        }
                         if obj_val.get("type").and_then(|v| v.as_str()) != Some("thinking_turns") {
                             losses.push(Loss {
                                 path: format!("{edit_path}.keep"),
@@ -120,6 +266,13 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
                                 detail: String::new(),
                             });
                             valid = false;
+                        } else {
+                            let mut keep_obj = serde_json::Map::new();
+                            keep_obj.insert("type".into(), Value::String("thinking_turns".into()));
+                            if let Some(v) = obj_val.get("value") {
+                                keep_obj.insert("value".into(), v.clone());
+                            }
+                            canon_edit.insert("keep".into(), Value::Object(keep_obj));
                         }
                     } else {
                         losses.push(Loss {
@@ -132,7 +285,7 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
                     }
                 }
                 if valid {
-                    valid_edits.push(Value::Object(edit.clone()));
+                    valid_edits.push(Value::Object(canon_edit));
                 }
             }
             _ => {
@@ -352,63 +505,6 @@ pub fn decode_request_native(wire: &Request, req: &mut IrRequest) -> Vec<Loss> {
         }
     }
 
-    // 5. System blocks cache_control
-    if let Some(SystemValue::Blocks(ref blocks)) = wire.system {
-        for (i, sb) in blocks.iter().enumerate() {
-            if let Some(ref cc) = sb.cache_control {
-                let path = format!("system[{i}].cache_control");
-                let (canon, l) = parse_cache_control(cc, &path);
-                if let Some(loss) = l {
-                    losses.push(loss);
-                }
-                if let Some(val) = canon
-                    && let Some(SystemBlock::Text { native, .. }) = req.system.get_mut(i)
-                {
-                    native.push(NativeAnnotation {
-                        source: NATIVE_SOURCE_ANTHROPIC.into(),
-                        kind: NATIVE_KIND_CACHE_CONTROL.into(),
-                        value: val,
-                        omission: Some(NativeOmission {
-                            field: "cache_control".into(),
-                            reason: LossReason::UnmappedField,
-                            detail: None,
-                        }),
-                        projection: None,
-                    });
-                }
-            }
-        }
-    }
-
-    // 6. Tools cache_control
-    if let Some(ref tools) = wire.tools {
-        for (i, tool) in tools.iter().enumerate() {
-            if let Some(ref cc) = tool.cache_control {
-                let path = format!("tools[{i}].cache_control");
-                let (canon, l) = parse_cache_control(cc, &path);
-                if let Some(loss) = l {
-                    losses.push(loss);
-                }
-                if let Some(val) = canon
-                    && let Some(ref mut ir_tools) = req.tools
-                    && let Some(t) = ir_tools.get_mut(i)
-                {
-                    t.native.push(NativeAnnotation {
-                        source: NATIVE_SOURCE_ANTHROPIC.into(),
-                        kind: NATIVE_KIND_CACHE_CONTROL.into(),
-                        value: val,
-                        omission: Some(NativeOmission {
-                            field: "cache_control".into(),
-                            reason: LossReason::UnmappedField,
-                            detail: None,
-                        }),
-                        projection: None,
-                    });
-                }
-            }
-        }
-    }
-
     losses
 }
 
@@ -429,9 +525,16 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
     let mut native_budget_proj: Option<&NativeProjection> = None;
     let mut native_display: Option<String> = None;
     let mut native_effort: Option<String> = None;
+    let mut native_effort_proj: Option<&NativeProjection> = None;
 
-    for n in &req.native {
+    for (i, n) in req.native.iter().enumerate() {
         if n.source != NATIVE_SOURCE_ANTHROPIC {
+            losses.push(Loss {
+                path: format!("native[{i}]"),
+                field: "source".into(),
+                reason: LossReason::UnsupportedSemantic,
+                detail: format!("unsupported native option source \"{}\"", n.source),
+            });
             continue;
         }
         match n.kind.as_str() {
@@ -447,6 +550,7 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
             }
             NATIVE_KIND_OUTPUT_EFFORT => {
                 native_effort = serde_json::from_str(&n.value).ok();
+                native_effort_proj = n.projection.as_ref();
             }
             NATIVE_KIND_CACHE_CONTROL => {
                 wire.cache_control = serde_json::from_str(&n.value).ok();
@@ -454,7 +558,14 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
             NATIVE_KIND_CONTEXT_MANAGEMENT => {
                 wire.context_management = serde_json::from_str(&n.value).ok();
             }
-            _ => {}
+            _ => {
+                losses.push(Loss {
+                    path: format!("native[{i}]"),
+                    field: "kind".into(),
+                    reason: LossReason::UnsupportedSemantic,
+                    detail: format!("unsupported native option kind \"{}\"", n.kind),
+                });
+            }
         }
     }
 
@@ -467,6 +578,14 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
                 budget_tokens: None,
                 display: None,
             });
+            if (native_effort.is_some() || native_effort_proj.is_some())
+                && let Some(eff) = current_effort
+            {
+                wire.output_config = Some(OutputConfigWire {
+                    effort: Some(eff.as_str().into()),
+                    format: None,
+                });
+            }
         } else if native_mode.as_deref() == Some("adaptive") {
             wire.thinking = Some(ThinkingWire {
                 kind: "adaptive".into(),
@@ -563,6 +682,13 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
                                     });
                                 }
                             }
+                        } else {
+                            losses.push(Loss {
+                                path: "thinking".into(),
+                                field: "thinking".into(),
+                                reason: LossReason::UnsupportedSemantic,
+                                detail: "budget projection invalidated when effort is cleared".into(),
+                            });
                         }
                     }
                 } else {
@@ -578,6 +704,13 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
                         });
                     }
                 }
+            }
+        } else if native_effort.is_some() || native_effort_proj.is_some() {
+            if let Some(eff) = current_effort {
+                wire.output_config = Some(OutputConfigWire {
+                    effort: Some(eff.as_str().into()),
+                    format: None,
+                });
             }
         } else if let Some(eff) = current_effort {
             match eff {
@@ -644,31 +777,6 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
                         format: None,
                     });
                 }
-            }
-        }
-    }
-
-    // 2. System blocks cache_control
-    if let Some(SystemValue::Blocks(ref mut blocks)) = wire.system {
-        for (i, sb) in req.system.iter().enumerate() {
-            let SystemBlock::Text { native, .. } = sb;
-            if let Some(cc) = get_block_cache_control(native)
-                && let Some(wire_sb) = blocks.get_mut(i)
-            {
-                wire_sb.cache_control = Some(cc);
-            }
-        }
-    }
-
-    // 3. Tools cache_control
-    if let Some(ref ir_tools) = req.tools
-        && let Some(ref mut wire_tools) = wire.tools
-    {
-        for (i, t) in ir_tools.iter().enumerate() {
-            if let Some(cc) = get_block_cache_control(&t.native)
-                && let Some(wire_t) = wire_tools.get_mut(i)
-            {
-                wire_t.cache_control = Some(cc);
             }
         }
     }

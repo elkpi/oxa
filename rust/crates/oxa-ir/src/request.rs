@@ -164,6 +164,22 @@ pub enum Block {
     },
 }
 
+impl Block {
+    pub fn native(&self) -> &[NativeAnnotation] {
+        match self {
+            Block::Text { native, .. }
+            | Block::Thinking { native, .. }
+            | Block::Image { native, .. }
+            | Block::ToolUse { native, .. }
+            | Block::CustomToolUse { native, .. }
+            | Block::CustomToolResult { native, .. }
+            | Block::ApplyPatchToolUse { native, .. }
+            | Block::ApplyPatchToolResult { native, .. }
+            | Block::ToolResult { native, .. } => native,
+        }
+    }
+}
+
 /// A function or custom tool definition (spec/01 §3.5). Absent `tool_type`
 /// means the legacy function declaration and retains its historical JSON shape.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

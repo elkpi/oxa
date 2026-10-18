@@ -37,6 +37,7 @@ const DEFAULT_MAX_TOKENS: i64 = 4096;
 /// text block and that carries no system prompt; every other request renders
 /// block arrays.
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    oxa_ir::validate_native_request(req).map_err(|e| Error::new(e.to_string()))?;
     let mut losses = Vec::new();
     if req
         .metadata
@@ -81,7 +82,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "properties": {"input": {"type": "string"}},
                         "required": ["input"],
                     }),
-                    cache_control: None,
+                    cache_control: crate::native::get_block_cache_control(&tool.native),
                 });
                 continue;
             }
@@ -104,7 +105,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 input_schema: schema_val.clone(),
-                cache_control: None,
+                cache_control: crate::native::get_block_cache_control(&tool.native),
             });
         }
         if !wire_tools.is_empty() {
@@ -356,9 +357,12 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                     let mut content_wires = Vec::new();
                     let mut losses = Vec::new();
                     for (i, inner) in blocks.iter().enumerate() {
-                        let (w, l, mapped) =
+                        let (mut w, l, mapped) =
                             encode_request_block(inner, &format!("{path}.content[{i}]"))?;
                         if mapped {
+                            if let Some(cc) = crate::native::get_block_cache_control(inner.native()) {
+                                w.cache_control = Some(cc);
+                            }
                             content_wires.push(w);
                         }
                         losses.extend(l);

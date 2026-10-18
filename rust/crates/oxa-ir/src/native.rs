@@ -27,7 +27,18 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
     let mut explicit_proj = 0;
     for n in &request.native {
         if let Some(ref proj) = n.projection {
+            if proj.origin != "budget" && proj.origin != "explicit" {
+                return Err(Error::Custom(format!(
+                    "ir: native projection origin \"{}\" invalid",
+                    proj.origin
+                )));
+            }
             if proj.origin == "budget" {
+                if n.kind != NATIVE_KIND_THINKING_BUDGET {
+                    return Err(Error::Custom(
+                        "ir: budget projection is only allowed on thinking_budget".into(),
+                    ));
+                }
                 budget_proj += 1;
                 if budget_proj > 1 {
                     return Err(Error::Custom(
@@ -35,6 +46,11 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
                     ));
                 }
             } else if proj.origin == "explicit" {
+                if n.kind != NATIVE_KIND_OUTPUT_EFFORT {
+                    return Err(Error::Custom(
+                        "ir: explicit projection is only allowed on output_effort".into(),
+                    ));
+                }
                 explicit_proj += 1;
                 if explicit_proj > 1 {
                     return Err(Error::Custom(
@@ -43,6 +59,12 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
                 }
             }
         }
+    }
+
+    if budget_proj > 0 && explicit_proj > 0 {
+        return Err(Error::Custom(
+            "ir: conflicting effort projections on request".into(),
+        ));
     }
 
     for (i, sb) in request.system.iter().enumerate() {
@@ -86,11 +108,10 @@ fn validate_annotations(
                 "{path}.native[{i}]: kind cannot be empty"
             )));
         }
-        if serde_json::from_str::<serde_json::Value>(&ann.value).is_err() {
-            return Err(Error::Custom(format!(
-                "{path}.native[{i}]: value is not valid JSON text"
-            )));
-        }
+        let parsed_json: serde_json::Value =
+            serde_json::from_str(&ann.value).map_err(|_| {
+                Error::Custom(format!("{path}.native[{i}]: value is not valid JSON text"))
+            })?;
         if let Some(ref om) = ann.omission
             && om.field.is_empty()
         {
@@ -108,19 +129,90 @@ fn validate_annotations(
 
         if ann.source == NATIVE_SOURCE_ANTHROPIC {
             match ann.kind.as_str() {
-                NATIVE_KIND_THINKING_MODE
-                | NATIVE_KIND_THINKING_BUDGET
-                | NATIVE_KIND_THINKING_DISPLAY
-                | NATIVE_KIND_OUTPUT_EFFORT
-                | NATIVE_KIND_CONTEXT_MANAGEMENT => {
+                NATIVE_KIND_THINKING_MODE => {
                     if host != HostType::Request {
                         return Err(Error::Custom(format!(
                             "{path}: anthropic {} is only allowed on Request",
                             ann.kind
                         )));
                     }
+                    let s = parsed_json.as_str().unwrap_or_default();
+                    if s != "adaptive" && s != "enabled" && s != "disabled" {
+                        return Err(Error::Custom(format!("invalid thinking_mode {s:?}")));
+                    }
                 }
-                NATIVE_KIND_CACHE_CONTROL => {}
+                NATIVE_KIND_THINKING_BUDGET => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    let n = parsed_json.as_i64().unwrap_or(0);
+                    if n <= 0 {
+                        return Err(Error::Custom(
+                            "anthropic thinking_budget must be a positive integer".into(),
+                        ));
+                    }
+                }
+                NATIVE_KIND_THINKING_DISPLAY => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    let s = parsed_json.as_str().unwrap_or_default();
+                    if s != "summarized" && s != "omitted" && s != "updates" {
+                        return Err(Error::Custom(format!("invalid thinking_display {s:?}")));
+                    }
+                }
+                NATIVE_KIND_OUTPUT_EFFORT => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    let s = parsed_json.as_str().unwrap_or_default();
+                    if s != "low" && s != "medium" && s != "high" && s != "xhigh" && s != "max" {
+                        return Err(Error::Custom(format!("invalid output_effort {s:?}")));
+                    }
+                }
+                NATIVE_KIND_CONTEXT_MANAGEMENT => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    let Some(obj) = parsed_json.as_object() else {
+                        return Err(Error::Custom(
+                            "context_management requires edits array".into(),
+                        ));
+                    };
+                    if !obj.get("edits").is_some_and(|e| e.is_array()) {
+                        return Err(Error::Custom(
+                            "context_management requires edits array".into(),
+                        ));
+                    }
+                }
+                NATIVE_KIND_CACHE_CONTROL => {
+                    let Some(obj) = parsed_json.as_object() else {
+                        return Err(Error::Custom("invalid cache_control object".into()));
+                    };
+                    if obj.get("type").and_then(|t| t.as_str()) != Some("ephemeral") {
+                        return Err(Error::Custom("invalid cache_control object".into()));
+                    }
+                    if let Some(ttl) = obj.get("ttl") {
+                        let ttl_str = ttl.as_str().unwrap_or_default();
+                        if ttl_str != "5m" && ttl_str != "1h" {
+                            return Err(Error::Custom(format!(
+                                "invalid cache_control ttl {ttl_str:?}"
+                            )));
+                        }
+                    }
+                }
                 _ => {}
             }
         }
@@ -285,6 +377,13 @@ fn append_omission_loss(
                     field: om.field.clone(),
                     reason: om.reason,
                     detail: om.detail.clone().unwrap_or_default(),
+                });
+            } else {
+                losses.push(Loss {
+                    path: path.into(),
+                    field: "type".into(),
+                    reason: LossReason::UnmappedField,
+                    detail: String::new(),
                 });
             }
         }

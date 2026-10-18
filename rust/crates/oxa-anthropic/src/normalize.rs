@@ -91,7 +91,7 @@ pub(crate) fn decode_system(
         )),
         crate::types::SystemValue::Blocks(blocks) => {
             let mut out = Vec::with_capacity(blocks.len());
-            let losses = Vec::new();
+            let mut losses = Vec::new();
             for (index, block) in blocks.iter().enumerate() {
                 if block.kind != BLOCK_TYPE_TEXT {
                     return Err(Error::new(format!(
@@ -99,9 +99,30 @@ pub(crate) fn decode_system(
                         block.kind
                     )));
                 }
+                let mut native = Vec::new();
+                if let Some(ref cc) = block.cache_control {
+                    let path = format!("system[{index}].cache_control");
+                    let (canon, l) = crate::native::parse_cache_control(cc, &path);
+                    if let Some(loss) = l {
+                        losses.push(loss);
+                    }
+                    if let Some(val) = canon {
+                        native.push(oxa_ir::NativeAnnotation {
+                            source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                            kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
+                            value: val,
+                            omission: Some(oxa_ir::NativeOmission {
+                                field: "cache_control".into(),
+                                reason: LossReason::UnmappedField,
+                                detail: None,
+                            }),
+                            projection: None,
+                        });
+                    }
+                }
                 out.push(SystemBlock::Text {
                     text: block.text.clone(),
-                    native: Vec::new(),
+                    native,
                 });
             }
             Ok((out, losses))
@@ -114,10 +135,10 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
     system
         .iter()
         .map(|block| match block {
-            SystemBlock::Text { text, .. } => SystemBlockWire {
+            SystemBlock::Text { text, native } => SystemBlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
-                cache_control: None,
+                cache_control: crate::native::get_block_cache_control(native),
             },
         })
         .collect()
@@ -131,6 +152,7 @@ pub(crate) fn decode_content(
     custom_tools: &BTreeSet<String>,
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
+    is_request: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Err(Error::new(format!("anthropic: {path} is missing")));
@@ -153,6 +175,7 @@ pub(crate) fn decode_content(
                     custom_tools,
                     custom_call_ids,
                     declared_tools,
+                    is_request,
                 )?;
                 if mapped {
                     out.extend(decoded);
@@ -173,6 +196,7 @@ pub(crate) fn decode_block(
     custom_tools: &BTreeSet<String>,
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
+    is_request: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>, bool), Error> {
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
@@ -284,6 +308,7 @@ pub(crate) fn decode_block(
                             custom_tools,
                             custom_call_ids,
                             declared_tools,
+                            is_request,
                         )?;
                         losses.extend(content_losses);
                         oxa_ir::CustomToolOutput::Content(content)
@@ -301,6 +326,7 @@ pub(crate) fn decode_block(
                     custom_tools,
                     custom_call_ids,
                     declared_tools,
+                    is_request,
                 )?;
                 losses.extend(content_losses);
                 block = Some(Block::ToolResult {
@@ -322,36 +348,51 @@ pub(crate) fn decode_block(
         }
     }
     if let Some(ref cc) = wire.cache_control {
-        let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
-        if let Some(loss) = l {
-            losses.push(loss);
-        }
-        if let Some(val) = canon
-            && let Some(ref mut b) = block
-        {
-            let ann = oxa_ir::NativeAnnotation {
-                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
-                kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
-                value: val,
-                omission: Some(oxa_ir::NativeOmission {
-                    field: "cache_control".into(),
-                    reason: LossReason::UnmappedField,
-                    detail: None,
-                }),
-                projection: None,
-            };
-            match b {
-                Block::Text { native, .. }
-                | Block::Thinking { native, .. }
-                | Block::Image { native, .. }
-                | Block::ToolUse { native, .. }
-                | Block::CustomToolUse { native, .. }
-                | Block::ApplyPatchToolUse { native, .. }
-                | Block::ApplyPatchToolResult { native, .. }
-                | Block::ToolResult { native, .. }
-                | Block::CustomToolResult { native, .. } => {
-                    native.push(ann);
+        if is_request {
+            let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
+            if let Some(loss) = l {
+                losses.push(loss);
+            }
+            if let Some(val) = canon
+                && let Some(ref mut b) = block
+            {
+                let ann = oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
+                    value: val,
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "cache_control".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: None,
+                    }),
+                    projection: None,
+                };
+                match b {
+                    Block::Text { native, .. }
+                    | Block::Thinking { native, .. }
+                    | Block::Image { native, .. }
+                    | Block::ToolUse { native, .. }
+                    | Block::CustomToolUse { native, .. }
+                    | Block::ApplyPatchToolUse { native, .. }
+                    | Block::ApplyPatchToolResult { native, .. }
+                    | Block::ToolResult { native, .. }
+                    | Block::CustomToolResult { native, .. } => {
+                        native.push(ann);
+                    }
                 }
+            }
+        } else {
+            let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
+            if let Some(loss) = l {
+                losses.push(loss);
+            }
+            if canon.is_some() {
+                losses.push(loss(
+                    format!("{path}.cache_control"),
+                    "cache_control",
+                    LossReason::UnmappedField,
+                    "Anthropic response block cache_control has no IR equivalent",
+                ));
             }
         }
     }

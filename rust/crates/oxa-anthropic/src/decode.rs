@@ -77,6 +77,27 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 &schema,
                 &format!("tools[{index}].input_schema"),
             )?;
+            let mut native = Vec::new();
+            if let Some(ref cc) = tool.cache_control {
+                let path = format!("tools[{index}].cache_control");
+                let (canon, l) = crate::native::parse_cache_control(cc, &path);
+                if let Some(loss) = l {
+                    losses.push(loss);
+                }
+                if let Some(val) = canon {
+                    native.push(oxa_ir::NativeAnnotation {
+                        source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                        kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
+                        value: val,
+                        omission: Some(oxa_ir::NativeOmission {
+                            field: "cache_control".into(),
+                            reason: LossReason::UnmappedField,
+                            detail: None,
+                        }),
+                        projection: None,
+                    });
+                }
+            }
             if is_custom_tool_input_schema(&tool.input_schema) {
                 custom_tools.insert(tool.name.clone());
                 tools.push(oxa_ir::Tool {
@@ -85,7 +106,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     description: non_empty(tool.description.clone()),
                     input_schema: None,
                     format: None,
-                    native: Vec::new(),
+                    native,
                 });
                 continue;
             }
@@ -95,7 +116,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 description: non_empty(tool.description.clone()),
                 input_schema: Some(tool.input_schema.clone()),
                 format: None,
-                native: Vec::new(),
+                native,
             });
         }
         if !tools.is_empty() {
@@ -127,6 +148,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             &custom_tools,
             &mut custom_call_ids,
             &declared_tools,
+            true,
         )?;
         losses.extend(block_losses);
         req.messages.push(oxa_ir::Message {
@@ -175,6 +197,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             &BTreeSet::new(),
             &mut BTreeSet::new(),
             &BTreeSet::new(),
+            false,
         )?;
         if mapped {
             content.extend(decoded);

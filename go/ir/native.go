@@ -41,6 +41,10 @@ const (
 	NativeSourceAnthropic = "anthropic"
 )
 
+// CacheControlLossDetail is the canonical spec/15 §3.2 capability-gap detail for
+// Anthropic cache breakpoints dropped when crossing to a face without cache_control.
+const CacheControlLossDetail = "anthropic-native cache breakpoint; the target face has no cache_control representation"
+
 type hostType int
 
 const (
@@ -407,7 +411,29 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 			})
 		}
 
-	case NativeKindThinkingDisplay, NativeKindCacheControl, NativeKindContextManagement:
+	case NativeKindCacheControl:
+		field := "cache_control"
+		reason := LossUnmappedField
+		detail := CacheControlLossDetail
+		if ann.Omission != nil {
+			if ann.Omission.Field != "" {
+				field = ann.Omission.Field
+			}
+			if ann.Omission.Reason != "" {
+				reason = ann.Omission.Reason
+			}
+			if ann.Omission.Detail != "" {
+				detail = ann.Omission.Detail
+			}
+		}
+		return append(losses, Loss{
+			Path:   path,
+			Field:  field,
+			Reason: reason,
+			Detail: detail,
+		})
+
+	case NativeKindThinkingDisplay, NativeKindContextManagement:
 		if ann.Omission != nil {
 			return append(losses, Loss{
 				Path:   path,

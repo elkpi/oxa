@@ -5,6 +5,7 @@ import type { Loss } from "../src/loss.js";
 import {
   decodeRequest,
   encodeRequest,
+  encodeResponse,
   validateRequest,
   type Request,
   type TextBlock,
@@ -16,6 +17,7 @@ import {
 } from "../src/ir/native.js";
 import {
   decodeRequestJSON as decodeAnthropicJSON,
+  decodeResponseJSON as decodeAnthropicResponseJSON,
   encodeRequest as encodeAnthropic,
 } from "../src/anthropic/messages/index.js";
 import {
@@ -268,4 +270,138 @@ test("Anthropic thinking and effort combinations", () => {
   const outOutputConfig = (encoded.value as any).output_config;
   assert.equal(outThinking?.type, "adaptive");
   assert.equal(outOutputConfig?.effort, "xhigh");
+});
+
+test("explicit effort only encodes back to output_config.effort", () => {
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    output_config: { effort: "low" },
+  });
+  const decoded = decodeAnthropicJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+  const encoded = encodeAnthropic(decoded.value);
+  assert.equal(encoded.losses.length, 0);
+  const outThinking = (encoded.value as any).thinking;
+  const outOutputConfig = (encoded.value as any).output_config;
+  assert.equal(outThinking, undefined);
+  assert.equal(outOutputConfig?.effort, "low");
+});
+
+test("context management recursive audit strips unknown fields", () => {
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    context_management: {
+      edits: [
+        {
+          type: "clear_tool_uses_20250919",
+          future_policy: true,
+          trigger: {
+            type: "input_tokens",
+            value: 30000,
+            future_nested: false,
+          },
+        },
+      ],
+    },
+  });
+  const decoded = decodeAnthropicJSON(raw);
+  assert.equal(
+    decoded.losses.some(
+      (l) => l.field === "future_policy" && l.reason === "unmapped-field",
+    ),
+    true,
+  );
+  assert.equal(
+    decoded.losses.some(
+      (l) => l.field === "future_nested" && l.reason === "unmapped-field",
+    ),
+    true,
+  );
+  const encoded = encodeAnthropic(decoded.value);
+  const edits = (encoded.value as any).context_management?.edits;
+  assert.equal(edits?.length, 1);
+  assert.equal(edits[0]?.future_policy, undefined);
+  assert.equal(edits[0]?.trigger?.future_nested, undefined);
+});
+
+test("response native isolation does not pollute response blocks", () => {
+  const raw = JSON.stringify({
+    id: "r1",
+    model: "claude-opus-5-5",
+    stop_reason: "end_turn",
+    content: [
+      { type: "text", text: "hi", cache_control: { type: "ephemeral" } },
+    ],
+    usage: { input_tokens: 1, output_tokens: 1 },
+  });
+  const decoded = decodeAnthropicResponseJSON(raw);
+  assert.equal(
+    decoded.losses.some(
+      (l) => l.field === "cache_control" && l.reason === "unmapped-field",
+    ),
+    true,
+  );
+  const block = decoded.value.content[0] as any;
+  assert.equal(block.native, undefined);
+  // Must encode cleanly through IR response encoder without throwing
+  assert.doesNotThrow(() => {
+    encodeResponse(decoded.value);
+  });
+});
+
+test("custom tool result with nested native preserves cache_control", () => {
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    tools: [
+      {
+        name: "f",
+        input_schema: {
+          type: "object",
+          properties: { input: { type: "string" } },
+          required: ["input"],
+        },
+      },
+    ],
+    messages: [
+      { role: "user", content: "hi" },
+      {
+        role: "assistant",
+        content: [
+          { type: "tool_use", id: "c1", name: "f", input: { input: "run" } },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool_result",
+            tool_use_id: "c1",
+            content: [
+              {
+                type: "text",
+                text: "result",
+                cache_control: { type: "ephemeral" },
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+  const decoded = decodeAnthropicJSON(raw);
+  const irDoc = encodeRequest(decoded.value);
+  const reloaded = decodeRequest(irDoc);
+  const encoded = encodeAnthropic(reloaded);
+  const userContent = (encoded.value as any).messages[2]?.content;
+  assert.equal(Array.isArray(userContent), true);
+  const toolResult = userContent[0];
+  assert.equal(toolResult.type, "tool_result");
+  const innerContent = toolResult.content;
+  assert.equal(Array.isArray(innerContent), true);
+  assert.equal(innerContent[0]?.cache_control?.type, "ephemeral");
 });

@@ -29,6 +29,7 @@ import type {
   CustomToolResultBlock,
   CustomToolUseBlock,
   ImageBlock,
+  NativeAnnotation,
   ReasoningEffort,
   Request,
   Response,
@@ -95,7 +96,11 @@ function decodeRequestObject(
   const losses: Loss[] = [];
   if (wire.metadata !== undefined)
     losses.push(loss("metadata", "metadata", "unmapped-field"));
-  const system: { readonly type: "text"; readonly text: string }[] = [];
+  const system: {
+    readonly type: "text";
+    readonly text: string;
+    readonly native?: readonly NativeAnnotation[];
+  }[] = [];
   if (typeof wire.system === "string") {
     system.push({ type: "text", text: wire.system });
   } else if (wire.system !== undefined && wire.system !== null) {
@@ -103,9 +108,11 @@ function decodeRequestObject(
     for (let index = 0; index < blocks.length; index += 1) {
       const block = object(blocks[index], `system[${index}]`);
       if (block.type !== "text") fail(`system[${index}].type must be text`);
+      const native = attachBlockCacheControl(block, `system[${index}]`, losses);
       system.push({
         type: "text",
         text: string(block.text, `system[${index}].text`),
+        ...(native ? { native } : {}),
       });
     }
   }
@@ -117,6 +124,7 @@ function decodeRequestObject(
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
     const name = string(tool.name, `tools[${index}].name`);
     declaredTools.add(name);
+    const native = attachBlockCacheControl(tool, `tools[${index}]`, losses);
     if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
@@ -130,6 +138,7 @@ function decodeRequestObject(
                 `tools[${index}].description`,
               ),
             }),
+        ...(native ? { native } : {}),
       };
     }
     return {
@@ -143,6 +152,7 @@ function decodeRequestObject(
             ),
           }),
       input_schema: schema,
+      ...(native ? { native } : {}),
     };
   });
   const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools);
@@ -159,6 +169,7 @@ function decodeRequestObject(
       customTools,
       customCallIds,
       declaredTools,
+      true,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
@@ -209,7 +220,15 @@ function decodeResponseObject(
   options: NonstreamOptions = {},
 ): ConversionResult<Response> {
   const losses: Loss[] = [];
-  const content = decodeContent(wire.content, "content", losses);
+  const content = decodeContent(
+    wire.content,
+    "content",
+    losses,
+    undefined,
+    undefined,
+    undefined,
+    false,
+  );
   const nativeStop = string(wire.stop_reason, "stop_reason");
   let stopReason: Response["stop_reason"];
   if (
@@ -312,6 +331,7 @@ export function encodeRequest(
   });
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
+      const cc = getBlockCacheControl(tool);
       if (tool.type === "custom") {
         if (tool.format?.type === "grammar") {
           losses.push(
@@ -329,6 +349,7 @@ export function encodeRequest(
               properties: { input: { type: "string" } },
               required: ["input"],
             },
+            ...(cc ? { cache_control: cc } : {}),
           },
         ];
       }
@@ -343,6 +364,7 @@ export function encodeRequest(
             ? {}
             : { description: tool.description }),
           input_schema: tool.input_schema,
+          ...(cc ? { cache_control: cc } : {}),
         },
       ];
     }) ?? [];
@@ -362,10 +384,14 @@ export function encodeRequest(
     ...(request.system === undefined || request.system.length === 0
       ? {}
       : {
-          system: request.system.map((block) => ({
-            type: "text",
-            text: block.text,
-          })),
+          system: request.system.map((block) => {
+            const cc = getBlockCacheControl(block);
+            return {
+              type: "text",
+              text: block.text,
+              ...(cc ? { cache_control: cc } : {}),
+            };
+          }),
         }),
     messages,
     ...(params?.temperature === undefined
@@ -456,18 +482,17 @@ function decodeContent(
   customTools?: ReadonlySet<string>,
   customCallIds?: Set<string>,
   declaredTools?: ReadonlySet<string>,
+  isRequest: boolean = false,
 ): Block[] {
   if (typeof value === "string") return [{ type: "text", text: value }];
   const blocks: Block[] = [];
   for (let index = 0; index < array(value, path).length; index += 1) {
     const block = object(array(value, path)[index], `${path}[${index}]`);
     const type = string(block.type, `${path}[${index}].type`);
+    const native = isRequest
+      ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
+      : undefined;
     if (type === "text") {
-      const native = attachBlockCacheControl(
-        block,
-        `${path}[${index}]`,
-        losses,
-      );
       blocks.push({
         type: "text",
         text: string(block.text, `${path}[${index}].text`),
@@ -475,11 +500,6 @@ function decodeContent(
       });
     } else if (type === "image") {
       const source = object(block.source, `${path}[${index}].source`);
-      const native = attachBlockCacheControl(
-        block,
-        `${path}[${index}]`,
-        losses,
-      );
       if (source.type === "base64")
         blocks.push({
           type: "image",
@@ -501,11 +521,6 @@ function decodeContent(
         continue;
       }
     } else if (type === "thinking") {
-      const native = attachBlockCacheControl(
-        block,
-        `${path}[${index}]`,
-        losses,
-      );
       blocks.push({
         type: "thinking",
         thinking: string(block.thinking, `${path}[${index}].thinking`),
@@ -520,11 +535,6 @@ function decodeContent(
         ...(native ? { native } : {}),
       });
     } else if (type === "tool_use") {
-      const native = attachBlockCacheControl(
-        block,
-        `${path}[${index}]`,
-        losses,
-      );
       const inputPath = `${path}[${index}].input`;
       const input = object(block.input, inputPath);
       const id = string(block.id, `${path}[${index}].id`);
@@ -574,11 +584,6 @@ function decodeContent(
         });
       }
     } else if (type === "tool_result") {
-      const native = attachBlockCacheControl(
-        block,
-        `${path}[${index}]`,
-        losses,
-      );
       const toolUseId = string(
         block.tool_use_id,
         `${path}[${index}].tool_use_id`,
@@ -597,10 +602,12 @@ function decodeContent(
                   customTools,
                   customCallIds,
                   declaredTools,
+                  isRequest,
                 ).filter(
                   (b): b is TextBlock | ImageBlock =>
                     b.type === "text" || b.type === "image",
                 ) as readonly (TextBlock | ImageBlock)[]),
+          ...(native ? { native } : {}),
         });
       } else {
         blocks.push({
@@ -613,6 +620,7 @@ function decodeContent(
             customTools,
             customCallIds,
             declaredTools,
+            isRequest,
           ),
           ...(block.is_error === undefined
             ? {}
@@ -732,22 +740,33 @@ function encodeContent(
           type: "tool_result",
           tool_use_id: block.tool_use_id,
           content: block.output,
+          ...(cc ? { cache_control: cc } : {}),
         });
       } else {
         const content: JsonValue[] = [];
         for (let child = 0; child < block.output.length; child += 1) {
           const nested = block.output[child]!;
+          const nestedCc = getBlockCacheControl(nested);
           if (nested.type === "text")
-            content.push({ type: "text", text: nested.text });
+            content.push({
+              type: "text",
+              text: nested.text,
+              ...(nestedCc ? { cache_control: nestedCc } : {}),
+            });
           else if (nested.type === "image") {
             const image = encodeImage(nested);
-            if (image !== undefined) content.push(image);
+            if (image !== undefined)
+              content.push({
+                ...image,
+                ...(nestedCc ? { cache_control: nestedCc } : {}),
+              });
           }
         }
         output.push({
           type: "tool_result",
           tool_use_id: block.tool_use_id,
           content,
+          ...(cc ? { cache_control: cc } : {}),
         });
       }
     } else if (

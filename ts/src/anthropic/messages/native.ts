@@ -142,15 +142,58 @@ function parseContextManagement(
     const editObj = edit as Record<string, JsonValue>;
     const editType = editObj.type;
     if (editType === "clear_tool_uses_20250919") {
-      let valid = true;
-      if (
-        editObj.trigger &&
-        typeof editObj.trigger === "object" &&
-        !Array.isArray(editObj.trigger)
-      ) {
+      for (const k of Object.keys(editObj)) {
         if (
-          (editObj.trigger as Record<string, JsonValue>).type !== "input_tokens"
+          k !== "type" &&
+          k !== "trigger" &&
+          k !== "keep" &&
+          k !== "clear_at_least" &&
+          k !== "exclude_tools" &&
+          k !== "clear_tool_inputs"
         ) {
+          losses.push({
+            path: `${editPath}.${k}`,
+            field: k,
+            reason: "unmapped-field",
+          });
+        }
+      }
+      let valid = true;
+      const canonEdit: Record<string, JsonValue> = {
+        type: "clear_tool_uses_20250919",
+      };
+      if (editObj.trigger !== undefined) {
+        if (
+          typeof editObj.trigger === "object" &&
+          editObj.trigger !== null &&
+          !Array.isArray(editObj.trigger)
+        ) {
+          const trig = editObj.trigger as Record<string, JsonValue>;
+          for (const k of Object.keys(trig)) {
+            if (k !== "type" && k !== "value") {
+              losses.push({
+                path: `${editPath}.trigger.${k}`,
+                field: k,
+                reason: "unmapped-field",
+              });
+            }
+          }
+          if (trig.type !== "input_tokens") {
+            losses.push({
+              path: `${editPath}.trigger`,
+              field: "trigger",
+              reason: "unmapped-value",
+            });
+            valid = false;
+          } else {
+            canonEdit.trigger = {
+              type: "input_tokens",
+              ...(trig.value !== undefined
+                ? { value: trig.value as JsonValue }
+                : {}),
+            };
+          }
+        } else {
           losses.push({
             path: `${editPath}.trigger`,
             field: "trigger",
@@ -159,12 +202,38 @@ function parseContextManagement(
           valid = false;
         }
       }
-      if (
-        editObj.keep &&
-        typeof editObj.keep === "object" &&
-        !Array.isArray(editObj.keep)
-      ) {
-        if ((editObj.keep as Record<string, JsonValue>).type !== "tool_uses") {
+      if (editObj.keep !== undefined) {
+        if (
+          typeof editObj.keep === "object" &&
+          editObj.keep !== null &&
+          !Array.isArray(editObj.keep)
+        ) {
+          const kp = editObj.keep as Record<string, JsonValue>;
+          for (const k of Object.keys(kp)) {
+            if (k !== "type" && k !== "value") {
+              losses.push({
+                path: `${editPath}.keep.${k}`,
+                field: k,
+                reason: "unmapped-field",
+              });
+            }
+          }
+          if (kp.type !== "tool_uses") {
+            losses.push({
+              path: `${editPath}.keep`,
+              field: "keep",
+              reason: "unmapped-value",
+            });
+            valid = false;
+          } else {
+            canonEdit.keep = {
+              type: "tool_uses",
+              ...(kp.value !== undefined
+                ? { value: kp.value as JsonValue }
+                : {}),
+            };
+          }
+        } else {
           losses.push({
             path: `${editPath}.keep`,
             field: "keep",
@@ -173,11 +242,69 @@ function parseContextManagement(
           valid = false;
         }
       }
+      if (editObj.clear_at_least !== undefined) {
+        if (
+          typeof editObj.clear_at_least === "object" &&
+          editObj.clear_at_least !== null &&
+          !Array.isArray(editObj.clear_at_least)
+        ) {
+          const cal = editObj.clear_at_least as Record<string, JsonValue>;
+          for (const k of Object.keys(cal)) {
+            if (k !== "type" && k !== "value") {
+              losses.push({
+                path: `${editPath}.clear_at_least.${k}`,
+                field: k,
+                reason: "unmapped-field",
+              });
+            }
+          }
+          if (cal.type !== "input_tokens") {
+            losses.push({
+              path: `${editPath}.clear_at_least`,
+              field: "clear_at_least",
+              reason: "unmapped-value",
+            });
+            valid = false;
+          } else {
+            canonEdit.clear_at_least = {
+              type: "input_tokens",
+              ...(cal.value !== undefined
+                ? { value: cal.value as JsonValue }
+                : {}),
+            };
+          }
+        } else {
+          losses.push({
+            path: `${editPath}.clear_at_least`,
+            field: "clear_at_least",
+            reason: "unmapped-value",
+          });
+          valid = false;
+        }
+      }
+      if (editObj.exclude_tools !== undefined) {
+        canonEdit.exclude_tools = editObj.exclude_tools;
+      }
+      if (editObj.clear_tool_inputs !== undefined) {
+        canonEdit.clear_tool_inputs = editObj.clear_tool_inputs;
+      }
       if (valid) {
-        validEdits.push(edit);
+        validEdits.push(canonEdit);
       }
     } else if (editType === "clear_thinking_20251015") {
+      for (const k of Object.keys(editObj)) {
+        if (k !== "type" && k !== "keep") {
+          losses.push({
+            path: `${editPath}.${k}`,
+            field: k,
+            reason: "unmapped-field",
+          });
+        }
+      }
       let valid = true;
+      const canonEdit: Record<string, JsonValue> = {
+        type: "clear_thinking_20251015",
+      };
       if ("keep" in editObj && editObj.keep !== undefined) {
         if (typeof editObj.keep === "string") {
           if (editObj.keep !== "all") {
@@ -187,22 +314,38 @@ function parseContextManagement(
               reason: "unmapped-value",
             });
             valid = false;
+          } else {
+            canonEdit.keep = "all";
           }
         } else if (
           typeof editObj.keep === "object" &&
           editObj.keep !== null &&
           !Array.isArray(editObj.keep)
         ) {
-          if (
-            (editObj.keep as Record<string, JsonValue>).type !==
-            "thinking_turns"
-          ) {
+          const kp = editObj.keep as Record<string, JsonValue>;
+          for (const k of Object.keys(kp)) {
+            if (k !== "type" && k !== "value") {
+              losses.push({
+                path: `${editPath}.keep.${k}`,
+                field: k,
+                reason: "unmapped-field",
+              });
+            }
+          }
+          if (kp.type !== "thinking_turns") {
             losses.push({
               path: `${editPath}.keep`,
               field: "keep",
               reason: "unmapped-value",
             });
             valid = false;
+          } else {
+            canonEdit.keep = {
+              type: "thinking_turns",
+              ...(kp.value !== undefined
+                ? { value: kp.value as JsonValue }
+                : {}),
+            };
           }
         } else {
           losses.push({
@@ -214,7 +357,7 @@ function parseContextManagement(
         }
       }
       if (valid) {
-        validEdits.push(edit);
+        validEdits.push(canonEdit);
       }
     } else {
       losses.push({
@@ -419,77 +562,9 @@ export function decodeRequestNative(
     }
   }
 
-  // 5. System blocks cache_control
-  const system = request.system?.map((sb, i) => {
-    if (
-      Array.isArray(wire.system) &&
-      wire.system[i] &&
-      typeof wire.system[i] === "object"
-    ) {
-      const parsed = parseCacheControl(
-        (wire.system[i] as Record<string, JsonValue>).cache_control,
-        `system[${i}].cache_control`,
-      );
-      if (parsed.loss) losses.push(parsed.loss);
-      if (parsed.ok && parsed.canonical) {
-        return {
-          ...sb,
-          native: [
-            ...(sb.native ?? []),
-            {
-              source: NATIVE_SOURCE_ANTHROPIC,
-              kind: NATIVE_KIND_CACHE_CONTROL,
-              value: parsed.canonical,
-              omission: {
-                field: "cache_control",
-                reason: "unmapped-field" as const,
-              },
-            },
-          ],
-        };
-      }
-    }
-    return sb;
-  });
-
-  // 6. Tools cache_control
-  const tools = request.tools?.map((t, i) => {
-    if (
-      Array.isArray(wire.tools) &&
-      wire.tools[i] &&
-      typeof wire.tools[i] === "object"
-    ) {
-      const parsed = parseCacheControl(
-        (wire.tools[i] as Record<string, JsonValue>).cache_control,
-        `tools[${i}].cache_control`,
-      );
-      if (parsed.loss) losses.push(parsed.loss);
-      if (parsed.ok && parsed.canonical) {
-        return {
-          ...t,
-          native: [
-            ...(t.native ?? []),
-            {
-              source: NATIVE_SOURCE_ANTHROPIC,
-              kind: NATIVE_KIND_CACHE_CONTROL,
-              value: parsed.canonical,
-              omission: {
-                field: "cache_control",
-                reason: "unmapped-field" as const,
-              },
-            },
-          ],
-        };
-      }
-    }
-    return t;
-  });
-
   return {
     ...request,
     ...(reqNative.length > 0 ? { native: reqNative } : {}),
-    ...(system ? { system } : {}),
-    ...(tools ? { tools } : {}),
     params: {
       ...request.params,
       ...(reasoningEffort !== undefined
@@ -524,9 +599,20 @@ export function encodeRequestNative(
   let nativeBudgetProj: NativeAnnotation["projection"] | undefined;
   let nativeDisplay: string | undefined;
   let nativeEffort: string | undefined;
+  let nativeEffortProj: NativeAnnotation["projection"] | undefined;
 
-  for (const n of request.native ?? []) {
-    if (n.source !== NATIVE_SOURCE_ANTHROPIC) continue;
+  const nativeList = request.native ?? [];
+  for (let i = 0; i < nativeList.length; i++) {
+    const n = nativeList[i]!;
+    if (n.source !== NATIVE_SOURCE_ANTHROPIC) {
+      losses.push({
+        path: `native[${i}]`,
+        field: "source",
+        reason: "unsupported-semantic",
+        detail: `unsupported native option source "${n.source}"`,
+      });
+      continue;
+    }
     switch (n.kind) {
       case NATIVE_KIND_THINKING_MODE:
         nativeMode = JSON.parse(n.value) as string;
@@ -540,12 +626,21 @@ export function encodeRequestNative(
         break;
       case NATIVE_KIND_OUTPUT_EFFORT:
         nativeEffort = JSON.parse(n.value) as string;
+        nativeEffortProj = n.projection;
         break;
       case NATIVE_KIND_CACHE_CONTROL:
         wire.cache_control = parseJson(n.value) as JsonObject;
         break;
       case NATIVE_KIND_CONTEXT_MANAGEMENT:
         wire.context_management = parseJson(n.value) as JsonObject;
+        break;
+      default:
+        losses.push({
+          path: `native[${i}]`,
+          field: "kind",
+          reason: "unsupported-semantic",
+          detail: `unsupported native option kind "${n.kind}"`,
+        });
         break;
     }
   }
@@ -559,6 +654,11 @@ export function encodeRequestNative(
   ) {
     if (nativeMode === "disabled") {
       wire.thinking = { type: "disabled" };
+      if (nativeEffort !== undefined || nativeEffortProj !== undefined) {
+        if (currentEffort !== undefined) {
+          wire.output_config = { effort: currentEffort };
+        }
+      }
     } else if (nativeMode === "adaptive") {
       wire.thinking = {
         type: "adaptive",
@@ -579,7 +679,7 @@ export function encodeRequestNative(
                 ? { display: nativeDisplay }
                 : {}),
             };
-          } else {
+          } else if (currentEffort !== undefined) {
             // Edited: reconstruct
             switch (currentEffort) {
               case "minimal":
@@ -590,7 +690,7 @@ export function encodeRequestNative(
                 losses.push({
                   path: "params.reasoning_effort",
                   field: "reasoning_effort",
-                  reason: "degraded" as const,
+                  reason: "degraded",
                   detail: "budget approximated",
                 });
                 break;
@@ -602,7 +702,7 @@ export function encodeRequestNative(
                 losses.push({
                   path: "params.reasoning_effort",
                   field: "reasoning_effort",
-                  reason: "degraded" as const,
+                  reason: "degraded",
                   detail: "budget approximated",
                 });
                 break;
@@ -614,7 +714,7 @@ export function encodeRequestNative(
                 losses.push({
                   path: "params.reasoning_effort",
                   field: "reasoning_effort",
-                  reason: "degraded" as const,
+                  reason: "degraded",
                   detail: "budget approximated",
                 });
                 break;
@@ -626,7 +726,7 @@ export function encodeRequestNative(
                 losses.push({
                   path: "params.reasoning_effort",
                   field: "reasoning_effort",
-                  reason: "degraded" as const,
+                  reason: "degraded",
                   detail: "budget approximated",
                 });
                 break;
@@ -637,12 +737,26 @@ export function encodeRequestNative(
                 losses.push({
                   path: "params.reasoning_effort",
                   field: "reasoning_effort",
-                  reason: "degraded" as const,
+                  reason: "degraded",
                   detail:
                     "switched to adaptive thinking mode for extended effort",
                 });
                 break;
             }
+            if (wire.thinking && nativeDisplay !== undefined) {
+              (wire.thinking as Record<string, JsonValue>).display =
+                nativeDisplay;
+            }
+          } else {
+            // Effort was cleared! Thinking cannot be formed:
+            delete wire.thinking;
+            losses.push({
+              path: "thinking",
+              field: "thinking",
+              reason: "unsupported-semantic",
+              detail:
+                "thinking configuration invalidated after clearing reasoning_effort",
+            });
           }
         } else {
           // Enabled budget with explicit effort
@@ -656,70 +770,58 @@ export function encodeRequestNative(
           }
         }
       }
-      if (wire.thinking && nativeDisplay !== undefined) {
-        (wire.thinking as Record<string, JsonValue>).display = nativeDisplay;
-      }
     } else {
-      // Standard IR ReasoningEffort mapping (no nativeMode)
-      switch (currentEffort) {
-        case "minimal":
-          wire.thinking = { type: "enabled", budget_tokens: integer(1024n) };
-          losses.push({
-            path: "params.reasoning_effort",
-            field: "reasoning_effort",
-            reason: "degraded" as const,
-            detail: "budget approximated",
-          });
-          break;
-        case "low":
-          wire.thinking = { type: "enabled", budget_tokens: integer(2048n) };
-          losses.push({
-            path: "params.reasoning_effort",
-            field: "reasoning_effort",
-            reason: "degraded" as const,
-            detail: "budget approximated",
-          });
-          break;
-        case "medium":
-          wire.thinking = { type: "enabled", budget_tokens: integer(8192n) };
-          losses.push({
-            path: "params.reasoning_effort",
-            field: "reasoning_effort",
-            reason: "degraded" as const,
-            detail: "budget approximated",
-          });
-          break;
-        case "high":
-          wire.thinking = { type: "enabled", budget_tokens: integer(16384n) };
-          losses.push({
-            path: "params.reasoning_effort",
-            field: "reasoning_effort",
-            reason: "degraded" as const,
-            detail: "budget approximated",
-          });
-          break;
-        case "xhigh":
-        case "max":
-          wire.thinking = { type: "adaptive" };
+      // No nativeMode recorded:
+      if (nativeEffort !== undefined || nativeEffortProj !== undefined) {
+        if (currentEffort !== undefined) {
           wire.output_config = { effort: currentEffort };
-          break;
+        }
+      } else {
+        // Standard unannotated IR ReasoningEffort mapping (budget table)
+        switch (currentEffort) {
+          case "minimal":
+            wire.thinking = { type: "enabled", budget_tokens: integer(1024n) };
+            losses.push({
+              path: "params.reasoning_effort",
+              field: "reasoning_effort",
+              reason: "degraded",
+              detail: "budget approximated",
+            });
+            break;
+          case "low":
+            wire.thinking = { type: "enabled", budget_tokens: integer(2048n) };
+            losses.push({
+              path: "params.reasoning_effort",
+              field: "reasoning_effort",
+              reason: "degraded",
+              detail: "budget approximated",
+            });
+            break;
+          case "medium":
+            wire.thinking = { type: "enabled", budget_tokens: integer(8192n) };
+            losses.push({
+              path: "params.reasoning_effort",
+              field: "reasoning_effort",
+              reason: "degraded",
+              detail: "budget approximated",
+            });
+            break;
+          case "high":
+            wire.thinking = { type: "enabled", budget_tokens: integer(16384n) };
+            losses.push({
+              path: "params.reasoning_effort",
+              field: "reasoning_effort",
+              reason: "degraded",
+              detail: "budget approximated",
+            });
+            break;
+          case "xhigh":
+          case "max":
+            wire.thinking = { type: "adaptive" };
+            wire.output_config = { effort: currentEffort };
+            break;
+        }
       }
     }
-  }
-
-  // 2. System blocks cache_control
-  if (Array.isArray(wire.system)) {
-    wire.system = wire.system.map((sb, i) => {
-      const cc = getBlockCacheControl(request.system?.[i] as any);
-      return cc ? { ...sb, cache_control: cc } : sb;
-    });
-  }
-
-  // 3. Tools cache_control
-  if (Array.isArray(wire.tools)) {
-    wire.tools = wire.tools.map((t, i) => {
-      const cc = getBlockCacheControl(request.tools?.[i] as any);
-      return cc ? { ...t, cache_control: cc } : t;
-    });
   }
 }

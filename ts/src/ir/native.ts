@@ -26,23 +26,65 @@ export function validateNativeRequest(request: Request): void {
   let budgetProjCount = 0;
   let explicitProjCount = 0;
   for (const n of request.native ?? []) {
-    if (n.projection?.origin === "budget") {
-      budgetProjCount++;
-      if (budgetProjCount > 1) {
+    if (n.projection) {
+      const orig = n.projection.origin;
+      if (orig !== "budget" && orig !== "explicit") {
         throw new OxaError(
           "invalid-input",
-          "ir: duplicate budget projection on request",
+          `ir: native projection origin "${orig}" invalid`,
         );
       }
-    } else if (n.projection?.origin === "explicit") {
-      explicitProjCount++;
-      if (explicitProjCount > 1) {
+      const eff = n.projection.effort;
+      if (
+        eff !== "minimal" &&
+        eff !== "low" &&
+        eff !== "medium" &&
+        eff !== "high" &&
+        eff !== "xhigh" &&
+        eff !== "max"
+      ) {
         throw new OxaError(
           "invalid-input",
-          "ir: duplicate explicit projection on request",
+          `ir: native projection effort "${eff}" invalid`,
         );
+      }
+      if (orig === "budget") {
+        if (n.kind !== NATIVE_KIND_THINKING_BUDGET) {
+          throw new OxaError(
+            "invalid-input",
+            "ir: budget projection is only allowed on thinking_budget",
+          );
+        }
+        budgetProjCount++;
+        if (budgetProjCount > 1) {
+          throw new OxaError(
+            "invalid-input",
+            "ir: duplicate budget projection on request",
+          );
+        }
+      } else if (orig === "explicit") {
+        if (n.kind !== NATIVE_KIND_OUTPUT_EFFORT) {
+          throw new OxaError(
+            "invalid-input",
+            "ir: explicit projection is only allowed on output_effort",
+          );
+        }
+        explicitProjCount++;
+        if (explicitProjCount > 1) {
+          throw new OxaError(
+            "invalid-input",
+            "ir: duplicate explicit projection on request",
+          );
+        }
       }
     }
+  }
+
+  if (budgetProjCount > 0 && explicitProjCount > 0) {
+    throw new OxaError(
+      "invalid-input",
+      "ir: conflicting effort projections on request",
+    );
   }
 
   request.system?.forEach((sb, i) => {
@@ -84,8 +126,9 @@ function validateAnnotations(
         `${path}.native[${i}]: kind cannot be empty`,
       );
     }
+    let parsedJson: any;
     try {
-      JSON.parse(ann.value);
+      parsedJson = JSON.parse(ann.value);
     } catch {
       throw new OxaError(
         "invalid-input",
@@ -124,9 +167,83 @@ function validateAnnotations(
     if (ann.source === NATIVE_SOURCE_ANTHROPIC) {
       switch (ann.kind) {
         case NATIVE_KIND_THINKING_MODE:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            typeof parsedJson !== "string" ||
+            (parsedJson !== "adaptive" &&
+              parsedJson !== "enabled" &&
+              parsedJson !== "disabled")
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid thinking_mode ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
         case NATIVE_KIND_THINKING_BUDGET:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            (typeof parsedJson !== "number" &&
+              typeof parsedJson !== "string") ||
+            Number(parsedJson) <= 0 ||
+            !Number.isInteger(Number(parsedJson))
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              "anthropic thinking_budget must be a positive integer",
+            );
+          }
+          break;
         case NATIVE_KIND_THINKING_DISPLAY:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            typeof parsedJson !== "string" ||
+            (parsedJson !== "summarized" &&
+              parsedJson !== "omitted" &&
+              parsedJson !== "updates")
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid thinking_display ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
         case NATIVE_KIND_OUTPUT_EFFORT:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            typeof parsedJson !== "string" ||
+            (parsedJson !== "low" &&
+              parsedJson !== "medium" &&
+              parsedJson !== "high" &&
+              parsedJson !== "xhigh" &&
+              parsedJson !== "max")
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid output_effort ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
         case NATIVE_KIND_CONTEXT_MANAGEMENT:
           if (host !== "request") {
             throw new OxaError(
@@ -134,8 +251,36 @@ function validateAnnotations(
               `${path}: anthropic ${ann.kind} is only allowed on Request`,
             );
           }
+          if (
+            parsedJson === null ||
+            typeof parsedJson !== "object" ||
+            !Array.isArray(parsedJson.edits)
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              "context_management requires edits array",
+            );
+          }
           break;
         case NATIVE_KIND_CACHE_CONTROL:
+          if (
+            parsedJson === null ||
+            typeof parsedJson !== "object" ||
+            Array.isArray(parsedJson) ||
+            parsedJson.type !== "ephemeral"
+          ) {
+            throw new OxaError("invalid-input", "invalid cache_control object");
+          }
+          if (
+            "ttl" in parsedJson &&
+            parsedJson.ttl !== "5m" &&
+            parsedJson.ttl !== "1h"
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid cache_control ttl ${String(parsedJson.ttl)}`,
+            );
+          }
           break;
       }
     }
@@ -267,6 +412,12 @@ function appendOmissionLoss(
           field: ann.omission.field,
           reason: ann.omission.reason,
           ...(ann.omission.detail ? { detail: ann.omission.detail } : {}),
+        });
+      } else {
+        losses.push({
+          path,
+          field: "type",
+          reason: "unmapped-field",
         });
       }
       return;

@@ -71,6 +71,8 @@ import {
   specVersion,
   type ApplyPatchOperation,
   type Block,
+  type TextBlock,
+  type ImageBlock,
   type Message,
   type Params,
   type Request,
@@ -509,7 +511,7 @@ function encodeBlockBase(
         output:
           typeof block.output === "string"
             ? block.output
-            : block.output.map(encodeCustomOutput),
+            : block.output.map(childEncoder),
       };
     case "apply_patch_tool_use":
       return {
@@ -618,7 +620,12 @@ function decodeBlockBase(
         output:
           typeof output === "string"
             ? output
-            : array(output, "block.output").map(decodeCustomOutput),
+            : (array(output, "block.output")
+                .map(childDecoder)
+                .filter(
+                  (b): b is TextBlock | ImageBlock =>
+                    b.type === "text" || b.type === "image",
+                ) as readonly (TextBlock | ImageBlock)[]),
       };
     }
     case "apply_patch_tool_use":

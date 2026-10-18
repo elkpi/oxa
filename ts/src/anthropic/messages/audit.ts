@@ -107,13 +107,52 @@ const USAGE: WireAuditSpec = {
   },
 };
 
+const RESPONSE_BLOCK: WireAuditSpec = {
+  variant: (block) => {
+    switch (block.type) {
+      case "text":
+        return { fields: { type: undefined, text: undefined } };
+      case "thinking":
+        return {
+          fields: {
+            type: undefined,
+            thinking: undefined,
+            signature: undefined,
+          },
+        };
+      case "image":
+        return { fields: { type: undefined, source: SOURCE } };
+      case "tool_use":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            name: undefined,
+            input: undefined,
+          },
+        };
+      case "tool_result":
+        return {
+          fields: {
+            type: undefined,
+            tool_use_id: undefined,
+            content: { items: RESPONSE_BLOCK },
+            is_error: undefined,
+          },
+        };
+      default:
+        return undefined;
+    }
+  },
+};
+
 const RESPONSE: WireAuditSpec = {
   fields: {
     id: undefined,
     type: undefined,
     role: undefined,
     model: undefined,
-    content: { items: BLOCK },
+    content: { items: RESPONSE_BLOCK },
     stop_reason: undefined,
     stop_sequence: undefined,
     usage: USAGE,

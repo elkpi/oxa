@@ -119,3 +119,101 @@ fn test_validate_native_request() {
 
     assert!(validate_native_request(&duplicate).is_err());
 }
+
+#[test]
+fn test_cache_control_omission_loss_detail() {
+    use oxa_ir::{CACHE_CONTROL_LOSS_DETAIL, omitted_native_request_losses};
+
+    let req = Request {
+        model: "m".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "hi".into(),
+                native: vec![NativeAnnotation {
+                    source: "anthropic".into(),
+                    kind: "cache_control".into(),
+                    value: r#"{"type":"ephemeral"}"#.into(),
+                    omission: Some(NativeOmission {
+                        field: "cache_control".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: Some(CACHE_CONTROL_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                }],
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![],
+    };
+
+    let losses = omitted_native_request_losses(&req, "chatcompletions").expect("losses");
+    assert_eq!(losses.len(), 1);
+    assert_eq!(losses[0].field, "cache_control");
+    assert_eq!(losses[0].reason, LossReason::UnmappedField);
+    assert_eq!(losses[0].detail, CACHE_CONTROL_LOSS_DETAIL);
+
+    let req_no_om = Request {
+        model: "m".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "hi".into(),
+                native: vec![NativeAnnotation {
+                    source: "anthropic".into(),
+                    kind: "cache_control".into(),
+                    value: r#"{"type":"ephemeral"}"#.into(),
+                    omission: None,
+                    projection: None,
+                }],
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![],
+    };
+    let losses_no_om =
+        omitted_native_request_losses(&req_no_om, "chatcompletions").expect("losses");
+    assert_eq!(losses_no_om.len(), 1);
+    assert_eq!(losses_no_om[0].field, "cache_control");
+    assert_eq!(losses_no_om[0].reason, LossReason::UnmappedField);
+    assert_eq!(losses_no_om[0].detail, CACHE_CONTROL_LOSS_DETAIL);
+
+    let req_empty_detail = Request {
+        model: "m".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "hi".into(),
+                native: vec![NativeAnnotation {
+                    source: "anthropic".into(),
+                    kind: "cache_control".into(),
+                    value: r#"{"type":"ephemeral"}"#.into(),
+                    omission: Some(NativeOmission {
+                        field: "cache_control".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: None,
+                    }),
+                    projection: None,
+                }],
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![],
+    };
+    let losses_empty =
+        omitted_native_request_losses(&req_empty_detail, "chatcompletions").expect("losses");
+    assert_eq!(losses_empty.len(), 1);
+    assert_eq!(losses_empty[0].detail, CACHE_CONTROL_LOSS_DETAIL);
+}

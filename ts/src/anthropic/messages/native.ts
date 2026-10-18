@@ -14,8 +14,8 @@ function canonicalizeJson(val: JsonValue): JsonValue {
 }
 // Canonical spec/15 s3.2 capability-gap detail for Anthropic cache
 // breakpoints dropped when crossing to a face without cache_control.
-export const CACHE_CONTROL_LOSS_DETAIL =
-  "anthropic-native cache breakpoint; the target face has no cache_control representation";
+export { CACHE_CONTROL_LOSS_DETAIL } from "../../ir/native.js";
+import { CACHE_CONTROL_LOSS_DETAIL } from "../../ir/native.js";
 
 export function attachBlockCacheControl(
   wireBlock: Record<string, JsonValue>,

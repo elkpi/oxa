@@ -217,8 +217,27 @@ void append_omission_loss(std::vector<Loss>& losses,
         return;
     }
 
+    if (ann.kind == NATIVE_KIND_CACHE_CONTROL) {
+        std::string field = "cache_control";
+        std::string reason = std::string(LOSS_UNMAPPED_FIELD);
+        std::string detail = std::string(CACHE_CONTROL_LOSS_DETAIL);
+        if (ann.omission.has_value()) {
+            if (!ann.omission->field.empty()) field = ann.omission->field;
+            if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+            if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                detail = *ann.omission->detail;
+            }
+        }
+        losses.push_back(Loss{
+            std::string(path),
+            std::move(field),
+            std::move(reason),
+            std::move(detail),
+        });
+        return;
+    }
+
     if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
-        ann.kind == NATIVE_KIND_CACHE_CONTROL ||
         ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
         if (ann.omission.has_value()) {
             losses.push_back(Loss{

@@ -5,6 +5,13 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.2 - 2026-10-18
+
+### Changed
+
+- [15 — Native Request Options](15-native-request-options.md)：
+  - §4.1 规范明确当 `cache_control` 的 `omission` 缺省或其 `detail` 为空时（如直接构造或旧版 IR），跨面编码至目标面时统一缺省补齐 §3.2 规定的规范化 `detail` 常量并报 `unmapped-field` 遗漏。
+
 ## 2.4.1 - 2026-10-18
 
 ### Changed

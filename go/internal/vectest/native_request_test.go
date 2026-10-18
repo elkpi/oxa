@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/elkpi/oxa/go/v2/anthropic/messages"
+	"github.com/elkpi/oxa/go/v2/ir"
 	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
 	"github.com/elkpi/oxa/go/v2/openai/responses"
 )
@@ -133,5 +134,106 @@ func TestNativeEffortNewValues(t *testing.T) {
 	}
 	if respReq.Params.ReasoningEffort != "xhigh" {
 		t.Fatalf("expected responses effort xhigh, got %q", respReq.Params.ReasoningEffort)
+	}
+}
+
+func TestNativeCacheControlOmissionLossDetails(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 64000,
+		"system": [{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}],
+		"tools": [{"name": "f", "description": "d", "input_schema": {"type": "object"}, "cache_control": {"type": "ephemeral"}}],
+		"messages": [{"role": "user", "content": [{"type": "text", "text": "go", "cache_control": {"type": "ephemeral"}}]}]
+	}`)
+	req, decodeLosses, err := messages.DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON failed: %v", err)
+	}
+	if len(decodeLosses) != 0 {
+		t.Fatalf("expected 0 decode losses, got %+v", decodeLosses)
+	}
+
+	_, ccLosses, err := chatcompletions.EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("chatcompletions.EncodeRequest failed: %v", err)
+	}
+	if len(ccLosses) != 3 {
+		t.Fatalf("expected 3 cc omission losses, got %+v", ccLosses)
+	}
+	for i, l := range ccLosses {
+		if l.Field != "cache_control" || l.Reason != ir.LossUnmappedField {
+			t.Errorf("ccLosses[%d] = (field=%q, reason=%q), want (cache_control, unmapped-field)", i, l.Field, l.Reason)
+		}
+		if l.Detail != ir.CacheControlLossDetail {
+			t.Errorf("ccLosses[%d].Detail = %q, want %q", i, l.Detail, ir.CacheControlLossDetail)
+		}
+	}
+
+	_, respLosses, err := responses.EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("responses.EncodeRequest failed: %v", err)
+	}
+	if len(respLosses) != 3 {
+		t.Fatalf("expected 3 responses omission losses, got %+v", respLosses)
+	}
+	for i, l := range respLosses {
+		if l.Detail != ir.CacheControlLossDetail {
+			t.Errorf("respLosses[%d].Detail = %q, want %q", i, l.Detail, ir.CacheControlLossDetail)
+		}
+	}
+
+	reqNoOmission := &ir.Request{
+		Model: "claude-opus-5-5",
+		Native: []ir.NativeAnnotation{
+			{
+				Source: ir.NativeSourceAnthropic,
+				Kind:   ir.NativeKindCacheControl,
+				Value:  `{"type":"ephemeral"}`,
+			},
+		},
+		Messages: []ir.Message{
+			{
+				Role:    ir.RoleUser,
+				Content: []ir.Block{ir.TextBlock{Text: "hi"}},
+			},
+		},
+	}
+	_, ccLossesNoOmission, err := chatcompletions.EncodeRequest(reqNoOmission)
+	if err != nil {
+		t.Fatalf("chatcompletions.EncodeRequest failed: %v", err)
+	}
+	if len(ccLossesNoOmission) != 1 {
+		t.Fatalf("expected 1 cc loss for cache_control without omission, got %+v", ccLossesNoOmission)
+	}
+	if ccLossesNoOmission[0].Field != "cache_control" || ccLossesNoOmission[0].Reason != ir.LossUnmappedField || ccLossesNoOmission[0].Detail != ir.CacheControlLossDetail {
+		t.Errorf("got cc loss %+v, want detail %q", ccLossesNoOmission[0], ir.CacheControlLossDetail)
+	}
+
+	reqEmptyDetail := &ir.Request{
+		Model: "claude-opus-5-5",
+		Native: []ir.NativeAnnotation{
+			{
+				Source:   ir.NativeSourceAnthropic,
+				Kind:     ir.NativeKindCacheControl,
+				Value:    `{"type":"ephemeral"}`,
+				Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: ""},
+			},
+		},
+		Messages: []ir.Message{
+			{
+				Role:    ir.RoleUser,
+				Content: []ir.Block{ir.TextBlock{Text: "hi"}},
+			},
+		},
+	}
+	_, ccLossesEmptyDetail, err := chatcompletions.EncodeRequest(reqEmptyDetail)
+	if err != nil {
+		t.Fatalf("chatcompletions.EncodeRequest failed: %v", err)
+	}
+	if len(ccLossesEmptyDetail) != 1 {
+		t.Fatalf("expected 1 cc loss, got %+v", ccLossesEmptyDetail)
+	}
+	if ccLossesEmptyDetail[0].Detail != ir.CacheControlLossDetail {
+		t.Errorf("got cc loss %+v, want detail %q", ccLossesEmptyDetail[0], ir.CacheControlLossDetail)
 	}
 }

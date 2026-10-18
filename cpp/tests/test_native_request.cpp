@@ -390,6 +390,68 @@ void test_custom_tool_result_nested_cache_control() {
     CHECK(text_blk.find("cache_control") != nullptr);
 }
 
+void test_cache_control_omission_loss_detail() {
+    auto wire = oxa::json::parse(
+        "{\"model\":\"claude-opus-5-5\",\"max_tokens\":64000,"
+        "\"system\":[{\"type\":\"text\",\"text\":\"S\",\"cache_control\":{\"type\":\"ephemeral\"}}],"
+        "\"tools\":[{\"name\":\"f\",\"description\":\"d\",\"input_schema\":{\"type\":\"object\"},\"cache_control\":{\"type\":\"ephemeral\"}}],"
+        "\"messages\":[{\"role\":\"user\",\"content\":[{\"type\":\"text\",\"text\":\"go\",\"cache_control\":{\"type\":\"ephemeral\"}}]}]}");
+    CHECK(wire.ok());
+    auto dec = oxa::anthropic::messages::decode_request(*wire);
+    CHECK(dec.ok());
+    CHECK(dec->losses.empty());
+
+    auto cc = oxa::openai::chatcompletions::encode_request(dec->value);
+    CHECK(cc.ok());
+    CHECK(cc->losses.size() == 3);
+    for (const auto& l : cc->losses) {
+        CHECK(l.field == "cache_control");
+        CHECK(l.reason == oxa::ir::LOSS_UNMAPPED_FIELD);
+        CHECK(l.detail == oxa::ir::CACHE_CONTROL_LOSS_DETAIL);
+    }
+
+    auto resp = oxa::openai::responses::encode_request(dec->value);
+    CHECK(resp.ok());
+    CHECK(resp->losses.size() == 3);
+    for (const auto& l : resp->losses) {
+        CHECK(l.detail == oxa::ir::CACHE_CONTROL_LOSS_DETAIL);
+    }
+
+    // Directly constructed IR without omission
+    oxa::ir::Request req_no_om;
+    req_no_om.model = "claude-opus-5-5";
+    req_no_om.native.push_back(oxa::ir::NativeAnnotation{
+        std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(oxa::ir::NATIVE_KIND_CACHE_CONTROL),
+        "{\"type\":\"ephemeral\"}",
+        std::nullopt,
+        std::nullopt,
+    });
+    req_no_om.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+    auto cc_no_om = oxa::openai::chatcompletions::encode_request(req_no_om);
+    CHECK(cc_no_om.ok());
+    CHECK(cc_no_om->losses.size() == 1);
+    CHECK(cc_no_om->losses[0].field == "cache_control");
+    CHECK(cc_no_om->losses[0].reason == oxa::ir::LOSS_UNMAPPED_FIELD);
+    CHECK(cc_no_om->losses[0].detail == oxa::ir::CACHE_CONTROL_LOSS_DETAIL);
+
+    // Directly constructed IR with empty detail
+    oxa::ir::Request req_empty_detail;
+    req_empty_detail.model = "claude-opus-5-5";
+    req_empty_detail.native.push_back(oxa::ir::NativeAnnotation{
+        std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(oxa::ir::NATIVE_KIND_CACHE_CONTROL),
+        "{\"type\":\"ephemeral\"}",
+        oxa::ir::NativeOmission{"cache_control", std::string(oxa::ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+        std::nullopt,
+    });
+    req_empty_detail.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+    auto cc_empty = oxa::openai::chatcompletions::encode_request(req_empty_detail);
+    CHECK(cc_empty.ok());
+    CHECK(cc_empty->losses.size() == 1);
+    CHECK(cc_empty->losses[0].detail == oxa::ir::CACHE_CONTROL_LOSS_DETAIL);
+}
+
 }  // namespace
 
 int main() {
@@ -404,6 +466,7 @@ int main() {
     test_context_management_recursive_audit();
     test_response_native_isolation();
     test_custom_tool_result_nested_cache_control();
+    test_cache_control_omission_loss_detail();
 
     std::printf("test_native_request: all tests passed\n");
     return 0;

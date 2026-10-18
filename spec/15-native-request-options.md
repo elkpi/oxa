@@ -78,7 +78,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 ### 4.1 遍历与路径规则
 - 遍历顺序固定为：`Request.native`（下标升序）→ `System` 顺序及其 native → `Messages` 深度优先（消息顺序 → 内容块顺序及其 native → 嵌套 tool_result 内容及其 native）→ `Tools` 顺序及其 native。
 - Encode loss 的 `Path` 基于当前 IR 结构定位到具体的宿主属性（如 `native[0]`、`system[0].native[0]`、`messages[1].content[0].native[0]`）。
-- `Field`、`Reason` 与 `detail` 采用附加项携带的 `omission` 元数据。
+- `Field`、`Reason` 与 `detail` 采用附加项携带的 `omission` 元数据；若 `cache_control` 的 `omission` 缺省或其 `detail` 为空，跨面编码至不支持 cache 断点的目标面时统一缺省填补 §3.2 规定的规范化 `detail` 常量并报 `unmapped-field` 遗漏。
 
 ### 4.2 Thinking 组合报损去重
 对于 `Request` 上的 thinking 相关配置，遗漏记账规则如下（对应设计 §6.1）：

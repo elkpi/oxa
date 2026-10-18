@@ -61,6 +61,7 @@ export {
   NATIVE_KIND_CACHE_CONTROL,
   NATIVE_KIND_CONTEXT_MANAGEMENT,
   NATIVE_SOURCE_ANTHROPIC,
+  CACHE_CONTROL_LOSS_DETAIL,
 } from "./native.js";
 export {
   specVersion,

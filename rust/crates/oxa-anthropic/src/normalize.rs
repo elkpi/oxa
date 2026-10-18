@@ -349,7 +349,8 @@ pub(crate) fn decode_block(
     }
     if let Some(ref cc) = wire.cache_control {
         if is_request {
-            let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
+            let (canon, l) =
+                crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
             if let Some(loss) = l {
                 losses.push(loss);
             }
@@ -382,7 +383,8 @@ pub(crate) fn decode_block(
                 }
             }
         } else {
-            let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
+            let (canon, l) =
+                crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
             if let Some(loss) = l {
                 losses.push(loss);
             }

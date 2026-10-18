@@ -108,10 +108,9 @@ fn validate_annotations(
                 "{path}.native[{i}]: kind cannot be empty"
             )));
         }
-        let parsed_json: serde_json::Value =
-            serde_json::from_str(&ann.value).map_err(|_| {
-                Error::Custom(format!("{path}.native[{i}]: value is not valid JSON text"))
-            })?;
+        let parsed_json: serde_json::Value = serde_json::from_str(&ann.value).map_err(|_| {
+            Error::Custom(format!("{path}.native[{i}]: value is not valid JSON text"))
+        })?;
         if let Some(ref om) = ann.omission
             && om.field.is_empty()
         {

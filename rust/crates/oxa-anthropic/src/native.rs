@@ -89,7 +89,10 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
                 }
                 let mut valid = true;
                 let mut canon_edit = serde_json::Map::new();
-                canon_edit.insert("type".into(), Value::String("clear_tool_uses_20250919".into()));
+                canon_edit.insert(
+                    "type".into(),
+                    Value::String("clear_tool_uses_20250919".into()),
+                );
 
                 if let Some(trig_val) = edit.get("trigger") {
                     if let Some(trig) = trig_val.as_object() {
@@ -232,7 +235,10 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
                 }
                 let mut valid = true;
                 let mut canon_edit = serde_json::Map::new();
-                canon_edit.insert("type".into(), Value::String("clear_thinking_20251015".into()));
+                canon_edit.insert(
+                    "type".into(),
+                    Value::String("clear_thinking_20251015".into()),
+                );
 
                 if let Some(keep) = edit.get("keep") {
                     if let Some(str_val) = keep.as_str() {
@@ -687,7 +693,8 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
                                 path: "thinking".into(),
                                 field: "thinking".into(),
                                 reason: LossReason::UnsupportedSemantic,
-                                detail: "budget projection invalidated when effort is cleared".into(),
+                                detail: "budget projection invalidated when effort is cleared"
+                                    .into(),
                             });
                         }
                     }

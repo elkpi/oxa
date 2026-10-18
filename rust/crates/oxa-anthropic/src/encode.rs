@@ -360,7 +360,8 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                         let (mut w, l, mapped) =
                             encode_request_block(inner, &format!("{path}.content[{i}]"))?;
                         if mapped {
-                            if let Some(cc) = crate::native::get_block_cache_control(inner.native()) {
+                            if let Some(cc) = crate::native::get_block_cache_control(inner.native())
+                            {
                                 w.cache_control = Some(cc);
                             }
                             content_wires.push(w);

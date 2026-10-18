@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -319,10 +320,30 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 		if v.ToolUseID == "" {
 			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
 		}
+		var outputRaw json.RawMessage
+		if v.Output.Text != nil {
+			b, err := json.Marshal(*v.Output.Text)
+			if err != nil {
+				return nil, err
+			}
+			outputRaw = b
+		} else {
+			raws, err := marshalRequestBlocks(v.Output.Content)
+			if err != nil {
+				return nil, err
+			}
+			b, err := json.Marshal(raws)
+			if err != nil {
+				return nil, err
+			}
+			outputRaw = b
+		}
 		return json.Marshal(struct {
-			Type string `json:"type"`
-			CustomToolResultBlock
-		}{BlockTypeCustomToolResult, v})
+			Type      string             `json:"type"`
+			ToolUseID string             `json:"tool_use_id"`
+			Output    json.RawMessage    `json:"output"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeCustomToolResult, v.ToolUseID, outputRaw, v.Native})
 	case TextBlock:
 		return json.Marshal(struct {
 			Type   string             `json:"type"`
@@ -435,8 +456,25 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
 		}
 		var output CustomToolOutput
-		if err := output.UnmarshalJSON(w.Output); err != nil {
-			return nil, err
+		trimmed := bytes.TrimSpace(w.Output)
+		if len(trimmed) > 0 && trimmed[0] == '"' {
+			var text string
+			if err := json.Unmarshal(trimmed, &text); err != nil {
+				return nil, err
+			}
+			output.Text = &text
+		} else if len(trimmed) > 0 && trimmed[0] == '[' {
+			var raws []json.RawMessage
+			if err := json.Unmarshal(trimmed, &raws); err != nil {
+				return nil, err
+			}
+			content, err := unmarshalRequestBlocks(raws)
+			if err != nil {
+				return nil, err
+			}
+			output.Content = content
+		} else {
+			return nil, fmt.Errorf("ir: custom output must be a string or content list")
 		}
 		return CustomToolResultBlock{ToolUseID: w.ToolUseID, Output: output, Native: w.Native}, nil
 	case BlockTypeText:

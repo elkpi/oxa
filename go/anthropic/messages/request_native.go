@@ -55,9 +55,41 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 		editType, _ := edit["type"].(string)
 		switch editType {
 		case "clear_tool_uses_20250919":
+			for k := range edit {
+				switch k {
+				case "type", "trigger", "keep", "clear_at_least", "exclude_tools", "clear_tool_inputs":
+				default:
+					losses = append(losses, ir.Loss{
+						Path:   editPath + "." + k,
+						Field:  k,
+						Reason: ir.LossUnmappedField,
+					})
+				}
+			}
 			valid := true
-			if trig, ok := edit["trigger"].(map[string]any); ok {
-				if trig["type"] != "input_tokens" {
+			canonEdit := map[string]any{"type": "clear_tool_uses_20250919"}
+			if trigVal, ok := edit["trigger"]; ok {
+				if trig, isObj := trigVal.(map[string]any); isObj {
+					for k := range trig {
+						if k != "type" && k != "value" {
+							losses = append(losses, ir.Loss{
+								Path:   editPath + ".trigger." + k,
+								Field:  k,
+								Reason: ir.LossUnmappedField,
+							})
+						}
+					}
+					if trig["type"] != "input_tokens" {
+						losses = append(losses, ir.Loss{
+							Path:   editPath + ".trigger",
+							Field:  "trigger",
+							Reason: ir.LossUnmappedValue,
+						})
+						valid = false
+					} else {
+						canonEdit["trigger"] = map[string]any{"type": "input_tokens", "value": trig["value"]}
+					}
+				} else {
 					losses = append(losses, ir.Loss{
 						Path:   editPath + ".trigger",
 						Field:  "trigger",
@@ -66,8 +98,28 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 					valid = false
 				}
 			}
-			if keep, ok := edit["keep"].(map[string]any); ok {
-				if keep["type"] != "tool_uses" {
+			if keepVal, ok := edit["keep"]; ok {
+				if keep, isObj := keepVal.(map[string]any); isObj {
+					for k := range keep {
+						if k != "type" && k != "value" {
+							losses = append(losses, ir.Loss{
+								Path:   editPath + ".keep." + k,
+								Field:  k,
+								Reason: ir.LossUnmappedField,
+							})
+						}
+					}
+					if keep["type"] != "tool_uses" {
+						losses = append(losses, ir.Loss{
+							Path:   editPath + ".keep",
+							Field:  "keep",
+							Reason: ir.LossUnmappedValue,
+						})
+						valid = false
+					} else {
+						canonEdit["keep"] = map[string]any{"type": "tool_uses", "value": keep["value"]}
+					}
+				} else {
 					losses = append(losses, ir.Loss{
 						Path:   editPath + ".keep",
 						Field:  "keep",
@@ -76,11 +128,57 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 					valid = false
 				}
 			}
+			if calVal, ok := edit["clear_at_least"]; ok {
+				if cal, isObj := calVal.(map[string]any); isObj {
+					for k := range cal {
+						if k != "type" && k != "value" {
+							losses = append(losses, ir.Loss{
+								Path:   editPath + ".clear_at_least." + k,
+								Field:  k,
+								Reason: ir.LossUnmappedField,
+							})
+						}
+					}
+					if cal["type"] != "input_tokens" {
+						losses = append(losses, ir.Loss{
+							Path:   editPath + ".clear_at_least",
+							Field:  "clear_at_least",
+							Reason: ir.LossUnmappedValue,
+						})
+						valid = false
+					} else {
+						canonEdit["clear_at_least"] = map[string]any{"type": "input_tokens", "value": cal["value"]}
+					}
+				} else {
+					losses = append(losses, ir.Loss{
+						Path:   editPath + ".clear_at_least",
+						Field:  "clear_at_least",
+						Reason: ir.LossUnmappedValue,
+					})
+					valid = false
+				}
+			}
+			if et, ok := edit["exclude_tools"]; ok {
+				canonEdit["exclude_tools"] = et
+			}
+			if cti, ok := edit["clear_tool_inputs"]; ok {
+				canonEdit["clear_tool_inputs"] = cti
+			}
 			if valid {
-				validEdits = append(validEdits, edit)
+				validEdits = append(validEdits, canonEdit)
 			}
 		case "clear_thinking_20251015":
+			for k := range edit {
+				if k != "type" && k != "keep" {
+					losses = append(losses, ir.Loss{
+						Path:   editPath + "." + k,
+						Field:  k,
+						Reason: ir.LossUnmappedField,
+					})
+				}
+			}
 			valid := true
+			canonEdit := map[string]any{"type": "clear_thinking_20251015"}
 			if keep, ok := edit["keep"]; ok {
 				if str, isStr := keep.(string); isStr {
 					if str != "all" {
@@ -90,8 +188,19 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 							Reason: ir.LossUnmappedValue,
 						})
 						valid = false
+					} else {
+						canonEdit["keep"] = "all"
 					}
 				} else if m, isMap := keep.(map[string]any); isMap {
+					for k := range m {
+						if k != "type" && k != "value" {
+							losses = append(losses, ir.Loss{
+								Path:   editPath + ".keep." + k,
+								Field:  k,
+								Reason: ir.LossUnmappedField,
+							})
+						}
+					}
 					if m["type"] != "thinking_turns" {
 						losses = append(losses, ir.Loss{
 							Path:   editPath + ".keep",
@@ -99,6 +208,8 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 							Reason: ir.LossUnmappedValue,
 						})
 						valid = false
+					} else {
+						canonEdit["keep"] = map[string]any{"type": "thinking_turns", "value": m["value"]}
 					}
 				} else {
 					losses = append(losses, ir.Loss{
@@ -110,7 +221,7 @@ func parseContextManagement(cm *ContextManagementWire, path string) (canonical s
 				}
 			}
 			if valid {
-				validEdits = append(validEdits, edit)
+				validEdits = append(validEdits, canonEdit)
 			}
 		default:
 			losses = append(losses, ir.Loss{
@@ -264,135 +375,6 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 		}
 	}
 
-	// 5. System blocks cache_control
-	switch sys := wire.System.(type) {
-	case []SystemBlockWire:
-		for i, sb := range sys {
-			if len(sb.CacheControl) > 0 && i < len(req.System) {
-				path := fmt.Sprintf("system[%d].cache_control", i)
-				canon, l, ok := parseCacheControl(sb.CacheControl, path)
-				if l != nil {
-					losses = append(losses, *l)
-				}
-				if ok {
-					req.System[i].Native = append(req.System[i].Native, ir.NativeAnnotation{
-						Source:   ir.NativeSourceAnthropic,
-						Kind:     ir.NativeKindCacheControl,
-						Value:    canon,
-						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
-					})
-				}
-			}
-		}
-	case []any:
-		for i, part := range sys {
-			if m, ok := part.(map[string]any); ok {
-				if cc, ok := m["cache_control"]; ok && i < len(req.System) {
-					path := fmt.Sprintf("system[%d].cache_control", i)
-					ccBytes, _ := json.Marshal(cc)
-					canon, l, ok := parseCacheControl(ccBytes, path)
-					if l != nil {
-						losses = append(losses, *l)
-					}
-					if ok {
-						req.System[i].Native = append(req.System[i].Native, ir.NativeAnnotation{
-							Source:   ir.NativeSourceAnthropic,
-							Kind:     ir.NativeKindCacheControl,
-							Value:    canon,
-							Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
-						})
-					}
-				}
-			}
-		}
-	}
-
-	// 6. Tools cache_control
-	for i, tw := range wire.Tools {
-		if len(tw.CacheControl) > 0 && i < len(req.Tools) {
-			path := fmt.Sprintf("tools[%d].cache_control", i)
-			canon, l, ok := parseCacheControl(tw.CacheControl, path)
-			if l != nil {
-				losses = append(losses, *l)
-			}
-			if ok {
-				req.Tools[i].Native = append(req.Tools[i].Native, ir.NativeAnnotation{
-					Source:   ir.NativeSourceAnthropic,
-					Kind:     ir.NativeKindCacheControl,
-					Value:    canon,
-					Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
-				})
-			}
-		}
-	}
-
-	// 7. Messages content cache_control (recursive for tool_result)
-	for mIdx, msg := range wire.Messages {
-		if mIdx >= len(req.Messages) {
-			break
-		}
-		var blocks []BlockWire
-		switch c := msg.Content.(type) {
-		case []BlockWire:
-			blocks = c
-		case []any:
-			for _, part := range c {
-				var bw BlockWire
-				raw, _ := json.Marshal(part)
-				_ = json.Unmarshal(raw, &bw)
-				blocks = append(blocks, bw)
-			}
-		}
-		for cIdx, bw := range blocks {
-			if cIdx >= len(req.Messages[mIdx].Content) {
-				break
-			}
-			path := fmt.Sprintf("messages[%d].content[%d].cache_control", mIdx, cIdx)
-			if len(bw.CacheControl) > 0 {
-				canon, l, ok := parseCacheControl(bw.CacheControl, path)
-				if l != nil {
-					losses = append(losses, *l)
-				}
-				if ok {
-					attachCacheControlToBlock(&req.Messages[mIdx].Content[cIdx], canon)
-				}
-			}
-
-			if bw.Type == BlockTypeToolResult {
-				if trb, ok := req.Messages[mIdx].Content[cIdx].(ir.ToolResultBlock); ok {
-					var nestedWires []BlockWire
-					switch nc := bw.Content.(type) {
-					case []BlockWire:
-						nestedWires = nc
-					case []any:
-						for _, part := range nc {
-							var nbw BlockWire
-							raw, _ := json.Marshal(part)
-							_ = json.Unmarshal(raw, &nbw)
-							nestedWires = append(nestedWires, nbw)
-						}
-					}
-					for kIdx, nbw := range nestedWires {
-						if kIdx >= len(trb.Content) {
-							break
-						}
-						nPath := fmt.Sprintf("messages[%d].content[%d].content[%d].cache_control", mIdx, cIdx, kIdx)
-						if len(nbw.CacheControl) > 0 {
-							canon, l, ok := parseCacheControl(nbw.CacheControl, nPath)
-							if l != nil {
-								losses = append(losses, *l)
-							}
-							if ok {
-								attachCacheControlToBlock(&trb.Content[kIdx], canon)
-							}
-						}
-					}
-					req.Messages[mIdx].Content[cIdx] = trb
-				}
-			}
-		}
-	}
-
 	return losses, nil
 }
 
@@ -445,8 +427,14 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 	var nativeEffort string
 	var nativeEffortProj *ir.NativeProjection
 
-	for _, n := range req.Native {
+	for i, n := range req.Native {
 		if n.Source != ir.NativeSourceAnthropic {
+			losses = append(losses, ir.Loss{
+				Path:   fmt.Sprintf("native[%d]", i),
+				Field:  "source",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("unsupported native option source %q", n.Source),
+			})
 			continue
 		}
 		switch n.Kind {
@@ -461,37 +449,59 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 			_ = json.Unmarshal([]byte(n.Value), &nativeEffort)
 			nativeEffortProj = n.Projection
 		case ir.NativeKindCacheControl:
-			wire.CacheControl = json.RawMessage(n.Value)
+			canon, l, ok := parseCacheControl(json.RawMessage(n.Value), fmt.Sprintf("native[%d].cache_control", i))
+			if l != nil {
+				losses = append(losses, *l)
+			}
+			if ok {
+				wire.CacheControl = json.RawMessage(canon)
+			}
 		case ir.NativeKindContextManagement:
 			var cm ContextManagementWire
 			if err := json.Unmarshal([]byte(n.Value), &cm); err == nil {
 				wire.ContextManagement = &cm
 			}
+		default:
+			losses = append(losses, ir.Loss{
+				Path:   fmt.Sprintf("native[%d]", i),
+				Field:  "kind",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("unsupported native option kind %q", n.Kind),
+			})
 		}
 	}
 
 	// Thinking / Effort synthesis
-	if nativeMode != "" || nativeEffort != "" || req.Params.ReasoningEffort != "" {
+	currentEffort := req.Params.ReasoningEffort
+	if nativeMode != "" || nativeEffort != "" || currentEffort != "" {
 		switch nativeMode {
 		case "disabled":
 			wire.Thinking = &ThinkingWire{Type: "disabled"}
+			if nativeEffort != "" || nativeEffortProj != nil {
+				if currentEffort != "" {
+					wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
+				}
+			}
 		case "adaptive":
 			wire.Thinking = &ThinkingWire{Type: "adaptive"}
 			if nativeDisplay != "" {
 				wire.Thinking.Display = nativeDisplay
 			}
-			if req.Params.ReasoningEffort != "" {
-				wire.OutputConfig = &OutputConfigWire{Effort: req.Params.ReasoningEffort}
+			if currentEffort != "" {
+				wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
 			}
 		case "enabled":
 			if nativeBudget > 0 {
 				if nativeBudgetProj != nil && nativeBudgetProj.Origin == "budget" {
-					if req.Params.ReasoningEffort == nativeBudgetProj.Effort {
+					if currentEffort == nativeBudgetProj.Effort {
 						// Effort unedited: exact restoration
 						wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: nativeBudget}
-					} else {
+						if nativeDisplay != "" {
+							wire.Thinking.Display = nativeDisplay
+						}
+					} else if currentEffort != "" {
 						// Effort edited: reconstruct budget from discrete table
-						switch req.Params.ReasoningEffort {
+						switch currentEffort {
 						case "minimal":
 							wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 1024}
 							losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
@@ -506,65 +516,58 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 							losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
 						case "xhigh", "max":
 							wire.Thinking = &ThinkingWire{Type: "adaptive"}
-							wire.OutputConfig = &OutputConfigWire{Effort: req.Params.ReasoningEffort}
+							wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
 							losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "switched to adaptive thinking mode for extended effort"})
 						}
+						if nativeDisplay != "" && wire.Thinking != nil {
+							wire.Thinking.Display = nativeDisplay
+						}
+					} else {
+						// Effort was cleared! Thinking cannot be formed:
+						wire.Thinking = nil
+						losses = append(losses, ir.Loss{
+							Path:   "thinking",
+							Field:  "thinking",
+							Reason: ir.LossUnsupportedSemantic,
+							Detail: "thinking configuration invalidated after clearing reasoning_effort",
+						})
 					}
 				} else {
 					// Enabled budget with explicit effort
 					wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: nativeBudget}
-					if req.Params.ReasoningEffort != "" {
-						wire.OutputConfig = &OutputConfigWire{Effort: req.Params.ReasoningEffort}
+					if nativeDisplay != "" {
+						wire.Thinking.Display = nativeDisplay
+					}
+					if currentEffort != "" {
+						wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
 					}
 				}
-			}
-			if nativeDisplay != "" && wire.Thinking != nil {
-				wire.Thinking.Display = nativeDisplay
 			}
 		default:
-			// No nativeMode recorded: standard IR ReasoningEffort mapping
-			switch req.Params.ReasoningEffort {
-			case "minimal":
-				wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 1024}
-				losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
-			case "low":
-				wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 2048}
-				losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
-			case "medium":
-				wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 8192}
-				losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
-			case "high":
-				wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 16384}
-				losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
-			case "xhigh", "max":
-				wire.Thinking = &ThinkingWire{Type: "adaptive"}
-				wire.OutputConfig = &OutputConfigWire{Effort: req.Params.ReasoningEffort}
-			}
-		}
-	}
-
-	_ = nativeEffortProj
-
-	// 2. System blocks cache_control
-	if sysBlocks, ok := wire.System.([]SystemBlockWire); ok {
-		for i, sb := range req.System {
-			if i < len(sysBlocks) {
-				for _, n := range sb.Native {
-					if n.Source == ir.NativeSourceAnthropic && n.Kind == ir.NativeKindCacheControl {
-						sysBlocks[i].CacheControl = json.RawMessage(n.Value)
-					}
+			// No nativeMode recorded:
+			if nativeEffort != "" || nativeEffortProj != nil {
+				// Explicit effort in native annotation
+				if currentEffort != "" {
+					wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
 				}
-			}
-		}
-		wire.System = sysBlocks
-	}
-
-	// 3. Tools cache_control
-	for i, tool := range req.Tools {
-		if i < len(wire.Tools) {
-			for _, n := range tool.Native {
-				if n.Source == ir.NativeSourceAnthropic && n.Kind == ir.NativeKindCacheControl {
-					wire.Tools[i].CacheControl = json.RawMessage(n.Value)
+			} else {
+				// Standard unannotated IR ReasoningEffort mapping (budget table)
+				switch currentEffort {
+				case "minimal":
+					wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 1024}
+					losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
+				case "low":
+					wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 2048}
+					losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
+				case "medium":
+					wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 8192}
+					losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
+				case "high":
+					wire.Thinking = &ThinkingWire{Type: "enabled", BudgetTokens: 16384}
+					losses = append(losses, ir.Loss{Path: "params.reasoning_effort", Field: "reasoning_effort", Reason: ir.LossDegraded, Detail: "budget approximated"})
+				case "xhigh", "max":
+					wire.Thinking = &ThinkingWire{Type: "adaptive"}
+					wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
 				}
 			}
 		}

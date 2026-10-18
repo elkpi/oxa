@@ -305,3 +305,293 @@ func TestNativeFormatStillAudited(t *testing.T) {
 		t.Fatalf("expected unmapped-field loss on output_config.format, got %+v", losses)
 	}
 }
+
+func TestExplicitEffortOnly(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"output_config": {"effort": "low"}
+	}`)
+	req, dl, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(dl) != 0 {
+		t.Fatalf("expected 0 decode losses, got %+v", dl)
+	}
+	wire, el, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(el) != 0 {
+		t.Fatalf("expected 0 encode losses, got %+v", el)
+	}
+	if wire.Thinking != nil {
+		t.Fatalf("expected nil thinking for explicit effort only, got %+v", wire.Thinking)
+	}
+	if wire.OutputConfig == nil || wire.OutputConfig.Effort != "low" {
+		t.Fatalf("expected output_config.effort low, got %+v", wire.OutputConfig)
+	}
+}
+
+func TestContextManagementRecursiveAudit(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"context_management": {
+			"edits": [
+				{
+					"type": "clear_tool_uses_20250919",
+					"future_policy": true,
+					"trigger": {
+						"type": "input_tokens",
+						"value": 30000,
+						"future_nested": false
+					}
+				}
+			]
+		}
+	}`)
+	req, dl, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	var foundPolicy, foundNested bool
+	for _, l := range dl {
+		if l.Field == "future_policy" && l.Reason == ir.LossUnmappedField {
+			foundPolicy = true
+		}
+		if l.Field == "future_nested" && l.Reason == ir.LossUnmappedField {
+			foundNested = true
+		}
+	}
+	if !foundPolicy || !foundNested {
+		t.Fatalf("expected unmapped-field losses on unknown keys, got %+v", dl)
+	}
+	wire, _, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if wire.ContextManagement == nil || len(wire.ContextManagement.Edits) != 1 {
+		t.Fatalf("expected 1 valid edit in encoded wire")
+	}
+	var editObj map[string]any
+	_ = json.Unmarshal(wire.ContextManagement.Edits[0], &editObj)
+	if _, ok := editObj["future_policy"]; ok {
+		t.Fatalf("unknown field future_policy must be stripped from wire output: %+v", editObj)
+	}
+	if trig, ok := editObj["trigger"].(map[string]any); ok {
+		if _, ok := trig["future_nested"]; ok {
+			t.Fatalf("unknown field future_nested must be stripped from wire output: %+v", trig)
+		}
+	}
+}
+
+func TestFilteredCacheAttachment(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"messages": [
+			{
+				"role": "user",
+				"content": [
+					{"type": "document"},
+					{"type": "text", "text": "keep", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+				]
+			}
+		]
+	}`)
+	req, _, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(req.Messages[0].Content) != 1 {
+		t.Fatalf("expected 1 surviving block, got %d", len(req.Messages[0].Content))
+	}
+	tb, ok := req.Messages[0].Content[0].(ir.TextBlock)
+	if !ok || len(tb.Native) != 1 || tb.Native[0].Kind != ir.NativeKindCacheControl {
+		t.Fatalf("expected cache_control native on surviving text block, got %+v", req.Messages[0].Content[0])
+	}
+	wire, _, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	blocks, ok := wire.Messages[0].Content.([]BlockWire)
+	if !ok || len(blocks) != 1 || len(blocks[0].CacheControl) == 0 {
+		t.Fatalf("expected cache_control preserved on wire block: %+v", wire.Messages[0].Content)
+	}
+}
+
+func TestFilteredToolCacheAttachment(t *testing.T) {
+	max := int64(16000)
+	req := &ir.Request{
+		Model: "claude-opus-5-5",
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}},
+		},
+		Params: ir.Params{MaxTokens: &max},
+		Tools: []ir.Tool{
+			{Type: ir.ToolTypeApplyPatch},
+			{
+				Name:        "search",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+				Native: []ir.NativeAnnotation{
+					{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    `{"type":"ephemeral"}`,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+					},
+				},
+			},
+		},
+	}
+	wire, _, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(wire.Tools) != 1 || wire.Tools[0].Name != "search" {
+		t.Fatalf("expected 1 surviving tool 'search', got %+v", wire.Tools)
+	}
+	if len(wire.Tools[0].CacheControl) == 0 {
+		t.Fatalf("expected cache_control preserved on tool 'search'")
+	}
+}
+
+func TestBudgetClearedLoss(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-3-7-sonnet-20250219",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"thinking": {"type": "enabled", "budget_tokens": 6000}
+	}`)
+	req, _, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	req.Params.ReasoningEffort = ""
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if wire.Thinking != nil {
+		t.Fatalf("expected nil thinking when effort cleared, got %+v", wire.Thinking)
+	}
+	var foundUnsupported bool
+	for _, l := range losses {
+		if l.Field == "thinking" && l.Reason == ir.LossUnsupportedSemantic {
+			foundUnsupported = true
+		}
+	}
+	if !foundUnsupported {
+		t.Fatalf("expected thinking unsupported-semantic loss when effort cleared, got %+v", losses)
+	}
+}
+
+func TestResponseNativeIsolation(t *testing.T) {
+	raw := []byte(`{
+		"id": "msg_123",
+		"type": "message",
+		"role": "assistant",
+		"model": "claude-opus-5-5",
+		"content": [
+			{"type": "text", "text": "hello", "cache_control": {"type": "ephemeral"}}
+		],
+		"stop_reason": "end_turn",
+		"usage": {"input_tokens": 10, "output_tokens": 10}
+	}`)
+	resp, losses, err := DecodeResponseJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeResponseJSON failed: %v", err)
+	}
+	tb, ok := resp.Content[0].(ir.TextBlock)
+	if !ok {
+		t.Fatalf("expected TextBlock, got %T", resp.Content[0])
+	}
+	if len(tb.Native) != 0 {
+		t.Fatalf("response block must not have native annotations, got %+v", tb.Native)
+	}
+	// Verify it passes MarshalResponse cleanly
+	if _, err := ir.MarshalResponse(resp); err != nil {
+		t.Fatalf("MarshalResponse failed: %v", err)
+	}
+	var foundUnmapped bool
+	for _, l := range losses {
+		if l.Field == "cache_control" && l.Reason == ir.LossUnmappedField {
+			foundUnmapped = true
+		}
+	}
+	if !foundUnmapped {
+		t.Fatalf("expected unmapped-field on response cache_control, got %+v", losses)
+	}
+}
+
+func TestCustomToolResultNativeNested(t *testing.T) {
+	raw := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"tools": [
+			{
+				"name": "exec",
+				"input_schema": {
+					"type": "object",
+					"properties": {"input": {"type": "string"}},
+					"required": ["input"]
+				}
+			}
+		],
+		"messages": [
+			{"role": "user", "content": "hi"},
+			{"role": "assistant", "content": [{"type": "tool_use", "id": "c1", "name": "exec", "input": {"input": "echo"}}]},
+			{
+				"role": "user",
+				"content": [
+					{
+						"type": "tool_result",
+						"tool_use_id": "c1",
+						"content": [
+							{"type": "text", "text": "out", "cache_control": {"type": "ephemeral"}}
+						]
+					}
+				]
+			}
+		]
+	}`)
+	req, _, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	marshaled, err := ir.MarshalRequest(req)
+	if err != nil {
+		t.Fatalf("MarshalRequest failed on custom tool result with nested native: %v", err)
+	}
+	unmarshaled, err := ir.UnmarshalRequest(marshaled)
+	if err != nil {
+		t.Fatalf("UnmarshalRequest failed: %v", err)
+	}
+	ctr, ok := unmarshaled.Messages[2].Content[0].(ir.CustomToolResultBlock)
+	if !ok {
+		t.Fatalf("expected CustomToolResultBlock, got %T", unmarshaled.Messages[2].Content[0])
+	}
+	innerTb, ok := ctr.Output.Content[0].(ir.TextBlock)
+	if !ok || len(innerTb.Native) == 0 {
+		t.Fatalf("expected native annotation preserved on inner text block in custom tool result")
+	}
+	wire, _, err := EncodeRequest(unmarshaled)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	// Check wire output has cache_control on the tool result content
+	userMsg := wire.Messages[2]
+	blocks, ok := userMsg.Content.([]BlockWire)
+	if !ok || len(blocks) != 1 {
+		t.Fatalf("expected BlockWire in message content, got %T", userMsg.Content)
+	}
+	toolRes := blocks[0]
+	innerBlocks, ok := toolRes.Content.([]BlockWire)
+	if !ok || len(innerBlocks) != 1 || len(innerBlocks[0].CacheControl) == 0 {
+		t.Fatalf("expected cache_control on encoded inner block: %+v", toolRes.Content)
+	}
+}

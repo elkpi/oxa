@@ -67,17 +67,33 @@ func ValidateNativeRequest(req *Request) error {
 		if n.Projection != nil {
 			switch n.Projection.Origin {
 			case "budget":
+				if n.Kind != NativeKindThinkingBudget {
+					return fmt.Errorf("ir: budget projection is only allowed on thinking_budget")
+				}
 				if budgetProj != nil {
 					return fmt.Errorf("ir: duplicate budget projection on request")
 				}
 				budgetProj = n.Projection
 			case "explicit":
+				if n.Kind != NativeKindOutputEffort {
+					return fmt.Errorf("ir: explicit projection is only allowed on output_effort")
+				}
 				if explicitProj != nil {
 					return fmt.Errorf("ir: duplicate explicit projection on request")
 				}
 				explicitProj = n.Projection
+			default:
+				return fmt.Errorf("ir: native projection origin %q invalid", n.Projection.Origin)
+			}
+			switch n.Projection.Effort {
+			case "minimal", "low", "medium", "high", "xhigh", "max":
+			default:
+				return fmt.Errorf("ir: native projection effort %q invalid", n.Projection.Effort)
 			}
 		}
+	}
+	if budgetProj != nil && explicitProj != nil {
+		return fmt.Errorf("ir: conflicting effort projections on request")
 	}
 
 	for i, sb := range req.System {
@@ -135,13 +151,62 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 
 		if ann.Source == NativeSourceAnthropic {
 			switch ann.Kind {
-			case NativeKindThinkingMode, NativeKindThinkingBudget, NativeKindThinkingDisplay,
-				NativeKindOutputEffort, NativeKindContextManagement:
+			case NativeKindThinkingMode:
 				if host != hostRequest {
 					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
 				}
+				var str string
+				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
+					return fmt.Errorf("anthropic thinking_mode value must be a JSON string: %w", err)
+				}
+				if str != "adaptive" && str != "enabled" && str != "disabled" {
+					return fmt.Errorf("invalid thinking_mode %q", str)
+				}
+			case NativeKindThinkingBudget:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var budget int64
+				if err := json.Unmarshal([]byte(ann.Value), &budget); err != nil || budget <= 0 {
+					return fmt.Errorf("anthropic thinking_budget must be a positive integer")
+				}
+			case NativeKindThinkingDisplay:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var str string
+				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil || (str != "summarized" && str != "omitted" && str != "updates") {
+					return fmt.Errorf("invalid thinking_display %s", ann.Value)
+				}
+			case NativeKindOutputEffort:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var str string
+				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil || (str != "low" && str != "medium" && str != "high" && str != "xhigh" && str != "max") {
+					return fmt.Errorf("invalid output_effort %s", ann.Value)
+				}
+			case NativeKindContextManagement:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+					return fmt.Errorf("invalid context_management %s", ann.Value)
+				}
+				if _, ok := obj["edits"].([]any); !ok {
+					return fmt.Errorf("context_management requires edits array")
+				}
 			case NativeKindCacheControl:
-				// Allowed on Request, System, ContentBlock, Tool
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj["type"] != "ephemeral" {
+					return fmt.Errorf("invalid cache_control %s", ann.Value)
+				}
+				if ttl, ok := obj["ttl"]; ok {
+					if ttl != "5m" && ttl != "1h" {
+						return fmt.Errorf("invalid cache_control ttl %v", ttl)
+					}
+				}
 			default:
 			}
 		}
@@ -310,6 +375,11 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 				Detail: ann.Omission.Detail,
 			})
 		}
+		return append(losses, Loss{
+			Path:   path,
+			Field:  "type",
+			Reason: LossUnmappedField,
+		})
 
 	case NativeKindThinkingBudget:
 		if ann.Projection != nil && ann.Projection.Origin == "budget" {

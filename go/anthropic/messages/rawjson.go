@@ -497,7 +497,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			return rawObjectSchema(t, []string{"id", "type", "role", "model", "content", "stop_reason", "stop_sequence", "usage"},
 				map[string]*rawJSONSchema{
-					"content": {items: schemaForRawTypeSeen(reflect.TypeOf(BlockWire{}), seen)},
+					"content": {items: schemaForResponseBlock(seen)},
 				},
 				seen)
 		}
@@ -585,12 +585,48 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			schema.fields["tools"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ToolWire{}), seen)}
 			delete(schema.fields, "metadata")
 		case reflect.TypeOf(Response{}):
-			schema.fields["content"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(BlockWire{}), seen)}
+			schema.fields["content"] = &rawJSONSchema{items: schemaForResponseBlock(seen)}
 		}
 		return schema
 	default:
 		return nil
 	}
+}
+
+func schemaForResponseBlock(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
+	t := reflect.TypeOf(BlockWire{})
+	schema := &rawJSONSchema{}
+	schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+		kind, _ := rawJSONStringField(node, "type")
+		switch kind {
+		case BlockTypeText:
+			return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
+		case BlockTypeThinking:
+			return rawObjectSchema(t, []string{"type", "thinking", "signature"}, nil, seen)
+		case BlockTypeToolUse:
+			return rawObjectSchema(t, []string{"type", "id", "name", "input"}, nil, seen)
+		case BlockTypeToolResult:
+			return rawObjectSchema(t, []string{"type", "tool_use_id", "content", "is_error"},
+				map[string]*rawJSONSchema{
+					"content": {variant: func(content *rawJSONNode) *rawJSONSchema {
+						if content != nil && content.kind == '[' {
+							return &rawJSONSchema{items: schemaForResponseBlock(seen)}
+						}
+						return nil
+					}},
+				},
+				seen)
+		case BlockTypeImage:
+			return rawObjectSchema(t, []string{"type", "source"},
+				map[string]*rawJSONSchema{
+					"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
+				},
+				seen)
+		default:
+			return nil
+		}
+	}
+	return schema
 }
 
 func rawObjectSchema(t reflect.Type, allowed []string, overrides map[string]*rawJSONSchema, seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {

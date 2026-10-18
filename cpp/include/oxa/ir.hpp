@@ -40,6 +40,9 @@ inline constexpr std::string_view NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
 inline constexpr std::string_view NATIVE_KIND_CACHE_CONTROL = "cache_control";
 inline constexpr std::string_view NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
 
+inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
+    "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 

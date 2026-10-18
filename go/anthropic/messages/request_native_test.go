@@ -595,3 +595,179 @@ func TestCustomToolResultNativeNested(t *testing.T) {
 		t.Fatalf("expected cache_control on encoded inner block: %+v", toolRes.Content)
 	}
 }
+
+func TestSystemBlockCacheControlRoundTrip(t *testing.T) {
+	raw := []byte(`{
+		"model": "test-model",
+		"max_tokens": 64,
+		"system": [
+			{
+				"type": "text",
+				"text": "synthetic",
+				"cache_control": {
+					"type": "ephemeral",
+					"ttl": "1h"
+				}
+			}
+		],
+		"messages": [
+			{"role": "user", "content": "hi"}
+		]
+	}`)
+
+	req, decodeLosses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(decodeLosses) != 0 {
+		t.Fatalf("expected 0 decode losses, got %+v", decodeLosses)
+	}
+	if len(req.System) != 1 || len(req.System[0].Native) != 1 {
+		t.Fatalf("expected 1 native annotation on system[0], got %+v", req.System)
+	}
+
+	wire, encodeLosses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(encodeLosses) != 0 {
+		t.Fatalf("expected 0 encode losses, got %+v", encodeLosses)
+	}
+	systemBlocks, ok := wire.System.([]SystemBlockWire)
+	if !ok {
+		t.Fatalf("expected []SystemBlockWire in wire.System, got %T", wire.System)
+	}
+	if len(systemBlocks) != 1 {
+		t.Fatalf("expected 1 system block, got %d", len(systemBlocks))
+	}
+	var cc0 map[string]any
+	if err := json.Unmarshal(systemBlocks[0].CacheControl, &cc0); err != nil {
+		t.Fatalf("failed to unmarshal cache_control: %v", err)
+	}
+	if cc0["type"] != "ephemeral" || cc0["ttl"] != "1h" {
+		t.Fatalf("expected type=ephemeral, ttl=1h, got %+v", cc0)
+	}
+}
+
+func TestSystemBlockMultipleCacheControl(t *testing.T) {
+	raw := []byte(`{
+		"model": "test-model",
+		"max_tokens": 64,
+		"system": [
+			{
+				"type": "text",
+				"text": "block 0 (no cache)"
+			},
+			{
+				"type": "text",
+				"text": "block 1 (ephemeral 5m)",
+				"cache_control": {
+					"type": "ephemeral",
+					"ttl": "5m"
+				}
+			},
+			{
+				"type": "text",
+				"text": "block 2 (ephemeral 1h)",
+				"cache_control": {
+					"type": "ephemeral",
+					"ttl": "1h"
+				}
+			},
+			{
+				"type": "text",
+				"text": "block 3 (ephemeral no ttl)",
+				"cache_control": {
+					"type": "ephemeral"
+				}
+			}
+		],
+		"messages": [
+			{"role": "user", "content": "hi"}
+		]
+	}`)
+
+	req, decodeLosses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(decodeLosses) != 0 {
+		t.Fatalf("expected 0 decode losses, got %+v", decodeLosses)
+	}
+
+	wire, encodeLosses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(encodeLosses) != 0 {
+		t.Fatalf("expected 0 encode losses, got %+v", encodeLosses)
+	}
+	systemBlocks, ok := wire.System.([]SystemBlockWire)
+	if !ok || len(systemBlocks) != 4 {
+		t.Fatalf("expected 4 system blocks, got %+v", wire.System)
+	}
+	if len(systemBlocks[0].CacheControl) != 0 {
+		t.Errorf("block 0: expected empty cache_control, got %s", systemBlocks[0].CacheControl)
+	}
+	var cc1, cc2, cc3 map[string]any
+	if err := json.Unmarshal(systemBlocks[1].CacheControl, &cc1); err != nil {
+		t.Errorf("block 1: failed to unmarshal: %v", err)
+	} else if cc1["type"] != "ephemeral" || cc1["ttl"] != "5m" {
+		t.Errorf("block 1: expected type=ephemeral, ttl=5m, got %+v", cc1)
+	}
+	if err := json.Unmarshal(systemBlocks[2].CacheControl, &cc2); err != nil {
+		t.Errorf("block 2: failed to unmarshal: %v", err)
+	} else if cc2["type"] != "ephemeral" || cc2["ttl"] != "1h" {
+		t.Errorf("block 2: expected type=ephemeral, ttl=1h, got %+v", cc2)
+	}
+	if err := json.Unmarshal(systemBlocks[3].CacheControl, &cc3); err != nil {
+		t.Errorf("block 3: failed to unmarshal: %v", err)
+	} else if cc3["type"] != "ephemeral" || cc3["ttl"] != nil {
+		t.Errorf("block 3: expected type=ephemeral without ttl, got %+v", cc3)
+	}
+}
+
+func TestSystemBlockDirectIRCacheControl(t *testing.T) {
+	maxTokens := int64(100)
+	req := &ir.Request{
+		Model: "claude-sonnet-4-5",
+		System: []ir.SystemBlock{
+			{
+				Text: "system instructions",
+				Native: []ir.NativeAnnotation{
+					{
+						Source: ir.NativeSourceAnthropic,
+						Kind:   ir.NativeKindCacheControl,
+						Value:  `{"type":"ephemeral"}`,
+					},
+				},
+			},
+		},
+		Messages: []ir.Message{
+			{
+				Role: ir.RoleUser,
+				Content: []ir.Block{
+					ir.TextBlock{Text: "hello"},
+				},
+			},
+		},
+		Params: ir.Params{
+			MaxTokens: &maxTokens,
+		},
+	}
+
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("expected 0 losses, got %+v", losses)
+	}
+	systemBlocks, ok := wire.System.([]SystemBlockWire)
+	if !ok || len(systemBlocks) != 1 {
+		t.Fatalf("expected 1 system block, got %+v", wire.System)
+	}
+	if string(systemBlocks[0].CacheControl) != `{"type":"ephemeral"}` {
+		t.Fatalf("expected cache_control %q, got %q", `{"type":"ephemeral"}`, string(systemBlocks[0].CacheControl))
+	}
+}

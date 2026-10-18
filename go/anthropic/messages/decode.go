@@ -131,25 +131,11 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		return nil, nil, fmt.Errorf("anthropic: request carries no messages")
 	}
 
-	if wire.Thinking != nil && wire.Thinking.Type == "enabled" {
-		budget := wire.Thinking.BudgetTokens
-		var effort string
-		switch {
-		case budget <= 2048:
-			effort = ir.ReasoningEffortLow
-		case budget <= 8192:
-			effort = ir.ReasoningEffortMedium
-		default:
-			effort = ir.ReasoningEffortHigh
-		}
-		req.Params.ReasoningEffort = effort
-		losses = append(losses, ir.Loss{
-			Path:   "thinking.budget_tokens",
-			Field:  "budget_tokens",
-			Reason: ir.LossDegraded,
-			Detail: "budget approximated",
-		})
+	natLosses, err := decodeRequestNative(wire, req)
+	if err != nil {
+		return nil, nil, err
 	}
+	losses = append(losses, natLosses...)
 
 	if wire.Temperature != nil {
 		req.Params.Temperature = wire.Temperature
@@ -186,14 +172,6 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
 			}
 			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
-			if len(w.CacheControl) > 0 {
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("system[%d].cache_control", i),
-					Field:  "cache_control",
-					Reason: ir.LossUnmappedField,
-					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-				})
-			}
 		}
 		return blocks, losses, nil
 	case []SystemBlockWire:
@@ -204,14 +182,6 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
 			}
 			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
-			if len(w.CacheControl) > 0 {
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("system[%d].cache_control", i),
-					Field:  "cache_control",
-					Reason: ir.LossUnmappedField,
-					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-				})
-			}
 		}
 		return blocks, losses, nil
 	default:
@@ -385,14 +355,6 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 			Reason: ir.LossUnsupportedSemantic,
 			Detail: fmt.Sprintf("Anthropic block type %q has no IR equivalent", w.Type),
 		}}, false, nil
-	}
-	if len(w.CacheControl) > 0 {
-		losses = append(losses, ir.Loss{
-			Path:   path + ".cache_control",
-			Field:  "cache_control",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-		})
 	}
 	return block, losses, true, nil
 }

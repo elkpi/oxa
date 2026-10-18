@@ -51,17 +51,20 @@ type rawMessageShadow struct {
 }
 
 type rawRequestShadow struct {
-	Model         string             `json:"model"`
-	System        json.RawMessage    `json:"system"`
-	Messages      []rawMessageShadow `json:"messages"`
-	MaxTokens     int64              `json:"max_tokens"`
-	Temperature   *float64           `json:"temperature"`
-	TopP          *float64           `json:"top_p"`
-	StopSequences []string           `json:"stop_sequences"`
-	Metadata      json.RawMessage    `json:"metadata"`
-	Tools         []ToolWire         `json:"tools"`
-	ToolChoice    *ToolChoiceWire    `json:"tool_choice"`
-	Thinking      *ThinkingWire      `json:"thinking"`
+	Model             string                 `json:"model"`
+	System            json.RawMessage        `json:"system"`
+	Messages          []rawMessageShadow     `json:"messages"`
+	MaxTokens         int64                  `json:"max_tokens"`
+	Temperature       *float64               `json:"temperature"`
+	TopP              *float64               `json:"top_p"`
+	StopSequences     []string               `json:"stop_sequences"`
+	Metadata          json.RawMessage        `json:"metadata"`
+	Tools             []ToolWire             `json:"tools"`
+	ToolChoice        *ToolChoiceWire        `json:"tool_choice"`
+	Thinking          *ThinkingWire          `json:"thinking"`
+	CacheControl      json.RawMessage        `json:"cache_control"`
+	OutputConfig      *OutputConfigWire      `json:"output_config"`
+	ContextManagement *ContextManagementWire `json:"context_management"`
 }
 
 func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, error) {
@@ -76,14 +79,17 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 		return nil, nil, fmt.Errorf("anthropic: request JSON: %w", err)
 	}
 	wire := Request{
-		Model:         shadow.Model,
-		MaxTokens:     shadow.MaxTokens,
-		Temperature:   shadow.Temperature,
-		TopP:          shadow.TopP,
-		StopSequences: shadow.StopSequences,
-		Tools:         shadow.Tools,
-		ToolChoice:    shadow.ToolChoice,
-		Thinking:      shadow.Thinking,
+		Model:             shadow.Model,
+		MaxTokens:         shadow.MaxTokens,
+		Temperature:       shadow.Temperature,
+		TopP:              shadow.TopP,
+		StopSequences:     shadow.StopSequences,
+		Tools:             shadow.Tools,
+		ToolChoice:        shadow.ToolChoice,
+		Thinking:          shadow.Thinking,
+		CacheControl:      shadow.CacheControl,
+		OutputConfig:      shadow.OutputConfig,
+		ContextManagement: shadow.ContextManagement,
 	}
 	if len(shadow.Metadata) > 0 && string(shadow.Metadata) != "null" {
 		wire.Metadata = shadow.Metadata
@@ -420,7 +426,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	}
 	switch t {
 	case reflect.TypeOf(SystemBlockWire{}):
-		return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "text", "cache_control"}, nil, seen)
 	case reflect.TypeOf(BlockWire{}):
 		schema := &rawJSONSchema{}
 		seen[t] = schema
@@ -428,13 +434,13 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
 			case BlockTypeText:
-				return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "text", "cache_control"}, nil, seen)
 			case BlockTypeThinking:
-				return rawObjectSchema(t, []string{"type", "thinking", "signature"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "thinking", "signature", "cache_control"}, nil, seen)
 			case BlockTypeToolUse:
-				return rawObjectSchema(t, []string{"type", "id", "name", "input"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "name", "input", "cache_control"}, nil, seen)
 			case BlockTypeToolResult:
-				return rawObjectSchema(t, []string{"type", "tool_use_id", "content", "is_error"},
+				return rawObjectSchema(t, []string{"type", "tool_use_id", "content", "is_error", "cache_control"},
 					map[string]*rawJSONSchema{
 						"content": {variant: func(content *rawJSONNode) *rawJSONSchema {
 							if content != nil && content.kind == '[' {
@@ -445,7 +451,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 					},
 					seen)
 			case BlockTypeImage:
-				return rawObjectSchema(t, []string{"type", "source"},
+				return rawObjectSchema(t, []string{"type", "source", "cache_control"},
 					map[string]*rawJSONSchema{
 						"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
 					},
@@ -458,11 +464,15 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	case reflect.TypeOf(SourceWire{}):
 		return rawObjectSchema(t, []string{"type", "media_type", "data", "url"}, nil, seen)
 	case reflect.TypeOf(ToolWire{}):
-		return rawObjectSchema(t, []string{"name", "description", "input_schema"}, nil, seen)
+		return rawObjectSchema(t, []string{"name", "description", "input_schema", "cache_control"}, nil, seen)
 	case reflect.TypeOf(ToolChoiceWire{}):
 		return rawObjectSchema(t, []string{"type", "name"}, nil, seen)
 	case reflect.TypeOf(ThinkingWire{}):
-		return rawObjectSchema(t, []string{"type", "budget_tokens"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "budget_tokens", "display"}, nil, seen)
+	case reflect.TypeOf(OutputConfigWire{}):
+		return rawObjectSchema(t, []string{"effort"}, nil, seen)
+	case reflect.TypeOf(ContextManagementWire{}):
+		return rawObjectSchema(t, []string{"edits"}, nil, seen)
 	case reflect.TypeOf(Message{}):
 		schema := &rawJSONSchema{}
 		seen[t] = schema

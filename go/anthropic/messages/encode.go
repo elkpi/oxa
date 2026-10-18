@@ -92,7 +92,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	shorthand := len(req.System) == 0 && len(req.Messages) == 1 &&
 		len(req.Messages[0].Content) == 1
 	if shorthand {
-		_, shorthand = req.Messages[0].Content[0].(ir.TextBlock)
+		if tb, isText := req.Messages[0].Content[0].(ir.TextBlock); isText {
+			shorthand = len(tb.Native) == 0
+		} else {
+			shorthand = false
+		}
 	}
 	for i, m := range req.Messages {
 		var role string
@@ -135,31 +139,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Params.StopSequences) > 0 {
 		out.StopSequences = req.Params.StopSequences
 	}
-	if req.Params.ReasoningEffort != "" {
-		var budget int64
-		switch req.Params.ReasoningEffort {
-		case ir.ReasoningEffortMinimal:
-			budget = 1024
-		case ir.ReasoningEffortLow:
-			budget = 2048
-		case ir.ReasoningEffortMedium:
-			budget = 8192
-		case ir.ReasoningEffortHigh:
-			budget = 16384
-		default:
-			budget = 2048
-		}
-		out.Thinking = &ThinkingWire{
-			Type:         "enabled",
-			BudgetTokens: budget,
-		}
-		losses = append(losses, ir.Loss{
-			Path:   "params.reasoning_effort",
-			Field:  "reasoning_effort",
-			Reason: ir.LossDegraded,
-			Detail: "budget approximated",
-		})
+	natLosses, err := encodeRequestNative(req, out)
+	if err != nil {
+		return nil, nil, err
 	}
+	losses = append(losses, natLosses...)
 	if req.Params.ResponseFormat != nil {
 		losses = append(losses, ir.Loss{
 			Path:   "params.response_format",
@@ -212,6 +196,9 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 			return nil, nil, err
 		}
 		if mapped {
+			if cc := getBlockCacheControl(block); len(cc) > 0 {
+				encoded.CacheControl = cc
+			}
 			out = append(out, encoded)
 		}
 		losses = append(losses, blockLosses...)
@@ -333,13 +320,20 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 		contentPath := fmt.Sprintf("%s.content[%d]", path, i)
 		switch b := block.(type) {
 		case ir.TextBlock:
-			content = append(content, BlockWire{Type: BlockTypeText, Text: b.Text})
+			bw := BlockWire{Type: BlockTypeText, Text: b.Text}
+			if cc := getBlockCacheControl(b); len(cc) > 0 {
+				bw.CacheControl = cc
+			}
+			content = append(content, bw)
 		case ir.ImageBlock:
 			image, imageLosses, mapped, err := encodeImageBlock(b, contentPath)
 			if err != nil {
 				return BlockWire{}, nil, false, err
 			}
 			if mapped {
+				if cc := getBlockCacheControl(b); len(cc) > 0 {
+					image.CacheControl = cc
+				}
 				content = append(content, image)
 			}
 			losses = append(losses, imageLosses...)
@@ -347,9 +341,13 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 			losses = append(losses, unsupportedBlockLoss(contentPath, block))
 		}
 	}
-	return BlockWire{
+	bw := BlockWire{
 		Type: BlockTypeToolResult, ToolUseID: result.ToolUseID, Content: content, IsError: result.IsError,
-	}, losses, true, nil
+	}
+	if cc := getBlockCacheControl(result); len(cc) > 0 {
+		bw.CacheControl = cc
+	}
+	return bw, losses, true, nil
 }
 
 func invalidImageLoss(path, detail string) ir.Loss {

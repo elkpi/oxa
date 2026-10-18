@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.2] - 2026-10-18
+
+### Fixed
+
+- 跨面通用遗漏报损缺省保障（spec/15 §4.1）：
+  - 修复直接构造的 IR 或旧版 IR 在省略 `omission` 或其 `detail` 为空时，跨面编码至 Chat Completions / Responses 缺失自描述遗漏报损的问题。
+  - 在 Go、TypeScript、Python、Rust、C++ 五门语言的通用遗漏收集 helper 中统一为 `cache_control` 提供缺省自描述 `unmapped-field` 报损与规范 `detail`。
+  - 为五门语言参考实现补齐直接构造 IR 与空 detail 场景的显式断言测试。
+- 依赖管理：
+  - 恢复 `rust/Cargo.lock` 中意外升级的 7 个无关依赖版本，严格保持最小补丁边界。
+- 文档状态：
+  - 更新项目 README 与各语言版本状态矩阵至 `v2.4.2` 准备态，标明最新已发布版本为 `v2.4.1`。
+
 ## [v2.4.1] - 2026-10-18
 
 ### Added

@@ -3,8 +3,7 @@
 use std::collections::BTreeSet;
 
 use oxa_ir::{
-    Loss, LossReason, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    StopReason, Usage,
+    Loss, LossReason, Params, Request as IrRequest, Response as IrResponse, StopReason, Usage,
 };
 
 use crate::config::Config;
@@ -65,6 +64,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tool_choice: None,
         params: None,
         metadata: None,
+        native: Vec::new(),
     };
     let mut custom_tools = BTreeSet::new();
     let mut declared_tools = BTreeSet::new();
@@ -85,6 +85,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     description: non_empty(tool.description.clone()),
                     input_schema: None,
                     format: None,
+                    native: Vec::new(),
                 });
                 continue;
             }
@@ -94,6 +95,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 description: non_empty(tool.description.clone()),
                 input_schema: Some(tool.input_schema.clone()),
                 format: None,
+                native: Vec::new(),
             });
         }
         if !tools.is_empty() {
@@ -136,26 +138,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         return Err(Error::new("anthropic: request carries no messages"));
     }
 
-    let reasoning_effort = wire.thinking.as_ref().and_then(|thinking| {
-        if thinking.kind != "enabled" {
-            return None;
-        }
-        let effort = if thinking.budget_tokens <= 2048 {
-            ReasoningEffort::Low
-        } else if thinking.budget_tokens <= 8192 {
-            ReasoningEffort::Medium
-        } else {
-            ReasoningEffort::High
-        };
-        losses.push(loss(
-            "thinking.budget_tokens",
-            "budget_tokens",
-            LossReason::Degraded,
-            "budget approximated",
-        ));
-        Some(effort)
-    });
-
     let stop = wire
         .stop_sequences
         .clone()
@@ -165,10 +147,12 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         top_p: wire.top_p,
         max_tokens: Some(wire.max_tokens),
         stop_sequences: stop,
-        reasoning_effort,
+        reasoning_effort: None,
         response_format: None,
     };
     req.params = Some(params);
+    let nat_losses = crate::native::decode_request_native(wire, &mut req);
+    losses.extend(nat_losses);
     Ok((req, losses))
 }
 

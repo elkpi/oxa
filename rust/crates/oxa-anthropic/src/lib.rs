@@ -15,6 +15,7 @@ pub use rawjson::{decode_request_json, decode_response_json};
 mod decode;
 mod encode;
 mod error;
+mod native;
 mod normalize;
 mod streamin;
 mod streamout;
@@ -24,6 +25,7 @@ pub use config::Config;
 pub use decode::{decode_request, decode_response};
 pub use encode::{encode_request, encode_response};
 pub use error::Error;
+pub use native::*;
 pub use streamin::StreamDecoder;
 pub use streamout::StreamEncoder;
 pub use types::{

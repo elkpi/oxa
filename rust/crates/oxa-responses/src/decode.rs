@@ -64,10 +64,12 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tool_choice: None,
         params: None,
         metadata: None,
+        native: Vec::new(),
     };
     if let Some(instructions) = &wire.instructions {
         request.system.push(oxa_ir::SystemBlock::Text {
             text: instructions.clone(),
+            native: Vec::new(),
         });
     }
 
@@ -80,6 +82,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 description: None,
                 input_schema: None,
                 format: None,
+                native: Vec::new(),
             });
             continue;
         }
@@ -131,6 +134,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 description: non_empty(tool.description.clone()),
                 input_schema: None,
                 format,
+                native: Vec::new(),
             });
             continue;
         }
@@ -149,6 +153,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             description: non_empty(tool.description.clone()),
             input_schema: tool.parameters.clone(),
             format: None,
+            native: Vec::new(),
         });
         if tool.strict.is_some() {
             losses.push(loss(
@@ -169,7 +174,10 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     match &wire.input {
         Input::Text(text) => request.messages.push(oxa_ir::Message {
             role: Role::User,
-            content: vec![Block::Text { text: text.clone() }],
+            content: vec![Block::Text {
+                text: text.clone(),
+                native: Vec::new(),
+            }],
         }),
         Input::Items(items) => {
             let (decoded_calls, decoded_results, dropped, pair_losses) =
@@ -207,6 +215,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             if content.is_empty() {
                                 content.push(Block::Text {
                                     text: String::new(),
+                                    native: Vec::new(),
                                 });
                             }
                             request.messages.push(oxa_ir::Message {
@@ -277,6 +286,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             role: Role::User,
             content: vec![Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             }],
         });
         losses.push(loss(
@@ -334,6 +344,7 @@ fn decode_custom_output(
                         }
                         blocks.push(Block::Text {
                             text: p.text.clone(),
+                            native: Vec::new(),
                         });
                     }
                     PART_TYPE_INPUT_IMAGE if !p.image_url.is_empty() => {
@@ -594,6 +605,8 @@ fn decode_reasoning_effort(
         "low" => Some(ReasoningEffort::Low),
         "medium" => Some(ReasoningEffort::Medium),
         "high" => Some(ReasoningEffort::High),
+        "xhigh" => Some(ReasoningEffort::XHigh),
+        "max" => Some(ReasoningEffort::Max),
         other => {
             losses.push(loss(
                 "reasoning.effort",
@@ -636,6 +649,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                             thinkings.push(Block::Thinking {
                                 thinking: part.text.clone(),
                                 signature: None,
+                                native: Vec::new(),
                             });
                         } else {
                             losses.push(loss(
@@ -683,6 +697,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     }
                     text.push(Block::Text {
                         text: part.text.clone(),
+                        native: Vec::new(),
                     });
                 }
             }
@@ -691,6 +706,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     id: item.call_id.clone(),
                     name: item.name.clone(),
                     input: item.arguments.clone(),
+                    native: Vec::new(),
                 });
                 has_tool_use = true;
             }
@@ -725,6 +741,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     id: item.call_id.clone(),
                     status,
                     operation: op,
+                    native: Vec::new(),
                 });
                 has_tool_use = true;
             }
@@ -760,6 +777,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     tool_use_id: item.call_id.clone(),
                     status,
                     output,
+                    native: Vec::new(),
                 });
             }
             ITEM_TYPE_CUSTOM_TOOL_CALL => {
@@ -777,6 +795,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     id: item.call_id.clone(),
                     name: item.name.clone(),
                     input: input.clone(),
+                    native: Vec::new(),
                 });
                 has_tool_use = true;
             }
@@ -790,6 +809,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 calls.push(Block::CustomToolResult {
                     tool_use_id: item.call_id.clone(),
                     output: decode_custom_output(output, item_index, &mut losses),
+                    native: Vec::new(),
                 });
             }
             other => losses.push(loss(

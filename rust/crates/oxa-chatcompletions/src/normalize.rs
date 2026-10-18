@@ -39,12 +39,19 @@ pub(crate) fn decode_content(
         return Ok((
             vec![Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             }],
             Vec::new(),
         ));
     };
     match content {
-        ContentValue::Text(text) => Ok((vec![Block::Text { text: text.clone() }], Vec::new())),
+        ContentValue::Text(text) => Ok((
+            vec![Block::Text {
+                text: text.clone(),
+                native: Vec::new(),
+            }],
+            Vec::new(),
+        )),
         ContentValue::Parts(parts) => {
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
@@ -63,6 +70,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
         CONTENT_PART_TYPE_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
+                native: Vec::new(),
             }],
             Vec::new(),
         ),
@@ -97,6 +105,7 @@ fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
                 media_type: None,
                 data: None,
                 url: Some(raw.to_string()),
+                native: Vec::new(),
             });
         }
         return Err(loss(
@@ -142,6 +151,7 @@ fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
         media_type: Some(media_type.to_string()),
         data: Some(data.to_string()),
         url: None,
+        native: Vec::new(),
     })
 }
 
@@ -173,6 +183,7 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
                 id: call.id.clone(),
                 name: custom.name.clone().unwrap_or_default(),
                 input: custom.input.clone().unwrap_or_default(),
+                native: Vec::new(),
             });
             continue;
         }
@@ -193,6 +204,7 @@ pub(crate) fn decode_tool_calls(calls: &[ToolCall], path: &str) -> (Vec<Block>, 
             id: call.id.clone(),
             name: func.name,
             input: func.arguments,
+            native: Vec::new(),
         });
     }
     (blocks, losses)
@@ -224,12 +236,14 @@ pub(crate) fn decode_tool_result_run(
             content.push(Block::CustomToolResult {
                 tool_use_id: call_id,
                 output,
+                native: Vec::new(),
             });
         } else {
             content.push(Block::ToolResult {
                 tool_use_id: call_id,
                 content: blocks,
                 is_error: None,
+                native: Vec::new(),
             });
         }
         if messages[index].function_call.is_some() {
@@ -479,7 +493,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text: value } => {
+            Block::Text { text: value, .. } => {
                 parts.push(ContentPart {
                     kind: CONTENT_PART_TYPE_TEXT.to_string(),
                     text: value.clone(),
@@ -491,6 +505,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 media_type,
                 data,
                 url,
+                ..
             } => match encode_image_block(
                 media_type.as_deref(),
                 data.as_deref(),
@@ -532,11 +547,10 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text: value } => text.push_str(value),
+            Block::Text { text: value, .. } => text.push_str(value),
             Block::Thinking {
                 thinking,
-                signature,
-            } => {
+                signature, .. } => {
                 has_reasoning = true;
                 reasoning.push_str(thinking);
                 if signature
@@ -551,7 +565,7 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     ));
                 }
             }
-            Block::ToolUse { id, name, input } => {
+            Block::ToolUse { id, name, input, .. } => {
                 out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
                     id: id.clone(),
                     kind: TOOL_TYPE_FUNCTION.to_string(),
@@ -564,7 +578,7 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     custom: None,
                 });
             }
-            Block::CustomToolUse { id, name, input } => {
+            Block::CustomToolUse { id, name, input, .. } => {
                 out.tool_calls.get_or_insert_with(Vec::new).push(ToolCall {
                     id: id.clone(),
                     kind: TOOL_TYPE_CUSTOM.to_string(),
@@ -614,6 +628,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
     if let Block::CustomToolResult {
         tool_use_id,
         output,
+        ..
     } = block
     {
         return match output {
@@ -631,7 +646,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
                 let mut losses = Vec::new();
                 for (index, inner) in blocks.iter().enumerate() {
                     match inner {
-                        Block::Text { text: value } => {
+                        Block::Text { text: value, .. } => {
                             parts.push(ContentPart {
                                 kind: CONTENT_PART_TYPE_TEXT.to_string(),
                                 text: value.clone(),
@@ -642,6 +657,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
                             media_type,
                             data,
                             url,
+                            ..
                         } => {
                             match encode_image_block(
                                 media_type.as_deref(),
@@ -677,6 +693,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
         tool_use_id,
         content,
         is_error,
+        ..
     } = block
     else {
         return (
@@ -696,7 +713,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
     let mut losses = Vec::new();
     for (index, inner) in content.iter().enumerate() {
         match inner {
-            Block::Text { text: value } => text.push_str(value),
+            Block::Text { text: value, .. } => text.push_str(value),
             _ => losses.push(loss(
                 format!("{path}.content[{index}]"),
                 "content",
@@ -729,7 +746,10 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
     let mut losses = Vec::new();
     for (index, block) in blocks.into_iter().enumerate() {
         match block {
-            Block::Text { text } => out.push(SystemBlock::Text { text }),
+            Block::Text { text, .. } => out.push(SystemBlock::Text {
+                text,
+                native: Vec::new(),
+            }),
             _ => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",

@@ -60,7 +60,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut instructions = String::new();
         for block in &req.system {
             match block {
-                oxa_ir::SystemBlock::Text { text } => instructions.push_str(text),
+                oxa_ir::SystemBlock::Text { text, .. } => instructions.push_str(text),
             }
         }
         out.instructions = Some(instructions);
@@ -187,6 +187,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 ReasoningEffort::Low => "low",
                 ReasoningEffort::Medium => "medium",
                 ReasoningEffort::High => "high",
+                ReasoningEffort::XHigh => "xhigh",
+                ReasoningEffort::Max => "max",
             };
             serde_json::json!({ "effort": effort })
         });
@@ -240,6 +242,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             ));
         }
     }
+    let omission_losses = oxa_ir::omitted_native_request_losses(req, "responses")
+        .map_err(|e| Error::new(e.to_string()))?;
+    losses.extend(omission_losses);
     Ok((out, losses))
 }
 
@@ -261,13 +266,14 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let mut apco_index = 0usize;
     for (index, block) in resp.content.iter().enumerate() {
         match block {
-            Block::Text { text: value } => {
+            Block::Text { text: value, .. } => {
                 text.push_str(value);
                 has_text = true;
             }
             Block::Thinking {
                 thinking,
                 signature,
+                ..
             } => {
                 thinkings.push(OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
@@ -290,6 +296,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 id,
                 status,
                 operation,
+                ..
             } => {
                 let status_str = match status {
                     oxa_ir::ApplyPatchCallStatus::InProgress => "in_progress",
@@ -309,6 +316,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 tool_use_id,
                 status,
                 output,
+                ..
             } => {
                 let status_str = match status {
                     oxa_ir::ApplyPatchResultStatus::Completed => "completed",
@@ -324,7 +332,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 });
                 apco_index += 1;
             }
-            Block::ToolUse { id, name, input } => calls.push(OutputItem {
+            Block::ToolUse {
+                id, name, input, ..
+            } => calls.push(OutputItem {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
                 id: "fc_abc123".to_string(),
                 status: STATUS_COMPLETED.to_string(),
@@ -333,7 +343,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 arguments: input.clone(),
                 ..OutputItem::default()
             }),
-            Block::CustomToolUse { id, name, input } => {
+            Block::CustomToolUse {
+                id, name, input, ..
+            } => {
                 if id.is_empty() || name.is_empty() {
                     return Err(Error::new(format!(
                         "responses: content[{index}] custom_tool_use requires id and name"
@@ -351,6 +363,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             Block::CustomToolResult {
                 tool_use_id,
                 output,
+                ..
             } => {
                 if tool_use_id.is_empty() {
                     return Err(Error::new(format!(
@@ -477,7 +490,7 @@ fn encode_custom_output(
             let mut parts = Vec::new();
             for (i, b) in blocks.iter().enumerate() {
                 match b {
-                    Block::Text { text } => parts.push(crate::types::ContentPart {
+                    Block::Text { text, .. } => parts.push(crate::types::ContentPart {
                         kind: PART_TYPE_INPUT_TEXT.to_string(),
                         text: text.clone(),
                         image_url: String::new(),
@@ -488,6 +501,7 @@ fn encode_custom_output(
                         media_type,
                         data,
                         url,
+                        ..
                     } => match crate::normalize::encode_image_block(
                         media_type.as_deref(),
                         data.as_deref(),

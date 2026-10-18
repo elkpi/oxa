@@ -324,6 +324,7 @@ impl StreamDecoder {
                     index: self.block_index,
                     block: Block::Text {
                         text: part.text.clone(),
+                        native: Vec::new(),
                     },
                 }])
             }
@@ -537,6 +538,7 @@ impl StreamDecoder {
                     block: Block::Thinking {
                         thinking: String::new(),
                         signature: None,
+                        native: Vec::new(),
                     },
                 }])
             }
@@ -723,6 +725,7 @@ impl StreamDecoder {
                                     id: ap.call_id,
                                     status,
                                     operation: op,
+                                    native: Vec::new(),
                                 },
                             },
                             Event::ContentBlockStop { index },
@@ -759,6 +762,7 @@ impl StreamDecoder {
                                     tool_use_id: apr.call_id,
                                     status,
                                     output,
+                                    native: Vec::new(),
                                 },
                             },
                             Event::ContentBlockStop { index },
@@ -809,6 +813,7 @@ impl StreamDecoder {
                                 id: fc.call_id,
                                 name: fc.name,
                                 input: input.clone(),
+                                native: Vec::new(),
                             },
                         }];
                         for fragment in fc.fragments {
@@ -836,6 +841,7 @@ impl StreamDecoder {
                             id: fc.call_id,
                             name: fc.name,
                             input: joined,
+                            native: Vec::new(),
                         },
                     }];
                     for fragment in fc.fragments {

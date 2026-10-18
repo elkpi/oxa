@@ -105,6 +105,7 @@ fn stream_decoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {
@@ -229,6 +230,7 @@ fn stream_decoder_maps_thinking_signature_and_cache_usage() {
                 block: Block::Thinking {
                     thinking: String::new(),
                     signature: None,
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -278,6 +280,7 @@ fn stream_encoder_synthesizes_thinking_and_signature_on_block_stop() {
             block: Block::Thinking {
                 thinking: "consider".to_string(),
                 signature: Some("opaque-signature".to_string()),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -323,6 +326,7 @@ fn stream_encoder_forwards_thinking_deltas_and_terminal_cache_usage() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -389,6 +393,7 @@ fn stream_encoder_rejects_thinking_delta_after_signature_delta() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -433,6 +438,7 @@ fn stream_encoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -488,6 +494,7 @@ fn test_anthropic_custom_tool_multi_fragment_stream() {
                 id: "c".to_string(),
                 name: "exec".to_string(),
                 input: "ab".to_string(),
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {

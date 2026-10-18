@@ -309,6 +309,7 @@ fn stream_decoder_accepts_id_less_reasoning_items() {
         vec![&Block::Thinking {
             thinking: String::new(),
             signature: None,
+            native: Vec::new(),
         }],
         "an id-less reasoning item still converts like the Go reference"
     );
@@ -384,6 +385,7 @@ fn stream_decoder_opens_text_parts_under_reasoning_items() {
         block,
         Some(Block::Text {
             text: String::new(),
+            native: Vec::new(),
         }),
         "message parts under a reasoning item open a text block like the Go reference"
     );
@@ -459,6 +461,7 @@ fn stream_decoder_opens_reasoning_summary_under_message_items() {
         Some(Block::Thinking {
             thinking: String::new(),
             signature: None,
+            native: Vec::new(),
         }),
         "reasoning summary parts under a message item open a thinking block like the Go reference"
     );
@@ -494,6 +497,7 @@ fn stream_decoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {
@@ -661,6 +665,7 @@ fn stream_decoder_maps_reasoning_summary_and_usage_details() {
                 block: Block::Thinking {
                     thinking: String::new(),
                     signature: None,
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -705,6 +710,7 @@ fn stream_encoder_merges_consecutive_thinking_blocks_into_one_reasoning_item() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -725,6 +731,7 @@ fn stream_encoder_merges_consecutive_thinking_blocks_into_one_reasoning_item() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -766,6 +773,7 @@ fn stream_encoder_merges_consecutive_thinking_blocks_into_one_reasoning_item() {
             index: 2,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -796,6 +804,7 @@ fn stream_encoder_maps_reasoning_summary_and_signature_loss() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: Some("opaque".to_string()),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -835,6 +844,7 @@ fn stream_encoder_maps_reasoning_summary_and_signature_loss() {
             index: 1,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -903,6 +913,7 @@ fn stream_encoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         })
         .unwrap();

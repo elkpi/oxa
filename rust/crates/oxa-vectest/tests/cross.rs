@@ -50,6 +50,7 @@ impl Converter for FakeCrossConverter {
             tool_choice: None,
             params: None,
             metadata: None,
+            native: Vec::new(),
         };
         Ok((req, self.decode_losses.clone()))
     }

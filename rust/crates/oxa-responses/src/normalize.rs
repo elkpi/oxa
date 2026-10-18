@@ -41,12 +41,19 @@ pub(crate) fn decode_content(
         return (
             vec![Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             }],
             Vec::new(),
         );
     };
     match content {
-        ContentValue::Text(text) => (vec![Block::Text { text: text.clone() }], Vec::new()),
+        ContentValue::Text(text) => (
+            vec![Block::Text {
+                text: text.clone(),
+                native: Vec::new(),
+            }],
+            Vec::new(),
+        ),
         ContentValue::Parts(parts) => {
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
@@ -65,6 +72,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
         PART_TYPE_INPUT_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
+                native: Vec::new(),
             }],
             Vec::new(),
         ),
@@ -93,6 +101,7 @@ pub(crate) fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
                 media_type: None,
                 data: None,
                 url: Some(raw.to_string()),
+                native: Vec::new(),
             });
         }
         return Err(loss(
@@ -138,6 +147,7 @@ pub(crate) fn decode_image_url(raw: &str, path: &str) -> Result<Block, Loss> {
         media_type: Some(media_type.to_string()),
         data: Some(data.to_string()),
         url: None,
+        native: Vec::new(),
     })
 }
 
@@ -462,6 +472,7 @@ pub(crate) fn precheck_apply_patch_pairs(
                             id: c_item.call_id.clone(),
                             status: cs,
                             operation: op,
+                            native: Vec::new(),
                         },
                     );
                     decoded_results.insert(
@@ -470,6 +481,7 @@ pub(crate) fn precheck_apply_patch_pairs(
                             tool_use_id: o_item.call_id.clone(),
                             status: rs,
                             output: output_str,
+                            native: Vec::new(),
                         },
                     );
                 }
@@ -518,6 +530,7 @@ pub(crate) fn decode_assistant_run(
                         thinkings.push(Block::Thinking {
                             thinking: part.text.clone(),
                             signature: None,
+                            native: Vec::new(),
                         });
                     }
                 } else {
@@ -540,6 +553,7 @@ pub(crate) fn decode_assistant_run(
                 id: item.call_id.clone(),
                 name: item.name.clone(),
                 input: item.arguments.clone(),
+                native: Vec::new(),
             });
             index += 1;
             continue;
@@ -559,6 +573,7 @@ pub(crate) fn decode_assistant_run(
                 id: item.call_id.clone(),
                 name: item.name.clone(),
                 input: input.clone(),
+                native: Vec::new(),
             });
             index += 1;
             continue;
@@ -632,8 +647,12 @@ pub(crate) fn decode_output_run(
             };
             content.push(Block::ToolResult {
                 tool_use_id: item.call_id.clone(),
-                content: vec![Block::Text { text: text.clone() }],
+                content: vec![Block::Text {
+                    text: text.clone(),
+                    native: Vec::new(),
+                }],
                 is_error: None,
+                native: Vec::new(),
             });
         } else {
             if item.call_id.is_empty() {
@@ -659,6 +678,7 @@ pub(crate) fn decode_output_run(
                                 }
                                 blocks.push(Block::Text {
                                     text: p.text.clone(),
+                                    native: Vec::new(),
                                 });
                             }
                             PART_TYPE_INPUT_IMAGE if !p.image_url.is_empty() => {
@@ -689,6 +709,7 @@ pub(crate) fn decode_output_run(
             content.push(Block::CustomToolResult {
                 tool_use_id: item.call_id.clone(),
                 output: custom,
+                native: Vec::new(),
             });
         }
         index += 1;
@@ -894,14 +915,14 @@ pub(crate) fn encode_image_block(
 /// N-R-3 and N-R-4 render user content as string shorthand only for exactly
 /// one text block; otherwise the supported content parts array is used.
 pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue, Vec<Loss>) {
-    if let [Block::Text { text }] = blocks {
+    if let [Block::Text { text, .. }] = blocks {
         return (ContentValue::Text(text.clone()), Vec::new());
     }
     let mut parts = Vec::new();
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text } => parts.push(ContentPart {
+            Block::Text { text, .. } => parts.push(ContentPart {
                 kind: PART_TYPE_INPUT_TEXT.to_string(),
                 text: text.clone(),
                 image_url: String::new(),
@@ -912,6 +933,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 media_type,
                 data,
                 url,
+                ..
             } => match encode_image_block(
                 media_type.as_deref(),
                 data.as_deref(),
@@ -970,10 +992,11 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                 tool_use_id,
                 content,
                 is_error,
+                ..
             } => {
                 let mut out = String::new();
                 for inner in content {
-                    if let Block::Text { text } = inner {
+                    if let Block::Text { text, .. } = inner {
                         out.push_str(text)
                     } else {
                         losses.push(loss(
@@ -1002,6 +1025,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
             Block::CustomToolResult {
                 tool_use_id,
                 output,
+                ..
             } => {
                 let out = match output {
                     CustomToolOutput::Text(s) => OutputValue::Text(s.clone()),
@@ -1009,7 +1033,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                         let mut parts = Vec::new();
                         for (j, b) in bs.iter().enumerate() {
                             match b {
-                                Block::Text { text } => parts.push(ContentPart {
+                                Block::Text { text, .. } => parts.push(ContentPart {
                                     kind: PART_TYPE_INPUT_TEXT.to_string(),
                                     text: text.clone(),
                                     image_url: String::new(),
@@ -1020,6 +1044,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                                     media_type,
                                     data,
                                     url,
+                                    ..
                                 } => match encode_image_block(
                                     media_type.as_deref(),
                                     data.as_deref(),
@@ -1051,6 +1076,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                 tool_use_id,
                 status,
                 output,
+                ..
             } => {
                 let status_str = match status {
                     ApplyPatchResultStatus::Completed => "completed",
@@ -1092,13 +1118,14 @@ pub(crate) fn encode_assistant_message(
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text: value } => {
+            Block::Text { text: value, .. } => {
                 text.push_str(value);
                 has_text = true;
             }
             Block::Thinking {
                 thinking,
                 signature,
+                ..
             } => {
                 thinkings.push(OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
@@ -1121,6 +1148,7 @@ pub(crate) fn encode_assistant_message(
                 id,
                 status,
                 operation,
+                ..
             } => {
                 let status_str = match status {
                     ApplyPatchCallStatus::InProgress => "in_progress",
@@ -1134,14 +1162,18 @@ pub(crate) fn encode_assistant_message(
                     ..InputItem::default()
                 });
             }
-            Block::ToolUse { id, name, input } => calls.push(InputItem {
+            Block::ToolUse {
+                id, name, input, ..
+            } => calls.push(InputItem {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
                 call_id: id.clone(),
                 name: name.clone(),
                 arguments: input.clone(),
                 ..InputItem::default()
             }),
-            Block::CustomToolUse { id, name, input } => calls.push(InputItem {
+            Block::CustomToolUse {
+                id, name, input, ..
+            } => calls.push(InputItem {
                 kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
                 call_id: id.clone(),
                 name: name.clone(),
@@ -1183,7 +1215,10 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
     let mut losses = Vec::new();
     for (index, block) in blocks.into_iter().enumerate() {
         match block {
-            Block::Text { text } => out.push(SystemBlock::Text { text }),
+            Block::Text { text, .. } => out.push(SystemBlock::Text {
+                text,
+                native: Vec::new(),
+            }),
             _ => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",

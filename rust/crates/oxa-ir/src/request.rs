@@ -26,6 +26,8 @@ pub struct Request {
     pub params: Option<Params>,
     #[serde(rename = "metadata", default, skip_serializing_if = "Option::is_none")]
     pub metadata: Option<BTreeMap<String, String>>,
+    #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+    pub native: Vec<NativeAnnotation>,
 }
 
 /// System prompt content (spec/01 §3.2). Sealed; exactly one variant in v1.
@@ -36,6 +38,8 @@ pub enum SystemBlock {
     Text {
         #[serde(rename = "text")]
         text: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
 }
 
@@ -67,6 +71,8 @@ pub enum Block {
     Text {
         #[serde(rename = "text")]
         text: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "thinking")]
     Thinking {
@@ -74,6 +80,8 @@ pub enum Block {
         thinking: String,
         #[serde(rename = "signature", default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "image")]
     Image {
@@ -87,6 +95,8 @@ pub enum Block {
         data: Option<String>,
         #[serde(rename = "url", default, skip_serializing_if = "Option::is_none")]
         url: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "tool_use")]
     ToolUse {
@@ -96,6 +106,8 @@ pub enum Block {
         name: String,
         #[serde(rename = "input")]
         input: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "custom_tool_use")]
     CustomToolUse {
@@ -105,6 +117,8 @@ pub enum Block {
         name: String,
         #[serde(rename = "input")]
         input: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "custom_tool_result")]
     CustomToolResult {
@@ -112,6 +126,8 @@ pub enum Block {
         tool_use_id: String,
         #[serde(rename = "output")]
         output: CustomToolOutput,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "apply_patch_tool_use")]
     ApplyPatchToolUse {
@@ -121,6 +137,8 @@ pub enum Block {
         status: ApplyPatchCallStatus,
         #[serde(rename = "operation")]
         operation: ApplyPatchOperation,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "apply_patch_tool_result")]
     ApplyPatchToolResult {
@@ -130,6 +148,8 @@ pub enum Block {
         status: ApplyPatchResultStatus,
         #[serde(rename = "output", default, skip_serializing_if = "Option::is_none")]
         output: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
     #[serde(rename = "tool_result")]
     ToolResult {
@@ -139,6 +159,8 @@ pub enum Block {
         content: Vec<Block>,
         #[serde(rename = "is_error", default, skip_serializing_if = "Option::is_none")]
         is_error: Option<bool>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
     },
 }
 
@@ -164,6 +186,8 @@ pub struct Tool {
     pub input_schema: Option<Value>,
     #[serde(rename = "format", default, skip_serializing_if = "Option::is_none")]
     pub format: Option<CustomToolFormat>,
+    #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+    pub native: Vec<NativeAnnotation>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -274,6 +298,60 @@ pub enum ReasoningEffort {
     Medium,
     #[serde(rename = "high")]
     High,
+    #[serde(rename = "xhigh")]
+    XHigh,
+    #[serde(rename = "max")]
+    Max,
+}
+
+impl ReasoningEffort {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ReasoningEffort::Minimal => "minimal",
+            ReasoningEffort::Low => "low",
+            ReasoningEffort::Medium => "medium",
+            ReasoningEffort::High => "high",
+            ReasoningEffort::XHigh => "xhigh",
+            ReasoningEffort::Max => "max",
+        }
+    }
+}
+
+/// A dialect-specific request option preserved across IR (spec/15).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NativeAnnotation {
+    #[serde(rename = "source")]
+    pub source: String,
+    #[serde(rename = "kind")]
+    pub kind: String,
+    #[serde(rename = "value")]
+    pub value: String,
+    #[serde(rename = "omission", default, skip_serializing_if = "Option::is_none")]
+    pub omission: Option<NativeOmission>,
+    #[serde(
+        rename = "projection",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub projection: Option<NativeProjection>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NativeOmission {
+    #[serde(rename = "field")]
+    pub field: String,
+    #[serde(rename = "reason")]
+    pub reason: crate::loss::LossReason,
+    #[serde(rename = "detail", default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NativeProjection {
+    #[serde(rename = "origin")]
+    pub origin: String, // "budget" | "explicit"
+    #[serde(rename = "effort")]
+    pub effort: ReasoningEffort,
 }
 
 /// Sampling parameters (spec/01 §3.7). Absent fields are meaningful:

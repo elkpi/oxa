@@ -82,12 +82,16 @@ pub(crate) fn decode_system(
         return Ok((Vec::new(), Vec::new()));
     };
     match system {
-        crate::types::SystemValue::Text(text) => {
-            Ok((vec![SystemBlock::Text { text: text.clone() }], Vec::new()))
-        }
+        crate::types::SystemValue::Text(text) => Ok((
+            vec![SystemBlock::Text {
+                text: text.clone(),
+                native: Vec::new(),
+            }],
+            Vec::new(),
+        )),
         crate::types::SystemValue::Blocks(blocks) => {
             let mut out = Vec::with_capacity(blocks.len());
-            let mut losses = Vec::new();
+            let losses = Vec::new();
             for (index, block) in blocks.iter().enumerate() {
                 if block.kind != BLOCK_TYPE_TEXT {
                     return Err(Error::new(format!(
@@ -97,15 +101,8 @@ pub(crate) fn decode_system(
                 }
                 out.push(SystemBlock::Text {
                     text: block.text.clone(),
+                    native: Vec::new(),
                 });
-                if block.cache_control.is_some() {
-                    losses.push(loss(
-                        format!("system[{index}].cache_control"),
-                        "cache_control",
-                        LossReason::UnmappedField,
-                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                    ));
-                }
             }
             Ok((out, losses))
         }
@@ -117,7 +114,7 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
     system
         .iter()
         .map(|block| match block {
-            SystemBlock::Text { text } => SystemBlockWire {
+            SystemBlock::Text { text, .. } => SystemBlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 cache_control: None,
@@ -139,7 +136,13 @@ pub(crate) fn decode_content(
         return Err(Error::new(format!("anthropic: {path} is missing")));
     };
     match content {
-        ContentValue::Text(text) => Ok((vec![Block::Text { text: text.clone() }], Vec::new())),
+        ContentValue::Text(text) => Ok((
+            vec![Block::Text {
+                text: text.clone(),
+                native: Vec::new(),
+            }],
+            Vec::new(),
+        )),
         ContentValue::Blocks(blocks) => {
             let mut out = Vec::with_capacity(blocks.len());
             let mut losses = Vec::new();
@@ -177,12 +180,14 @@ pub(crate) fn decode_block(
         BLOCK_TYPE_TEXT => {
             block = Some(Block::Text {
                 text: wire.text.clone(),
+                native: Vec::new(),
             });
         }
         BLOCK_TYPE_THINKING => {
             block = Some(Block::Thinking {
                 thinking: wire.thinking.clone().unwrap_or_default(),
                 signature: wire.signature.clone(),
+                native: Vec::new(),
             });
         }
         BLOCK_TYPE_IMAGE => {
@@ -205,6 +210,7 @@ pub(crate) fn decode_block(
                         media_type: Some(source.media_type.clone()),
                         data: Some(source.data.clone()),
                         url: None,
+                        native: Vec::new(),
                     });
                 }
                 SOURCE_TYPE_URL => {
@@ -217,6 +223,7 @@ pub(crate) fn decode_block(
                         media_type: None,
                         data: None,
                         url: Some(source.url.clone()),
+                        native: Vec::new(),
                     });
                 }
                 other => losses.push(loss(
@@ -250,12 +257,14 @@ pub(crate) fn decode_block(
                     id: wire.id.clone(),
                     name: wire.name.clone(),
                     input: custom_input.unwrap_or_default(),
+                    native: Vec::new(),
                 });
             } else {
                 block = Some(Block::ToolUse {
                     id: wire.id.clone(),
                     name: wire.name.clone(),
                     input: input_to_ir_string(wire.input.as_deref().expect("input checked above")),
+                    native: Vec::new(),
                 });
             }
         }
@@ -283,6 +292,7 @@ pub(crate) fn decode_block(
                 block = Some(Block::CustomToolResult {
                     tool_use_id: wire.tool_use_id.clone(),
                     output,
+                    native: Vec::new(),
                 });
             } else {
                 let (content, content_losses) = decode_content(
@@ -297,6 +307,7 @@ pub(crate) fn decode_block(
                     tool_use_id: wire.tool_use_id.clone(),
                     content,
                     is_error: wire.is_error.then_some(true),
+                    native: Vec::new(),
                 });
             }
         }
@@ -310,13 +321,39 @@ pub(crate) fn decode_block(
             return Ok((Vec::new(), losses, false));
         }
     }
-    if wire.cache_control.is_some() {
-        losses.push(loss(
-            format!("{path}.cache_control"),
-            "cache_control",
-            LossReason::UnmappedField,
-            "Anthropic prompt caching annotations have no IR equivalent in v1.",
-        ));
+    if let Some(ref cc) = wire.cache_control {
+        let (canon, l) = crate::native::parse_cache_control(cc, &format!("{path}.cache_control"));
+        if let Some(loss) = l {
+            losses.push(loss);
+        }
+        if let Some(val) = canon
+            && let Some(ref mut b) = block
+        {
+            let ann = oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
+                value: val,
+                omission: Some(oxa_ir::NativeOmission {
+                    field: "cache_control".into(),
+                    reason: LossReason::UnmappedField,
+                    detail: None,
+                }),
+                projection: None,
+            };
+            match b {
+                Block::Text { native, .. }
+                | Block::Thinking { native, .. }
+                | Block::Image { native, .. }
+                | Block::ToolUse { native, .. }
+                | Block::CustomToolUse { native, .. }
+                | Block::ApplyPatchToolUse { native, .. }
+                | Block::ApplyPatchToolResult { native, .. }
+                | Block::ToolResult { native, .. }
+                | Block::CustomToolResult { native, .. } => {
+                    native.push(ann);
+                }
+            }
+        }
     }
     Ok((block.into_iter().collect(), losses, true))
 }

@@ -2,10 +2,7 @@
 
 use serde_json::value::RawValue;
 
-use oxa_ir::{
-    Block, Loss, LossReason, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    StopReason,
-};
+use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -18,7 +15,7 @@ use crate::types::{
     BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, Message, ROLE_ASSISTANT, ROLE_USER, Request,
     Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
     STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE,
-    ThinkingWire, ToolWire, UsageWire,
+    ToolWire, UsageWire,
 };
 
 /// Applied when an IR request carries no `params.max_tokens` and the
@@ -84,6 +81,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "properties": {"input": {"type": "string"}},
                         "required": ["input"],
                     }),
+                    cache_control: None,
                 });
                 continue;
             }
@@ -106,6 +104,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 input_schema: schema_val.clone(),
+                cache_control: None,
             });
         }
         if !wire_tools.is_empty() {
@@ -138,7 +137,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     let shorthand = req.system.is_empty()
         && req.messages.len() == 1
         && req.messages[0].content.len() == 1
-        && matches!(req.messages[0].content[0], Block::Text { .. });
+        && matches!(&req.messages[0].content[0], Block::Text { native, .. } if native.is_empty());
     for (index, message) in req.messages.iter().enumerate() {
         let role = match message.role {
             oxa_ir::Role::User => ROLE_USER,
@@ -148,7 +147,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             encode_request_blocks(&message.content, &format!("messages[{index}].content"))?;
         losses.extend(block_losses);
         let content = if shorthand {
-            let Block::Text { text } = &req.messages[0].content[0] else {
+            let Block::Text { text, .. } = &req.messages[0].content[0] else {
                 unreachable!("shorthand checked the single text block above");
             };
             ContentValue::Text(text.clone())
@@ -191,24 +190,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             .stop_sequences
             .clone()
             .filter(|sequences| !sequences.is_empty());
-        if let Some(effort) = params.reasoning_effort {
-            let budget_tokens = match effort {
-                ReasoningEffort::Minimal => 1024,
-                ReasoningEffort::Low => 2048,
-                ReasoningEffort::Medium => 8192,
-                ReasoningEffort::High => 16384,
-            };
-            out.thinking = Some(ThinkingWire {
-                kind: "enabled".to_string(),
-                budget_tokens,
-            });
-            losses.push(loss(
-                "params.reasoning_effort",
-                "reasoning_effort",
-                LossReason::Degraded,
-                "budget approximated",
-            ));
-        }
+
         if params.response_format.is_some() {
             losses.push(loss(
                 "params.response_format",
@@ -218,6 +200,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             ));
         }
     }
+    let nat_losses = crate::native::encode_request_native(req, &mut out);
+    losses.extend(nat_losses);
     Ok((out, losses))
 }
 
@@ -228,9 +212,23 @@ fn encode_request_blocks(
     let mut out = Vec::with_capacity(blocks.len());
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
-        let (encoded, block_losses, mapped) =
+        let (mut encoded, block_losses, mapped) =
             encode_request_block(block, &format!("{path}[{index}]"))?;
         if mapped {
+            let native = match block {
+                Block::Text { native, .. }
+                | Block::Thinking { native, .. }
+                | Block::Image { native, .. }
+                | Block::ToolUse { native, .. }
+                | Block::CustomToolUse { native, .. }
+                | Block::ApplyPatchToolUse { native, .. }
+                | Block::ApplyPatchToolResult { native, .. }
+                | Block::ToolResult { native, .. }
+                | Block::CustomToolResult { native, .. } => native,
+            };
+            if let Some(cc) = crate::native::get_block_cache_control(native) {
+                encoded.cache_control = Some(cc);
+            }
             out.push(encoded);
         }
         losses.extend(block_losses);
@@ -241,7 +239,7 @@ fn encode_request_blocks(
 /// Returns (wire block, losses, mapped).
 fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
     match block {
-        Block::Text { text } => Ok((
+        Block::Text { text, .. } => Ok((
             BlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
@@ -253,6 +251,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
         Block::Thinking {
             thinking,
             signature,
+            ..
         } => {
             // An empty signature is absent (the Go zero-value convention), so
             // Some("") replays as unsigned with the degraded loss.
@@ -284,8 +283,11 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             media_type,
             data,
             url,
+            ..
         } => encode_image_block(media_type.as_deref(), data.as_deref(), url.as_deref(), path),
-        Block::ToolUse { id, name, input } => {
+        Block::ToolUse {
+            id, name, input, ..
+        } => {
             if id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
             }
@@ -306,7 +308,9 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             ))
         }
         Block::ToolResult { .. } => encode_tool_result_block(block, path),
-        Block::CustomToolUse { id, name, input } => {
+        Block::CustomToolUse {
+            id, name, input, ..
+        } => {
             if id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
             }
@@ -330,6 +334,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
         Block::CustomToolResult {
             tool_use_id,
             output,
+            ..
         } => {
             if tool_use_id.is_empty() {
                 return Err(Error::new(format!(
@@ -463,6 +468,7 @@ fn encode_tool_result_block(
         tool_use_id,
         content,
         is_error,
+        native,
     } = block
     else {
         return Err(Error::new(format!(
@@ -479,8 +485,9 @@ fn encode_tool_result_block(
     for (index, inner) in content.iter().enumerate() {
         let content_path = format!("{path}.content[{index}]");
         match inner {
-            Block::Text { text } => wire_content.push(BlockWire {
+            Block::Text { text, native } => wire_content.push(BlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
+                cache_control: crate::native::get_block_cache_control(native),
                 text: text.clone(),
                 ..BlockWire::default()
             }),
@@ -488,14 +495,18 @@ fn encode_tool_result_block(
                 media_type,
                 data,
                 url,
+                native,
             } => {
-                let (image, image_losses, mapped) = encode_image_block(
+                let (mut image, image_losses, mapped) = encode_image_block(
                     media_type.as_deref(),
                     data.as_deref(),
                     url.as_deref(),
                     &content_path,
                 )?;
                 if mapped {
+                    if let Some(cc) = crate::native::get_block_cache_control(native) {
+                        image.cache_control = Some(cc);
+                    }
                     wire_content.push(image);
                 }
                 losses.extend(image_losses);
@@ -512,6 +523,7 @@ fn encode_tool_result_block(
             tool_use_id: tool_use_id.clone(),
             content: Some(ContentValue::Blocks(wire_content)),
             is_error: is_error == &Some(true),
+            cache_control: crate::native::get_block_cache_control(native),
             ..BlockWire::default()
         },
         losses,
@@ -596,7 +608,7 @@ pub(crate) fn encode_stop_reason(
 /// Returns (wire block, losses, mapped).
 fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
     match block {
-        Block::Text { text } => Ok((
+        Block::Text { text, .. } => Ok((
             BlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
@@ -608,6 +620,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
         Block::Thinking {
             thinking,
             signature,
+            ..
         } => {
             // An empty signature is absent (the Go zero-value convention), so
             // Some("") replays as unsigned with the degraded loss.
@@ -639,8 +652,11 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             media_type,
             data,
             url,
+            ..
         } => encode_image_block(media_type.as_deref(), data.as_deref(), url.as_deref(), path),
-        Block::ToolUse { id, name, input } => {
+        Block::ToolUse {
+            id, name, input, ..
+        } => {
             if id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
             }
@@ -660,7 +676,9 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 true,
             ))
         }
-        Block::CustomToolUse { id, name, input } => {
+        Block::CustomToolUse {
+            id, name, input, ..
+        } => {
             if id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
             }

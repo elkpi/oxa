@@ -584,6 +584,8 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 func getBlockCacheControl(item any) json.RawMessage {
 	var nat []ir.NativeAnnotation
 	switch b := item.(type) {
+	case ir.SystemBlock:
+		nat = b.Native
 	case ir.Tool:
 		nat = b.Native
 	case ir.TextBlock:

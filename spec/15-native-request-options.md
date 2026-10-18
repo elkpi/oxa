@@ -62,6 +62,8 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 - 可选 `ttl` 仅支持 `"5m"` 与 `"1h"`。
 - 未知 `type` 或未知 `ttl` 取值：放弃该断点（不生成 `cache_control` 附加项），产生一条定位到该未知 leaf 的 `unmapped-value` loss；MUST NOT 删除未知 TTL 后采用默认五分钟 TTL。
 
+- 跨面遗漏 `detail`：当携带 `cache_control` 附加项的 IR 编码至无 cache 断点表示的目标面（OpenAI Chat Completions、OpenAI Responses）时，该 `unmapped-field` 遗漏的 `detail` 必须为 `anthropic-native cache breakpoint; the target face has no cache_control representation`，跨实现逐字节一致。该 detail 表达的是能力缺口（capability gap，目标面不可表达），而非实现缺失；调用方可据此按意图放行该类遗漏。
+
 ### 3.3 Context Management
 - `edits` 数组项的 `type` 目前仅识别：
   - `"clear_tool_uses_20250919"`：可选参数 `trigger`（`{type:"input_tokens",value:int}`）、`keep`（`{type:"tool_uses",value:int}`）、`clear_at_least`（`{type:"input_tokens",value:int}`）、`exclude_tools`（`string[]`）、`clear_tool_inputs`（`boolean`）。
@@ -71,12 +73,12 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 
 ## 4. 跨协议遗漏报损 — N-NAT-4
 
-当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失：
+当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失。Chat Completions 与 Responses 面均无 cache 断点表示，Anthropic 的 `cache_control` 断点（顶层、system、消息内容块、嵌套 tool_result 内容、tools）跨面编码时必然逐断点产生一条 `unmapped-field` 遗漏，detail 见 §3.2：
 
 ### 4.1 遍历与路径规则
 - 遍历顺序固定为：`Request.native`（下标升序）→ `System` 顺序及其 native → `Messages` 深度优先（消息顺序 → 内容块顺序及其 native → 嵌套 tool_result 内容及其 native）→ `Tools` 顺序及其 native。
 - Encode loss 的 `Path` 基于当前 IR 结构定位到具体的宿主属性（如 `native[0]`、`system[0].native[0]`、`messages[1].content[0].native[0]`）。
-- `Field` 和 `Reason` 采用附加项携带的 `omission` 元数据。
+- `Field`、`Reason` 与 `detail` 采用附加项携带的 `omission` 元数据。
 
 ### 4.2 Thinking 组合报损去重
 对于 `Request` 上的 thinking 相关配置，遗漏记账规则如下（对应设计 §6.1）：

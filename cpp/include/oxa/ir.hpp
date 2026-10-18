@@ -29,6 +29,16 @@ inline constexpr std::string_view REASONING_EFFORT_MINIMAL = "minimal";
 inline constexpr std::string_view REASONING_EFFORT_LOW = "low";
 inline constexpr std::string_view REASONING_EFFORT_MEDIUM = "medium";
 inline constexpr std::string_view REASONING_EFFORT_HIGH = "high";
+inline constexpr std::string_view REASONING_EFFORT_XHIGH = "xhigh";
+inline constexpr std::string_view REASONING_EFFORT_MAX = "max";
+
+inline constexpr std::string_view NATIVE_SOURCE_ANTHROPIC = "anthropic";
+inline constexpr std::string_view NATIVE_KIND_THINKING_MODE = "thinking_mode";
+inline constexpr std::string_view NATIVE_KIND_THINKING_BUDGET = "thinking_budget";
+inline constexpr std::string_view NATIVE_KIND_THINKING_DISPLAY = "thinking_display";
+inline constexpr std::string_view NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
+inline constexpr std::string_view NATIVE_KIND_CACHE_CONTROL = "cache_control";
+inline constexpr std::string_view NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
 
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
@@ -85,21 +95,57 @@ inline constexpr std::string_view APPLY_PATCH_OP_CREATE_FILE = "create_file";
 inline constexpr std::string_view APPLY_PATCH_OP_DELETE_FILE = "delete_file";
 inline constexpr std::string_view APPLY_PATCH_OP_UPDATE_FILE = "update_file";
 
+// ---- native request options (spec/15) -------------------------------------
+
+struct NativeOmission {
+    std::string field;
+    std::string reason;
+    std::optional<std::string> detail;
+};
+
+struct NativeProjection {
+    std::string origin;  // "budget" | "explicit"
+    std::string effort;  // "minimal", "low", "medium", "high", "xhigh", "max"
+};
+
+struct NativeAnnotation {
+    std::string source;
+    std::string kind;
+    std::string value;  // opaque JSON text
+    std::optional<NativeOmission> omission;
+    std::optional<NativeProjection> projection;
+};
+
 // ---- blocks (spec/01 §3.4) ------------------------------------------------
 
 struct TextBlock {
     std::string text;
+    std::vector<NativeAnnotation> native;
+
+    TextBlock() = default;
+    explicit TextBlock(std::string t, std::vector<NativeAnnotation> nat = {})
+        : text(std::move(t)), native(std::move(nat)) {}
 };
 
 struct ThinkingBlock {
     std::string thinking;
     std::optional<std::string> signature;
+    std::vector<NativeAnnotation> native;
+
+    ThinkingBlock() = default;
+    ThinkingBlock(std::string th, std::optional<std::string> sig = std::nullopt, std::vector<NativeAnnotation> nat = {})
+        : thinking(std::move(th)), signature(std::move(sig)), native(std::move(nat)) {}
 };
 
 struct ImageBlock {
     std::optional<std::string> media_type;
     std::optional<std::string> data;
     std::optional<std::string> url;
+    std::vector<NativeAnnotation> native;
+
+    ImageBlock() = default;
+    ImageBlock(std::optional<std::string> mt, std::optional<std::string> dt, std::optional<std::string> u, std::vector<NativeAnnotation> nat = {})
+        : media_type(std::move(mt)), data(std::move(dt)), url(std::move(u)), native(std::move(nat)) {}
 };
 
 // ToolUseBlock input is raw JSON text carried opaquely: converters MUST NOT
@@ -108,18 +154,43 @@ struct ToolUseBlock {
     std::string id;
     std::string name;
     std::string input;
+    std::vector<NativeAnnotation> native;
+
+    ToolUseBlock() = default;
+    ToolUseBlock(std::string i, std::string n, std::string inp, std::vector<NativeAnnotation> nat = {})
+        : id(std::move(i)), name(std::move(n)), input(std::move(inp)), native(std::move(nat)) {}
 };
 
 struct ToolResultBlock {
     std::string tool_use_id;
     std::vector<struct BlockHolder> content;  // filled below via Block alias
     bool is_error = false;
+    std::vector<NativeAnnotation> native;
+
+    ToolResultBlock() = default;
+    ToolResultBlock(std::string tid, std::vector<struct BlockHolder> c = {}, bool err = false, std::vector<NativeAnnotation> nat = {})
+        : tool_use_id(std::move(tid)), content(std::move(c)), is_error(err), native(std::move(nat)) {}
 };
 
-struct CustomToolUseBlock { std::string id; std::string name; std::string input; };
+struct CustomToolUseBlock {
+    std::string id;
+    std::string name;
+    std::string input;
+    std::vector<NativeAnnotation> native;
+
+    CustomToolUseBlock() = default;
+    CustomToolUseBlock(std::string i, std::string n, std::string inp, std::vector<NativeAnnotation> nat = {})
+        : id(std::move(i)), name(std::move(n)), input(std::move(inp)), native(std::move(nat)) {}
+};
+
 struct CustomToolResultBlock {
     std::string tool_use_id;
     std::variant<std::string, std::vector<struct BlockHolder>> output;
+    std::vector<NativeAnnotation> native;
+
+    CustomToolResultBlock() = default;
+    CustomToolResultBlock(std::string tid, std::variant<std::string, std::vector<struct BlockHolder>> out, std::vector<NativeAnnotation> nat = {})
+        : tool_use_id(std::move(tid)), output(std::move(out)), native(std::move(nat)) {}
 };
 
 struct CreateFileOperation {
@@ -142,12 +213,22 @@ struct ApplyPatchToolUseBlock {
     std::string id;
     std::string status;
     ApplyPatchOperation operation;
+    std::vector<NativeAnnotation> native;
+
+    ApplyPatchToolUseBlock() = default;
+    ApplyPatchToolUseBlock(std::string i, std::string st, ApplyPatchOperation op, std::vector<NativeAnnotation> nat = {})
+        : id(std::move(i)), status(std::move(st)), operation(std::move(op)), native(std::move(nat)) {}
 };
 
 struct ApplyPatchToolResultBlock {
     std::string tool_use_id;
     std::string status;
     std::optional<std::string> output;
+    std::vector<NativeAnnotation> native;
+
+    ApplyPatchToolResultBlock() = default;
+    ApplyPatchToolResultBlock(std::string tid, std::string st, std::optional<std::string> out = std::nullopt, std::vector<NativeAnnotation> nat = {})
+        : tool_use_id(std::move(tid)), status(std::move(st)), output(std::move(out)), native(std::move(nat)) {}
 };
 
 using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock,
@@ -174,6 +255,7 @@ struct Tool {
     json::Value input_schema;
     std::string type = "function";
     std::optional<json::Value> format;
+    std::vector<NativeAnnotation> native;
 };
 
 struct ToolChoice {
@@ -212,6 +294,7 @@ struct Request {
     std::optional<ToolChoice> tool_choice;
     std::optional<Params> params;
     std::optional<std::map<std::string, std::string>> metadata;
+    std::vector<NativeAnnotation> native;
 };
 
 // ---- response (spec/01 §4) -------------------------------------------------
@@ -313,6 +396,15 @@ using Event = std::variant<MessageStart, ContentBlockStart, ContentBlockDelta, C
 
 json::Value dump_block(const Block& b);
 StatusOr<Block> load_block(const json::Value& v);
+
+json::Value dump_request_block(const Block& b);
+StatusOr<Block> load_request_block(const json::Value& v);
+
+json::Value dump_native_annotation(const NativeAnnotation& ann);
+StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v);
+
+Status validate_native_request(const Request& req);
+StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
 
 json::Value dump_request(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);

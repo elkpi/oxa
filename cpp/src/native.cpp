@@ -1,0 +1,439 @@
+#include <set>
+#include <string>
+#include <vector>
+
+#include "oxa/ir.hpp"
+
+namespace oxa::ir {
+
+namespace {
+
+enum class HostType {
+    Request,
+    System,
+    Content,
+    Tool,
+};
+
+Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
+                            HostType host,
+                            std::string_view path) {
+    std::set<std::string> seen;
+    for (std::size_t i = 0; i < annotations.size(); ++i) {
+        const auto& ann = annotations[i];
+        if (ann.source.empty()) {
+            return invalid_argument(std::string(path) + ".native[" + std::to_string(i) + "]: source cannot be empty");
+        }
+        if (ann.kind.empty()) {
+            return invalid_argument(std::string(path) + ".native[" + std::to_string(i) + "]: kind cannot be empty");
+        }
+        auto parsed = json::parse(ann.value);
+        if (!parsed.ok()) {
+            return invalid_argument(std::string(path) + ".native[" + std::to_string(i) + "]: value is not valid JSON text");
+        }
+        if (ann.omission.has_value() && ann.omission->field.empty()) {
+            return invalid_argument(std::string(path) + ".native[" + std::to_string(i) + "]: omission field cannot be empty");
+        }
+        std::string key = ann.source + ":" + ann.kind;
+        if (!seen.insert(key).second) {
+            return invalid_argument(std::string(path) + ": duplicate native annotation for " + key);
+        }
+
+        if (ann.source == NATIVE_SOURCE_ANTHROPIC) {
+            if (ann.kind == NATIVE_KIND_THINKING_MODE ||
+                ann.kind == NATIVE_KIND_THINKING_BUDGET ||
+                ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
+                ann.kind == NATIVE_KIND_OUTPUT_EFFORT ||
+                ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+            }
+        }
+    }
+    return ok_status();
+}
+
+Status validate_block_native(const Block& blk, HostType host, std::string_view path);
+
+struct BlockValidator {
+    HostType host;
+    std::string_view path;
+
+    Status operator()(const TextBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ThinkingBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ImageBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ToolUseBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const CustomToolUseBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ApplyPatchToolUseBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ApplyPatchToolResultBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const ToolResultBlock& b) const {
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        for (std::size_t k = 0; k < b.content.size(); ++k) {
+            std::string child_path = std::string(path) + ".content[" + std::to_string(k) + "]";
+            auto child_st = validate_block_native(b.content[k].block, host, child_path);
+            if (!child_st.ok()) return child_st;
+        }
+        return ok_status();
+    }
+    Status operator()(const CustomToolResultBlock& b) const {
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        if (const auto* vec = std::get_if<std::vector<BlockHolder>>(&b.output)) {
+            for (std::size_t k = 0; k < vec->size(); ++k) {
+                std::string child_path = std::string(path) + ".output.content[" + std::to_string(k) + "]";
+                auto child_st = validate_block_native((*vec)[k].block, host, child_path);
+                if (!child_st.ok()) return child_st;
+            }
+        }
+        return ok_status();
+    }
+};
+
+Status validate_block_native(const Block& blk, HostType host, std::string_view path) {
+    return std::visit(BlockValidator{host, path}, blk);
+}
+
+void append_omission_loss(std::vector<Loss>& losses,
+                          const NativeAnnotation& ann,
+                          std::string_view path,
+                          bool has_active_budget_proj,
+                          const std::optional<std::string>& current_effort) {
+    if (ann.source != NATIVE_SOURCE_ANTHROPIC) {
+        losses.push_back(Loss{
+            std::string(path),
+            "source",
+            std::string(LOSS_UNSUPPORTED_SEMANTIC),
+            "unsupported native option source \"" + ann.source + "\"",
+        });
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_OUTPUT_EFFORT) {
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_THINKING_MODE) {
+        if (has_active_budget_proj) {
+            return;
+        }
+        if (ann.omission.has_value()) {
+            losses.push_back(Loss{
+                std::string(path),
+                ann.omission->field,
+                ann.omission->reason,
+                ann.omission->detail.value_or(""),
+            });
+        }
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_THINKING_BUDGET) {
+        if (ann.projection.has_value() && ann.projection->origin == "budget") {
+            if (current_effort.has_value() && ann.projection->effort == *current_effort && ann.omission.has_value()) {
+                losses.push_back(Loss{
+                    std::string(path),
+                    ann.omission->field,
+                    ann.omission->reason,
+                    ann.omission->detail.value_or(""),
+                });
+            }
+            return;
+        }
+        if (ann.omission.has_value()) {
+            losses.push_back(Loss{
+                std::string(path),
+                ann.omission->field,
+                ann.omission->reason,
+                ann.omission->detail.value_or(""),
+            });
+        }
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
+        ann.kind == NATIVE_KIND_CACHE_CONTROL ||
+        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+        if (ann.omission.has_value()) {
+            losses.push_back(Loss{
+                std::string(path),
+                ann.omission->field,
+                ann.omission->reason,
+                ann.omission->detail.value_or(""),
+            });
+        }
+        return;
+    }
+
+    losses.push_back(Loss{
+        std::string(path),
+        "kind",
+        std::string(LOSS_UNSUPPORTED_SEMANTIC),
+        "unsupported native option kind \"" + ann.kind + "\"",
+    });
+}
+
+void collect_block_omissions(std::vector<Loss>& losses,
+                             const Block& blk,
+                             std::string_view path);
+
+struct BlockOmissionCollector {
+    std::vector<Loss>& losses;
+    std::string_view path;
+
+    void operator()(const TextBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ThinkingBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ImageBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ToolUseBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const CustomToolUseBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ApplyPatchToolUseBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ApplyPatchToolResultBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+    void operator()(const ToolResultBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+        for (std::size_t k = 0; k < b.content.size(); ++k) {
+            collect_block_omissions(losses, b.content[k].block, std::string(path) + ".content[" + std::to_string(k) + "]");
+        }
+    }
+    void operator()(const CustomToolResultBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+        if (const auto* vec = std::get_if<std::vector<BlockHolder>>(&b.output)) {
+            for (std::size_t k = 0; k < vec->size(); ++k) {
+                collect_block_omissions(losses, (*vec)[k].block, std::string(path) + ".output.content[" + std::to_string(k) + "]");
+            }
+        }
+    }
+};
+
+void collect_block_omissions(std::vector<Loss>& losses,
+                             const Block& blk,
+                             std::string_view path) {
+    std::visit(BlockOmissionCollector{losses, path}, blk);
+}
+
+}  // namespace
+
+json::Value dump_native_annotation(const NativeAnnotation& ann) {
+    auto obj = json::Value::object();
+    obj.set("source", json::Value::string(ann.source));
+    obj.set("kind", json::Value::string(ann.kind));
+    obj.set("value", json::Value::string(ann.value));
+    if (ann.omission.has_value()) {
+        auto om = json::Value::object();
+        om.set("field", json::Value::string(ann.omission->field));
+        om.set("reason", json::Value::string(ann.omission->reason));
+        if (ann.omission->detail.has_value()) {
+            om.set("detail", json::Value::string(*ann.omission->detail));
+        }
+        obj.set("omission", std::move(om));
+    }
+    if (ann.projection.has_value()) {
+        auto proj = json::Value::object();
+        proj.set("origin", json::Value::string(ann.projection->origin));
+        proj.set("effort", json::Value::string(ann.projection->effort));
+        obj.set("projection", std::move(proj));
+    }
+    return obj;
+}
+
+StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v) {
+    if (!v.is_object()) {
+        return invalid_argument("native annotation must be an object");
+    }
+    const auto* source = v.find("source");
+    const auto* kind = v.find("kind");
+    const auto* value = v.find("value");
+    if (!source || !source->is_string() || !kind || !kind->is_string() || !value || !value->is_string()) {
+        return invalid_argument("native annotation requires string source, kind, and value");
+    }
+
+    NativeAnnotation ann;
+    ann.source = source->as_string();
+    ann.kind = kind->as_string();
+    ann.value = value->as_string();
+
+    if (const auto* om = v.find("omission")) {
+        if (!om->is_object()) {
+            return invalid_argument("native omission must be an object");
+        }
+        const auto* field = om->find("field");
+        const auto* reason = om->find("reason");
+        if (!field || !field->is_string() || !reason || !reason->is_string()) {
+            return invalid_argument("native omission requires string field and reason");
+        }
+        NativeOmission nom;
+        nom.field = field->as_string();
+        nom.reason = reason->as_string();
+        if (const auto* detail = om->find("detail")) {
+            if (!detail->is_string()) {
+                return invalid_argument("native omission detail must be a string");
+            }
+            nom.detail = detail->as_string();
+        }
+        ann.omission = nom;
+    }
+
+    if (const auto* proj = v.find("projection")) {
+        if (!proj->is_object()) {
+            return invalid_argument("native projection must be an object");
+        }
+        const auto* origin = proj->find("origin");
+        const auto* effort = proj->find("effort");
+        if (!origin || !origin->is_string() || !effort || !effort->is_string()) {
+            return invalid_argument("native projection requires string origin and effort");
+        }
+        if (origin->as_string() != "budget" && origin->as_string() != "explicit") {
+            return invalid_argument("native projection origin must be 'budget' or 'explicit'");
+        }
+        std::string eff = effort->as_string();
+        if (eff != REASONING_EFFORT_MINIMAL && eff != REASONING_EFFORT_LOW &&
+            eff != REASONING_EFFORT_MEDIUM && eff != REASONING_EFFORT_HIGH &&
+            eff != REASONING_EFFORT_XHIGH && eff != REASONING_EFFORT_MAX) {
+            return invalid_argument("native projection effort is invalid");
+        }
+        ann.projection = NativeProjection{origin->as_string(), eff};
+    }
+
+    return ann;
+}
+
+Status validate_native_request(const Request& req) {
+    auto st = validate_annotations(req.native, HostType::Request, "request");
+    if (!st.ok()) return st;
+
+    int budget_proj = 0;
+    int explicit_proj = 0;
+    for (const auto& n : req.native) {
+        if (n.projection.has_value()) {
+            if (n.projection->origin == "budget") {
+                budget_proj++;
+                if (budget_proj > 1) {
+                    return invalid_argument("ir: duplicate budget projection on request");
+                }
+            } else if (n.projection->origin == "explicit") {
+                explicit_proj++;
+                if (explicit_proj > 1) {
+                    return invalid_argument("ir: duplicate explicit projection on request");
+                }
+            }
+        }
+    }
+
+    for (std::size_t i = 0; i < req.system.size(); ++i) {
+        auto sys_st = validate_annotations(req.system[i].native, HostType::System, "system[" + std::to_string(i) + "]");
+        if (!sys_st.ok()) return sys_st;
+    }
+
+    for (std::size_t m_idx = 0; m_idx < req.messages.size(); ++m_idx) {
+        const auto& msg = req.messages[m_idx];
+        for (std::size_t c_idx = 0; c_idx < msg.content.size(); ++c_idx) {
+            std::string content_path = "messages[" + std::to_string(m_idx) + "].content[" + std::to_string(c_idx) + "]";
+            auto blk_st = validate_block_native(msg.content[c_idx], HostType::Content, content_path);
+            if (!blk_st.ok()) return blk_st;
+        }
+    }
+
+    if (req.tools.has_value()) {
+        for (std::size_t t_idx = 0; t_idx < req.tools->size(); ++t_idx) {
+            std::string tool_path = "tools[" + std::to_string(t_idx) + "]";
+            auto tool_st = validate_annotations((*req.tools)[t_idx].native, HostType::Tool, tool_path);
+            if (!tool_st.ok()) return tool_st;
+        }
+    }
+
+    return ok_status();
+}
+
+StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view /*target*/) {
+    auto st = validate_native_request(req);
+    if (!st.ok()) return st;
+
+    std::vector<Loss> losses;
+    std::optional<std::string> current_effort = req.params.has_value() ? req.params->reasoning_effort : std::nullopt;
+
+    bool has_active_budget_proj = false;
+    for (const auto& n : req.native) {
+        if (n.source == NATIVE_SOURCE_ANTHROPIC && n.kind == NATIVE_KIND_THINKING_BUDGET &&
+            n.projection.has_value() && n.projection->origin == "budget" &&
+            current_effort.has_value() && n.projection->effort == *current_effort) {
+            has_active_budget_proj = true;
+            break;
+        }
+    }
+
+    for (std::size_t i = 0; i < req.native.size(); ++i) {
+        append_omission_loss(losses, req.native[i], "native[" + std::to_string(i) + "]", has_active_budget_proj, current_effort);
+    }
+
+    for (std::size_t s_idx = 0; s_idx < req.system.size(); ++s_idx) {
+        for (std::size_t i = 0; i < req.system[s_idx].native.size(); ++i) {
+            append_omission_loss(losses, req.system[s_idx].native[i], "system[" + std::to_string(s_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt);
+        }
+    }
+
+    for (std::size_t m_idx = 0; m_idx < req.messages.size(); ++m_idx) {
+        const auto& msg = req.messages[m_idx];
+        for (std::size_t c_idx = 0; c_idx < msg.content.size(); ++c_idx) {
+            std::string content_path = "messages[" + std::to_string(m_idx) + "].content[" + std::to_string(c_idx) + "]";
+            collect_block_omissions(losses, msg.content[c_idx], content_path);
+        }
+    }
+
+    if (req.tools.has_value()) {
+        for (std::size_t t_idx = 0; t_idx < req.tools->size(); ++t_idx) {
+            for (std::size_t i = 0; i < (*req.tools)[t_idx].native.size(); ++i) {
+                append_omission_loss(losses, (*req.tools)[t_idx].native[i], "tools[" + std::to_string(t_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt);
+            }
+        }
+    }
+
+    return losses;
+}
+
+}  // namespace oxa::ir

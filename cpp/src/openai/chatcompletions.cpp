@@ -551,7 +551,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
         const std::string value = effort->as_string();
         if (value == ir::REASONING_EFFORT_MINIMAL || value == ir::REASONING_EFFORT_LOW ||
-            value == ir::REASONING_EFFORT_MEDIUM || value == ir::REASONING_EFFORT_HIGH) {
+            value == ir::REASONING_EFFORT_MEDIUM || value == ir::REASONING_EFFORT_HIGH ||
+            value == ir::REASONING_EFFORT_XHIGH || value == ir::REASONING_EFFORT_MAX) {
             params.reasoning_effort = value;
             has_params = true;
         } else {
@@ -922,6 +923,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             out.set("response_format", std::move(format));
         }
     }
+
+    auto omitted = ir::omitted_native_request_losses(req, "chatcompletions");
+    if (!omitted.ok()) return omitted.status();
+    losses.insert(losses.end(), omitted->begin(), omitted->end());
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }

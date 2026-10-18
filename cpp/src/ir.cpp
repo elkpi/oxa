@@ -78,7 +78,18 @@ bool has(const json::Value& v, std::string_view key) {
 
 // ---- blocks ----------------------------------------------------------------
 
-json::Value dump_block(const Block& b) {
+namespace {
+
+#if defined(__EXCEPTIONS) || defined(__cpp_exceptions)
+bool block_has_native(const Block& b) {
+    return std::visit([](const auto& val) {
+        return !val.native.empty();
+    }, b);
+}
+#endif
+
+template <typename F>
+json::Value dump_block_impl(const Block& b, F&& recurse) {
     json::Value out = json::Value::object();
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
@@ -121,7 +132,7 @@ json::Value dump_block(const Block& b) {
         out.set("tool_use_id", json::Value::string(cr->tool_use_id));
         if (const auto* text = std::get_if<std::string>(&cr->output)) out.set("output", json::Value::string(*text));
         else { json::Value output = json::Value::array();
-            for (const auto& inner : std::get<std::vector<BlockHolder>>(cr->output)) output.push_back(dump_block(inner.block));
+            for (const auto& inner : std::get<std::vector<BlockHolder>>(cr->output)) output.push_back(recurse(inner.block));
             out.set("output", std::move(output)); }
         return out;
     }
@@ -158,7 +169,7 @@ json::Value dump_block(const Block& b) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_RESULT)));
         out.set("tool_use_id", json::Value::string(tr->tool_use_id));
         json::Value content = json::Value::array();
-        for (const auto& inner : tr->content) content.push_back(dump_block(inner.block));
+        for (const auto& inner : tr->content) content.push_back(recurse(inner.block));
         out.set("content", std::move(content));
         if (tr->is_error) out.set("is_error", json::Value::boolean(true));
         return out;
@@ -166,16 +177,42 @@ json::Value dump_block(const Block& b) {
     return out;
 }
 
-StatusOr<Block> load_block(const json::Value& v) {
-    if (!v.is_object()) return invalid_argument("block must be an object");
+}  // namespace
+
+json::Value dump_block(const Block& b) {
+#if defined(__EXCEPTIONS) || defined(__cpp_exceptions)
+    if (block_has_native(b)) {
+        throw std::invalid_argument("native is only permitted on request blocks");
+    }
+#endif
+    return dump_block_impl(b, [](const Block& inner) { return dump_block(inner); });
+}
+
+json::Value dump_request_block(const Block& b) {
+    json::Value out = dump_block_impl(b, [](const Block& inner) { return dump_request_block(inner); });
+    const auto* nat = std::visit([](const auto& val) -> const std::vector<NativeAnnotation>* {
+        return &val.native;
+    }, b);
+    if (nat != nullptr && !nat->empty()) {
+        json::Value native_arr = json::Value::array();
+        for (const auto& a : *nat) {
+            native_arr.push_back(dump_native_annotation(a));
+        }
+        out.set("native", std::move(native_arr));
+    }
+    return out;
+}
+
+template <typename Recurse>
+StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::vector<NativeAnnotation> native) {
     OXA_ASSIGN_OR_RETURN(std::string kind, kind_of(v));
     if (kind == BLOCK_TYPE_TEXT) {
         OXA_ASSIGN_OR_RETURN(std::string txt, require_string(v, "text", "text block"));
-        return Block(TextBlock{std::move(txt)});
+        return Block(TextBlock{std::move(txt), std::move(native)});
     }
     if (kind == BLOCK_TYPE_THINKING) {
         OXA_ASSIGN_OR_RETURN(std::string thinking, require_string(v, "thinking", "thinking block"));
-        ThinkingBlock block{std::move(thinking), std::nullopt};
+        ThinkingBlock block{std::move(thinking), std::nullopt, std::move(native)};
         if (has(v, "signature")) {
             OXA_ASSIGN_OR_RETURN(std::string signature, require_string(v, "signature", "thinking block"));
             block.signature = std::move(signature);
@@ -184,6 +221,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_IMAGE) {
         ImageBlock img;
+        img.native = std::move(native);
         if (has(v, "media_type")) {
             OXA_ASSIGN_OR_RETURN(std::string mt, require_string(v, "media_type", "image block"));
             img.media_type = std::move(mt);
@@ -208,6 +246,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_TOOL_USE) {
         ToolUseBlock tu;
+        tu.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(tu.id, require_string(v, "id", "tool_use block"));
         OXA_ASSIGN_OR_RETURN(tu.name, require_string(v, "name", "tool_use block"));
         OXA_ASSIGN_OR_RETURN(tu.input, require_string(v, "input", "tool_use block"));
@@ -216,6 +255,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_CUSTOM_TOOL_USE) {
         CustomToolUseBlock cu;
+        cu.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(cu.id, require_string(v, "id", "custom_tool_use block"));
         OXA_ASSIGN_OR_RETURN(cu.name, require_string(v, "name", "custom_tool_use block"));
         OXA_ASSIGN_OR_RETURN(cu.input, require_string(v, "input", "custom_tool_use block"));
@@ -224,6 +264,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_CUSTOM_TOOL_RESULT) {
         CustomToolResultBlock cr;
+        cr.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(cr.tool_use_id, require_string(v, "tool_use_id", "custom_tool_result block"));
         if (cr.tool_use_id.empty()) return invalid_argument("custom_tool_result tool_use_id must be non-empty");
         if (v.find("is_error") != nullptr) return invalid_argument("custom_tool_result has no is_error field");
@@ -232,7 +273,7 @@ StatusOr<Block> load_block(const json::Value& v) {
         if (output->is_string()) cr.output = output->as_string();
         else if (output->is_array()) { std::vector<BlockHolder> parts;
             for (const auto& part : output->as_array()) {
-                OXA_ASSIGN_OR_RETURN(Block inner, load_block(part));
+                OXA_ASSIGN_OR_RETURN(Block inner, recurse(part));
                 if (!std::holds_alternative<TextBlock>(inner) && !std::holds_alternative<ImageBlock>(inner))
                     return invalid_argument("custom_tool_result output accepts only text and image blocks");
                 parts.push_back(BlockHolder{std::move(inner)});
@@ -243,6 +284,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_APPLY_PATCH_TOOL_USE) {
         ApplyPatchToolUseBlock ap;
+        ap.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(ap.id, require_string(v, "id", "apply_patch_tool_use block"));
         OXA_ASSIGN_OR_RETURN(ap.status, require_string(v, "status", "apply_patch_tool_use block"));
         if (ap.status != APPLY_PATCH_CALL_STATUS_IN_PROGRESS && ap.status != APPLY_PATCH_CALL_STATUS_COMPLETED) {
@@ -272,6 +314,7 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT) {
         ApplyPatchToolResultBlock apr;
+        apr.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(apr.tool_use_id, require_string(v, "tool_use_id", "apply_patch_tool_result block"));
         OXA_ASSIGN_OR_RETURN(apr.status, require_string(v, "status", "apply_patch_tool_result block"));
         if (apr.status != APPLY_PATCH_RESULT_STATUS_COMPLETED && apr.status != APPLY_PATCH_RESULT_STATUS_FAILED) {
@@ -286,10 +329,11 @@ StatusOr<Block> load_block(const json::Value& v) {
     }
     if (kind == BLOCK_TYPE_TOOL_RESULT) {
         ToolResultBlock tr;
+        tr.native = std::move(native);
         OXA_ASSIGN_OR_RETURN(tr.tool_use_id, require_string(v, "tool_use_id", "tool_result block"));
         OXA_ASSIGN_OR_RETURN(auto content, require_array(v, "content", "tool_result block"));
         for (const auto& inner : content.get().as_array()) {
-            OXA_ASSIGN_OR_RETURN(Block b, load_block(inner));
+            OXA_ASSIGN_OR_RETURN(Block b, recurse(inner));
             tr.content.push_back(BlockHolder{std::move(b)});
         }
         const json::Value* is_err = v.find("is_error");
@@ -300,6 +344,27 @@ StatusOr<Block> load_block(const json::Value& v) {
         return Block(std::move(tr));
     }
     return invalid_argument("unknown block discriminant: " + kind);
+}
+
+StatusOr<Block> load_block(const json::Value& v) {
+    if (!v.is_object()) return invalid_argument("block must be an object");
+    if (v.find("native") != nullptr) {
+        return invalid_argument("native is only permitted on request blocks");
+    }
+    return load_block_impl(v, [](const json::Value& inner) { return load_block(inner); }, {});
+}
+
+StatusOr<Block> load_request_block(const json::Value& v) {
+    if (!v.is_object()) return invalid_argument("block must be an object");
+    std::vector<NativeAnnotation> native;
+    if (const auto* nat = v.find("native")) {
+        if (!nat->is_array()) return invalid_argument("native must be an array");
+        for (const auto& item : nat->as_array()) {
+            OXA_ASSIGN_OR_RETURN(auto ann, load_native_annotation(item));
+            native.push_back(std::move(ann));
+        }
+    }
+    return load_block_impl(v, [](const json::Value& inner) { return load_request_block(inner); }, std::move(native));
 }
 
 // ---- request -----------------------------------------------------------------
@@ -313,16 +378,24 @@ json::Value dump_request(const Request& r) {
         json::Value mv = json::Value::object();
         mv.set("role", json::Value::string(m.role));
         json::Value content = json::Value::array();
-        for (const auto& b : m.content) content.push_back(dump_block(b));
+        for (const auto& b : m.content) content.push_back(dump_request_block(b));
         mv.set("content", std::move(content));
         messages.push_back(std::move(mv));
     }
     out.set("messages", std::move(messages));
 
+    if (!r.native.empty()) {
+        json::Value native_arr = json::Value::array();
+        for (const auto& a : r.native) {
+            native_arr.push_back(dump_native_annotation(a));
+        }
+        out.set("native", std::move(native_arr));
+    }
+
     if (!r.system.empty()) {
         json::Value system = json::Value::array();
         for (const auto& s : r.system) {
-            system.push_back(dump_block(TextBlock{s.text}));
+            system.push_back(dump_request_block(TextBlock{s.text, s.native}));
         }
         out.set("system", std::move(system));
     }
@@ -340,6 +413,13 @@ json::Value dump_request(const Request& r) {
                 tv.set("name", json::Value::string(t.name));
                 if (t.has_description) tv.set("description", json::Value::string(t.description));
                 tv.set("input_schema", t.input_schema);
+            }
+            if (!t.native.empty()) {
+                json::Value t_nat = json::Value::array();
+                for (const auto& a : t.native) {
+                    t_nat.push_back(dump_native_annotation(a));
+                }
+                tv.set("native", std::move(t_nat));
             }
             tools.push_back(std::move(tv));
         }
@@ -407,11 +487,20 @@ StatusOr<Request> load_request(const json::Value& v) {
     Request r;
     OXA_ASSIGN_OR_RETURN(r.model, require_string(v, "model", "request"));
 
+    const json::Value* native_val = v.find("native");
+    if (native_val != nullptr) {
+        if (!native_val->is_array()) return invalid_argument("request native must be an array");
+        for (const auto& item : native_val->as_array()) {
+            OXA_ASSIGN_OR_RETURN(auto ann, load_native_annotation(item));
+            r.native.push_back(std::move(ann));
+        }
+    }
+
     const json::Value* system = v.find("system");
     if (system != nullptr) {
         if (!system->is_array()) return invalid_argument("request system must be an array");
         for (const auto& sb : system->as_array()) {
-            OXA_ASSIGN_OR_RETURN(Block b, load_block(sb));
+            OXA_ASSIGN_OR_RETURN(Block b, load_request_block(sb));
             if (!std::holds_alternative<TextBlock>(b)) {
                 return invalid_argument("system block must be text");
             }
@@ -435,7 +524,7 @@ StatusOr<Request> load_request(const json::Value& v) {
             return invalid_argument("message content cannot be empty");
         }
         for (const auto& cb : content_val.get().as_array()) {
-            OXA_ASSIGN_OR_RETURN(Block b, load_block(cb));
+            OXA_ASSIGN_OR_RETURN(Block b, load_request_block(cb));
             m.content.push_back(std::move(b));
         }
         r.messages.push_back(std::move(m));
@@ -477,6 +566,14 @@ StatusOr<Request> load_request(const json::Value& v) {
                     if (format != nullptr) return invalid_argument("function tool must not carry format");
                     OXA_ASSIGN_OR_RETURN(auto is_val, require_object(tv, "input_schema", "tool"));
                     t.input_schema = is_val.get();
+                }
+            }
+            const json::Value* t_nat = tv.find("native");
+            if (t_nat != nullptr) {
+                if (!t_nat->is_array()) return invalid_argument("tool native must be an array");
+                for (const auto& item : t_nat->as_array()) {
+                    OXA_ASSIGN_OR_RETURN(auto ann, load_native_annotation(item));
+                    t.native.push_back(std::move(ann));
                 }
             }
             out.push_back(std::move(t));
@@ -540,7 +637,8 @@ StatusOr<Request> load_request(const json::Value& v) {
             if (!f->is_string()) return invalid_argument("params reasoning_effort must be a string");
             const std::string effort = f->as_string();
             if (effort != REASONING_EFFORT_MINIMAL && effort != REASONING_EFFORT_LOW &&
-                effort != REASONING_EFFORT_MEDIUM && effort != REASONING_EFFORT_HIGH) {
+                effort != REASONING_EFFORT_MEDIUM && effort != REASONING_EFFORT_HIGH &&
+                effort != REASONING_EFFORT_XHIGH && effort != REASONING_EFFORT_MAX) {
                 return invalid_argument("invalid params reasoning_effort: " + effort);
             }
             p.reasoning_effort = effort;

@@ -1,5 +1,6 @@
 #include "oxa/anthropic/messages.hpp"
 #include "messages_audit.hpp"
+#include "messages_native.hpp"
 
 namespace oxa::anthropic::messages {
 namespace {
@@ -189,10 +190,19 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             continue;
         }
 
-        if (item.find("cache_control") != nullptr) {
-            losses.push_back(make_ant_loss(
-                block_path + ".cache_control", "cache_control", ir::LOSS_UNMAPPED_FIELD,
-                "Anthropic prompt caching annotations have no IR equivalent in v1."));
+        if (const auto* cc = item.find("cache_control")) {
+            auto canon = parse_cache_control(*cc, block_path + ".cache_control", losses);
+            if (canon.has_value() && !blocks.empty()) {
+                std::visit([&](auto& blk) {
+                    blk.native.push_back(ir::NativeAnnotation{
+                        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                        std::string(ir::NATIVE_KIND_CACHE_CONTROL),
+                        std::move(*canon),
+                        ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                        std::nullopt,
+                    });
+                }, blocks.back());
+            }
         }
     }
     return std::make_pair(std::move(blocks), std::move(losses));
@@ -250,11 +260,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             const auto& t = tools_val->as_array()[i];
             if (!t.is_object()) continue;
             std::string tool_path = "tools[" + std::to_string(i) + "]";
-            if (t.find("cache_control") != nullptr) {
-                losses.push_back(make_ant_loss(
-                    tool_path + ".cache_control", "cache_control", ir::LOSS_UNMAPPED_FIELD,
-                    "Anthropic prompt caching (cache_control) has no IR equivalent in v1."));
-            }
             ir::Tool tool;
             if (const auto* nv = t.find("name"); nv && nv->is_string()) {
                 tool.name = nv->as_string();
@@ -308,12 +313,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         } else if (sys_val->is_array()) {
             for (std::size_t i = 0; i < sys_val->as_array().size(); ++i) {
                 const auto& item = sys_val->as_array()[i];
-                if (item.find("cache_control") != nullptr) {
-                    losses.push_back(make_ant_loss(
-                        "system[" + std::to_string(i) + "].cache_control", "cache_control",
-                        ir::LOSS_UNMAPPED_FIELD,
-                        "Anthropic prompt caching (cache_control) has no IR equivalent in v1."));
-                }
                 const auto* t = item.find("type");
                 std::string kind = t && t->is_string() ? t->as_string() : "";
                 if (kind == "text") {
@@ -358,24 +357,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
         if (!stops.empty()) params.stop_sequences = std::move(stops);
     }
-    if (const auto* thinking = wire.find("thinking"); thinking && thinking->is_object()) {
-        const auto* type = thinking->find("type");
-        const auto* budget = thinking->find("budget_tokens");
-        if (type && type->is_string() && type->as_string() == "enabled" && budget && budget->is_int()) {
-            const std::int64_t value = budget->as_int();
-            if (value <= 2048) {
-                params.reasoning_effort = std::string(ir::REASONING_EFFORT_LOW);
-            } else if (value <= 8192) {
-                params.reasoning_effort = std::string(ir::REASONING_EFFORT_MEDIUM);
-            } else {
-                params.reasoning_effort = std::string(ir::REASONING_EFFORT_HIGH);
-            }
-            losses.push_back(make_ant_loss(
-                "thinking.budget_tokens", "budget_tokens", ir::LOSS_DEGRADED,
-                "budget approximated"));
-        }
-    }
     req.params = std::move(params);
+    decode_request_native(wire, req, losses);
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
 }
@@ -500,7 +483,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     bool shorthand = req.system.empty() && req.messages.size() == 1 &&
                      req.messages[0].content.size() == 1 &&
-                     std::holds_alternative<ir::TextBlock>(req.messages[0].content[0]);
+                     std::holds_alternative<ir::TextBlock>(req.messages[0].content[0]) &&
+                     std::get<ir::TextBlock>(req.messages[0].content[0]).native.empty();
 
     json::Value messages_arr = json::Value::array();
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
@@ -519,6 +503,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("text"));
                     bw.set("text", json::Value::string(tb->text));
+                    if (auto cc = get_block_cache_control(tb->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
                     json::Value bw = json::Value::object();
@@ -531,6 +518,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                             "signature", ir::LOSS_DEGRADED,
                             "unsigned thinking block; Anthropic may reject on replay"));
+                    }
+                    if (auto cc = get_block_cache_control(thinking->native)) {
+                        bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* img = std::get_if<ir::ImageBlock>(&b)) {
@@ -546,6 +536,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         src.set("url", json::Value::string(*img->url));
                     }
                     bw.set("source", std::move(src));
+                    if (auto cc = get_block_cache_control(img->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
                     json::Value bw = json::Value::object();
@@ -558,6 +551,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     } else {
                         bw.set("input", json::Value::raw(tu->input));
                     }
+                    if (auto cc = get_block_cache_control(tu->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* ctu = std::get_if<ir::CustomToolUseBlock>(&b)) {
                     json::Value bw = json::Value::object();
@@ -567,6 +563,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     json::Value inp = json::Value::object();
                     inp.set("input", json::Value::string(ctu->input));
                     bw.set("input", std::move(inp));
+                    if (auto cc = get_block_cache_control(ctu->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* ctr = std::get_if<ir::CustomToolResultBlock>(&b)) {
                     json::Value bw = json::Value::object();
@@ -582,6 +581,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 json::Value ib = json::Value::object();
                                 ib.set("type", json::Value::string("text"));
                                 ib.set("text", json::Value::string(itb->text));
+                                if (auto cc = get_block_cache_control(itb->native)) {
+                                    ib.set("cache_control", std::move(*cc));
+                                }
                                 c_arr.push_back(std::move(ib));
                             } else if (const auto* img = std::get_if<ir::ImageBlock>(&inner)) {
                                 json::Value ib = json::Value::object();
@@ -596,6 +598,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                     src.set("url", json::Value::string(*img->url));
                                 }
                                 ib.set("source", std::move(src));
+                                if (auto cc = get_block_cache_control(img->native)) {
+                                    ib.set("cache_control", std::move(*cc));
+                                }
                                 c_arr.push_back(std::move(ib));
                             } else {
                                 losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].output[" + std::to_string(ci) + "]",
@@ -603,6 +608,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             }
                         }
                         bw.set("content", std::move(c_arr));
+                    }
+                    if (auto cc = get_block_cache_control(ctr->native)) {
+                        bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
                 } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
@@ -619,10 +627,33 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             json::Value ibw = json::Value::object();
                             ibw.set("type", json::Value::string("text"));
                             ibw.set("text", json::Value::string(itb->text));
+                            if (auto cc = get_block_cache_control(itb->native)) {
+                                ibw.set("cache_control", std::move(*cc));
+                            }
+                            inner_arr.push_back(std::move(ibw));
+                        } else if (const auto* img = std::get_if<ir::ImageBlock>(&inner.block)) {
+                            json::Value ibw = json::Value::object();
+                            ibw.set("type", json::Value::string("image"));
+                            json::Value src = json::Value::object();
+                            if (img->data.has_value() && !img->data->empty()) {
+                                src.set("type", json::Value::string("base64"));
+                                src.set("media_type", json::Value::string(img->media_type.value_or("image/jpeg")));
+                                src.set("data", json::Value::string(*img->data));
+                            } else if (img->url.has_value()) {
+                                src.set("type", json::Value::string("url"));
+                                src.set("url", json::Value::string(*img->url));
+                            }
+                            ibw.set("source", std::move(src));
+                            if (auto cc = get_block_cache_control(img->native)) {
+                                ibw.set("cache_control", std::move(*cc));
+                            }
                             inner_arr.push_back(std::move(ibw));
                         }
                     }
                     bw.set("content", std::move(inner_arr));
+                    if (auto cc = get_block_cache_control(tr->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
                     content_arr.push_back(std::move(bw));
                 }
             }
@@ -657,25 +688,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
             out.set("stop_sequences", std::move(stops));
         }
-        if (p.reasoning_effort.has_value()) {
-            std::int64_t budget = 2048;
-            if (*p.reasoning_effort == ir::REASONING_EFFORT_MINIMAL) budget = 1024;
-            else if (*p.reasoning_effort == ir::REASONING_EFFORT_MEDIUM) budget = 8192;
-            else if (*p.reasoning_effort == ir::REASONING_EFFORT_HIGH) budget = 16384;
-            json::Value thinking = json::Value::object();
-            thinking.set("type", json::Value::string("enabled"));
-            thinking.set("budget_tokens", json::Value::integer(budget));
-            out.set("thinking", std::move(thinking));
-            losses.push_back(make_ant_loss(
-                "params.reasoning_effort", "reasoning_effort", ir::LOSS_DEGRADED,
-                "budget approximated"));
-        }
         if (p.response_format.has_value()) {
             losses.push_back(make_ant_loss(
                 "params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD,
                 "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."));
         }
     }
+
+    encode_request_native(req, out, losses);
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }

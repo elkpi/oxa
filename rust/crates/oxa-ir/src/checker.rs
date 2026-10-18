@@ -105,7 +105,9 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                             fragment_count: 0,
                         }),
                     ),
-                    Block::CustomToolUse { id, name, input } => {
+                    Block::CustomToolUse {
+                        id, name, input, ..
+                    } => {
                         if id.is_empty() || name.is_empty() {
                             return Err(violate(
                                 i,

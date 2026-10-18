@@ -1,3 +1,62 @@
+function encodeNativeAnnotation(ann: NativeAnnotation): JsonObject {
+  return {
+    source: ann.source,
+    kind: ann.kind,
+    value: ann.value,
+    ...(ann.omission === undefined
+      ? {}
+      : {
+          omission: {
+            field: ann.omission.field,
+            reason: ann.omission.reason,
+            ...(ann.omission.detail === undefined
+              ? {}
+              : { detail: ann.omission.detail }),
+          },
+        }),
+    ...(ann.projection === undefined
+      ? {}
+      : {
+          projection: {
+            origin: ann.projection.origin,
+            effort: ann.projection.effort,
+          },
+        }),
+  };
+}
+
+function decodeNativeAnnotation(value: JsonValue): NativeAnnotation {
+  const obj = object(value, "nativeAnnotation");
+  const source = nonEmptyString(obj.source, "nativeAnnotation.source");
+  const kind = nonEmptyString(obj.kind, "nativeAnnotation.kind");
+  const val = string(obj.value, "nativeAnnotation.value");
+  let omission: NativeAnnotation["omission"];
+  if (obj.omission !== undefined) {
+    const om = object(obj.omission, "nativeAnnotation.omission");
+    omission = {
+      field: nonEmptyString(om.field, "nativeAnnotation.omission.field"),
+      reason: string(om.reason, "nativeAnnotation.omission.reason") as any,
+      ...(om.detail === undefined
+        ? {}
+        : { detail: string(om.detail, "nativeAnnotation.omission.detail") }),
+    };
+  }
+  let projection: NativeAnnotation["projection"];
+  if (obj.projection !== undefined) {
+    const pr = object(obj.projection, "nativeAnnotation.projection");
+    projection = {
+      origin: string(pr.origin, "nativeAnnotation.projection.origin") as any,
+      effort: string(pr.effort, "nativeAnnotation.projection.effort") as any,
+    };
+  }
+  return {
+    source,
+    kind,
+    value: val,
+    ...(omission ? { omission } : {}),
+    ...(projection ? { projection } : {}),
+  };
+}
 import { OxaError } from "../error.js";
 import {
   fromValue,
@@ -12,6 +71,8 @@ import {
   specVersion,
   type ApplyPatchOperation,
   type Block,
+  type TextBlock,
+  type ImageBlock,
   type Message,
   type Params,
   type Request,
@@ -21,7 +82,9 @@ import {
   type ToolChoice,
   type ToolResultBlock,
   type Usage,
+  type NativeAnnotation,
 } from "./types.js";
+import { validateNativeRequest } from "./native.js";
 
 export function encodeRequest(request: Request): JsonObject {
   validateRequest(request);
@@ -31,17 +94,30 @@ export function encodeRequest(request: Request): JsonObject {
     model: request.model,
     ...(request.system === undefined || request.system.length === 0
       ? {}
-      : { system: request.system.map(encodeBlock) }),
+      : {
+          system: request.system.map((sb) => ({
+            type: "text",
+            text: sb.text,
+            ...(sb.native && sb.native.length > 0
+              ? { native: sb.native.map(encodeNativeAnnotation) }
+              : {}),
+          })),
+        }),
     messages: request.messages.map((message) => ({
       role: message.role,
-      content: message.content.map(encodeBlock),
+      content: message.content.map(encodeRequestBlock),
     })),
     ...(request.tools === undefined || request.tools.length === 0
       ? {}
       : {
           tools: request.tools.map((tool) =>
             tool.type === "apply_patch"
-              ? { type: "apply_patch" }
+              ? {
+                  type: "apply_patch",
+                  ...(tool.native && tool.native.length > 0
+                    ? { native: tool.native.map(encodeNativeAnnotation) }
+                    : {}),
+                }
               : tool.type === "custom"
                 ? {
                     type: "custom",
@@ -52,6 +128,9 @@ export function encodeRequest(request: Request): JsonObject {
                     ...(tool.format === undefined
                       ? {}
                       : { format: encodeCustomToolFormat(tool.format) }),
+                    ...(tool.native && tool.native.length > 0
+                      ? { native: tool.native.map(encodeNativeAnnotation) }
+                      : {}),
                   }
                 : {
                     ...(tool.type === undefined ? {} : { type: "function" }),
@@ -60,6 +139,9 @@ export function encodeRequest(request: Request): JsonObject {
                       ? {}
                       : { description: tool.description }),
                     input_schema: tool.input_schema,
+                    ...(tool.native && tool.native.length > 0
+                      ? { native: tool.native.map(encodeNativeAnnotation) }
+                      : {}),
                   },
           ),
         }),
@@ -73,6 +155,9 @@ export function encodeRequest(request: Request): JsonObject {
     Object.keys(request.metadata).length === 0
       ? {}
       : { metadata: { ...request.metadata } }),
+    ...(request.native === undefined || request.native.length === 0
+      ? {}
+      : { native: request.native.map(encodeNativeAnnotation) }),
   };
 }
 
@@ -86,10 +171,20 @@ export function decodeRequest(document: JsonValue): Request {
       ? {}
       : {
           system: array(root.system, "request.system").map((entry) => {
-            const block = decodeBlock(entry);
-            if (block.type !== "text")
-              fail("system blocks must be text blocks");
-            return block;
+            const obj = object(entry, "request.system[i]");
+            const type = string(obj.type, "system_block.type");
+            if (type !== "text") fail("system blocks must be text blocks");
+            const native =
+              obj.native === undefined
+                ? undefined
+                : array(obj.native, "system_block.native").map(
+                    decodeNativeAnnotation,
+                  );
+            return {
+              type: "text" as const,
+              text: string(obj.text, "system_block.text"),
+              ...(native ? { native } : {}),
+            };
           }),
         }),
     messages: array(root.messages, "request.messages").map((value) => {
@@ -100,7 +195,7 @@ export function decodeRequest(document: JsonValue): Request {
       return {
         role,
         content: array(message.content, "request.message.content").map(
-          decodeBlock,
+          decodeRequestBlock,
         ),
       };
     }),
@@ -113,6 +208,10 @@ export function decodeRequest(document: JsonValue): Request {
               tool.type === undefined
                 ? "function"
                 : string(tool.type, "request.tool.type");
+            const native =
+              tool.native === undefined
+                ? undefined
+                : array(tool.native, "tool.native").map(decodeNativeAnnotation);
             if (type === "apply_patch") {
               if (
                 tool.name !== undefined ||
@@ -122,7 +221,10 @@ export function decodeRequest(document: JsonValue): Request {
               ) {
                 fail("apply_patch declaration must only contain type");
               }
-              return { type: "apply_patch" as const };
+              return {
+                type: "apply_patch" as const,
+                ...(native ? { native } : {}),
+              };
             }
             const name = nonEmptyString(tool.name, "request.tool.name");
             const description =
@@ -139,6 +241,7 @@ export function decodeRequest(document: JsonValue): Request {
                 ...(tool.format === undefined
                   ? {}
                   : { format: decodeCustomToolFormat(tool.format) }),
+                ...(native ? { native } : {}),
               };
             }
             if (type !== "function" || tool.format !== undefined)
@@ -151,6 +254,7 @@ export function decodeRequest(document: JsonValue): Request {
                 tool.input_schema,
                 "request.tool.input_schema",
               ),
+              ...(native ? { native } : {}),
             };
           }),
         }),
@@ -167,6 +271,13 @@ export function decodeRequest(document: JsonValue): Request {
             ),
           ),
         }),
+    ...(root.native === undefined
+      ? {}
+      : {
+          native: array(root.native, "request.native").map(
+            decodeNativeAnnotation,
+          ),
+        }),
   };
   validateRequest(request);
   return request;
@@ -174,6 +285,7 @@ export function decodeRequest(document: JsonValue): Request {
 
 /** Enforces request conversation invariants INV-2 through INV-4. */
 export function validateRequest(request: Request): void {
+  validateNativeRequest(request);
   if (request.messages.length === 0)
     invalid("request.messages must not be empty");
   if (request.messages[0]!.role !== "user")
@@ -336,6 +448,28 @@ export function decodeResponse(document: JsonValue): Response {
 }
 
 function encodeBlock(block: Block): JsonObject {
+  if (block.native !== undefined && block.native.length > 0) {
+    fail(
+      "ir: native annotations are forbidden in response and event content blocks (spec/15)",
+    );
+  }
+  return encodeBlockBase(block, encodeBlock);
+}
+
+function encodeRequestBlock(block: Block): JsonObject {
+  const enc = encodeBlockBase(block, encodeRequestBlock);
+  return {
+    ...enc,
+    ...(block.native && block.native.length > 0
+      ? { native: block.native.map(encodeNativeAnnotation) }
+      : {}),
+  };
+}
+
+function encodeBlockBase(
+  block: Block,
+  childEncoder: (b: Block) => JsonObject = encodeBlock,
+): JsonObject {
   switch (block.type) {
     case "text":
       return { type: "text", text: block.text };
@@ -377,7 +511,7 @@ function encodeBlock(block: Block): JsonObject {
         output:
           typeof block.output === "string"
             ? block.output
-            : block.output.map(encodeCustomOutput),
+            : block.output.map(childEncoder),
       };
     case "apply_patch_tool_use":
       return {
@@ -397,7 +531,7 @@ function encodeBlock(block: Block): JsonObject {
       return {
         type: "tool_result",
         tool_use_id: block.tool_use_id,
-        content: block.content.map(encodeBlock),
+        content: block.content.map(childEncoder),
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       };
   }
@@ -414,6 +548,29 @@ function encodeApplyPatchOperation(op: ApplyPatchOperation): JsonObject {
 }
 
 function decodeBlock(value: JsonValue): Block {
+  const block = object(value, "block");
+  if (block.native !== undefined) {
+    fail(
+      "ir: native annotations are forbidden in response and event content blocks (spec/15)",
+    );
+  }
+  return decodeBlockBase(value, decodeBlock);
+}
+
+function decodeRequestBlock(value: JsonValue): Block {
+  const block = object(value, "block");
+  const base = decodeBlockBase(value, decodeRequestBlock);
+  let native: readonly NativeAnnotation[] | undefined;
+  if (block.native !== undefined) {
+    native = array(block.native, "block.native").map(decodeNativeAnnotation);
+  }
+  return native ? { ...base, native } : base;
+}
+
+function decodeBlockBase(
+  value: JsonValue,
+  childDecoder: (v: JsonValue) => Block = decodeBlock,
+): Block {
   const block = object(value, "block");
   switch (block.type) {
     case "text":
@@ -463,7 +620,12 @@ function decodeBlock(value: JsonValue): Block {
         output:
           typeof output === "string"
             ? output
-            : array(output, "block.output").map(decodeCustomOutput),
+            : (array(output, "block.output")
+                .map(childDecoder)
+                .filter(
+                  (b): b is TextBlock | ImageBlock =>
+                    b.type === "text" || b.type === "image",
+                ) as readonly (TextBlock | ImageBlock)[]),
       };
     }
     case "apply_patch_tool_use":
@@ -491,7 +653,7 @@ function decodeBlock(value: JsonValue): Block {
       return {
         type: "tool_result",
         tool_use_id: string(block.tool_use_id, "block.tool_use_id"),
-        content: array(block.content, "block.content").map(decodeBlock),
+        content: array(block.content, "block.content").map(childDecoder),
         ...(block.is_error === undefined
           ? {}
           : { is_error: boolean(block.is_error, "block.is_error") }),
@@ -942,8 +1104,15 @@ function reasoningEffort(
   name: string,
 ): import("./types.js").ReasoningEffort {
   const str = string(value, name);
-  if (str !== "minimal" && str !== "low" && str !== "medium" && str !== "high")
-    fail(`${name} must be minimal, low, medium, or high`);
+  if (
+    str !== "minimal" &&
+    str !== "low" &&
+    str !== "medium" &&
+    str !== "high" &&
+    str !== "xhigh" &&
+    str !== "max"
+  )
+    fail(`${name} must be minimal, low, medium, high, xhigh, or max`);
   return str;
 }
 

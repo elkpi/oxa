@@ -539,7 +539,8 @@ func TestMalformedAndNonImageDataURLsProduceLosses(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(req.Messages[0].Content) != 1 || req.Messages[0].Content[0] != (ir.TextBlock{}) {
+	tb, ok := req.Messages[0].Content[0].(ir.TextBlock)
+	if !ok || tb.Text != "" || len(tb.Native) != 0 {
 		t.Fatalf("unsupported images must leave an empty text block: %+v", req.Messages[0].Content)
 	}
 	if len(losses) != 2 {
@@ -645,7 +646,8 @@ func TestUnsupportedRequestContentProducesLoss(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 1 || req.Messages[0].Content[0] != (ir.TextBlock{}) {
+	tb, ok := req.Messages[0].Content[0].(ir.TextBlock)
+	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 1 || !ok || tb.Text != "" || len(tb.Native) != 0 {
 		t.Fatalf("unsupported content must leave an empty text block: %+v", req.Messages)
 	}
 	if len(losses) != 3 {

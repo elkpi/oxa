@@ -21,6 +21,7 @@ type Request struct {
 	ToolChoice *ToolChoice
 	Params     Params
 	Metadata   map[string]string
+	Native     []NativeAnnotation
 }
 
 // Message is one conversational turn.
@@ -38,6 +39,7 @@ type Tool struct {
 	InputSchema json.RawMessage
 	Type        string
 	Format      *CustomToolFormat
+	Native      []NativeAnnotation
 }
 
 const (
@@ -77,6 +79,8 @@ const (
 	ReasoningEffortLow     = "low"
 	ReasoningEffortMedium  = "medium"
 	ReasoningEffortHigh    = "high"
+	ReasoningEffortXHigh   = "xhigh"
+	ReasoningEffortMax     = "max"
 )
 
 // ResponseFormat specifies output formatting constraints (spec/01 s3.7.1).

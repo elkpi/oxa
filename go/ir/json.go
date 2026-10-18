@@ -1,6 +1,7 @@
 package ir
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 )
@@ -45,8 +46,49 @@ type wireThinkingBlock struct {
 	Signature string `json:"signature,omitempty"`
 }
 
+func hasNative(b Block) bool {
+	switch v := b.(type) {
+	case TextBlock:
+		return len(v.Native) > 0
+	case ThinkingBlock:
+		return len(v.Native) > 0
+	case ImageBlock:
+		return len(v.Native) > 0
+	case ToolUseBlock:
+		return len(v.Native) > 0
+	case ToolResultBlock:
+		if len(v.Native) > 0 {
+			return true
+		}
+		for _, c := range v.Content {
+			if hasNative(c) {
+				return true
+			}
+		}
+	case CustomToolUseBlock:
+		return len(v.Native) > 0
+	case CustomToolResultBlock:
+		if len(v.Native) > 0 {
+			return true
+		}
+		for _, c := range v.Output.Content {
+			if hasNative(c) {
+				return true
+			}
+		}
+	case ApplyPatchToolUseBlock:
+		return len(v.Native) > 0
+	case ApplyPatchToolResultBlock:
+		return len(v.Native) > 0
+	}
+	return false
+}
+
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
+	if hasNative(b) {
+		return nil, fmt.Errorf("ir: native annotations are forbidden in response and event content blocks (spec/15)")
+	}
 	switch v := b.(type) {
 	case ApplyPatchToolUseBlock:
 		return marshalApplyPatchUse(v)
@@ -118,6 +160,12 @@ func marshalBlocks(blocks []Block) ([]json.RawMessage, error) {
 // exact source JSON string token, so decode/encode round-trips are
 // byte-faithful (INV-1).
 func UnmarshalBlock(data []byte) (Block, error) {
+	var natCheck struct {
+		Native []json.RawMessage `json:"native"`
+	}
+	if err := json.Unmarshal(data, &natCheck); err == nil && len(natCheck.Native) > 0 {
+		return nil, fmt.Errorf("ir: native annotations are forbidden in response and event content blocks (spec/15)")
+	}
 	var head struct {
 		Type string `json:"type"`
 	}
@@ -215,17 +263,314 @@ func unmarshalBlocks(raws []json.RawMessage) ([]Block, error) {
 	return out, nil
 }
 
+type wireSystemBlock struct {
+	Type   string             `json:"type"`
+	Text   string             `json:"text"`
+	Native []NativeAnnotation `json:"native,omitempty"`
+}
+
+func marshalRequestApplyPatchUse(b ApplyPatchToolUseBlock) (json.RawMessage, error) {
+	if b.ID == "" || (b.Status != ApplyPatchCallInProgress && b.Status != ApplyPatchCallCompleted) {
+		return nil, fmt.Errorf("ir: apply patch call requires nonempty id and valid call status")
+	}
+	operation, err := MarshalApplyPatchOperation(b.Operation)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(struct {
+		Type      string               `json:"type"`
+		ID        string               `json:"id"`
+		Status    ApplyPatchCallStatus `json:"status"`
+		Operation json.RawMessage      `json:"operation"`
+		Native    []NativeAnnotation   `json:"native,omitempty"`
+	}{BlockTypeApplyPatchToolUse, b.ID, b.Status, operation, b.Native})
+}
+
+func marshalRequestApplyPatchResult(b ApplyPatchToolResultBlock) (json.RawMessage, error) {
+	if b.ToolUseID == "" || (b.Status != ApplyPatchResultCompleted && b.Status != ApplyPatchResultFailed) {
+		return nil, fmt.Errorf("ir: apply patch result requires nonempty tool_use_id and valid result status")
+	}
+	return json.Marshal(struct {
+		Type      string                 `json:"type"`
+		ToolUseID string                 `json:"tool_use_id"`
+		Status    ApplyPatchResultStatus `json:"status"`
+		Output    *string                `json:"output,omitempty"`
+		Native    []NativeAnnotation     `json:"native,omitempty"`
+	}{BlockTypeApplyPatchToolResult, b.ToolUseID, b.Status, b.Output, b.Native})
+}
+
+func marshalRequestBlock(b Block) (json.RawMessage, error) {
+	switch v := b.(type) {
+	case ApplyPatchToolUseBlock:
+		return marshalRequestApplyPatchUse(v)
+	case ApplyPatchToolResultBlock:
+		return marshalRequestApplyPatchResult(v)
+	case CustomToolUseBlock:
+		if v.ID == "" || v.Name == "" {
+			return nil, fmt.Errorf("ir: custom call requires id/name")
+		}
+		if err := validateOpaqueString(v.Input); err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Type string `json:"type"`
+			CustomToolUseBlock
+		}{BlockTypeCustomToolUse, v})
+	case CustomToolResultBlock:
+		if v.ToolUseID == "" {
+			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
+		}
+		var outputRaw json.RawMessage
+		if v.Output.Text != nil {
+			b, err := json.Marshal(*v.Output.Text)
+			if err != nil {
+				return nil, err
+			}
+			outputRaw = b
+		} else {
+			raws, err := marshalRequestBlocks(v.Output.Content)
+			if err != nil {
+				return nil, err
+			}
+			b, err := json.Marshal(raws)
+			if err != nil {
+				return nil, err
+			}
+			outputRaw = b
+		}
+		return json.Marshal(struct {
+			Type      string             `json:"type"`
+			ToolUseID string             `json:"tool_use_id"`
+			Output    json.RawMessage    `json:"output"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeCustomToolResult, v.ToolUseID, outputRaw, v.Native})
+	case TextBlock:
+		return json.Marshal(struct {
+			Type   string             `json:"type"`
+			Text   string             `json:"text"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeText, v.Text, v.Native})
+	case ThinkingBlock:
+		return json.Marshal(struct {
+			Type      string             `json:"type"`
+			Thinking  string             `json:"thinking"`
+			Signature string             `json:"signature,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeThinking, v.Thinking, v.Signature, v.Native})
+	case ImageBlock:
+		return json.Marshal(struct {
+			Type      string             `json:"type"`
+			MediaType string             `json:"media_type,omitempty"`
+			Data      string             `json:"data,omitempty"`
+			URL       string             `json:"url,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeImage, v.MediaType, v.Data, v.URL, v.Native})
+	case ToolUseBlock:
+		if len(v.Input) == 0 {
+			return nil, fmt.Errorf("ir: tool_use input is required (INV-1)")
+		}
+		return json.Marshal(struct {
+			Type   string             `json:"type"`
+			ID     string             `json:"id"`
+			Name   string             `json:"name"`
+			Input  json.RawMessage    `json:"input"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeToolUse, v.ID, v.Name, v.Input, v.Native})
+	case ToolResultBlock:
+		content, err := marshalRequestBlocks(v.Content)
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Type      string             `json:"type"`
+			ToolUseID string             `json:"tool_use_id"`
+			Content   []json.RawMessage  `json:"content"`
+			IsError   bool               `json:"is_error,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeToolResult, v.ToolUseID, content, v.IsError, v.Native})
+	default:
+		return nil, fmt.Errorf("ir: unknown block type %T", b)
+	}
+}
+
+func marshalRequestBlocks(blocks []Block) ([]json.RawMessage, error) {
+	out := make([]json.RawMessage, 0, len(blocks))
+	for i, b := range blocks {
+		raw, err := marshalRequestBlock(b)
+		if err != nil {
+			return nil, fmt.Errorf("block[%d]: %w", i, err)
+		}
+		out = append(out, raw)
+	}
+	return out, nil
+}
+
+func unmarshalRequestBlock(data []byte) (Block, error) {
+	var head struct {
+		Type   string             `json:"type"`
+		Native []NativeAnnotation `json:"native,omitempty"`
+	}
+	if err := json.Unmarshal(data, &head); err != nil {
+		return nil, err
+	}
+	switch head.Type {
+	case BlockTypeApplyPatchToolUse, BlockTypeApplyPatchToolResult:
+		b, err := unmarshalApplyPatchBlock(data, head.Type)
+		if err != nil {
+			return nil, err
+		}
+		if len(head.Native) > 0 {
+			switch v := b.(type) {
+			case ApplyPatchToolUseBlock:
+				v.Native = head.Native
+				return v, nil
+			case ApplyPatchToolResultBlock:
+				v.Native = head.Native
+				return v, nil
+			}
+		}
+		return b, nil
+	case BlockTypeCustomToolUse:
+		var b CustomToolUseBlock
+		if err := json.Unmarshal(data, &b); err != nil {
+			return nil, err
+		}
+		if b.ID == "" || b.Name == "" {
+			return nil, fmt.Errorf("ir: custom call requires id/name")
+		}
+		if err := validateOpaqueString(b.Input); err != nil {
+			return nil, err
+		}
+		b.Native = head.Native
+		return b, nil
+	case BlockTypeCustomToolResult:
+		var w struct {
+			ToolUseID string             `json:"tool_use_id"`
+			Output    json.RawMessage    `json:"output"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.ToolUseID == "" {
+			return nil, fmt.Errorf("ir: custom result requires tool_use_id")
+		}
+		var output CustomToolOutput
+		trimmed := bytes.TrimSpace(w.Output)
+		if len(trimmed) > 0 && trimmed[0] == '"' {
+			var text string
+			if err := json.Unmarshal(trimmed, &text); err != nil {
+				return nil, err
+			}
+			output.Text = &text
+		} else if len(trimmed) > 0 && trimmed[0] == '[' {
+			var raws []json.RawMessage
+			if err := json.Unmarshal(trimmed, &raws); err != nil {
+				return nil, err
+			}
+			content, err := unmarshalRequestBlocks(raws)
+			if err != nil {
+				return nil, err
+			}
+			output.Content = content
+		} else {
+			return nil, fmt.Errorf("ir: custom output must be a string or content list")
+		}
+		return CustomToolResultBlock{ToolUseID: w.ToolUseID, Output: output, Native: w.Native}, nil
+	case BlockTypeText:
+		var w struct {
+			Text   string             `json:"text"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return TextBlock{Text: w.Text, Native: w.Native}, nil
+	case BlockTypeThinking:
+		var w struct {
+			Thinking  string             `json:"thinking"`
+			Signature string             `json:"signature,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature, Native: w.Native}, nil
+	case BlockTypeImage:
+		var w struct {
+			MediaType string             `json:"media_type,omitempty"`
+			Data      string             `json:"data,omitempty"`
+			URL       string             `json:"url,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return ImageBlock{MediaType: w.MediaType, Data: w.Data, URL: w.URL, Native: w.Native}, nil
+	case BlockTypeToolUse:
+		var w struct {
+			ID     string             `json:"id"`
+			Name   string             `json:"name"`
+			Input  json.RawMessage    `json:"input"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if len(w.Input) == 0 {
+			return nil, fmt.Errorf("ir: tool_use input is required (INV-1)")
+		}
+		return ToolUseBlock{ID: w.ID, Name: w.Name, Input: w.Input, Native: w.Native}, nil
+	case BlockTypeToolResult:
+		var w struct {
+			ToolUseID string             `json:"tool_use_id"`
+			Content   []json.RawMessage  `json:"content"`
+			IsError   bool               `json:"is_error,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		content := make([]Block, 0, len(w.Content))
+		for i, raw := range w.Content {
+			b, err := unmarshalRequestBlock(raw)
+			if err != nil {
+				return nil, fmt.Errorf("content[%d]: %w", i, err)
+			}
+			content = append(content, b)
+		}
+		return ToolResultBlock{
+			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError, Native: w.Native,
+		}, nil
+	default:
+		return nil, fmt.Errorf("ir: unknown block type %q", head.Type)
+	}
+}
+
+func unmarshalRequestBlocks(raws []json.RawMessage) ([]Block, error) {
+	out := make([]Block, 0, len(raws))
+	for i, raw := range raws {
+		b, err := unmarshalRequestBlock(raw)
+		if err != nil {
+			return nil, fmt.Errorf("block[%d]: %w", i, err)
+		}
+		out = append(out, b)
+	}
+	return out, nil
+}
+
 // ---- request document ------------------------------------------------------
 
 type wireRequest struct {
-	SpecVersion string            `json:"specVersion"`
-	Model       string            `json:"model"`
-	System      []wireTextBlock   `json:"system,omitempty"`
-	Messages    []wireMessage     `json:"messages"`
-	Tools       []wireTool        `json:"tools,omitempty"`
-	ToolChoice  *wireToolChoice   `json:"tool_choice,omitempty"`
-	Params      *wireParams       `json:"params,omitempty"`
-	Metadata    map[string]string `json:"metadata,omitempty"`
+	SpecVersion string             `json:"specVersion"`
+	Model       string             `json:"model"`
+	System      []wireSystemBlock  `json:"system,omitempty"`
+	Messages    []wireMessage      `json:"messages"`
+	Tools       []wireTool         `json:"tools,omitempty"`
+	ToolChoice  *wireToolChoice    `json:"tool_choice,omitempty"`
+	Params      *wireParams        `json:"params,omitempty"`
+	Metadata    map[string]string  `json:"metadata,omitempty"`
+	Native      []NativeAnnotation `json:"native,omitempty"`
 }
 
 type wireMessage struct {
@@ -234,11 +579,12 @@ type wireMessage struct {
 }
 
 type wireTool struct {
-	Name        string            `json:"name,omitempty"`
-	Description string            `json:"description,omitempty"`
-	InputSchema json.RawMessage   `json:"input_schema,omitempty"`
-	Type        string            `json:"type,omitempty"`
-	Format      *CustomToolFormat `json:"format,omitempty"`
+	Name        string             `json:"name,omitempty"`
+	Description string             `json:"description,omitempty"`
+	InputSchema json.RawMessage    `json:"input_schema,omitempty"`
+	Type        string             `json:"type,omitempty"`
+	Format      *CustomToolFormat  `json:"format,omitempty"`
+	Native      []NativeAnnotation `json:"native,omitempty"`
 }
 
 type wireToolChoice struct {
@@ -302,13 +648,13 @@ func MarshalRequest(req *Request) ([]byte, error) {
 			return nil, err
 		}
 	}
-	system := make([]wireTextBlock, 0, len(req.System))
+	system := make([]wireSystemBlock, 0, len(req.System))
 	for _, s := range req.System {
-		system = append(system, wireTextBlock{Type: BlockTypeText, Text: s.Text})
+		system = append(system, wireSystemBlock{Type: BlockTypeText, Text: s.Text, Native: s.Native})
 	}
 	messages := make([]wireMessage, 0, len(req.Messages))
 	for i, m := range req.Messages {
-		content, err := marshalBlocks(m.Content)
+		content, err := marshalRequestBlocks(m.Content)
 		if err != nil {
 			return nil, fmt.Errorf("messages[%d]: %w", i, err)
 		}
@@ -362,6 +708,7 @@ func MarshalRequest(req *Request) ([]byte, error) {
 		ToolChoice:  tc,
 		Params:      params,
 		Metadata:    req.Metadata,
+		Native:      req.Native,
 	})
 }
 
@@ -380,12 +727,12 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 			return nil, err
 		}
 	}
-	req := &Request{Model: w.Model, Metadata: w.Metadata}
+	req := &Request{Model: w.Model, Metadata: w.Metadata, Native: w.Native}
 	for _, s := range w.System {
-		req.System = append(req.System, SystemBlock{Text: s.Text})
+		req.System = append(req.System, SystemBlock{Text: s.Text, Native: s.Native})
 	}
 	for i, m := range w.Messages {
-		content, err := unmarshalBlocks(m.Content)
+		content, err := unmarshalRequestBlocks(m.Content)
 		if err != nil {
 			return nil, fmt.Errorf("messages[%d]: %w", i, err)
 		}

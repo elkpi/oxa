@@ -118,6 +118,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 		out.Text.Format = encodeTextFormat(req.Params.ResponseFormat)
 	}
+	omissionLosses, err := ir.OmittedNativeRequestLosses(req, "responses")
+	if err != nil {
+		return nil, nil, err
+	}
+	losses = append(losses, omissionLosses...)
 	return out, losses, nil
 }
 

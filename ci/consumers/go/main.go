@@ -94,5 +94,23 @@ func main() {
 		fmt.Fprintln(os.Stderr, "stream conversion returned no events")
 		os.Exit(1)
 	}
+
+	nativeReq := &ir.Request{
+		Model: "m",
+		Messages: []ir.Message{{
+			Role:    ir.RoleUser,
+			Content: []ir.Block{ir.TextBlock{Text: "hi"}},
+		}},
+		Native: []ir.NativeAnnotation{{
+			Source: ir.NativeSourceAnthropic,
+			Kind:   ir.NativeKindThinkingMode,
+			Value:  `"adaptive"`,
+		}},
+	}
+	if err := ir.ValidateNativeRequest(nativeReq); err != nil {
+		fmt.Fprintf(os.Stderr, "validate native request failed: %v\n", err)
+		os.Exit(1)
+	}
+
 	fmt.Println("go consumer: OK")
 }

@@ -2,7 +2,13 @@ import type { JsonObject, JsonText } from "../json/index.js";
 
 export const specVersion = "0.2.0";
 
-export type ReasoningEffort = "minimal" | "low" | "medium" | "high";
+export type ReasoningEffort =
+  | "minimal"
+  | "low"
+  | "medium"
+  | "high"
+  | "xhigh"
+  | "max";
 export type StopReason =
   | "end_turn"
   | "max_tokens"
@@ -10,6 +16,30 @@ export type StopReason =
   | "tool_use"
   | "refusal"
   | "other";
+
+export interface NativeOmission {
+  readonly field: string;
+  readonly reason:
+    | "unmapped-field"
+    | "unmapped-value"
+    | "unsupported-semantic"
+    | "degraded";
+  readonly detail?: string;
+}
+
+export interface NativeProjection {
+  readonly origin: "budget" | "explicit";
+  readonly effort: ReasoningEffort;
+}
+
+export interface NativeAnnotation {
+  readonly source: string;
+  readonly kind: string;
+  readonly value: string;
+  readonly omission?: NativeOmission;
+  readonly projection?: NativeProjection;
+}
+
 export interface InputTokensDetails {
   readonly cached_tokens: bigint;
 }
@@ -27,29 +57,34 @@ export interface Usage {
 export interface TextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface ThinkingBlock {
   readonly type: "thinking";
   readonly thinking: string;
   readonly signature?: string;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface ImageBlock {
   readonly type: "image";
   readonly media_type?: string;
   readonly data?: string;
   readonly url?: string;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface ToolUseBlock {
   readonly type: "tool_use";
   readonly id: string;
   readonly name: string;
   readonly input: JsonText;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface CustomToolUseBlock {
   readonly type: "custom_tool_use";
   readonly id: string;
   readonly name: string;
   readonly input: string;
+  readonly native?: readonly NativeAnnotation[];
 }
 export type CustomToolResultOutput =
   | string
@@ -58,12 +93,14 @@ export interface CustomToolResultBlock {
   readonly type: "custom_tool_result";
   readonly tool_use_id: string;
   readonly output: CustomToolResultOutput;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface ToolResultBlock {
   readonly type: "tool_result";
   readonly tool_use_id: string;
   readonly content: readonly Block[];
   readonly is_error?: boolean;
+  readonly native?: readonly NativeAnnotation[];
 }
 
 export interface ApplyPatchCreateFileOperation {
@@ -90,12 +127,14 @@ export interface ApplyPatchToolUseBlock {
   readonly id: string;
   readonly status: "in_progress" | "completed";
   readonly operation: ApplyPatchOperation;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface ApplyPatchToolResultBlock {
   readonly type: "apply_patch_tool_result";
   readonly tool_use_id: string;
   readonly status: "completed" | "failed";
   readonly output?: string;
+  readonly native?: readonly NativeAnnotation[];
 }
 
 export type Block =
@@ -190,6 +229,7 @@ export type Tool =
       readonly description?: string;
       readonly input_schema: JsonObject;
       readonly format?: never;
+      readonly native?: readonly NativeAnnotation[];
     }
   | {
       readonly type: "custom";
@@ -197,6 +237,7 @@ export type Tool =
       readonly description?: string;
       readonly input_schema?: never;
       readonly format?: CustomToolFormat;
+      readonly native?: readonly NativeAnnotation[];
     }
   | {
       readonly type: "apply_patch";
@@ -204,6 +245,7 @@ export type Tool =
       readonly description?: never;
       readonly input_schema?: never;
       readonly format?: never;
+      readonly native?: readonly NativeAnnotation[];
     };
 export type ToolChoice =
   | { readonly mode: "auto" | "any" | "none" }
@@ -250,6 +292,7 @@ export interface Request {
   readonly tool_choice?: ToolChoice;
   readonly params?: Params;
   readonly metadata?: Readonly<Record<string, string>>;
+  readonly native?: readonly NativeAnnotation[];
 }
 export interface Response {
   readonly id: string;

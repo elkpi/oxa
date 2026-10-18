@@ -125,6 +125,7 @@ fn tool_choice_named_requires_a_name() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".to_string(),
+                native: Vec::new(),
             }],
         }],
         tools: None,
@@ -142,6 +143,7 @@ fn tool_choice_named_requires_a_name() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
     let err = encode_request(&req, &Config::default()).expect_err("encode name");
     assert!(
@@ -186,12 +188,14 @@ fn missing_max_tokens_defaults_to_4096_with_a_degraded_loss() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".to_string(),
+                native: Vec::new(),
             }],
         }],
         tools: None,
         tool_choice: None,
         params: None,
         metadata: None,
+        native: Vec::new(),
     };
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
     assert_eq!(wire.max_tokens, 4096);
@@ -209,6 +213,7 @@ fn single_text_message_renders_the_string_shorthand() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".to_string(),
+                native: Vec::new(),
             }],
         }],
         tools: None,
@@ -222,6 +227,7 @@ fn single_text_message_renders_the_string_shorthand() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
     let (wire, _) = encode_request(&req, &Config::default()).expect("encode");
     assert_eq!(
@@ -233,6 +239,7 @@ fn single_text_message_renders_the_string_shorthand() {
     let mut with_system = req;
     with_system.system = vec![oxa_ir::SystemBlock::Text {
         text: "be brief".to_string(),
+        native: Vec::new(),
     }];
     let (wire, _) = encode_request(&with_system, &Config::default()).expect("encode");
     assert!(matches!(
@@ -268,10 +275,12 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::ToolResult {
                 tool_use_id: "call_1".to_string(),
+                native: Vec::new(),
                 content: vec![oxa_ir::Block::ToolUse {
                     id: "nested_1".to_string(),
                     name: "weather".to_string(),
                     input: r#"{"city":"Paris"}"#.to_string(),
+                    native: Vec::new(),
                 }],
                 is_error: None,
             }],
@@ -287,6 +296,7 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
@@ -377,9 +387,7 @@ fn decodes_anthropic_reasoning_effort_at_budget_boundaries() {
             Some(expected),
             "budget {budget}"
         );
-        let loss = loss_with(&losses, "thinking.budget_tokens", "budget_tokens");
-        assert_eq!(loss.reason, LossReason::Degraded);
-        assert_eq!(loss.detail, "budget approximated");
+        assert!(losses.is_empty(), "budget {budget}");
     }
 }
 
@@ -393,6 +401,7 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
             content: vec![Block::Thinking {
                 thinking: "reasoning".to_string(),
                 signature: None,
+                native: Vec::new(),
             }],
         }],
         tools: None,
@@ -406,12 +415,13 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
     let thinking = wire.thinking.as_ref().expect("thinking config");
     assert_eq!(thinking.kind, "enabled");
-    assert_eq!(thinking.budget_tokens, 1024);
+    assert_eq!(thinking.budget_tokens, Some(1024));
     let Some(oxa_anthropic::ContentValue::Blocks(blocks)) = &wire.messages[0].content else {
         panic!("thinking block must render as a block array");
     };
@@ -455,6 +465,7 @@ fn preserves_thinking_signature_and_optional_cache_usage() {
         vec![Block::Thinking {
             thinking: "consider".to_string(),
             signature: Some("opaque-signature".to_string()),
+            native: Vec::new(),
         }]
     );
     assert_eq!(
@@ -509,6 +520,7 @@ fn decodes_a_thinking_block_with_no_thinking_field_as_empty_text() {
         vec![Block::Thinking {
             thinking: String::new(),
             signature: Some("sig_x".to_string()),
+            native: Vec::new(),
         }]
     );
 }
@@ -521,6 +533,7 @@ fn empty_signature_is_treated_as_unsigned_on_encode() {
         content: vec![Block::Thinking {
             thinking: "consider".to_string(),
             signature: Some(String::new()),
+            native: Vec::new(),
         }],
         stop_reason: StopReason::EndTurn,
         stop_sequence: None,
@@ -580,6 +593,7 @@ fn test_grammar_format_loss_on_anthropic_encode() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".to_string(),
+                native: Vec::new(),
             }],
         }],
         tools: Some(vec![oxa_ir::Tool {
@@ -592,6 +606,7 @@ fn test_grammar_format_loss_on_anthropic_encode() {
                 syntax: Some("regex".to_string()),
                 definition: Some("[0-9]+".to_string()),
             }),
+            native: Vec::new(),
         }]),
         tool_choice: None,
         params: Some(oxa_ir::Params {
@@ -599,6 +614,7 @@ fn test_grammar_format_loss_on_anthropic_encode() {
             ..Default::default()
         }),
         metadata: None,
+        native: Vec::new(),
     };
     let (_, losses) = encode_request(&req, &Config::default()).expect("encode request");
     assert!(

@@ -126,6 +126,7 @@ fn stream_decoder_maps_reasoning_before_text_and_keeps_usage_details() {
                 block: Block::Thinking {
                     thinking: String::new(),
                     signature: None,
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -139,6 +140,7 @@ fn stream_decoder_maps_reasoning_before_text_and_keeps_usage_details() {
                 index: 1,
                 block: Block::Text {
                     text: String::new(),
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -181,6 +183,7 @@ fn stream_encoder_maps_thinking_and_usage_details() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: Some("start-sig".to_string()),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -258,6 +261,7 @@ fn stream_encoder_rejects_thinking_after_signature_delta() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -299,6 +303,7 @@ fn stream_encoder_rejects_duplicate_signature_deltas() {
             block: Block::Thinking {
                 thinking: String::new(),
                 signature: None,
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -344,6 +349,7 @@ fn stream_decoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {
@@ -445,6 +451,7 @@ fn stream_encoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             },
         })
         .unwrap();
@@ -502,6 +509,7 @@ fn stream_encoder_ordering_degrade_loss() {
             id: "call_1".to_string(),
             name: "weather".to_string(),
             input: "{}".to_string(),
+            native: Vec::new(),
         },
     })
     .unwrap();
@@ -512,6 +520,7 @@ fn stream_encoder_ordering_degrade_loss() {
         index: 1,
         block: Block::Text {
             text: String::new(),
+            native: Vec::new(),
         },
     })
     .unwrap();

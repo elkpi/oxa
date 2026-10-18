@@ -46,12 +46,28 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
 		}
+		var nat []ir.NativeAnnotation
+		if len(tool.CacheControl) > 0 {
+			canon, l, ok := parseCacheControl(tool.CacheControl, fmt.Sprintf("tools[%d].cache_control", i))
+			if l != nil {
+				losses = append(losses, *l)
+			}
+			if ok {
+				nat = []ir.NativeAnnotation{{
+					Source:   ir.NativeSourceAnthropic,
+					Kind:     ir.NativeKindCacheControl,
+					Value:    canon,
+					Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+				}}
+			}
+		}
 		if isCustomToolInputSchema(tool.InputSchema) {
 			customTools[tool.Name] = true
 			req.Tools = append(req.Tools, ir.Tool{
 				Type:        ir.ToolTypeCustom,
 				Name:        tool.Name,
 				Description: tool.Description,
+				Native:      nat,
 			})
 			continue
 		}
@@ -59,6 +75,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+			Native:      nat,
 		})
 	}
 	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice, customTools)
@@ -120,7 +137,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		default:
 			return nil, nil, fmt.Errorf("anthropic: messages[%d]: unknown role %q", i, m.Role)
 		}
-		blocks, blockLosses, err := decodeBlocks(m.Content, fmt.Sprintf("messages[%d].content", i), customCallIDs, declaredTools, customTools)
+		blocks, blockLosses, err := decodeBlocks(m.Content, fmt.Sprintf("messages[%d].content", i), customCallIDs, declaredTools, customTools, true)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -131,25 +148,11 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		return nil, nil, fmt.Errorf("anthropic: request carries no messages")
 	}
 
-	if wire.Thinking != nil && wire.Thinking.Type == "enabled" {
-		budget := wire.Thinking.BudgetTokens
-		var effort string
-		switch {
-		case budget <= 2048:
-			effort = ir.ReasoningEffortLow
-		case budget <= 8192:
-			effort = ir.ReasoningEffortMedium
-		default:
-			effort = ir.ReasoningEffortHigh
-		}
-		req.Params.ReasoningEffort = effort
-		losses = append(losses, ir.Loss{
-			Path:   "thinking.budget_tokens",
-			Field:  "budget_tokens",
-			Reason: ir.LossDegraded,
-			Detail: "budget approximated",
-		})
+	natLosses, err := decodeRequestNative(wire, req)
+	if err != nil {
+		return nil, nil, err
 	}
+	losses = append(losses, natLosses...)
 
 	if wire.Temperature != nil {
 		req.Params.Temperature = wire.Temperature
@@ -185,15 +188,22 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 			if w.Type != BlockTypeText {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
 			}
-			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
+			sb := ir.SystemBlock{Text: w.Text}
 			if len(w.CacheControl) > 0 {
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("system[%d].cache_control", i),
-					Field:  "cache_control",
-					Reason: ir.LossUnmappedField,
-					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-				})
+				canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("system[%d].cache_control", i))
+				if l != nil {
+					losses = append(losses, *l)
+				}
+				if ok {
+					sb.Native = []ir.NativeAnnotation{{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    canon,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+					}}
+				}
 			}
+			blocks = append(blocks, sb)
 		}
 		return blocks, losses, nil
 	case []SystemBlockWire:
@@ -203,15 +213,22 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 			if w.Type != BlockTypeText {
 				return nil, nil, fmt.Errorf("anthropic: system[%d]: unsupported block type %q", i, w.Type)
 			}
-			blocks = append(blocks, ir.SystemBlock{Text: w.Text})
+			sb := ir.SystemBlock{Text: w.Text}
 			if len(w.CacheControl) > 0 {
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("system[%d].cache_control", i),
-					Field:  "cache_control",
-					Reason: ir.LossUnmappedField,
-					Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-				})
+				canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("system[%d].cache_control", i))
+				if l != nil {
+					losses = append(losses, *l)
+				}
+				if ok {
+					sb.Native = []ir.NativeAnnotation{{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    canon,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+					}}
+				}
 			}
+			blocks = append(blocks, sb)
 		}
 		return blocks, losses, nil
 	default:
@@ -253,7 +270,7 @@ func extractCustomInput(raw json.RawMessage) (string, bool) {
 	return "", false
 }
 
-func decodeBlocks(content any, path string, customCallIDs map[string]bool, declaredTools map[string]bool, customTools map[string]bool) ([]ir.Block, []ir.Loss, error) {
+func decodeBlocks(content any, path string, customCallIDs map[string]bool, declaredTools map[string]bool, customTools map[string]bool, isRequest bool) ([]ir.Block, []ir.Loss, error) {
 	switch v := content.(type) {
 	case nil:
 		return nil, nil, fmt.Errorf("anthropic: %s is missing", path)
@@ -271,11 +288,20 @@ func decodeBlocks(content any, path string, customCallIDs map[string]bool, decla
 			if err := json.Unmarshal(raw, &w); err != nil {
 				return nil, nil, fmt.Errorf("anthropic: %s[%d]: %w", path, j, err)
 			}
-			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs, declaredTools, customTools)
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs, declaredTools, customTools, isRequest)
 			if err != nil {
 				return nil, nil, err
 			}
 			if mapped {
+				if isRequest && len(w.CacheControl) > 0 {
+					canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("%s[%d].cache_control", path, j))
+					if l != nil {
+						losses = append(losses, *l)
+					}
+					if ok {
+						attachCacheControlToBlock(&block, canon)
+					}
+				}
 				blocks = append(blocks, block)
 			}
 			losses = append(losses, blockLosses...)
@@ -285,11 +311,20 @@ func decodeBlocks(content any, path string, customCallIDs map[string]bool, decla
 		blocks := make([]ir.Block, 0, len(v))
 		var losses []ir.Loss
 		for j, w := range v {
-			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs, declaredTools, customTools)
+			block, blockLosses, mapped, err := decodeBlock(w, fmt.Sprintf("%s[%d]", path, j), customCallIDs, declaredTools, customTools, isRequest)
 			if err != nil {
 				return nil, nil, err
 			}
 			if mapped {
+				if isRequest && len(w.CacheControl) > 0 {
+					canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("%s[%d].cache_control", path, j))
+					if l != nil {
+						losses = append(losses, *l)
+					}
+					if ok {
+						attachCacheControlToBlock(&block, canon)
+					}
+				}
 				blocks = append(blocks, block)
 			}
 			losses = append(losses, blockLosses...)
@@ -300,7 +335,7 @@ func decodeBlocks(content any, path string, customCallIDs map[string]bool, decla
 	}
 }
 
-func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declaredTools map[string]bool, customTools map[string]bool) (ir.Block, []ir.Loss, bool, error) {
+func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declaredTools map[string]bool, customTools map[string]bool, isRequest bool) (ir.Block, []ir.Loss, bool, error) {
 	var block ir.Block
 	var losses []ir.Loss
 	switch w.Type {
@@ -360,7 +395,7 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 					Output:    ir.CustomToolOutput{Text: &str},
 				}
 			} else {
-				content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs, declaredTools, customTools)
+				content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs, declaredTools, customTools, isRequest)
 				if err != nil {
 					return nil, nil, false, err
 				}
@@ -371,7 +406,7 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 				}
 			}
 		} else {
-			content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs, declaredTools, customTools)
+			content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs, declaredTools, customTools, isRequest)
 			if err != nil {
 				return nil, nil, false, err
 			}
@@ -385,14 +420,6 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 			Reason: ir.LossUnsupportedSemantic,
 			Detail: fmt.Sprintf("Anthropic block type %q has no IR equivalent", w.Type),
 		}}, false, nil
-	}
-	if len(w.CacheControl) > 0 {
-		losses = append(losses, ir.Loss{
-			Path:   path + ".cache_control",
-			Field:  "cache_control",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic prompt caching annotations have no IR equivalent in v1.",
-		})
 	}
 	return block, losses, true, nil
 }
@@ -490,7 +517,7 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 		Model: o.models.Map(wire.Model),
 	}
 	for i, b := range wire.Content {
-		block, blockLosses, mapped, err := decodeBlock(b, fmt.Sprintf("content[%d]", i), nil, nil, nil)
+		block, blockLosses, mapped, err := decodeBlock(b, fmt.Sprintf("content[%d]", i), nil, nil, nil, false)
 		if err != nil {
 			return nil, nil, err
 		}

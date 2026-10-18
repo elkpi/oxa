@@ -1,0 +1,59 @@
+{
+  "name": "anthropic.nonstream.native-thinking-disabled-request-to-ir",
+  "description": "Anthropic thinking type disabled is preserved in IR native options.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-sonnet-5",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Quick answer."
+      }
+    ],
+    "thinking": {
+      "type": "disabled"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Quick answer."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 4096
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"disabled\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "disabled",
+    "native"
+  ]
+}

@@ -18,6 +18,10 @@ pub enum Error {
     MissingSpecVersion,
     /// The document carries a `specVersion` other than [`SPEC_VERSION`].
     SpecVersionMismatch(String),
+    /// A general validation error.
+    Custom(String),
+    /// Native annotations are forbidden in response and event content blocks.
+    NativeForbidden(String),
 }
 
 impl std::fmt::Display for Error {
@@ -29,6 +33,8 @@ impl std::fmt::Display for Error {
                 f,
                 "IR document specVersion {got:?}, want \"0.1.0\" or \"0.2.0\""
             ),
+            Error::Custom(msg) => write!(f, "{msg}"),
+            Error::NativeForbidden(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -48,10 +54,31 @@ impl From<serde_json::Error> for Error {
     }
 }
 
+fn check_no_native(val: &Value) -> Result<(), Error> {
+    if let Value::Object(map) = val {
+        if map.contains_key("native") {
+            return Err(Error::NativeForbidden(
+                "ir: native annotations are forbidden in response and event content blocks (spec/15)".into(),
+            ));
+        }
+        for v in map.values() {
+            check_no_native(v)?;
+        }
+    } else if let Value::Array(arr) = val {
+        for v in arr {
+            check_no_native(v)?;
+        }
+    }
+    Ok(())
+}
+
 /// Serializes one IR document (`Request`, `Response`, or `EventStream`) to
 /// its JSON form, inserting the `specVersion` property.
 pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
     let mut document = serde_json::to_value(value)?;
+    if document.get("content").is_some() || document.get("events").is_some() {
+        check_no_native(&document)?;
+    }
     let object = document.as_object_mut().ok_or(Error::MissingSpecVersion)?;
     object.insert(
         "specVersion".to_string(),
@@ -64,6 +91,9 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
 /// `specVersion` const first.
 pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     let document: Value = serde_json::from_str(json)?;
+    if document.get("content").is_some() || document.get("events").is_some() {
+        check_no_native(&document)?;
+    }
     match document.get("specVersion") {
         None => Err(Error::MissingSpecVersion),
         Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(T::deserialize(&document)?),

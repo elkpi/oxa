@@ -71,6 +71,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tool_choice: None,
         params: None,
         metadata: None,
+        native: Vec::new(),
     };
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
@@ -118,6 +119,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     description: custom.description.clone(),
                     input_schema: None,
                     format: fmt,
+                    native: Vec::new(),
                 });
                 continue;
             }
@@ -140,6 +142,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 description: non_empty(func.description),
                 input_schema: Some(func.parameters.unwrap_or(Value::Null)),
                 format: None,
+                native: Vec::new(),
             });
         }
         if !tools.is_empty() {
@@ -190,6 +193,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     Block::Thinking {
                         thinking: reasoning.clone(),
                         signature: None,
+                        native: Vec::new(),
                     },
                 );
             }
@@ -205,6 +209,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
                 text: String::new(),
+                native: Vec::new(),
             });
         }
         match message.role.as_str() {
@@ -224,8 +229,9 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     decode_tool_calls(calls, &format!("messages[{index}].tool_calls"));
                 if message.content.is_none() && !tool_blocks.is_empty() {
                     // Drop only the empty placeholder; reasoning blocks remain.
-                    content
-                        .retain(|block| !matches!(block, Block::Text { text } if text.is_empty()));
+                    content.retain(
+                        |block| !matches!(block, Block::Text { text, .. } if text.is_empty()),
+                    );
                 }
                 content.extend(tool_blocks);
                 messages.push(oxa_ir::Message {
@@ -368,6 +374,8 @@ fn decode_reasoning_effort(value: Option<&str>, losses: &mut Vec<Loss>) -> Optio
         Some("low") => Some(ReasoningEffort::Low),
         Some("medium") => Some(ReasoningEffort::Medium),
         Some("high") => Some(ReasoningEffort::High),
+        Some("xhigh") => Some(ReasoningEffort::XHigh),
+        Some("max") => Some(ReasoningEffort::Max),
         Some(other) => {
             losses.push(loss(
                 "reasoning_effort",
@@ -452,6 +460,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                 Block::Thinking {
                     thinking: reasoning.clone(),
                     signature: None,
+                    native: Vec::new(),
                 },
             );
         }
@@ -472,7 +481,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let (tool_blocks, tool_losses) = decode_tool_calls(calls, "choices[0].message.tool_calls");
     if choice.message.content.is_none() && !tool_blocks.is_empty() {
         // Drop only the empty placeholder; reasoning blocks remain.
-        blocks.retain(|block| !matches!(block, Block::Text { text } if text.is_empty()));
+        blocks.retain(|block| !matches!(block, Block::Text { text, .. } if text.is_empty()));
     }
     blocks.extend(tool_blocks);
     losses.extend(tool_losses);

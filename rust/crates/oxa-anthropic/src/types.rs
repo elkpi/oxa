@@ -78,6 +78,12 @@ pub struct Request {
     pub tools: Option<Vec<ToolWire>>,
     #[serde(rename = "tool_choice", skip_serializing_if = "Option::is_none")]
     pub tool_choice: Option<ToolChoiceWire>,
+    #[serde(rename = "cache_control", skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<Value>,
+    #[serde(rename = "output_config", skip_serializing_if = "Option::is_none")]
+    pub output_config: Option<OutputConfigWire>,
+    #[serde(rename = "context_management", skip_serializing_if = "Option::is_none")]
+    pub context_management: Option<ContextManagementWire>,
 }
 
 /// The request-side Anthropic thinking configuration.
@@ -86,8 +92,30 @@ pub struct Request {
 pub struct ThinkingWire {
     #[serde(rename = "type")]
     pub kind: String,
-    #[serde(rename = "budget_tokens")]
-    pub budget_tokens: i64,
+    #[serde(
+        rename = "budget_tokens",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub budget_tokens: Option<i64>,
+    #[serde(rename = "display", skip_serializing_if = "Option::is_none")]
+    pub display: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OutputConfigWire {
+    #[serde(rename = "effort", skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+    #[serde(rename = "format", skip_serializing_if = "Option::is_none")]
+    pub format: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ContextManagementWire {
+    #[serde(rename = "edits", skip_serializing_if = "Option::is_none")]
+    pub edits: Option<Vec<Value>>,
 }
 
 /// Request system content: a plain string or a block array.
@@ -123,6 +151,8 @@ pub struct ToolWire {
     pub description: String,
     #[serde(rename = "input_schema")]
     pub input_schema: Value,
+    #[serde(rename = "cache_control", skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<Value>,
 }
 
 /// The wire tool_choice object. `disable_parallel_tool_use` has no IR

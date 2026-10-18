@@ -72,6 +72,20 @@ from oxa.ir.constants import (
     ToolChoiceMode,
 )
 from oxa.ir.loss import Loss
+from oxa.ir.native import (
+    NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_KIND_CONTEXT_MANAGEMENT,
+    NATIVE_KIND_OUTPUT_EFFORT,
+    NATIVE_KIND_THINKING_BUDGET,
+    NATIVE_KIND_THINKING_DISPLAY,
+    NATIVE_KIND_THINKING_MODE,
+    NATIVE_SOURCE_ANTHROPIC,
+    NativeAnnotation,
+    NativeOmission,
+    NativeProjection,
+    omitted_native_request_losses,
+    validate_native_request,
+)
 from oxa.ir.types import (
     ApplyPatchCreateFileOperation,
     ApplyPatchDeleteFileOperation,

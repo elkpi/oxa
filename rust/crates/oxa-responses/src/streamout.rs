@@ -147,17 +147,18 @@ impl StreamEncoder {
                 }
                 self.next_block_index += 1;
                 match block {
-                    Block::Text { text } => self.start_text_block(*index, text),
+                    Block::Text { text, .. } => self.start_text_block(*index, text),
                     Block::Thinking {
                         thinking,
                         signature,
+                        ..
                     } => self.start_thinking_block(*index, thinking, signature.as_deref()),
-                    Block::ToolUse { id, name, input } => {
-                        self.start_function_call_block(*index, id, name, input)
-                    }
-                    Block::CustomToolUse { id, name, input } => {
-                        self.start_custom_tool_call_block(*index, id, name, input)
-                    }
+                    Block::ToolUse {
+                        id, name, input, ..
+                    } => self.start_function_call_block(*index, id, name, input),
+                    Block::CustomToolUse {
+                        id, name, input, ..
+                    } => self.start_custom_tool_call_block(*index, id, name, input),
                     Block::ApplyPatchToolUse { .. } => {
                         self.start_apply_patch_call_block(*index, block)
                     }
@@ -810,6 +811,7 @@ impl StreamEncoder {
             id,
             status,
             operation,
+            ..
         }) = self.active_apply_patch_call.take()
         else {
             return Err(Error::new("responses: apply_patch_call missing block"));
@@ -848,6 +850,7 @@ impl StreamEncoder {
             tool_use_id,
             status,
             output,
+            ..
         } = block
         else {
             unreachable!()
@@ -921,6 +924,7 @@ impl StreamEncoder {
             tool_use_id,
             status,
             output,
+            ..
         }) = self.active_apply_patch_result.take()
         else {
             return Err(Error::new(

@@ -1,0 +1,72 @@
+{
+  "name": "anthropic.nonstream.native-output-format-still-audited-request-to-ir",
+  "description": "output_config.format is not supported and is reported as unmapped-field loss while effort is mapped.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Schema request."
+      }
+    ],
+    "output_config": {
+      "effort": "high",
+      "format": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object"
+        }
+      }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Schema request."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000,
+      "reasoning_effort": "high"
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "output_effort",
+        "value": "\"high\"",
+        "projection": {
+          "origin": "explicit",
+          "effort": "high"
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "output_config.format",
+      "field": "format",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": [
+    "request",
+    "effort",
+    "format",
+    "loss"
+  ]
+}

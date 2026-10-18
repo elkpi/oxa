@@ -1,0 +1,81 @@
+{
+  "name": "anthropic.nonstream.native-context-edits-request-from-ir",
+  "description": "IR request with native context_management encodes to Anthropic request with context_management.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "context_management",
+        "value": "{\"edits\":[{\"clear_at_least\":{\"type\":\"input_tokens\",\"value\":5000},\"clear_tool_inputs\":false,\"exclude_tools\":[\"web_search\"],\"keep\":{\"type\":\"tool_uses\",\"value\":3},\"trigger\":{\"type\":\"input_tokens\",\"value\":30000},\"type\":\"clear_tool_uses_20250919\"}]}",
+        "omission": {
+          "field": "context_management",
+          "reason": "unsupported-semantic"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Question."
+      }
+    ],
+    "context_management": {
+      "edits": [
+        {
+          "type": "clear_tool_uses_20250919",
+          "trigger": {
+            "type": "input_tokens",
+            "value": 30000
+          },
+          "keep": {
+            "type": "tool_uses",
+            "value": 3
+          },
+          "clear_at_least": {
+            "type": "input_tokens",
+            "value": 5000
+          },
+          "exclude_tools": [
+            "web_search"
+          ],
+          "clear_tool_inputs": false
+        }
+      ]
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "context-management",
+    "native"
+  ]
+}

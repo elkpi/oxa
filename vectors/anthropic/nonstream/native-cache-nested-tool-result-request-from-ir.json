@@ -1,0 +1,133 @@
+{
+  "name": "anthropic.nonstream.native-cache-nested-tool-result-request-from-ir",
+  "description": "IR request with cache_control on tool_result and nested content encodes both to Anthropic.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search DB."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_1",
+            "name": "lookup",
+            "input": "{}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tu_1",
+            "native": [
+              {
+                "source": "anthropic",
+                "kind": "cache_control",
+                "value": "{\"type\":\"ephemeral\"}",
+                "omission": {
+                  "field": "cache_control",
+                  "reason": "unmapped-field"
+                }
+              }
+            ],
+            "content": [
+              {
+                "type": "text",
+                "text": "result-body",
+                "native": [
+                  {
+                    "source": "anthropic",
+                    "kind": "cache_control",
+                    "value": "{\"type\":\"ephemeral\"}",
+                    "omission": {
+                      "field": "cache_control",
+                      "reason": "unmapped-field"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search DB."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "tu_1",
+            "name": "lookup",
+            "input": {}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "tu_1",
+            "cache_control": {
+              "type": "ephemeral"
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "result-body",
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tool-result",
+    "cache-control",
+    "native"
+  ]
+}

@@ -161,7 +161,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		StopSequences: wire.Stop,
 	}
 	switch wire.ReasoningEffort {
-	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:
 		req.Params.ReasoningEffort = wire.ReasoningEffort
 	default:
 		losses = append(losses, loss(

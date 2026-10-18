@@ -13,6 +13,7 @@ fn text_block_start(index: i64, text: &str) -> Event {
         index,
         block: Block::Text {
             text: text.to_string(),
+            native: Vec::new(),
         },
     }
 }
@@ -33,6 +34,7 @@ fn tool_start(index: i64, input: &str) -> Event {
             id: "call_1".to_string(),
             name: "get_weather".to_string(),
             input: input.to_string(),
+            native: Vec::new(),
         },
     }
 }
@@ -107,6 +109,7 @@ fn accepts_m9_thinking_deltas_then_one_signature_delta() {
             block: Block::Thinking {
                 thinking: "".to_string(),
                 signature: Some("sig_start".to_string()),
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {
@@ -138,6 +141,7 @@ fn rejects_thinking_delta_after_signature_delta() {
                 block: Block::Thinking {
                     thinking: "".to_string(),
                     signature: None,
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -171,6 +175,7 @@ fn rejects_duplicate_signature_deltas() {
                 block: Block::Thinking {
                     thinking: "".to_string(),
                     signature: None,
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -448,6 +453,7 @@ fn custom_tool_input_delta_is_opaque_and_type_matched() {
                     id: "c".into(),
                     name: "exec".into(),
                     input: "{}\r\n".into(),
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -472,6 +478,7 @@ fn custom_tool_input_delta_is_opaque_and_type_matched() {
                     id: "c".into(),
                     name: "exec".into(),
                     input: "{}".into(),
+                    native: Vec::new(),
                 },
             },
             Event::ContentBlockDelta {
@@ -502,6 +509,7 @@ fn custom_tool_empty_input_needs_no_delta_and_requires_identity() {
                     id: "c".into(),
                     name: "exec".into(),
                     input: String::new(),
+                    native: Vec::new(),
                 },
             },
             block_stop(0),
@@ -519,6 +527,7 @@ fn custom_tool_empty_input_needs_no_delta_and_requires_identity() {
                     id: String::new(),
                     name: "exec".into(),
                     input: String::new(),
+                    native: Vec::new(),
                 },
             },
         ],

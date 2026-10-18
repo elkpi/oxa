@@ -235,6 +235,7 @@ func TestCrossVectors(t *testing.T) {
 		{"responses", "anthropic"},
 		{"anthropic", "chatcompletions"},
 		{"anthropic", "responses"},
+		{"anthropic", "anthropic"},
 	} {
 		t.Run(pair[0]+"-to-"+pair[1], func(t *testing.T) {
 			RunCross(t, faces[pair[0]], faces[pair[1]])

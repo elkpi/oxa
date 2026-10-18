@@ -41,7 +41,13 @@ TOOL_CHOICE_NONE: Final = "none"
 ToolChoiceMode = Literal["auto", "any", "tool", "none"]
 
 # Request-side reasoning effort (spec/01 §3.7)
-ReasoningEffort = Literal["minimal", "low", "medium", "high"]
+REASONING_EFFORT_MINIMAL: Final = "minimal"
+REASONING_EFFORT_LOW: Final = "low"
+REASONING_EFFORT_MEDIUM: Final = "medium"
+REASONING_EFFORT_HIGH: Final = "high"
+REASONING_EFFORT_XHIGH: Final = "xhigh"
+REASONING_EFFORT_MAX: Final = "max"
+ReasoningEffort = Literal["minimal", "low", "medium", "high", "xhigh", "max"]
 
 # Stop reasons (spec/01 §4.1)
 STOP_END_TURN: Final = "end_turn"

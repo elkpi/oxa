@@ -28,6 +28,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil request")
 	}
+	if err := ir.ValidateNativeRequest(req); err != nil {
+		return nil, nil, err
+	}
 	var losses []ir.Loss
 	if len(req.Metadata) > 0 {
 		losses = append(losses, ir.Loss{
@@ -42,7 +45,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
 		for _, s := range req.System {
-			blocks = append(blocks, SystemBlockWire{Type: BlockTypeText, Text: s.Text})
+			sbw := SystemBlockWire{Type: BlockTypeText, Text: s.Text}
+			if cc := getBlockCacheControl(s); len(cc) > 0 {
+				sbw.CacheControl = cc
+			}
+			blocks = append(blocks, sbw)
 		}
 		out.System = blocks
 	}
@@ -58,11 +65,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 				})
 			}
 			schema := json.RawMessage(`{"type":"object","properties":{"input":{"type":"string"}},"required":["input"]}`)
-			out.Tools = append(out.Tools, ToolWire{
+			tw := ToolWire{
 				Name:        tool.Name,
 				Description: tool.Description,
 				InputSchema: schema,
-			})
+			}
+			if cc := getBlockCacheControl(tool); len(cc) > 0 {
+				tw.CacheControl = cc
+			}
+			out.Tools = append(out.Tools, tw)
 			continue
 		}
 		if tool.Type == ir.ToolTypeApplyPatch {
@@ -72,11 +83,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
 		}
-		out.Tools = append(out.Tools, ToolWire{
+		tw := ToolWire{
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
-		})
+		}
+		if cc := getBlockCacheControl(tool); len(cc) > 0 {
+			tw.CacheControl = cc
+		}
+		out.Tools = append(out.Tools, tw)
 	}
 	choice, choiceLosses, err := encodeToolChoice(req.ToolChoice)
 	if err != nil {
@@ -92,7 +107,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	shorthand := len(req.System) == 0 && len(req.Messages) == 1 &&
 		len(req.Messages[0].Content) == 1
 	if shorthand {
-		_, shorthand = req.Messages[0].Content[0].(ir.TextBlock)
+		if tb, isText := req.Messages[0].Content[0].(ir.TextBlock); isText {
+			shorthand = len(tb.Native) == 0
+		} else {
+			shorthand = false
+		}
 	}
 	for i, m := range req.Messages {
 		var role string
@@ -135,31 +154,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Params.StopSequences) > 0 {
 		out.StopSequences = req.Params.StopSequences
 	}
-	if req.Params.ReasoningEffort != "" {
-		var budget int64
-		switch req.Params.ReasoningEffort {
-		case ir.ReasoningEffortMinimal:
-			budget = 1024
-		case ir.ReasoningEffortLow:
-			budget = 2048
-		case ir.ReasoningEffortMedium:
-			budget = 8192
-		case ir.ReasoningEffortHigh:
-			budget = 16384
-		default:
-			budget = 2048
-		}
-		out.Thinking = &ThinkingWire{
-			Type:         "enabled",
-			BudgetTokens: budget,
-		}
-		losses = append(losses, ir.Loss{
-			Path:   "params.reasoning_effort",
-			Field:  "reasoning_effort",
-			Reason: ir.LossDegraded,
-			Detail: "budget approximated",
-		})
+	natLosses, err := encodeRequestNative(req, out)
+	if err != nil {
+		return nil, nil, err
 	}
+	losses = append(losses, natLosses...)
 	if req.Params.ResponseFormat != nil {
 		losses = append(losses, ir.Loss{
 			Path:   "params.response_format",
@@ -212,6 +211,9 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 			return nil, nil, err
 		}
 		if mapped {
+			if cc := getBlockCacheControl(block); len(cc) > 0 {
+				encoded.CacheControl = cc
+			}
 			out = append(out, encoded)
 		}
 		losses = append(losses, blockLosses...)
@@ -281,7 +283,11 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 			innerPath := fmt.Sprintf("%s.content[%d]", path, j)
 			switch ib := inner.(type) {
 			case ir.TextBlock:
-				content = append(content, BlockWire{Type: BlockTypeText, Text: ib.Text})
+				bw := BlockWire{Type: BlockTypeText, Text: ib.Text}
+				if cc := getBlockCacheControl(ib); len(cc) > 0 {
+					bw.CacheControl = cc
+				}
+				content = append(content, bw)
 			case ir.ImageBlock:
 				imgWire, imgLosses, ok, err := encodeImageBlock(ib, innerPath)
 				if err != nil {
@@ -289,13 +295,20 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 				}
 				losses = append(losses, imgLosses...)
 				if ok {
+					if cc := getBlockCacheControl(ib); len(cc) > 0 {
+						imgWire.CacheControl = cc
+					}
 					content = append(content, imgWire)
 				}
 			default:
 				losses = append(losses, unsupportedBlockLoss(innerPath, inner))
 			}
 		}
-		return BlockWire{Type: BlockTypeToolResult, ToolUseID: b.ToolUseID, Content: content}, losses, true, nil
+		res := BlockWire{Type: BlockTypeToolResult, ToolUseID: b.ToolUseID, Content: content}
+		if cc := getBlockCacheControl(b); len(cc) > 0 {
+			res.CacheControl = cc
+		}
+		return res, losses, true, nil
 	case ir.ToolResultBlock:
 		return encodeToolResultBlock(b, path)
 	default:
@@ -333,13 +346,20 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 		contentPath := fmt.Sprintf("%s.content[%d]", path, i)
 		switch b := block.(type) {
 		case ir.TextBlock:
-			content = append(content, BlockWire{Type: BlockTypeText, Text: b.Text})
+			bw := BlockWire{Type: BlockTypeText, Text: b.Text}
+			if cc := getBlockCacheControl(b); len(cc) > 0 {
+				bw.CacheControl = cc
+			}
+			content = append(content, bw)
 		case ir.ImageBlock:
 			image, imageLosses, mapped, err := encodeImageBlock(b, contentPath)
 			if err != nil {
 				return BlockWire{}, nil, false, err
 			}
 			if mapped {
+				if cc := getBlockCacheControl(b); len(cc) > 0 {
+					image.CacheControl = cc
+				}
 				content = append(content, image)
 			}
 			losses = append(losses, imageLosses...)
@@ -347,9 +367,13 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 			losses = append(losses, unsupportedBlockLoss(contentPath, block))
 		}
 	}
-	return BlockWire{
+	bw := BlockWire{
 		Type: BlockTypeToolResult, ToolUseID: result.ToolUseID, Content: content, IsError: result.IsError,
-	}, losses, true, nil
+	}
+	if cc := getBlockCacheControl(result); len(cc) > 0 {
+		bw.CacheControl = cc
+	}
+	return bw, losses, true, nil
 }
 
 func invalidImageLoss(path, detail string) ir.Loss {

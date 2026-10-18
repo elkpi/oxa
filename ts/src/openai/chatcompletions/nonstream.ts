@@ -11,7 +11,11 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { parseUsageInteger, validateRequest } from "../../ir/index.js";
+import {
+  parseUsageInteger,
+  validateRequest,
+  omittedNativeRequestLosses,
+} from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
 import type {
@@ -556,32 +560,33 @@ export function encodeRequest(
   )
     losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
   const params = request.params;
+  const outValue: JsonObject = {
+    model: mapModel(options.modelMapper, request.model),
+    messages,
+    ...(params?.temperature === undefined
+      ? {}
+      : { temperature: fromValue(params.temperature) }),
+    ...(params?.top_p === undefined ? {} : { top_p: fromValue(params.top_p) }),
+    ...(params?.max_tokens === undefined
+      ? {}
+      : { max_tokens: integer(params.max_tokens) }),
+    ...(params?.stop_sequences === undefined ||
+    params.stop_sequences.length === 0
+      ? {}
+      : { stop: [...params.stop_sequences] }),
+    ...(params?.reasoning_effort === undefined
+      ? {}
+      : { reasoning_effort: params.reasoning_effort }),
+    ...(params?.response_format === undefined
+      ? {}
+      : { response_format: encodeResponseFormat(params.response_format) }),
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+  };
+  const omissionLosses = omittedNativeRequestLosses(request, "chatcompletions");
+  losses.push(...omissionLosses);
   return {
-    value: {
-      model: mapModel(options.modelMapper, request.model),
-      messages,
-      ...(params?.temperature === undefined
-        ? {}
-        : { temperature: fromValue(params.temperature) }),
-      ...(params?.top_p === undefined
-        ? {}
-        : { top_p: fromValue(params.top_p) }),
-      ...(params?.max_tokens === undefined
-        ? {}
-        : { max_tokens: integer(params.max_tokens) }),
-      ...(params?.stop_sequences === undefined ||
-      params.stop_sequences.length === 0
-        ? {}
-        : { stop: [...params.stop_sequences] }),
-      ...(params?.reasoning_effort === undefined
-        ? {}
-        : { reasoning_effort: params.reasoning_effort }),
-      ...(params?.response_format === undefined
-        ? {}
-        : { response_format: encodeResponseFormat(params.response_format) }),
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-    },
+    value: outValue,
     losses,
   };
 }
@@ -1021,7 +1026,9 @@ function decodeReasoningEffort(
     effort === "minimal" ||
     effort === "low" ||
     effort === "medium" ||
-    effort === "high"
+    effort === "high" ||
+    effort === "xhigh" ||
+    effort === "max"
   )
     return { reasoning_effort: effort };
   losses.push(loss("reasoning_effort", "reasoning_effort", "unmapped-value"));

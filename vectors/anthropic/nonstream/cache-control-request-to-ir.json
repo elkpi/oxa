@@ -1,0 +1,47 @@
+{
+  "name": "anthropic.nonstream.cache-control-request-to-ir",
+  "description": "cache_control on a system block is preserved as a native option in the IR without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 512,
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a terse assistant.",
+        "cache_control": { "type": "ephemeral" }
+      }
+    ],
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-4-5",
+    "system": [
+      {
+        "type": "text",
+        "text": "You are a terse assistant.",
+        "native": [
+          {
+            "source": "anthropic",
+            "kind": "cache_control",
+            "value": "{\"type\":\"ephemeral\"}",
+            "omission": {
+              "field": "cache_control",
+              "reason": "unmapped-field"
+            }
+          }
+        ]
+      }
+    ],
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ],
+    "params": { "max_tokens": 512 }
+  },
+  "expected_losses": [],
+  "tags": ["request", "cache-control", "native"]
+}

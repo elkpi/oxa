@@ -121,7 +121,7 @@ impl StreamEncoder {
                     )));
                 }
                 match block {
-                    Block::Text { text } => {
+                    Block::Text { text, .. } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
@@ -147,6 +147,7 @@ impl StreamEncoder {
                     Block::Thinking {
                         thinking,
                         signature,
+                        ..
                     } => {
                         self.next_index += 1;
                         self.block_open = true;
@@ -174,7 +175,9 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    Block::ToolUse { id, name, input } => {
+                    Block::ToolUse {
+                        id, name, input, ..
+                    } => {
                         if id.is_empty() {
                             return Err(Error::new(
                                 "anthropic: ContentBlockStart tool_use id is required",
@@ -214,7 +217,9 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    Block::CustomToolUse { id, name, input } => {
+                    Block::CustomToolUse {
+                        id, name, input, ..
+                    } => {
                         if id.is_empty() {
                             return Err(Error::new(
                                 "anthropic: ContentBlockStart custom_tool_use id is required",

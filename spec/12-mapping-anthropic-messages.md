@@ -63,12 +63,16 @@ The wire objects in scope are:
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `stop_sequences` | `Params.StopSequences` | 1:1 (N-AN-7) |
-| `thinking` (`type: "enabled"`, `budget_tokens`) | `Params.ReasoningEffort` | mapped via budget table with degraded loss (N-AN-11, since 2.0) |
+| `thinking` (`type: "enabled"`, `budget_tokens`) | `Params.ReasoningEffort` + `NativeAnnotation` | mapped via budget table when no explicit effort; preserved as native options in IR (N-AN-11, N-AN-14) |
+| `thinking` (`type: "adaptive"` / `"disabled"`) | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-14) |
+| `thinking.display` | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-14) |
+| `output_config.effort` | `Params.ReasoningEffort` + `NativeAnnotation` | 1:1 effort mapping (xhigh/max supported); preserved as native option in IR (N-AN-14) |
+| `cache_control` (top-level, system, content, tools, tool_result) | `NativeAnnotation` | retained on respective IR host; no loss on decode (N-AN-14) |
+| `context_management` | `NativeAnnotation` | retained on IR Request; no loss on decode (N-AN-14) |
 | `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1); MUST be a JSON object |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
 | `tool_choice.disable_parallel_tool_use` | — | unmapped-field loss |
-| `cache_control` (any block, system block) | — | unmapped-field loss |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
 
 On encode (IR → AN), `Request.System` renders as a system block array
@@ -225,6 +229,12 @@ Each rule has a stable ID usable as a vector tag.
   In streaming (IR → Messages), `CustomToolInputDelta` fragments are accumulated, and at `content_block_stop`
   a single canonical `input_json_delta` containing the complete wrapped JSON `{"input":"<concatenated>"}`
   is emitted, guaranteeing that the stream's accumulated `partial_json` remains a single valid JSON document.
+- **N-AN-14 (native request options round-trip, spec/15).** Requests preserve recognized Anthropic
+  request-level and block-level options (`thinking.type`, `thinking.budget_tokens`, `thinking.display`,
+  `output_config.effort`, `cache_control`, `context_management.edits`) as `NativeAnnotation`s in the IR.
+  No loss is emitted on Decode when these options are preserved. On Encode (IR → Messages), these options
+  are restored to their original wire locations with full fidelity, subject to the explicit-edit priority
+  rules of spec/15 §5.
 
 ## 8. Loss Catalog
 
@@ -234,9 +244,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | Field (path context) | Bucket / reason | Direction | Detail |
 |---|---|---|---|
 | response `type`, `role` | exempt (envelope) | both | N-AN-10 |
-| `cache_control` on a mapped block or system block | unmapped-field | request/response → IR | Anthropic prompt-caching annotations have no IR equivalent in v1 |
+| `cache_control` on an unsupported/dropped block | unsupported-semantic | request/response → IR | part of the whole dropped block (N-AN-9) |
 | `params.response_format` | unmapped-field | IR → request | Anthropic Messages has no native response_format request parameter (N-AN-12) |
-| `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation (N-AN-11) |
+| `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation when no explicit effort is present (N-AN-11, N-AN-14) |
 | `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |
 | unknown block type or unknown image source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |

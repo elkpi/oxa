@@ -156,6 +156,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.Params.ResponseFormat != nil {
 		out.ResponseFormat = encodeResponseFormat(req.Params.ResponseFormat)
 	}
+	omissionLosses, err := ir.OmittedNativeRequestLosses(req, "chatcompletions")
+	if err != nil {
+		return nil, nil, err
+	}
+	losses = append(losses, omissionLosses...)
 	return out, losses, nil
 }
 

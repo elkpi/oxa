@@ -92,4 +92,26 @@ events.extend(
 )
 events.extend(decoder.flush())
 assert events
+
+from oxa.ir import Message as IrMessage, Request as IrRequest, TextBlock as IrTextBlock
+from oxa.ir.native import (
+    NATIVE_KIND_THINKING_MODE,
+    NATIVE_SOURCE_ANTHROPIC,
+    NativeAnnotation,
+    validate_native_request,
+)
+
+ir_req = IrRequest(
+    model="m",
+    messages=[IrMessage(role="user", content=[IrTextBlock(text="hi")])],
+    native=(
+        NativeAnnotation(
+            source=NATIVE_SOURCE_ANTHROPIC,
+            kind=NATIVE_KIND_THINKING_MODE,
+            value='"adaptive"',
+        ),
+    ),
+)
+validate_native_request(ir_req)
+
 print("python consumer: OK")

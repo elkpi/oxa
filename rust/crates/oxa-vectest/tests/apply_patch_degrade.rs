@@ -18,6 +18,7 @@ fn test_apply_patch_stream_degradation() {
                 tool_use_id: "c".into(),
                 status: ApplyPatchResultStatus::Completed,
                 output: None,
+                native: Vec::new(),
             },
         },
         Event::ContentBlockStop { index: 0 },
@@ -58,6 +59,7 @@ fn test_apply_patch_stream_degradation() {
                 id: "c".into(),
                 status: ApplyPatchCallStatus::Completed,
                 operation: ApplyPatchOperation::DeleteFile { path: "a".into() },
+                native: Vec::new(),
             },
         },
         Event::ContentBlockDelta {

@@ -24,13 +24,15 @@ const (
 
 // TextBlock is a run of text.
 type TextBlock struct {
-	Text string
+	Text   string
+	Native []NativeAnnotation
 }
 
 // ThinkingBlock is the model's reasoning content with optional opaque provider signature (since 2.0).
 type ThinkingBlock struct {
 	Thinking  string
 	Signature string
+	Native    []NativeAnnotation
 }
 
 // ImageBlock is an image input. Unused in this milestone (M4 wires it);
@@ -39,6 +41,7 @@ type ImageBlock struct {
 	MediaType string
 	Data      string
 	URL       string
+	Native    []NativeAnnotation
 }
 
 // ToolUseBlock is a tool invocation produced by the model. Input is the raw
@@ -47,9 +50,10 @@ type ImageBlock struct {
 // holds the exact source JSON token (including the surrounding quotes), so
 // round-trips are byte-faithful down to the escape style.
 type ToolUseBlock struct {
-	ID    string
-	Name  string
-	Input json.RawMessage
+	ID     string
+	Name   string
+	Input  json.RawMessage
+	Native []NativeAnnotation
 }
 
 // ToolResultBlock is the outcome of a tool invocation, supplied by the caller.
@@ -57,6 +61,7 @@ type ToolResultBlock struct {
 	ToolUseID string
 	Content   []Block
 	IsError   bool
+	Native    []NativeAnnotation
 }
 
 func (TextBlock) isBlock()       {}
@@ -68,5 +73,6 @@ func (ThinkingBlock) isBlock()   {}
 // SystemBlock is system prompt content (spec/01 s3.2). Sealed; exactly one
 // variant (text) in v1.
 type SystemBlock struct {
-	Text string
+	Text   string
+	Native []NativeAnnotation
 }

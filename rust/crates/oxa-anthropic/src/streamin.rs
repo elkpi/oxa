@@ -183,6 +183,7 @@ impl StreamDecoder {
                         block: Block::Thinking {
                             thinking: thinking.to_string(),
                             signature: block.signature.clone(),
+                            native: Vec::new(),
                         },
                     }]);
                 }
@@ -212,6 +213,7 @@ impl StreamDecoder {
                     index: self.open_ir_index,
                     block: Block::Text {
                         text: block.text.clone(),
+                        native: Vec::new(),
                     },
                 }])
             }
@@ -351,6 +353,7 @@ impl StreamDecoder {
                                     id,
                                     name,
                                     input: custom_text.clone(),
+                                    native: Vec::new(),
                                 },
                             },
                             Event::ContentBlockDelta {
@@ -393,6 +396,7 @@ impl StreamDecoder {
                             id: std::mem::take(&mut self.tool_id),
                             name: std::mem::take(&mut self.tool_name),
                             input: full_input,
+                            native: Vec::new(),
                         },
                     }];
                     events.extend(deltas);

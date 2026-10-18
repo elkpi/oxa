@@ -329,7 +329,7 @@ def decode_response_format(value: Any, losses: list[Loss]) -> ResponseFormat | N
 def decode_reasoning_effort(value: Any, losses: list[Loss]) -> ReasoningEffort | None:
     if value is None:
         return None
-    if value in ("minimal", "low", "medium", "high"):
+    if value in ("minimal", "low", "medium", "high", "xhigh", "max"):
         return cast(ReasoningEffort, value)
     losses.append(
         loss(

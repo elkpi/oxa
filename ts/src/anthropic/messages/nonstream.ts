@@ -18,11 +18,18 @@ import { mapModel, type ModelMapper } from "../../modelmap.js";
 import { parseUsageInteger, validateRequest } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
+import {
+  decodeRequestNative,
+  encodeRequestNative,
+  getBlockCacheControl,
+  attachBlockCacheControl,
+} from "./native.js";
 import type {
   Block,
   CustomToolResultBlock,
   CustomToolUseBlock,
   ImageBlock,
+  NativeAnnotation,
   ReasoningEffort,
   Request,
   Response,
@@ -89,7 +96,11 @@ function decodeRequestObject(
   const losses: Loss[] = [];
   if (wire.metadata !== undefined)
     losses.push(loss("metadata", "metadata", "unmapped-field"));
-  const system: { readonly type: "text"; readonly text: string }[] = [];
+  const system: {
+    readonly type: "text";
+    readonly text: string;
+    readonly native?: readonly NativeAnnotation[];
+  }[] = [];
   if (typeof wire.system === "string") {
     system.push({ type: "text", text: wire.system });
   } else if (wire.system !== undefined && wire.system !== null) {
@@ -97,18 +108,12 @@ function decodeRequestObject(
     for (let index = 0; index < blocks.length; index += 1) {
       const block = object(blocks[index], `system[${index}]`);
       if (block.type !== "text") fail(`system[${index}].type must be text`);
+      const native = attachBlockCacheControl(block, `system[${index}]`, losses);
       system.push({
         type: "text",
         text: string(block.text, `system[${index}].text`),
+        ...(native ? { native } : {}),
       });
-      if (block.cache_control !== undefined)
-        losses.push(
-          loss(
-            `system[${index}].cache_control`,
-            "cache_control",
-            "unmapped-field",
-          ),
-        );
     }
   }
   const declaredTools = new Set<string>();
@@ -119,6 +124,7 @@ function decodeRequestObject(
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
     const name = string(tool.name, `tools[${index}].name`);
     declaredTools.add(name);
+    const native = attachBlockCacheControl(tool, `tools[${index}]`, losses);
     if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
@@ -132,6 +138,7 @@ function decodeRequestObject(
                 `tools[${index}].description`,
               ),
             }),
+        ...(native ? { native } : {}),
       };
     }
     return {
@@ -145,6 +152,7 @@ function decodeRequestObject(
             ),
           }),
       input_schema: schema,
+      ...(native ? { native } : {}),
     };
   });
   const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools);
@@ -161,21 +169,11 @@ function decodeRequestObject(
       customTools,
       customCallIds,
       declaredTools,
+      true,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
   });
-  let effortValue: ReasoningEffort | undefined;
-  if (wire.thinking !== undefined && wire.thinking !== null) {
-    const thinking = object(wire.thinking, "thinking");
-    const thinkingType = string(thinking.type, "thinking.type");
-    if (thinkingType === "enabled") {
-      const budget = whole(thinking.budget_tokens, "thinking.budget_tokens");
-      effortValue =
-        budget <= 2048n ? "low" : budget <= 8192n ? "medium" : "high";
-      losses.push(loss("thinking.budget_tokens", "budget_tokens", "degraded"));
-    }
-  }
   const params = {
     max_tokens: maxTokens,
     ...(wire.temperature === undefined
@@ -187,9 +185,8 @@ function decodeRequestObject(
       : {
           stop_sequences: strings(wire.stop_sequences, "stop_sequences"),
         }),
-    ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
   };
-  const request: Request = {
+  const baseRequest: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
     ...(system.length === 0 ? {} : { system }),
     messages,
@@ -197,6 +194,7 @@ function decodeRequestObject(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     params,
   };
+  const request = decodeRequestNative(wire, baseRequest, losses);
   validateRequest(request);
   return { value: request, losses };
 }
@@ -222,7 +220,15 @@ function decodeResponseObject(
   options: NonstreamOptions = {},
 ): ConversionResult<Response> {
   const losses: Loss[] = [];
-  const content = decodeContent(wire.content, "content", losses);
+  const content = decodeContent(
+    wire.content,
+    "content",
+    losses,
+    undefined,
+    undefined,
+    undefined,
+    false,
+  );
   const nativeStop = string(wire.stop_reason, "stop_reason");
   let stopReason: Response["stop_reason"];
   if (
@@ -294,34 +300,18 @@ export function encodeRequest(
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
     losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
-  let thinkingWire: JsonObject | undefined;
-  if (request.params?.reasoning_effort !== undefined) {
-    const budgets = {
-      minimal: 1024n,
-      low: 2048n,
-      medium: 8192n,
-      high: 16384n,
-    } as const;
-    thinkingWire = {
-      type: "enabled",
-      budget_tokens: integer(
-        budgets[request.params.reasoning_effort as ReasoningEffort],
-      ),
-    };
-    losses.push(
-      loss("params.reasoning_effort", "reasoning_effort", "degraded"),
-    );
-  }
   if (request.params?.response_format !== undefined) {
     losses.push(
       loss("params.response_format", "response_format", "unmapped-field"),
     );
   }
+  const firstBlock = request.messages[0]?.content[0];
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     request.messages.length === 1 &&
     request.messages[0]!.content.length === 1 &&
-    request.messages[0]!.content[0]!.type === "text";
+    firstBlock?.type === "text" &&
+    (firstBlock.native === undefined || firstBlock.native.length === 0);
   const messages = request.messages.map((message, index) => {
     const encoded = shorthand
       ? (message.content[0] as { readonly text: string }).text
@@ -341,6 +331,7 @@ export function encodeRequest(
   });
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
+      const cc = getBlockCacheControl(tool);
       if (tool.type === "custom") {
         if (tool.format?.type === "grammar") {
           losses.push(
@@ -358,6 +349,7 @@ export function encodeRequest(
               properties: { input: { type: "string" } },
               required: ["input"],
             },
+            ...(cc ? { cache_control: cc } : {}),
           },
         ];
       }
@@ -372,6 +364,7 @@ export function encodeRequest(
             ? {}
             : { description: tool.description }),
           input_schema: tool.input_schema,
+          ...(cc ? { cache_control: cc } : {}),
         },
       ];
     }) ?? [];
@@ -385,33 +378,36 @@ export function encodeRequest(
         undefined)
       : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
-  return {
-    value: {
-      model: mapModel(options.modelMapper, request.model),
-      max_tokens: integer(maxTokens),
-      ...(request.system === undefined || request.system.length === 0
-        ? {}
-        : {
-            system: request.system.map((block) => ({
+  const outValue: JsonObject = {
+    model: mapModel(options.modelMapper, request.model),
+    max_tokens: integer(maxTokens),
+    ...(request.system === undefined || request.system.length === 0
+      ? {}
+      : {
+          system: request.system.map((block) => {
+            const cc = getBlockCacheControl(block);
+            return {
               type: "text",
               text: block.text,
-            })),
+              ...(cc ? { cache_control: cc } : {}),
+            };
           }),
-      messages,
-      ...(thinkingWire === undefined ? {} : { thinking: thinkingWire }),
-      ...(params?.temperature === undefined
-        ? {}
-        : { temperature: fromValue(params.temperature) }),
-      ...(params?.top_p === undefined
-        ? {}
-        : { top_p: fromValue(params.top_p) }),
-      ...(params?.stop_sequences === undefined ||
-      params.stop_sequences.length === 0
-        ? {}
-        : { stop_sequences: [...params.stop_sequences] }),
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-    },
+        }),
+    messages,
+    ...(params?.temperature === undefined
+      ? {}
+      : { temperature: fromValue(params.temperature) }),
+    ...(params?.top_p === undefined ? {} : { top_p: fromValue(params.top_p) }),
+    ...(params?.stop_sequences === undefined ||
+    params.stop_sequences.length === 0
+      ? {}
+      : { stop_sequences: [...params.stop_sequences] }),
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+  };
+  encodeRequestNative(request, outValue, losses);
+  return {
+    value: outValue,
     losses,
   };
 }
@@ -486,16 +482,21 @@ function decodeContent(
   customTools?: ReadonlySet<string>,
   customCallIds?: Set<string>,
   declaredTools?: ReadonlySet<string>,
+  isRequest: boolean = false,
 ): Block[] {
   if (typeof value === "string") return [{ type: "text", text: value }];
   const blocks: Block[] = [];
   for (let index = 0; index < array(value, path).length; index += 1) {
     const block = object(array(value, path)[index], `${path}[${index}]`);
     const type = string(block.type, `${path}[${index}].type`);
+    const native = isRequest
+      ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
+      : undefined;
     if (type === "text") {
       blocks.push({
         type: "text",
         text: string(block.text, `${path}[${index}].text`),
+        ...(native ? { native } : {}),
       });
     } else if (type === "image") {
       const source = object(block.source, `${path}[${index}].source`);
@@ -507,11 +508,13 @@ function decodeContent(
             `${path}[${index}].source.media_type`,
           ),
           data: string(source.data, `${path}[${index}].source.data`),
+          ...(native ? { native } : {}),
         });
       else if (source.type === "url")
         blocks.push({
           type: "image",
           url: string(source.url, `${path}[${index}].source.url`),
+          ...(native ? { native } : {}),
         });
       else {
         losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
@@ -529,6 +532,7 @@ function decodeContent(
                 `${path}[${index}].signature`,
               ),
             }),
+        ...(native ? { native } : {}),
       });
     } else if (type === "tool_use") {
       const inputPath = `${path}[${index}].input`;
@@ -543,6 +547,7 @@ function decodeContent(
           id,
           name,
           input: customInput ?? "",
+          ...(native ? { native } : {}),
         });
       } else if (declaredTools?.has(name)) {
         const inputText =
@@ -554,6 +559,7 @@ function decodeContent(
           id,
           name,
           input: inputText,
+          ...(native ? { native } : {}),
         });
       } else if (customInput !== undefined) {
         customCallIds?.add(id);
@@ -562,6 +568,7 @@ function decodeContent(
           id,
           name,
           input: customInput,
+          ...(native ? { native } : {}),
         });
       } else {
         const inputText =
@@ -573,6 +580,7 @@ function decodeContent(
           id,
           name,
           input: inputText,
+          ...(native ? { native } : {}),
         });
       }
     } else if (type === "tool_result") {
@@ -594,10 +602,12 @@ function decodeContent(
                   customTools,
                   customCallIds,
                   declaredTools,
+                  isRequest,
                 ).filter(
                   (b): b is TextBlock | ImageBlock =>
                     b.type === "text" || b.type === "image",
                 ) as readonly (TextBlock | ImageBlock)[]),
+          ...(native ? { native } : {}),
         });
       } else {
         blocks.push({
@@ -610,26 +620,20 @@ function decodeContent(
             customTools,
             customCallIds,
             declaredTools,
+            isRequest,
           ),
           ...(block.is_error === undefined
             ? {}
             : {
                 is_error: boolean(block.is_error, `${path}[${index}].is_error`),
               }),
+          ...(native ? { native } : {}),
         });
       }
     } else {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
       continue;
     }
-    if (block.cache_control !== undefined)
-      losses.push(
-        loss(
-          `${path}[${index}].cache_control`,
-          "cache_control",
-          "unmapped-field",
-        ),
-      );
   }
   return blocks;
 }
@@ -643,7 +647,13 @@ function encodeContent(
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
-    if (block.type === "text") output.push({ type: "text", text: block.text });
+    const cc = getBlockCacheControl(block);
+    if (block.type === "text")
+      output.push({
+        type: "text",
+        text: block.text,
+        ...(cc ? { cache_control: cc } : {}),
+      });
     else if (block.type === "thinking") {
       output.push({
         type: "thinking",
@@ -651,6 +661,7 @@ function encodeContent(
         ...(block.signature === undefined
           ? {}
           : { signature: block.signature }),
+        ...(cc ? { cache_control: cc } : {}),
       });
       if (replay && block.signature === undefined)
         losses.push({
@@ -663,7 +674,7 @@ function encodeContent(
       const image = encodeImage(block);
       if (image === undefined)
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
-      else output.push(image);
+      else output.push({ ...image, ...(cc ? { cache_control: cc } : {}) });
     } else if (block.type === "tool_use") {
       const value = parseJson(block.input);
       const inputPath = `${path}[${index}].input`;
@@ -672,13 +683,19 @@ function encodeContent(
         id: block.id,
         name: block.name,
         input: withSourceText(object(value, inputPath), block.input),
+        ...(cc ? { cache_control: cc } : {}),
       });
     } else if (block.type === "tool_result") {
       const content: JsonValue[] = [];
       for (let child = 0; child < block.content.length; child += 1) {
         const nested = block.content[child]!;
+        const nestedCc = getBlockCacheControl(nested);
         if (nested.type === "text")
-          content.push({ type: "text", text: nested.text });
+          content.push({
+            type: "text",
+            text: nested.text,
+            ...(nestedCc ? { cache_control: nestedCc } : {}),
+          });
         else if (nested.type === "image") {
           const image = encodeImage(nested);
           if (image === undefined)
@@ -689,7 +706,11 @@ function encodeContent(
                 "unsupported-semantic",
               ),
             );
-          else content.push(image);
+          else
+            content.push({
+              ...image,
+              ...(nestedCc ? { cache_control: nestedCc } : {}),
+            });
         } else
           losses.push(
             loss(
@@ -704,6 +725,7 @@ function encodeContent(
         tool_use_id: block.tool_use_id,
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
+        ...(cc ? { cache_control: cc } : {}),
       });
     } else if (block.type === "custom_tool_use") {
       output.push({
@@ -718,22 +740,33 @@ function encodeContent(
           type: "tool_result",
           tool_use_id: block.tool_use_id,
           content: block.output,
+          ...(cc ? { cache_control: cc } : {}),
         });
       } else {
         const content: JsonValue[] = [];
         for (let child = 0; child < block.output.length; child += 1) {
           const nested = block.output[child]!;
+          const nestedCc = getBlockCacheControl(nested);
           if (nested.type === "text")
-            content.push({ type: "text", text: nested.text });
+            content.push({
+              type: "text",
+              text: nested.text,
+              ...(nestedCc ? { cache_control: nestedCc } : {}),
+            });
           else if (nested.type === "image") {
             const image = encodeImage(nested);
-            if (image !== undefined) content.push(image);
+            if (image !== undefined)
+              content.push({
+                ...image,
+                ...(nestedCc ? { cache_control: nestedCc } : {}),
+              });
           }
         }
         output.push({
           type: "tool_result",
           tool_use_id: block.tool_use_id,
           content,
+          ...(cc ? { cache_control: cc } : {}),
         });
       }
     } else if (

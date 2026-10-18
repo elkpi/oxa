@@ -112,8 +112,8 @@ fn rejects_non_object_response_format_schema() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_3_1() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.3.1");
+fn workspace_crate_version_is_2_4_0() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.0");
 }
 
 #[test]
@@ -208,6 +208,7 @@ fn thinking_blocks_and_deltas_use_locked_json_shapes() {
     let signed = Block::Thinking {
         thinking: "consider".to_string(),
         signature: Some("sig_opaque".to_string()),
+        native: Vec::new(),
     };
     assert_eq!(
         serde_json::to_value(&signed).expect("encode thinking block"),
@@ -217,6 +218,7 @@ fn thinking_blocks_and_deltas_use_locked_json_shapes() {
     let unsigned = Block::Thinking {
         thinking: "reasoning".to_string(),
         signature: None,
+        native: Vec::new(),
     };
     assert_eq!(
         serde_json::to_value(&unsigned).expect("encode unsigned thinking block"),

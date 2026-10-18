@@ -131,9 +131,11 @@ func TestDecodeRequestCacheControlLoss(t *testing.T) {
 	if len(req.System) != 1 || req.System[0].Text != "You are a terse assistant." {
 		t.Fatalf("system not mapped: %+v", req.System)
 	}
-	if len(losses) != 1 || losses[0].Path != "system[0].cache_control" ||
-		losses[0].Reason != ir.LossUnmappedField {
+	if len(losses) != 0 {
 		t.Fatalf("losses: %+v", losses)
+	}
+	if len(req.System[0].Native) != 1 || req.System[0].Native[0].Kind != "cache_control" {
+		t.Fatalf("expected native cache_control on system block, got: %+v", req.System[0].Native)
 	}
 }
 

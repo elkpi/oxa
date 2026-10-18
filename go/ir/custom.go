@@ -61,14 +61,16 @@ func (f *CustomToolFormat) UnmarshalJSON(data []byte) error {
 
 // Input 和 Text 保存 JSON 字符串外壳，不将其中的任意文本解释为 JSON 参数。
 type CustomToolUseBlock struct {
-	ID    string          `json:"id"`
-	Name  string          `json:"name"`
-	Input json.RawMessage `json:"input"`
+	ID     string             `json:"id"`
+	Name   string             `json:"name"`
+	Input  json.RawMessage    `json:"input"`
+	Native []NativeAnnotation `json:"native,omitempty"`
 }
 
 type CustomToolResultBlock struct {
-	ToolUseID string           `json:"tool_use_id"`
-	Output    CustomToolOutput `json:"output"`
+	ToolUseID string             `json:"tool_use_id"`
+	Output    CustomToolOutput   `json:"output"`
+	Native    []NativeAnnotation `json:"native,omitempty"`
 }
 
 type CustomToolOutput struct {

@@ -131,6 +131,7 @@ impl StreamDecoder {
                     block: Block::Thinking {
                         thinking: String::new(),
                         signature: None,
+                        native: Vec::new(),
                     },
                 });
             }
@@ -157,6 +158,7 @@ impl StreamDecoder {
                     index: self.text_index,
                     block: Block::Text {
                         text: String::new(),
+                        native: Vec::new(),
                     },
                 });
             }
@@ -308,6 +310,7 @@ impl StreamDecoder {
                         id: call.id.clone(),
                         name: call.name.clone(),
                         input: full_input,
+                        native: Vec::new(),
                     },
                 });
                 for fragment in &call.fragments {
@@ -326,6 +329,7 @@ impl StreamDecoder {
                         id: call.id.clone(),
                         name: call.name.clone(),
                         input: full_input,
+                        native: Vec::new(),
                     },
                 });
                 for fragment in &call.fragments {

@@ -19,6 +19,9 @@ struct RawRequest<'a> {
     metadata: Option<Value>,
     tools: Option<Vec<ToolWire>>,
     tool_choice: Option<ToolChoiceWire>,
+    cache_control: Option<Value>,
+    output_config: Option<OutputConfigWire>,
+    context_management: Option<ContextManagementWire>,
 }
 
 #[derive(Deserialize)]
@@ -61,6 +64,9 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
         metadata: source.metadata,
         tools: source.tools,
         tool_choice: source.tool_choice,
+        cache_control: source.cache_control,
+        output_config: source.output_config,
+        context_management: source.context_management,
     };
     let (value, losses) = decode_request(&wire, config)?;
     Ok((value, crate::audit::audit_losses(raw, "request", losses)?))

@@ -36,7 +36,7 @@ if not version.startswith("v"):
     version = "v" + version
 module = "github.com/elkpi/oxa/go/v2"
 files = subprocess.check_output(
-    ["git", "-C", str(root), "ls-files", "go"], text=True
+    ["git", "-C", str(root), "ls-files", "--cached", "--others", "--exclude-standard", "go"], text=True
 ).splitlines()
 mod = (root / "go/go.mod").read_bytes()
 (proxy / "github.com/elkpi/oxa/go/v2/@v" / f"{version}.mod").write_bytes(mod)

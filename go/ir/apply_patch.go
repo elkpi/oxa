@@ -45,11 +45,13 @@ type ApplyPatchToolUseBlock struct {
 	ID        string
 	Status    ApplyPatchCallStatus
 	Operation ApplyPatchOperation
+	Native    []NativeAnnotation
 }
 type ApplyPatchToolResultBlock struct {
 	ToolUseID string
 	Status    ApplyPatchResultStatus
 	Output    *string
+	Native    []NativeAnnotation
 }
 
 func (ApplyPatchToolUseBlock) isBlock()    {}

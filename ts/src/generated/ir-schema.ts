@@ -14,13 +14,88 @@ export interface IrSchemaRequest {
   readonly tool_choice?: IrSchemaToolChoice;
   readonly params?: IrSchemaParams;
   readonly metadata?: { readonly [key: string]: string; };
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
-export type IrSchemaSystemBlock = IrSchemaTextBlock;
+export interface IrSchemaSystemBlock {
+  readonly type: "text";
+  readonly text: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
 
 export interface IrSchemaMessage {
   readonly role: "user" | "assistant";
-  readonly content: readonly (IrSchemaBlock)[];
+  readonly content: readonly (IrSchemaRequestBlock)[];
+}
+
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
+
+export interface IrSchemaRequestTextBlock {
+  readonly type: "text";
+  readonly text: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestImageBlock {
+  readonly type: "image";
+  readonly media_type?: string;
+  readonly data?: string;
+  readonly url?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestToolUseBlock {
+  readonly type: "tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestToolResultBlock {
+  readonly type: "tool_result";
+  readonly tool_use_id: string;
+  readonly content: readonly (IrSchemaRequestBlock)[];
+  readonly is_error?: boolean;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestThinkingBlock {
+  readonly type: "thinking";
+  readonly thinking: string;
+  readonly signature?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestCustomToolUseBlock {
+  readonly type: "custom_tool_use";
+  readonly id: string;
+  readonly name: string;
+  readonly input: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestCustomToolResultBlock {
+  readonly type: "custom_tool_result";
+  readonly tool_use_id: string;
+  readonly output: string | readonly (IrSchemaRequestTextBlock | IrSchemaRequestImageBlock)[];
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestApplyPatchToolUseBlock {
+  readonly type: "apply_patch_tool_use";
+  readonly id: string;
+  readonly status: "in_progress" | "completed";
+  readonly operation: IrSchemaApplyPatchOperation;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestApplyPatchToolResultBlock {
+  readonly type: "apply_patch_tool_result";
+  readonly tool_use_id: string;
+  readonly status: "completed" | "failed";
+  readonly output?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
 export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock;
@@ -93,7 +168,7 @@ export interface IrSchemaToolResultBlock {
   readonly is_error?: boolean;
 }
 
-export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; } | { readonly type: "apply_patch"; };
+export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; readonly native?: readonly (IrSchemaNativeAnnotation)[]; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; readonly native?: readonly (IrSchemaNativeAnnotation)[]; } | { readonly type: "apply_patch"; readonly native?: readonly (IrSchemaNativeAnnotation)[]; };
 
 export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom"; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; };
 
@@ -104,7 +179,7 @@ export interface IrSchemaParams {
   readonly top_p?: number;
   readonly max_tokens?: number;
   readonly stop_sequences?: readonly (string)[];
-  readonly reasoning_effort?: "minimal" | "low" | "medium" | "high";
+  readonly reasoning_effort?: IrSchemaReasoningEffort;
   readonly response_format?: IrSchemaResponseFormat;
 }
 
@@ -198,5 +273,15 @@ export interface IrSchemaSignatureDelta {
 export interface IrSchemaEventStream {
   readonly specVersion: "0.1.0" | "0.2.0";
   readonly events: readonly (IrSchemaEvent)[];
+}
+
+export type IrSchemaReasoningEffort = "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+
+export interface IrSchemaNativeAnnotation {
+  readonly source: string;
+  readonly kind: string;
+  readonly value: string;
+  readonly omission?: { readonly field: string; readonly reason: "unmapped-field" | "unmapped-value" | "unsupported-semantic" | "degraded"; readonly detail?: string; };
+  readonly projection?: { readonly origin: "budget" | "explicit"; readonly effort: IrSchemaReasoningEffort; };
 }
 

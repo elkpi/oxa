@@ -880,7 +880,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
         if (!effort.empty()) {
             if (effort == ir::REASONING_EFFORT_MINIMAL || effort == ir::REASONING_EFFORT_LOW ||
-                effort == ir::REASONING_EFFORT_MEDIUM || effort == ir::REASONING_EFFORT_HIGH) {
+                effort == ir::REASONING_EFFORT_MEDIUM || effort == ir::REASONING_EFFORT_HIGH ||
+                effort == ir::REASONING_EFFORT_XHIGH || effort == ir::REASONING_EFFORT_MAX) {
                 params.reasoning_effort = effort;
                 has_params = true;
             } else {
@@ -1198,6 +1199,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 "Responses requests have no stop-sequences parameter; the IR stop sequences are dropped."));
         }
     }
+
+    auto omitted = ir::omitted_native_request_losses(req, "responses");
+    if (!omitted.ok()) return omitted.status();
+    losses.insert(losses.end(), omitted->begin(), omitted->end());
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }

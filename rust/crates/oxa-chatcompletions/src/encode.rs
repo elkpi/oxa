@@ -116,7 +116,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let mut text = String::new();
         for block in &req.system {
             match block {
-                oxa_ir::SystemBlock::Text { text: value } => text.push_str(value),
+                oxa_ir::SystemBlock::Text { text: value, .. } => text.push_str(value),
             }
         }
         out.messages.push(Message {
@@ -220,6 +220,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 ReasoningEffort::Low => "low",
                 ReasoningEffort::Medium => "medium",
                 ReasoningEffort::High => "high",
+                ReasoningEffort::XHigh => "xhigh",
+                ReasoningEffort::Max => "max",
             }
             .to_string()
         });
@@ -227,6 +229,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             out.response_format = Some(encode_response_format(rf));
         }
     }
+    let omission_losses = oxa_ir::omitted_native_request_losses(req, "chatcompletions")
+        .map_err(|e| Error::new(e.to_string()))?;
+    losses.extend(omission_losses);
     Ok((out, losses))
 }
 

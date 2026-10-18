@@ -52,32 +52,48 @@ const (
 // Request is the Anthropic Messages wire request. max_tokens is required by
 // the API and is therefore not omitempty.
 type Request struct {
-	Model         string          `json:"model"`
-	System        any             `json:"system,omitempty"` // string or []SystemBlockWire
-	Messages      []Message       `json:"messages"`
-	MaxTokens     int64           `json:"max_tokens"`
-	Temperature   *float64        `json:"temperature,omitempty"`
-	TopP          *float64        `json:"top_p,omitempty"`
-	StopSequences []string        `json:"stop_sequences,omitempty"`
-	Metadata      any             `json:"metadata,omitempty"`
-	Tools         []ToolWire      `json:"tools,omitempty"`
-	ToolChoice    *ToolChoiceWire `json:"tool_choice,omitempty"`
-	Thinking      *ThinkingWire   `json:"thinking,omitempty"`
+	Model             string                 `json:"model"`
+	System            any                    `json:"system,omitempty"` // string or []SystemBlockWire
+	Messages          []Message              `json:"messages"`
+	MaxTokens         int64                  `json:"max_tokens"`
+	Temperature       *float64               `json:"temperature,omitempty"`
+	TopP              *float64               `json:"top_p,omitempty"`
+	StopSequences     []string               `json:"stop_sequences,omitempty"`
+	Metadata          any                    `json:"metadata,omitempty"`
+	Tools             []ToolWire             `json:"tools,omitempty"`
+	ToolChoice        *ToolChoiceWire        `json:"tool_choice,omitempty"`
+	Thinking          *ThinkingWire          `json:"thinking,omitempty"`
+	CacheControl      json.RawMessage        `json:"cache_control,omitempty"`
+	OutputConfig      *OutputConfigWire      `json:"output_config,omitempty"`
+	ContextManagement *ContextManagementWire `json:"context_management,omitempty"`
+}
+
+// OutputConfigWire is the Anthropic request output_config configuration.
+type OutputConfigWire struct {
+	Effort string          `json:"effort,omitempty"`
+	Format json.RawMessage `json:"format,omitempty"`
+}
+
+// ContextManagementWire is the Anthropic request context_management configuration.
+type ContextManagementWire struct {
+	Edits []json.RawMessage `json:"edits,omitempty"`
 }
 
 // ThinkingWire is the Anthropic request thinking configuration.
 type ThinkingWire struct {
-	Type         string `json:"type"` // enabled
-	BudgetTokens int64  `json:"budget_tokens"`
+	Type         string `json:"type"` // adaptive | enabled | disabled
+	BudgetTokens int64  `json:"budget_tokens,omitempty"`
+	Display      string `json:"display,omitempty"`
 }
 
 // ToolWire is one element of the wire tools array. input_schema is a
 // JSON-Schema-shaped object carried verbatim (spec/01 s3.5): json.RawMessage
 // preserves the exact source bytes across decode and encode.
 type ToolWire struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description,omitempty"`
-	InputSchema json.RawMessage `json:"input_schema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description,omitempty"`
+	InputSchema  json.RawMessage `json:"input_schema"`
+	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 }
 
 // ToolChoiceWire is the wire tool_choice object. disable_parallel_tool_use

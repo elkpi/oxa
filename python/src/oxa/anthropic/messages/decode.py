@@ -18,6 +18,7 @@ from oxa.anthropic.messages.constants import (
     STOP_REASON_STOP_SEQUENCE,
     STOP_REASON_TOOL_USE,
 )
+from oxa.anthropic.messages.native import decode_request_native, parse_cache_control
 from oxa.anthropic.messages.normalize import (
     decode_block,
     decode_content,
@@ -46,6 +47,12 @@ from oxa.ir import (
     Response,
     Tool,
     Usage,
+)
+from oxa.ir.native import (
+    NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_SOURCE_ANTHROPIC,
+    NativeAnnotation,
+    NativeOmission,
 )
 from oxa.ir import (
     Message as IrMessage,
@@ -101,6 +108,20 @@ def decode_request(
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
+            native: tuple[NativeAnnotation, ...] = ()
+            if "cache_control" in tool:
+                canon, l = parse_cache_control(tool["cache_control"], f"tools[{index}].cache_control")
+                if l is not None:
+                    losses.append(l)
+                if canon is not None:
+                    native = (
+                        NativeAnnotation(
+                            source=NATIVE_SOURCE_ANTHROPIC,
+                            kind=NATIVE_KIND_CACHE_CONTROL,
+                            value=canon,
+                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                        ),
+                    )
             if is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(
@@ -108,6 +129,7 @@ def decode_request(
                         name=name,
                         description=desc if desc else None,
                         type="custom",
+                        native=native,
                     )
                 )
             else:
@@ -116,6 +138,7 @@ def decode_request(
                         name=name,
                         description=desc if desc else None,
                         input_schema=schema,
+                        native=native,
                     )
                 )
 
@@ -142,7 +165,7 @@ def decode_request(
 
         content_path = f"messages[{index}].content"
         blocks, b_losses = decode_content(
-            msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids, declared_tools
+            msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids, declared_tools, is_request=True
         )
         losses.extend(b_losses)
         messages.append(IrMessage(role=role, content=blocks))
@@ -150,44 +173,26 @@ def decode_request(
     stop = wire.get("stop_sequences")
     stop_sequences = [s for s in stop if s] if isinstance(stop, list) and stop else None
 
-    reasoning_effort: ReasoningEffort | None = None
-    thinking_config = wire.get("thinking")
-    if isinstance(thinking_config, dict) and thinking_config.get("type") == "enabled":
-        budget = int(thinking_config.get("budget_tokens", 0))
-        if budget <= 2048:
-            reasoning_effort = "low"
-        elif budget <= 8192:
-            reasoning_effort = "medium"
-        else:
-            reasoning_effort = "high"
-        losses.append(
-            loss(
-                "thinking.budget_tokens",
-                "budget_tokens",
-                LOSS_DEGRADED,
-                "budget approximated",
-            )
-        )
-
     params = Params(
         temperature=wire.get("temperature"),
         top_p=wire.get("top_p"),
         max_tokens=max_tokens,
         stop_sequences=stop_sequences,
-        reasoning_effort=reasoning_effort,
     )
 
-    return (
-        Request(
-            model=model,
-            messages=messages,
-            system=system,
-            tools=tools if tools else None,
-            tool_choice=tool_choice,
-            params=params,
-        ),
-        losses,
+    req = Request(
+        model=model,
+        messages=messages,
+        system=system,
+        tools=tools if tools else None,
+        tool_choice=tool_choice,
+        params=params,
     )
+
+    req, native_losses = decode_request_native(wire, req)
+    losses.extend(native_losses)
+
+    return req, losses
 
 
 @audit_decode("anthropic", "response")

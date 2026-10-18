@@ -149,7 +149,7 @@ fn decodes_reasoning_content_and_effort() {
     );
     assert!(matches!(
         request.messages[1].content.first(),
-        Some(Block::Thinking { thinking, signature: None }) if thinking == "Plan carefully."
+        Some(Block::Thinking { thinking, signature: None, .. }) if thinking == "Plan carefully."
     ));
     assert!(losses.is_empty());
 }
@@ -184,6 +184,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
                 role: Role::User,
                 content: vec![Block::Text {
                     text: "question".to_string(),
+                    native: Vec::new(),
                 }],
             },
             oxa_ir::Message {
@@ -192,9 +193,11 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
                     Block::Thinking {
                         thinking: "Plan.".to_string(),
                         signature: Some("opaque".to_string()),
+                        native: Vec::new(),
                     },
                     Block::Text {
                         text: "answer".to_string(),
+                        native: Vec::new(),
                     },
                 ],
             },
@@ -210,6 +213,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
     let (wire, request_losses) =
         encode_request(&request, &Config::default()).expect("encode request");
@@ -231,6 +235,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
         content: vec![Block::Thinking {
             thinking: "Plan.".to_string(),
             signature: Some("opaque".to_string()),
+            native: Vec::new(),
         }],
         stop_reason: StopReason::EndTurn,
         stop_sequence: None,
@@ -260,6 +265,7 @@ fn empty_signature_records_no_signature_loss() {
         content: vec![Block::Thinking {
             thinking: "Plan.".to_string(),
             signature: Some(String::new()),
+            native: Vec::new(),
         }],
         stop_reason: StopReason::EndTurn,
         stop_sequence: None,
@@ -331,10 +337,12 @@ fn encodes_multiple_thinking_blocks_in_encounter_order() {
             Block::Thinking {
                 thinking: "First.".to_string(),
                 signature: None,
+                native: Vec::new(),
             },
             Block::Thinking {
                 thinking: "Second.".to_string(),
                 signature: None,
+                native: Vec::new(),
             },
         ],
         stop_reason: StopReason::EndTurn,
@@ -653,6 +661,7 @@ fn test_custom_tool_result_array_preserved() {
                 role: oxa_ir::Role::User,
                 content: vec![Block::Text {
                     text: "hi".to_string(),
+                    native: Vec::new(),
                 }],
             },
             oxa_ir::Message {
@@ -661,6 +670,7 @@ fn test_custom_tool_result_array_preserved() {
                     id: "c".to_string(),
                     name: "run".to_string(),
                     input: "cmd".to_string(),
+                    native: Vec::new(),
                 }],
             },
             oxa_ir::Message {
@@ -670,11 +680,14 @@ fn test_custom_tool_result_array_preserved() {
                     output: oxa_ir::CustomToolOutput::Content(vec![
                         Block::Text {
                             text: "line 1".to_string(),
+                            native: Vec::new(),
                         },
                         Block::Text {
                             text: "line 2".to_string(),
+                            native: Vec::new(),
                         },
                     ]),
+                    native: Vec::new(),
                 }],
             },
         ],
@@ -682,6 +695,7 @@ fn test_custom_tool_result_array_preserved() {
         tool_choice: None,
         params: None,
         metadata: None,
+        native: Vec::new(),
     };
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
     assert!(losses.is_empty());

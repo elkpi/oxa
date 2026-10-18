@@ -32,6 +32,7 @@ fn decodes_function_call_arguments_without_normalizing_their_json_text() {
                 id: "call_1".to_string(),
                 name: "weather".to_string(),
                 input: "{\"temperature\":1e+01}".to_string(),
+                native: Vec::new(),
             }],
         }]
     );
@@ -47,13 +48,16 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             content: vec![
                 Block::Text {
                     text: "Use the tool result.".to_string(),
+                    native: Vec::new(),
                 },
                 Block::ToolResult {
                     tool_use_id: "call_1".to_string(),
                     content: vec![Block::Text {
                         text: "Sunny".to_string(),
+                        native: Vec::new(),
                     }],
                     is_error: None,
+                    native: Vec::new(),
                 },
             ],
         }],
@@ -68,6 +72,7 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             response_format: None,
         }),
         metadata: None,
+        native: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&request, &Config::default()).expect("encode request");
@@ -182,10 +187,10 @@ fn decodes_request_reasoning_items_and_effort() {
     );
     assert!(matches!(
         request.messages[1].content.first(),
-        Some(Block::Thinking { thinking, signature: None }) if thinking == "Think first."
+        Some(Block::Thinking { thinking, signature: None, .. }) if thinking == "Think first."
     ));
     assert!(
-        matches!(request.messages[1].content.get(1), Some(Block::Text { text }) if text == "answer")
+        matches!(request.messages[1].content.get(1), Some(Block::Text { text, .. }) if text == "answer")
     );
     assert!(losses.iter().any(|loss| {
         loss.path == "reasoning.summary"
@@ -265,7 +270,7 @@ fn decodes_reasoning_output_encrypted_content_and_usage_details() {
         decoded.content.first(),
         Some(Block::Thinking { thinking, .. }) if thinking == "Analyze."
     ));
-    assert!(matches!(decoded.content.get(1), Some(Block::Text { text }) if text == "Answer."));
+    assert!(matches!(decoded.content.get(1), Some(Block::Text { text, .. }) if text == "Answer."));
     assert_eq!(
         decoded.usage.input_tokens_details,
         Some(InputTokensDetails { cached_tokens: 4 })
@@ -292,9 +297,11 @@ fn encodes_reasoning_summary_and_usage_details() {
             Block::Thinking {
                 thinking: "Analyze.".to_string(),
                 signature: Some("opaque".to_string()),
+                native: Vec::new(),
             },
             Block::Text {
                 text: "Answer.".to_string(),
+                native: Vec::new(),
             },
         ],
         stop_reason: StopReason::EndTurn,
@@ -349,6 +356,7 @@ fn empty_signature_records_no_signature_loss() {
         content: vec![Block::Thinking {
             thinking: "Analyze.".to_string(),
             signature: Some(String::new()),
+            native: Vec::new(),
         }],
         stop_reason: StopReason::EndTurn,
         stop_sequence: None,
@@ -369,6 +377,7 @@ fn encodes_refusal_with_the_required_empty_error_message() {
         model: "gpt-4o-mini".to_string(),
         content: vec![Block::Text {
             text: "I cannot help with that.".to_string(),
+            native: Vec::new(),
         }],
         stop_reason: StopReason::Refusal,
         stop_sequence: None,

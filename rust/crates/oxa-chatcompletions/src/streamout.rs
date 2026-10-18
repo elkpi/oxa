@@ -151,7 +151,9 @@ impl StreamEncoder {
                             .unwrap_or_default();
                         Ok((Vec::new(), losses))
                     }
-                    Block::ToolUse { id, name, input } => {
+                    Block::ToolUse {
+                        id, name, input, ..
+                    } => {
                         if id.is_empty() || name.is_empty() {
                             return Err(Error::new(
                                 "chatcompletions: ToolUseBlock requires nonempty ID and name",
@@ -173,7 +175,9 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
-                    Block::CustomToolUse { id, name, input } => {
+                    Block::CustomToolUse {
+                        id, name, input, ..
+                    } => {
                         if id.is_empty() || name.is_empty() {
                             return Err(Error::new(
                                 "chatcompletions: CustomToolUse requires nonempty ID and name",

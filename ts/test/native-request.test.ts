@@ -7,6 +7,7 @@ import {
   encodeRequest,
   encodeResponse,
   validateRequest,
+  CACHE_CONTROL_LOSS_DETAIL,
   type Request,
   type TextBlock,
   type NativeAnnotation,
@@ -326,6 +327,88 @@ test("context management recursive audit strips unknown fields", () => {
   assert.equal(edits?.length, 1);
   assert.equal(edits[0]?.future_policy, undefined);
   assert.equal(edits[0]?.trigger?.future_nested, undefined);
+});
+
+test("cache_control omission loss detail is populated for cross encoding, including without omission or empty detail", () => {
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 64000,
+    system: [
+      {
+        type: "text",
+        text: "S",
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    tools: [
+      {
+        name: "f",
+        description: "d",
+        input_schema: { type: "object" },
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: "go", cache_control: { type: "ephemeral" } },
+        ],
+      },
+    ],
+  });
+
+  const decoded = decodeAnthropicJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+
+  const cc = encodeChatCompletions(decoded.value);
+  assert.equal(cc.losses.length, 3);
+  for (const l of cc.losses) {
+    assert.equal(l.field, "cache_control");
+    assert.equal(l.reason, "unmapped-field");
+    assert.equal(l.detail, CACHE_CONTROL_LOSS_DETAIL);
+  }
+
+  const resp = encodeResponses(decoded.value);
+  assert.equal(resp.losses.length, 3);
+  for (const l of resp.losses) {
+    assert.equal(l.detail, CACHE_CONTROL_LOSS_DETAIL);
+  }
+
+  // Directly constructed IR with omission omitted
+  const reqNoOmission: Request = {
+    model: "claude-opus-5-5",
+    native: [
+      {
+        source: "anthropic",
+        kind: "cache_control",
+        value: JSON.stringify({ type: "ephemeral" }),
+      },
+    ],
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  };
+  const ccNoOm = encodeChatCompletions(reqNoOmission);
+  assert.equal(ccNoOm.losses.length, 1);
+  assert.equal(ccNoOm.losses[0]?.field, "cache_control");
+  assert.equal(ccNoOm.losses[0]?.reason, "unmapped-field");
+  assert.equal(ccNoOm.losses[0]?.detail, CACHE_CONTROL_LOSS_DETAIL);
+
+  // Directly constructed IR with empty detail
+  const reqEmptyDetail: Request = {
+    model: "claude-opus-5-5",
+    native: [
+      {
+        source: "anthropic",
+        kind: "cache_control",
+        value: JSON.stringify({ type: "ephemeral" }),
+        omission: { field: "cache_control", reason: "unmapped-field" },
+      },
+    ],
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+  };
+  const ccEmptyDetail = encodeChatCompletions(reqEmptyDetail);
+  assert.equal(ccEmptyDetail.losses.length, 1);
+  assert.equal(ccEmptyDetail.losses[0]?.detail, CACHE_CONTROL_LOSS_DETAIL);
 });
 
 test("response native isolation does not pollute response blocks", () => {

@@ -16,6 +16,9 @@ export const NATIVE_KIND_CACHE_CONTROL = "cache_control";
 export const NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 
+export const CACHE_CONTROL_LOSS_DETAIL =
+  "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 type HostType = "request" | "system" | "content" | "tool";
 
 export function validateNativeRequest(request: Request): void {
@@ -444,8 +447,19 @@ function appendOmissionLoss(
         });
       }
       return;
+    case NATIVE_KIND_CACHE_CONTROL: {
+      const field = ann.omission?.field || "cache_control";
+      const reason = ann.omission?.reason || "unmapped-field";
+      const detail = ann.omission?.detail || CACHE_CONTROL_LOSS_DETAIL;
+      losses.push({
+        path,
+        field,
+        reason,
+        detail,
+      });
+      return;
+    }
     case NATIVE_KIND_THINKING_DISPLAY:
-    case NATIVE_KIND_CACHE_CONTROL:
     case NATIVE_KIND_CONTEXT_MANAGEMENT:
       if (ann.omission) {
         losses.push({

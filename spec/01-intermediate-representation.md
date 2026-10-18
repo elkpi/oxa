@@ -174,7 +174,7 @@ responsibility; consumers treat `data` as an opaque string.
 | `TopP` | `top_p` | `*float64` / number | no | |
 | `MaxTokens` | `max_tokens` | `*int64` / integer ≥ 1 | no | |
 | `StopSequences` | `stop_sequences` | `[]string` | no | |
-| `ReasoningEffort` | `reasoning_effort` | enum `minimal` \| `low` \| `medium` \| `high` | no | absent means unset; unknown inbound values are dropped with unmapped-value (since 2.0) |
+| `ReasoningEffort` | `reasoning_effort` | enum `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | no | absent means unset; unknown inbound values are dropped with unmapped-value (since 2.0; xhigh and max since 2.4) |
 | `ResponseFormat` | `response_format` | `*ResponseFormat` | no | structured output formatting preference (since 2.1) |
 
 ### 3.7.1 ResponseFormat
@@ -194,6 +194,10 @@ Structured output generation preference. Closed union of three variants discrimi
 - `strict` (boolean, optional): whether to strictly enforce schema constraints.
 
 When unspecified by caller, `response_format` is omitted from `Params`.
+
+### 3.8 Native Request Options
+
+Request, SystemBlock, Tool, and content blocks in Request may carry optional `native: NativeAnnotation[]` to preserve dialect-specific options across conversion (spec/15, since 2.4). Native annotations MUST NOT appear in Response or EventStream documents.
 
 ## 4. Response-side types
 

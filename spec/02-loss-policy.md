@@ -131,6 +131,12 @@ prefixes; the `detail` of each loss SHOULD make its stage clear. The
 unordered-set comparison rule used by vectors is unaffected by the
 concatenation.
 
+When an inbound request option (e.g. Anthropic `cache_control`, `thinking` mode,
+or `context_management`) is preserved in the IR as a `NativeAnnotation` (spec/15,
+since 2.4), no loss is emitted on Decode because the information is retained.
+When the IR request is encoded to a target face that lacks an equivalent, the
+loss is emitted during Encode, rooted at the corresponding IR construct.
+
 ## 7. Rules
 
 - Every loss MUST have a reason code from the §3 enum (schema-enforced).

@@ -66,7 +66,7 @@ The wire objects in scope are:
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_tokens` | `Params.MaxTokens` | 1:1 |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
-| `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0) |
+| `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `parallel_tool_calls` | — | unmapped-field loss |
@@ -254,6 +254,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR `ImageBlock`/`ToolResultBlock` in assistant message; non-text blocks in tool result | unsupported-semantic | IR → request | see N-CC-6, N-CC-8 |
 | interleaved tool results and ordinary content in one IR user turn | degraded | IR → request | N-CC-9: tool messages are hoisted ahead of the trailing user content; source order is not preserved |
 | unrecognized non-exempt property on a recognized Chat Completions object | unmapped-field | request/response → IR | one loss per present property; see spec/02 §4 |
+| IR native request annotations with no CC representation | unmapped-field / degraded / unsupported-semantic | IR → request | reported on encode per spec/15 §4 |
 | IR stop reason outside the five known values | structural error | IR → response | not a loss; conversion fails |
 
 ## 9. References

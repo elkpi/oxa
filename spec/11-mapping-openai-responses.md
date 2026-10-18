@@ -83,7 +83,7 @@ The wire objects in scope are:
 | `metadata` | — | unmapped-field loss, both directions as a single loss each way |
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
 | `text.verbosity` | — | unmapped-field loss |
-| `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
+| `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `tools[].strict` | — | unmapped-field loss per tool |
 | unknown `input[].type` | — | unsupported-semantic loss per item |
@@ -263,7 +263,7 @@ Each rule has a stable ID usable as a vector tag.
   `encrypted_content` is dropped with an `unmapped-field` loss. On encode,
   each IR `ThinkingBlock` renders as a `reasoning` output item with a
   `summary` text part. Request `reasoning.effort` maps 1:1 to
-  `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`); other request
+  `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`); other request
   `reasoning` properties (such as `summary` preference) are dropped with
   `unmapped-field` losses.
 - **N-R-14 (text format mapping).** `text.format` maps 1:1 to
@@ -309,6 +309,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR `ImageBlock`/`ToolResultBlock` in assistant input; non-text blocks in tool result | unsupported-semantic | IR → request | see N-R-5, N-R-6 |
 | interleaved tool results and ordinary content in one IR user turn | degraded | IR → request | N-R-10: function_call_output items are hoisted ahead of the trailing user content; source order is not preserved |
 | unrecognized non-exempt property on a recognized Responses object | unmapped-field | request/response → IR | one loss per present property; see spec/02 §4 |
+| IR native request annotations with no Responses representation | unmapped-field / degraded / unsupported-semantic | IR → request | reported on encode per spec/15 §4 |
 | IR stop reason outside the five known values; `status` outside the three known values; tool input not a JSON string | structural error | both | not a loss; conversion fails |
 
 ## 9. References

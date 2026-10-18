@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.0] - 2026-10-18
+
+### Added
+
+- Anthropic Messages 完整请求配置保真与原生回转（spec/15, N-AN-14）：
+  - 推理模式保真：`thinking.type: "adaptive"`、`"disabled"` 与 `"enabled"` 完整保留至 IR `NativeAnnotation`，解决以前 adaptive thinking 被静默丢弃的问题。
+  - 推理预算保真：`thinking.budget_tokens` 结合通用 effort 进行双向保真与降级覆盖去重；中间调用方修改 effort 后新值在输出时生效（显式编辑优先原则）。
+  - 推理显示配置保真：支持 `thinking.display`（`summarized`、`omitted`、`updates`）解析与原生恢复。
+  - 显式推理配置保真：支持 `output_config.effort`（`low`、`medium`、`high`、`xhigh`、`max`）解析与映射。
+  - Prompt Caching 保真：支持顶层、system 块、消息 content 块及 tools 各层 `cache_control`（`ephemeral`，含 `ttl: "5m"/"1h"`）解析与原生恢复，解决以前 cache_control 被误判为 unmapped-field 的阻断性问题。
+  - Context Management 保真：支持官方 Beta 特性 `context_management.edits`（`clear_tool_uses_20250919`、`clear_thinking_20251015`）解析与原生恢复。
+- 通用 IR `Params.ReasoningEffort` 扩展支持 `xhigh` 与 `max`，在三大协议面（Anthropic、Chat Completions、Responses）间对等映射。
+- 中立遗漏报损（Omission Metadata）：编码到不支持特性的目标 spoke（Chat Completions / Responses）时，由通用中立 helper 依据预存元数据在编码阶段准确报损。
+- 请求专用 Schema 与上下文隔离：通过 `$defs/requestBlock` 确保 native 注解仅存在于请求侧，严格禁止污染响应块和流式事件。
+- 新增 36 条原生请求配置黄金向量（总数从 281 条扩充至 317 条，spec 0.2.0 向量达到 167 条）。
+- Go、TypeScript、Rust、Python、C++ 五门语言参考实现 100% 验证通过。
+
+### Changed
+
+- 协调版本号升级为 `v2.4.0`（次版本号升级），IR contract 维持 `0.2.0`（双向兼容读取 `0.1.0`）。
+
 ## [v2.3.1] - 2026-10-17
 
 ### Added

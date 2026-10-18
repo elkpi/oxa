@@ -5,7 +5,18 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.3.1 - Unreleased
+## 2.4.0 - Unreleased
+
+### Added
+
+- [15 — Native Request Options](15-native-request-options.md) 定义通用 IR 请求原生配置受限保留机制（N-NAT-1～6）：Request、SystemBlock、Tool、及 Request content blocks 携带可选 `native: NativeAnnotation[]`。
+- Anthropic Messages 请求原生配置保真（N-AN-14）：`thinking.type`（`adaptive` / `disabled` / `enabled`）、`thinking.budget_tokens`、`thinking.display`、`output_config.effort`、各层 `cache_control` 及 `context_management.edits` 在 Decode 时保留至 IR，并在 Encode 原生回转时完整恢复。
+- 通用 IR `Params.ReasoningEffort` 扩展支持 `xhigh` 与 `max`，在 Anthropic、Chat Completions 与 Responses 间对等映射。
+- 跨协议遗漏报损：当包含原生配置的请求转换为不支持对应特性的协议（Chat Completions / Responses）时，在 Encode 阶段按规范固定顺序和去重规则准确报损。
+- 显式编辑优先原则：通用 IR effort 改变后旧预算不能覆盖新值，只恢复有效配置。
+- IR contract 保持 `0.2.0`（兼容读取 `0.1.0`）。
+
+## 2.3.1 - 2026-10-18
 
 ### Added
 

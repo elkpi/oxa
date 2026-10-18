@@ -50,6 +50,23 @@ int main() {
         std::cerr << "invalid stream events\n";
         return 1;
     }
+
+    oxa::ir::Request native_req;
+    native_req.model = "m";
+    native_req.messages.push_back(oxa::ir::Message{
+        std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+    native_req.native.push_back(oxa::ir::NativeAnnotation{
+        std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(oxa::ir::NATIVE_KIND_THINKING_MODE),
+        "\"adaptive\"",
+        std::nullopt,
+        std::nullopt,
+    });
+    if (!oxa::ir::validate_native_request(native_req).ok()) {
+        std::cerr << "validate native request failed\n";
+        return 1;
+    }
+
     std::cout << "cpp consumer: OK\n";
     return 0;
 }

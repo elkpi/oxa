@@ -78,6 +78,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ))?);
     events.extend(decoder.flush()?);
     assert!(!events.is_empty());
+
+    let ir_req = oxa::ir::Request {
+        model: "m".to_string(),
+        messages: vec![oxa::ir::Message {
+            role: oxa::ir::Role::User,
+            content: vec![oxa::ir::Block::Text {
+                text: "hi".to_string(),
+                native: Vec::new(),
+            }],
+        }],
+        system: Vec::new(),
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![oxa::ir::NativeAnnotation {
+            source: oxa::ir::NATIVE_SOURCE_ANTHROPIC.to_string(),
+            kind: oxa::ir::NATIVE_KIND_THINKING_MODE.to_string(),
+            value: "\"adaptive\"".to_string(),
+            omission: None,
+            projection: None,
+        }],
+    };
+    oxa::ir::validate_native_request(&ir_req)?;
+
     println!("rust consumer: OK");
     Ok(())
 }

@@ -472,9 +472,10 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 
 	// Thinking / Effort synthesis
 	if nativeMode != "" || nativeEffort != "" || req.Params.ReasoningEffort != "" {
-		if nativeMode == "disabled" {
+		switch nativeMode {
+		case "disabled":
 			wire.Thinking = &ThinkingWire{Type: "disabled"}
-		} else if nativeMode == "adaptive" {
+		case "adaptive":
 			wire.Thinking = &ThinkingWire{Type: "adaptive"}
 			if nativeDisplay != "" {
 				wire.Thinking.Display = nativeDisplay
@@ -482,7 +483,7 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 			if req.Params.ReasoningEffort != "" {
 				wire.OutputConfig = &OutputConfigWire{Effort: req.Params.ReasoningEffort}
 			}
-		} else if nativeMode == "enabled" {
+		case "enabled":
 			if nativeBudget > 0 {
 				if nativeBudgetProj != nil && nativeBudgetProj.Origin == "budget" {
 					if req.Params.ReasoningEffort == nativeBudgetProj.Effort {
@@ -520,7 +521,7 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 			if nativeDisplay != "" && wire.Thinking != nil {
 				wire.Thinking.Display = nativeDisplay
 			}
-		} else {
+		default:
 			// No nativeMode recorded: standard IR ReasoningEffort mapping
 			switch req.Params.ReasoningEffort {
 			case "minimal":

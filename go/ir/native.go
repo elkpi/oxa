@@ -65,12 +65,13 @@ func ValidateNativeRequest(req *Request) error {
 	var explicitProj *NativeProjection
 	for _, n := range req.Native {
 		if n.Projection != nil {
-			if n.Projection.Origin == "budget" {
+			switch n.Projection.Origin {
+			case "budget":
 				if budgetProj != nil {
 					return fmt.Errorf("ir: duplicate budget projection on request")
 				}
 				budgetProj = n.Projection
-			} else if n.Projection.Origin == "explicit" {
+			case "explicit":
 				if explicitProj != nil {
 					return fmt.Errorf("ir: duplicate explicit projection on request")
 				}

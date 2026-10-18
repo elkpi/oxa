@@ -12,6 +12,9 @@ pub const NATIVE_KIND_CACHE_CONTROL: &str = "cache_control";
 pub const NATIVE_KIND_CONTEXT_MANAGEMENT: &str = "context_management";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 
+pub const CACHE_CONTROL_LOSS_DETAIL: &str =
+    "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HostType {
     Request,
@@ -411,9 +414,34 @@ fn append_omission_loss(
                 });
             }
         }
-        NATIVE_KIND_THINKING_DISPLAY
-        | NATIVE_KIND_CACHE_CONTROL
-        | NATIVE_KIND_CONTEXT_MANAGEMENT => {
+        NATIVE_KIND_CACHE_CONTROL => {
+            let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                let f = if om.field.is_empty() {
+                    "cache_control".to_string()
+                } else {
+                    om.field.clone()
+                };
+                let r = om.reason;
+                let d = match om.detail.as_deref() {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => CACHE_CONTROL_LOSS_DETAIL.to_string(),
+                };
+                (f, r, d)
+            } else {
+                (
+                    "cache_control".to_string(),
+                    LossReason::UnmappedField,
+                    CACHE_CONTROL_LOSS_DETAIL.to_string(),
+                )
+            };
+            losses.push(Loss {
+                path: path.into(),
+                field,
+                reason,
+                detail,
+            });
+        }
+        NATIVE_KIND_THINKING_DISPLAY | NATIVE_KIND_CONTEXT_MANAGEMENT => {
             if let Some(ref om) = ann.omission {
                 losses.push(Loss {
                     path: path.into(),

@@ -8,8 +8,7 @@ use serde_json::Value;
 
 use crate::types::{ContextManagementWire, OutputConfigWire, Request, ThinkingWire};
 
-pub(crate) const CACHE_CONTROL_LOSS_DETAIL: &str =
-    "anthropic-native cache breakpoint; the target face has no cache_control representation";
+pub(crate) const CACHE_CONTROL_LOSS_DETAIL: &str = oxa_ir::CACHE_CONTROL_LOSS_DETAIL;
 
 pub fn parse_cache_control(raw: &Value, path: &str) -> (Option<String>, Option<Loss>) {
     let Some(obj) = raw.as_object() else {

@@ -1,0 +1,105 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-cache-breakpoints-request",
+  "description": "Cross-protocol: Anthropic request with cache breakpoints on system, message content, and a tool declaration converts to Chat Completions with three self-describing capability-gap omission losses.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 64000,
+    "system": [
+      {
+        "type": "text",
+        "text": "S",
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "tools": [
+      {
+        "name": "f",
+        "description": "d",
+        "input_schema": {
+          "type": "object"
+        },
+        "cache_control": {
+          "type": "ephemeral"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "go",
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "role": "system",
+        "content": "S"
+      },
+      {
+        "role": "user",
+        "content": "go"
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "f",
+          "description": "d",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "system[0].native[0]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
+    },
+    {
+      "path": "messages[0].content[0].native[0]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
+    },
+    {
+      "path": "tools[0].native[0]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
+    }
+  ],
+  "tags": [
+    "cross",
+    "request",
+    "native",
+    "cache",
+    "loss"
+  ]
+}

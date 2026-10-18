@@ -21,7 +21,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "bbe58461dfad71ba81ac62d3ba25ec3c770cadc53643eedd38a05800db683b62"
+      "sha256": "a09302fe21f8ee1748af56c837e4d6c5131fa936fe3d4749baa43124a69b7090"
     },
     {
       "name": "anthropic.nonstream.custom-tool-conversation-from-ir",
@@ -186,7 +186,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "1f614e2d9dea090ff0cadff16d8f7800f80df42367f76708eba1f9984c1f5076"
+      "sha256": "0d29313b001298096d349fc88a37616168eb556e739ee5ec3ef27e942f9dd9a8"
     },
     {
       "name": "anthropic.nonstream.native-cache-content-ttl-request-to-ir",
@@ -196,7 +196,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "c4aa2ea8d1f2e2d3d2ab0cfed2596615c030d675704d39c6b3fc94a655b79b8c"
+      "sha256": "14ebe14e77d39a7d20e6280c4c78cb9a7d5b31e38c82693b71cbbb73497b3990"
     },
     {
       "name": "anthropic.nonstream.native-cache-nested-tool-result-request-from-ir",
@@ -207,7 +207,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "769f2d84ec28dd0dd3527b418f6058ee82d6205e083eb6234a38aee28720bd84"
+      "sha256": "dee484ff5018e62ce3f4e5a233c113113b49b3f9adb16144543aab48390e6828"
     },
     {
       "name": "anthropic.nonstream.native-cache-nested-tool-result-request-to-ir",
@@ -218,7 +218,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "28a638a7844c7f36f5821d4588d96e25d96cc9866b68e9aaf2733c64a3f63218"
+      "sha256": "9f789124f73849c6e957d1dcfbf2905630341d8d7bbecd4782908ae1f25bc204"
     },
     {
       "name": "anthropic.nonstream.native-cache-tools-request-from-ir",
@@ -229,7 +229,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "ca49acc109f2f292245d192530dc91d2f6c7e2523c8a909ceac1db3822d3584a"
+      "sha256": "9fbe587fcffb971540bf5fc2df20fce57a42241b4ef55004f874742917224713"
     },
     {
       "name": "anthropic.nonstream.native-cache-tools-request-to-ir",
@@ -240,7 +240,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "a62c6c5b27e6a23ccb86b730e89205972a19958a402eb8f180fe40a2a3bec7d7"
+      "sha256": "a2c27c7f85615a5ef9d7993a87df472e3396d515ba6a965008a24a275a430c45"
     },
     {
       "name": "anthropic.nonstream.native-cache-top-level-request-from-ir",
@@ -250,7 +250,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "9b3744e7f1c6dfe47daab5385e81d075b9ed1a061a2db56fee5d71fe7ed37dec"
+      "sha256": "3ea743c3393f46d2460d095d79bf79d7fe163b502551ab165591375075680622"
     },
     {
       "name": "anthropic.nonstream.native-cache-top-level-request-to-ir",
@@ -260,7 +260,7 @@
         "cache-control",
         "native"
       ],
-      "sha256": "973579bdc507ce388d4f470a4fddc6254dad7fe937c7c2b1784999169862f1e2"
+      "sha256": "aa7038aba9ac255ccb297f3bee9542264778718d808753298b983607693942aa"
     },
     {
       "name": "anthropic.nonstream.native-cache-unknown-ttl-request-to-ir",
@@ -1597,6 +1597,18 @@
       "sha256": "59f45467e5c140ddbab1960a70da26b2733ecadb245cf476d71a0e517c9842fe"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-cache-breakpoints-request",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-cache-breakpoints-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "native",
+        "cache",
+        "loss"
+      ],
+      "sha256": "8f94343114d6d0f16354b9db4ca3f7cc2333550b53593d042ab9cb009ee38d0f"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-native-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-native-request.json",
       "tags": [
@@ -1606,7 +1618,7 @@
         "native",
         "loss"
       ],
-      "sha256": "eb46cc5d163d4ed85ca12f26eb681618a4309432ce75976c5e0729b947737abe"
+      "sha256": "b8dc3c122429e9d7642f91eca7bd4a013ed94c1a459fa43f8ce092c0cdc6c2a6"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-request",
@@ -1664,7 +1676,7 @@
         "native",
         "loss"
       ],
-      "sha256": "8e93a16d670d91268204fa47596a038e0e221f33ef155a06debd9b8ecff9dca5"
+      "sha256": "dd9a75e57eebe81f659a94fecb7d60fa3c4d0bee9f4774aa06367b57b51da946"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-request",

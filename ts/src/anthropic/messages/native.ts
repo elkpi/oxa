@@ -12,6 +12,11 @@ function canonicalizeJson(val: JsonValue): JsonValue {
   }
   return val;
 }
+// Canonical spec/15 s3.2 capability-gap detail for Anthropic cache
+// breakpoints dropped when crossing to a face without cache_control.
+export const CACHE_CONTROL_LOSS_DETAIL =
+  "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 export function attachBlockCacheControl(
   wireBlock: Record<string, JsonValue>,
   path: string,
@@ -32,6 +37,7 @@ export function attachBlockCacheControl(
           omission: {
             field: "cache_control",
             reason: "unmapped-field" as const,
+            detail: CACHE_CONTROL_LOSS_DETAIL,
           },
         },
       ];
@@ -537,7 +543,11 @@ export function decodeRequestNative(
         source: NATIVE_SOURCE_ANTHROPIC,
         kind: NATIVE_KIND_CACHE_CONTROL,
         value: parsed.canonical,
-        omission: { field: "cache_control", reason: "unmapped-field" as const },
+        omission: {
+          field: "cache_control",
+          reason: "unmapped-field" as const,
+          detail: CACHE_CONTROL_LOSS_DETAIL,
+        },
       });
     }
   }

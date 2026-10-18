@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.1] - 2026-10-18
+
+### Added
+
+- Anthropic `cache_control` 跨面遗漏自描述说明（spec/15 §3.2, §4）：
+  - 当携带 `cache_control`（顶层、system 块、消息 content 块、嵌套 tool_result、tools）的 Anthropic 请求跨面编码至无 cache 断点表示的目标面（Chat Completions / Responses）时，`unmapped-field` 遗漏记录填充规范化 `detail`:
+    `"anthropic-native cache breakpoint; the target face has no cache_control representation"`。
+  - 明确该遗漏属于协议能力缺口（capability gap，目标面 wire 无法表达），而非实现缺失；调用方可据此按意图放行或区分该遗漏。
+  - 保持目标面 wire 结构、loss 数量/path/field/reason 及 Anthropic 内部无损回转不变。
+- 新增跨协议断点黄金向量 `cross.nonstream.anthropic-to-chatcompletions-cache-breakpoints-request`（总向量数扩充至 318 条，spec 0.2.0 向量达到 168 条）。
+- Go、TypeScript、Python、Rust、C++ 五门语言参考实现 100% 保持一致与通过验证。
+
 ## [v2.4.0] - 2026-10-18
 
 ### Added

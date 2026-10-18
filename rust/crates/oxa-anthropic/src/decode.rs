@@ -92,7 +92,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         omission: Some(oxa_ir::NativeOmission {
                             field: "cache_control".into(),
                             reason: LossReason::UnmappedField,
-                            detail: None,
+                            detail: Some(crate::native::CACHE_CONTROL_LOSS_DETAIL.into()),
                         }),
                         projection: None,
                     });

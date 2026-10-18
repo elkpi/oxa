@@ -21,6 +21,7 @@ from oxa.anthropic.messages.constants import (
     TOOL_CHOICE_TYPE_TOOL,
 )
 from oxa.anthropic.messages.native import (
+    CACHE_CONTROL_LOSS_DETAIL,
     get_block_cache_control,
     parse_cache_control,
 )
@@ -98,7 +99,7 @@ def decode_system(system: Any) -> tuple[list[SystemBlock], list[Loss]]:
                             source=NATIVE_SOURCE_ANTHROPIC,
                             kind=NATIVE_KIND_CACHE_CONTROL,
                             value=canon,
-                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
                         ),
                     )
             out.append(TextBlock(text=block.get("text", ""), native=native))
@@ -296,7 +297,7 @@ def decode_block(
                 source=NATIVE_SOURCE_ANTHROPIC,
                 kind=NATIVE_KIND_CACHE_CONTROL,
                 value=canon,
-                omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
             )
             block = dataclasses.replace(block, native=block.native + (ann,))
 

@@ -199,7 +199,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                             std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                             std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                             std::move(*canon),
-                            ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                            ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)},
                             std::nullopt,
                         });
                     }, blocks.back());
@@ -287,7 +287,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                         std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                         std::move(*canon),
-                        ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                        ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)},
                         std::nullopt,
                     });
                 }
@@ -345,7 +345,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                                 std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                                 std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                                 std::move(*canon),
-                                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)},
                                 std::nullopt,
                             });
                         }

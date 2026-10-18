@@ -44,7 +44,8 @@
         "value": "{\"type\":\"ephemeral\"}",
         "omission": {
           "field": "cache_control",
-          "reason": "unmapped-field"
+          "reason": "unmapped-field",
+          "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
         }
       }
     ]

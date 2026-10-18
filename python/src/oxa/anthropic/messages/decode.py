@@ -18,7 +18,7 @@ from oxa.anthropic.messages.constants import (
     STOP_REASON_STOP_SEQUENCE,
     STOP_REASON_TOOL_USE,
 )
-from oxa.anthropic.messages.native import decode_request_native, parse_cache_control
+from oxa.anthropic.messages.native import CACHE_CONTROL_LOSS_DETAIL, decode_request_native, parse_cache_control
 from oxa.anthropic.messages.normalize import (
     decode_block,
     decode_content,
@@ -119,7 +119,7 @@ def decode_request(
                             source=NATIVE_SOURCE_ANTHROPIC,
                             kind=NATIVE_KIND_CACHE_CONTROL,
                             value=canon,
-                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
                         ),
                     )
             if is_custom_tool_input_schema(schema):

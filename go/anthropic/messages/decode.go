@@ -57,7 +57,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 					Source:   ir.NativeSourceAnthropic,
 					Kind:     ir.NativeKindCacheControl,
 					Value:    canon,
-					Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+					Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
 				}}
 			}
 		}
@@ -199,7 +199,7 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 						Source:   ir.NativeSourceAnthropic,
 						Kind:     ir.NativeKindCacheControl,
 						Value:    canon,
-						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
 					}}
 				}
 			}
@@ -224,7 +224,7 @@ func decodeSystem(system any) ([]ir.SystemBlock, []ir.Loss, error) {
 						Source:   ir.NativeSourceAnthropic,
 						Kind:     ir.NativeKindCacheControl,
 						Value:    canon,
-						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
 					}}
 				}
 			}

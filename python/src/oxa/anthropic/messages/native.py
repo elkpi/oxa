@@ -29,6 +29,8 @@ from oxa.ir.native import (
 )
 
 
+CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
+
 def parse_cache_control(cc: Any, path: str) -> tuple[str | None, Loss | None]:
     if not isinstance(cc, dict):
         return None, None
@@ -321,7 +323,7 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
                     source=NATIVE_SOURCE_ANTHROPIC,
                     kind=NATIVE_KIND_CACHE_CONTROL,
                     value=canon,
-                    omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                    omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
                 )
             )
 

@@ -5,7 +5,16 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.4.0 - Unreleased
+## 2.4.1 - 2026-10-18
+
+### Changed
+
+- [15 — Native Request Options](15-native-request-options.md)：
+  - §3.2 规范定义 `cache_control` 跨面至不支持 cache 断点的目标面时的规范化 `detail` 常量文本。
+  - §4 显式声明 Chat Completions 与 Responses 均无 cache 断点表示，跨面编码必然产生自描述的 `unmapped-field` 遗漏。
+  - §4.1 修订遗漏元数据遍历规则，将 `detail` 与 `Field`、`Reason` 并列由附加项元数据提供。
+
+## 2.4.0 - 2026-10-18
 
 ### Added
 

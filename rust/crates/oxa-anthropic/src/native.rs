@@ -8,6 +8,9 @@ use serde_json::Value;
 
 use crate::types::{ContextManagementWire, OutputConfigWire, Request, ThinkingWire};
 
+pub(crate) const CACHE_CONTROL_LOSS_DETAIL: &str =
+    "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 pub fn parse_cache_control(raw: &Value, path: &str) -> (Option<String>, Option<Loss>) {
     let Some(obj) = raw.as_object() else {
         return (None, None);
@@ -485,7 +488,7 @@ pub fn decode_request_native(wire: &Request, req: &mut IrRequest) -> Vec<Loss> {
                 omission: Some(NativeOmission {
                     field: "cache_control".into(),
                     reason: LossReason::UnmappedField,
-                    detail: None,
+                    detail: Some(CACHE_CONTROL_LOSS_DETAIL.into()),
                 }),
                 projection: None,
             });

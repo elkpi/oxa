@@ -167,9 +167,8 @@ struct ToolResultBlock {
     bool is_error = false;
     std::vector<NativeAnnotation> native;
 
-    ToolResultBlock() = default;
-    ToolResultBlock(std::string tid, std::vector<struct BlockHolder> c = {}, bool err = false, std::vector<NativeAnnotation> nat = {})
-        : tool_use_id(std::move(tid)), content(std::move(c)), is_error(err), native(std::move(nat)) {}
+    ToolResultBlock();
+    ToolResultBlock(std::string tid, std::vector<struct BlockHolder> c, bool err = false, std::vector<NativeAnnotation> nat = {});
 };
 
 struct CustomToolUseBlock {
@@ -188,9 +187,8 @@ struct CustomToolResultBlock {
     std::variant<std::string, std::vector<struct BlockHolder>> output;
     std::vector<NativeAnnotation> native;
 
-    CustomToolResultBlock() = default;
-    CustomToolResultBlock(std::string tid, std::variant<std::string, std::vector<struct BlockHolder>> out, std::vector<NativeAnnotation> nat = {})
-        : tool_use_id(std::move(tid)), output(std::move(out)), native(std::move(nat)) {}
+    CustomToolResultBlock();
+    CustomToolResultBlock(std::string tid, std::variant<std::string, std::vector<struct BlockHolder>> out, std::vector<NativeAnnotation> nat = {});
 };
 
 struct CreateFileOperation {
@@ -238,6 +236,14 @@ using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, T
 struct BlockHolder {
     Block block;
 };
+
+inline ToolResultBlock::ToolResultBlock() = default;
+inline ToolResultBlock::ToolResultBlock(std::string tid, std::vector<struct BlockHolder> c, bool err, std::vector<NativeAnnotation> nat)
+    : tool_use_id(std::move(tid)), content(std::move(c)), is_error(err), native(std::move(nat)) {}
+
+inline CustomToolResultBlock::CustomToolResultBlock() = default;
+inline CustomToolResultBlock::CustomToolResultBlock(std::string tid, std::variant<std::string, std::vector<struct BlockHolder>> out, std::vector<NativeAnnotation> nat)
+    : tool_use_id(std::move(tid)), output(std::move(out)), native(std::move(nat)) {}
 
 using SystemBlock = TextBlock;
 

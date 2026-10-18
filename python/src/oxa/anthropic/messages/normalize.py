@@ -87,7 +87,21 @@ def decode_system(system: Any) -> tuple[list[SystemBlock], list[Loss]]:
             if not isinstance(block, dict) or block.get("type") != BLOCK_TYPE_TEXT:
                 kind = block.get("type") if isinstance(block, dict) else type(block).__name__
                 raise ValueError(f"anthropic: system[{index}]: unsupported block type {kind!r}")
-            out.append(TextBlock(text=block.get("text", "")))
+            native = ()
+            if "cache_control" in block:
+                canon, l = parse_cache_control(block["cache_control"], f"system[{index}].cache_control")
+                if l is not None:
+                    losses.append(l)
+                if canon is not None:
+                    native = (
+                        NativeAnnotation(
+                            source=NATIVE_SOURCE_ANTHROPIC,
+                            kind=NATIVE_KIND_CACHE_CONTROL,
+                            value=canon,
+                            omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+                        ),
+                    )
+            out.append(TextBlock(text=block.get("text", ""), native=native))
         return out, losses
     raise ValueError("anthropic: system must be a string or array of blocks")
 
@@ -110,6 +124,7 @@ def decode_content(
     custom_tools: set[str] | None = None,
     custom_call_ids: set[str] | None = None,
     declared_tools: set[str] | None = None,
+    is_request: bool = False,
 ) -> tuple[list[Block], list[Loss]]:
     """Decodes wire message content: string or block array."""
     if content is None:
@@ -123,7 +138,7 @@ def decode_content(
             if not isinstance(block, dict):
                 raise ValueError(f"anthropic: {path}[{index}] must be a block object")
             decoded, b_losses, mapped = decode_block(
-                block, f"{path}[{index}]", raw_text, custom_tools, custom_call_ids, declared_tools
+                block, f"{path}[{index}]", raw_text, custom_tools, custom_call_ids, declared_tools, is_request=is_request
             )
             if mapped:
                 out.extend(decoded)
@@ -143,6 +158,7 @@ def decode_block(
     custom_tools: set[str] | None = None,
     custom_call_ids: set[str] | None = None,
     declared_tools: set[str] | None = None,
+    is_request: bool = False,
 ) -> tuple[list[Block], list[Loss], bool]:
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
@@ -244,7 +260,7 @@ def decode_block(
                 block = CustomToolResultBlock(tool_use_id=tool_use_id, output=inner_content)
             else:
                 content_blocks, c_losses = decode_content(
-                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
+                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools, is_request=is_request
                 )
                 losses.extend(c_losses)
                 block = CustomToolResultBlock(tool_use_id=tool_use_id, output=content_blocks)
@@ -254,7 +270,7 @@ def decode_block(
                 content_blocks = [TextBlock(text=inner_content)]
             else:
                 content_blocks, c_losses = decode_content(
-                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
+                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools, is_request=is_request
                 )
                 losses.extend(c_losses)
             is_error = bool(wire.get("is_error", False))
@@ -271,7 +287,7 @@ def decode_block(
         )
         return [], losses, False
 
-    if "cache_control" in wire and block is not None:
+    if is_request and "cache_control" in wire and block is not None:
         canon, l = parse_cache_control(wire["cache_control"], f"{path}.cache_control")
         if l is not None:
             losses.append(l)
@@ -285,16 +301,6 @@ def decode_block(
             block = dataclasses.replace(block, native=block.native + (ann,))
 
     return [block] if block is not None else [], losses, True
-
-    losses.append(
-        loss(
-            path,
-            "type",
-            LOSS_UNSUPPORTED_SEMANTIC,
-            f"Anthropic block type {kind!r} has no IR equivalent",
-        )
-    )
-    return [], losses, False
 
 
 def decode_tool_choice(

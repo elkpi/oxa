@@ -6,6 +6,7 @@ import unittest
 
 from oxa.anthropic.messages import (
     decode_request as an_decode_request,
+    decode_response as an_decode_response,
     encode_request as an_encode_request,
 )
 from oxa.ir import (
@@ -21,6 +22,7 @@ from oxa.ir import (
     Request,
     Response,
     TextBlock,
+    Tool,
     Usage,
     dump_block,
     dump_request,
@@ -314,6 +316,118 @@ class NativeRequestTest(unittest.TestCase):
         self.assertEqual(len(losses), 1)
         self.assertEqual(losses[0].field, "source")
         self.assertEqual(losses[0].reason, LOSS_UNSUPPORTED_SEMANTIC)
+
+    def test_explicit_effort_only_encodes_to_output_config(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "output_config": {"effort": "low"},
+        }
+        req, losses = an_decode_request(wire)
+        self.assertEqual(len(losses), 0)
+        self.assertEqual(req.params.reasoning_effort, "low")
+        self.assertEqual(len(req.native), 1)
+        self.assertEqual(req.native[0].projection.origin, "explicit")
+
+        encoded, enc_losses = an_encode_request(req)
+        self.assertEqual(len(enc_losses), 0)
+        self.assertNotIn("thinking", encoded)
+        self.assertEqual(encoded.get("output_config"), {"effort": "low"})
+
+    def test_context_management_recursive_audit(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "context_management": {
+                "edits": [
+                    {
+                        "type": "clear_tool_uses_20250919",
+                        "future_policy": True,
+                        "trigger": {
+                            "type": "input_tokens",
+                            "value": 30000,
+                            "future_nested": False,
+                        },
+                    }
+                ]
+            },
+        }
+        req, losses = an_decode_request(wire)
+        self.assertTrue(any(l.field == "future_policy" and l.reason == LOSS_UNMAPPED_FIELD for l in losses))
+        self.assertTrue(any(l.field == "future_nested" and l.reason == LOSS_UNMAPPED_FIELD for l in losses))
+
+        encoded, enc_losses = an_encode_request(req)
+        edits = encoded.get("context_management", {}).get("edits", [])
+        self.assertEqual(len(edits), 1)
+        self.assertNotIn("future_policy", edits[0])
+        self.assertNotIn("future_nested", edits[0].get("trigger", {}))
+
+    def test_response_native_isolation(self) -> None:
+        wire = {
+            "id": "r1",
+            "model": "claude-opus-5-5",
+            "stop_reason": "end_turn",
+            "content": [{"type": "text", "text": "hi", "cache_control": {"type": "ephemeral"}}],
+            "usage": {"input_tokens": 1, "output_tokens": 1},
+        }
+        resp, losses = an_decode_response(wire)
+        self.assertTrue(any(l.field == "cache_control" and l.reason == LOSS_UNMAPPED_FIELD for l in losses))
+        self.assertEqual(len(getattr(resp.content[0], "native", ())), 0)
+        # Must dump without throwing CodecError
+        dumped = dump_response(resp)
+        self.assertEqual(dumped["id"], "r1")
+
+    def test_custom_tool_result_nested_cache_control(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "tools": [
+                {
+                    "name": "f",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {"input": {"type": "string"}},
+                        "required": ["input"],
+                    },
+                }
+            ],
+            "messages": [
+                {"role": "user", "content": "hi"},
+                {
+                    "role": "assistant",
+                    "content": [{"type": "tool_use", "id": "c1", "name": "f", "input": {"input": "run"}}],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "c1",
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": "result",
+                                    "cache_control": {"type": "ephemeral"},
+                                }
+                            ],
+                        }
+                    ],
+                },
+            ],
+        }
+        req, _ = an_decode_request(wire)
+        ir_json = dump_request(req)
+        reloaded = load_request(ir_json)
+        encoded, _ = an_encode_request(reloaded)
+        user_content = encoded["messages"][2]["content"]
+        self.assertIsInstance(user_content, list)
+        tool_result = user_content[0]
+        self.assertEqual(tool_result["type"], "tool_result")
+        inner_content = tool_result["content"]
+        self.assertIsInstance(inner_content, list)
+        self.assertEqual(inner_content[0].get("cache_control"), {"type": "ephemeral"})
 
 
 if __name__ == "__main__":

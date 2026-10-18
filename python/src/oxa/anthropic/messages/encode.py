@@ -32,6 +32,7 @@ from oxa.anthropic.messages.normalize import (
     loss,
     require_json_object,
 )
+from oxa.ir.native import validate_native_request
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -68,6 +69,7 @@ def encode_request(
     table: Table | None = None,
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR request to an Anthropic Messages wire request (IR → face)."""
+    validate_native_request(req)
     losses: list[Loss] = []
 
     if req.metadata:
@@ -115,6 +117,9 @@ def encode_request(
                 }
                 if tool.description:
                     t_dict["description"] = tool.description
+                cc = get_block_cache_control(tool.native)
+                if cc is not None:
+                    t_dict["cache_control"] = cc
                 tools_wire.append(t_dict)
                 continue
             if tool.type == "apply_patch":
@@ -127,6 +132,9 @@ def encode_request(
             }
             if tool.description:
                 t_dict["description"] = tool.description
+            cc = get_block_cache_control(tool.native)
+            if cc is not None:
+                t_dict["cache_control"] = cc
             tools_wire.append(t_dict)
         if tools_wire:
             out["tools"] = tools_wire

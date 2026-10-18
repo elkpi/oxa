@@ -77,70 +77,96 @@ def parse_context_management(cm: Any, path: str) -> tuple[str | None, list[Loss]
         p = f"{path}.edits[{i}]"
         kind = edit.get("type")
 
-        if kind == "clear_thinking_20251015":
+        if kind == "clear_tool_uses_20250919":
+            for k in edit:
+                if k not in (
+                    "type",
+                    "trigger",
+                    "keep",
+                    "clear_at_least",
+                    "exclude_tools",
+                    "clear_tool_inputs",
+                ):
+                    losses.append(Loss(f"{p}.{k}", k, LOSS_UNMAPPED_FIELD))
             valid = True
+            canon_edit: dict[str, Any] = {"type": "clear_tool_uses_20250919"}
+            if "trigger" in edit:
+                trig = edit["trigger"]
+                if isinstance(trig, dict):
+                    for k in trig:
+                        if k not in ("type", "value"):
+                            losses.append(Loss(f"{p}.trigger.{k}", k, LOSS_UNMAPPED_FIELD))
+                    if trig.get("type") != "input_tokens":
+                        losses.append(Loss(f"{p}.trigger", "trigger", LOSS_UNMAPPED_VALUE))
+                        valid = False
+                    else:
+                        canon_edit["trigger"] = {"type": "input_tokens", "value": trig.get("value")}
+                else:
+                    losses.append(Loss(f"{p}.trigger", "trigger", LOSS_UNMAPPED_VALUE))
+                    valid = False
+            if "keep" in edit:
+                kp = edit["keep"]
+                if isinstance(kp, dict):
+                    for k in kp:
+                        if k not in ("type", "value"):
+                            losses.append(Loss(f"{p}.keep.{k}", k, LOSS_UNMAPPED_FIELD))
+                    if kp.get("type") != "tool_uses":
+                        losses.append(Loss(f"{p}.keep", "keep", LOSS_UNMAPPED_VALUE))
+                        valid = False
+                    else:
+                        canon_edit["keep"] = {"type": "tool_uses", "value": kp.get("value")}
+                else:
+                    losses.append(Loss(f"{p}.keep", "keep", LOSS_UNMAPPED_VALUE))
+                    valid = False
+            if "clear_at_least" in edit:
+                cal = edit["clear_at_least"]
+                if isinstance(cal, dict):
+                    for k in cal:
+                        if k not in ("type", "value"):
+                            losses.append(Loss(f"{p}.clear_at_least.{k}", k, LOSS_UNMAPPED_FIELD))
+                    if cal.get("type") != "input_tokens":
+                        losses.append(Loss(f"{p}.clear_at_least", "clear_at_least", LOSS_UNMAPPED_VALUE))
+                        valid = False
+                    else:
+                        canon_edit["clear_at_least"] = {"type": "input_tokens", "value": cal.get("value")}
+                else:
+                    losses.append(Loss(f"{p}.clear_at_least", "clear_at_least", LOSS_UNMAPPED_VALUE))
+                    valid = False
+            if "exclude_tools" in edit:
+                canon_edit["exclude_tools"] = edit["exclude_tools"]
+            if "clear_tool_inputs" in edit:
+                canon_edit["clear_tool_inputs"] = edit["clear_tool_inputs"]
+            if valid:
+                valid_edits.append(canon_edit)
+
+        elif kind == "clear_thinking_20251015":
+            for k in edit:
+                if k not in ("type", "keep"):
+                    losses.append(Loss(f"{p}.{k}", k, LOSS_UNMAPPED_FIELD))
+            valid = True
+            canon_edit = {"type": "clear_thinking_20251015"}
             if "keep" in edit:
                 keep = edit["keep"]
                 if isinstance(keep, str):
                     if keep != "all":
-                        losses.append(
-                            Loss(
-                                path=f"{p}.keep",
-                                field="keep",
-                                reason=LOSS_UNMAPPED_VALUE,
-                            )
-                        )
+                        losses.append(Loss(f"{p}.keep", "keep", LOSS_UNMAPPED_VALUE))
                         valid = False
+                    else:
+                        canon_edit["keep"] = "all"
                 elif isinstance(keep, dict):
+                    for k in keep:
+                        if k not in ("type", "value"):
+                            losses.append(Loss(f"{p}.keep.{k}", k, LOSS_UNMAPPED_FIELD))
                     if keep.get("type") != "thinking_turns":
-                        losses.append(
-                            Loss(
-                                path=f"{p}.keep",
-                                field="keep",
-                                reason=LOSS_UNMAPPED_VALUE,
-                            )
-                        )
+                        losses.append(Loss(f"{p}.keep", "keep", LOSS_UNMAPPED_VALUE))
                         valid = False
+                    else:
+                        canon_edit["keep"] = {"type": "thinking_turns", "value": keep.get("value")}
                 else:
-                    losses.append(
-                        Loss(
-                            path=f"{p}.keep",
-                            field="keep",
-                            reason=LOSS_UNMAPPED_VALUE,
-                        )
-                    )
+                    losses.append(Loss(f"{p}.keep", "keep", LOSS_UNMAPPED_VALUE))
                     valid = False
             if valid:
-                valid_edits.append(edit)
-
-        elif kind == "clear_tool_uses_20250919":
-            valid = True
-            if "trigger" in edit:
-                trigger = edit["trigger"]
-                if isinstance(trigger, dict):
-                    if trigger.get("type") != "input_tokens":
-                        losses.append(
-                            Loss(
-                                path=f"{p}.trigger",
-                                field="trigger",
-                                reason=LOSS_UNMAPPED_VALUE,
-                            )
-                        )
-                        valid = False
-            if "keep" in edit:
-                keep = edit["keep"]
-                if isinstance(keep, dict):
-                    if keep.get("type") != "tool_uses":
-                        losses.append(
-                            Loss(
-                                path=f"{p}.keep",
-                                field="keep",
-                                reason=LOSS_UNMAPPED_VALUE,
-                            )
-                        )
-                        valid = False
-            if valid:
-                valid_edits.append(edit)
+                valid_edits.append(canon_edit)
 
         else:
             losses.append(
@@ -315,46 +341,6 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
                 )
             )
 
-    # 5. System blocks cache_control
-    if isinstance(wire.get("system"), list):
-        new_system = list(req.system)
-        for i, sb_wire in enumerate(wire["system"]):
-            if isinstance(sb_wire, dict) and "cache_control" in sb_wire and i < len(new_system):
-                canon, l = parse_cache_control(sb_wire["cache_control"], f"system[{i}].cache_control")
-                if l is not None:
-                    losses.append(l)
-                if canon is not None:
-                    ann = NativeAnnotation(
-                        source=NATIVE_SOURCE_ANTHROPIC,
-                        kind=NATIVE_KIND_CACHE_CONTROL,
-                        value=canon,
-                        omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
-                    )
-                    new_system[i] = dataclasses.replace(
-                        new_system[i], native=new_system[i].native + (ann,)
-                    )
-        req = dataclasses.replace(req, system=new_system)
-
-    # 6. Tools cache_control
-    if isinstance(wire.get("tools"), list) and req.tools is not None:
-        new_tools = list(req.tools)
-        for i, t_wire in enumerate(wire["tools"]):
-            if isinstance(t_wire, dict) and "cache_control" in t_wire and i < len(new_tools):
-                canon, l = parse_cache_control(t_wire["cache_control"], f"tools[{i}].cache_control")
-                if l is not None:
-                    losses.append(l)
-                if canon is not None:
-                    ann = NativeAnnotation(
-                        source=NATIVE_SOURCE_ANTHROPIC,
-                        kind=NATIVE_KIND_CACHE_CONTROL,
-                        value=canon,
-                        omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
-                    )
-                    new_tools[i] = dataclasses.replace(
-                        new_tools[i], native=new_tools[i].native + (ann,)
-                    )
-        req = dataclasses.replace(req, tools=new_tools)
-
     req = dataclasses.replace(req, native=tuple(req_native))
     return req, losses
 
@@ -377,9 +363,18 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
     native_budget_proj: NativeProjection | None = None
     native_display: str | None = None
     native_effort: str | None = None
+    native_effort_proj: NativeProjection | None = None
 
-    for n in req.native:
+    for i, n in enumerate(req.native):
         if n.source != NATIVE_SOURCE_ANTHROPIC:
+            losses.append(
+                Loss(
+                    path=f"native[{i}]",
+                    field="source",
+                    reason=LOSS_UNSUPPORTED_SEMANTIC,
+                    detail=f'unsupported native option source "{n.source}"',
+                )
+            )
             continue
         if n.kind == NATIVE_KIND_THINKING_MODE:
             try:
@@ -400,6 +395,7 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
         elif n.kind == NATIVE_KIND_OUTPUT_EFFORT:
             try:
                 native_effort = json.loads(n.value)
+                native_effort_proj = n.projection
             except Exception:
                 pass
         elif n.kind == NATIVE_KIND_CACHE_CONTROL:
@@ -412,12 +408,24 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                 wire["context_management"] = json.loads(n.value)
             except Exception:
                 pass
+        else:
+            losses.append(
+                Loss(
+                    path=f"native[{i}]",
+                    field="kind",
+                    reason=LOSS_UNSUPPORTED_SEMANTIC,
+                    detail=f'unsupported native option kind "{n.kind}"',
+                )
+            )
 
     current_effort = req.params.reasoning_effort if req.params else None
 
     if native_mode is not None or native_effort is not None or current_effort is not None:
         if native_mode == "disabled":
             wire["thinking"] = {"type": "disabled"}
+            if native_effort is not None or native_effort_proj is not None:
+                if current_effort is not None:
+                    wire["output_config"] = {"effort": current_effort}
         elif native_mode == "adaptive":
             t_wire: dict[str, Any] = {"type": "adaptive"}
             if native_display is not None:
@@ -470,6 +478,16 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                                     detail="switched to adaptive thinking mode for extended effort",
                                 )
                             )
+                    else:
+                        wire.pop("thinking", None)
+                        losses.append(
+                            Loss(
+                                path="thinking",
+                                field="thinking",
+                                reason=LOSS_UNSUPPORTED_SEMANTIC,
+                                detail="thinking configuration invalidated after clearing reasoning_effort",
+                            )
+                        )
                 else:
                     t_wire = {"type": "enabled", "budget_tokens": native_budget}
                     if native_display is not None:
@@ -477,42 +495,32 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                     wire["thinking"] = t_wire
                     if current_effort is not None:
                         wire["output_config"] = {"effort": current_effort}
-        elif current_effort is not None:
-            budgets = {
-                "minimal": 1024,
-                "low": 2048,
-                "medium": 8192,
-                "high": 16384,
-            }
-            if current_effort in budgets:
-                wire["thinking"] = {
-                    "type": "enabled",
-                    "budget_tokens": budgets[current_effort],
+        else:
+            if native_effort is not None or native_effort_proj is not None:
+                if current_effort is not None:
+                    wire["output_config"] = {"effort": current_effort}
+            elif current_effort is not None:
+                budgets = {
+                    "minimal": 1024,
+                    "low": 2048,
+                    "medium": 8192,
+                    "high": 16384,
                 }
-                losses.append(
-                    Loss(
-                        path="params.reasoning_effort",
-                        field="reasoning_effort",
-                        reason=LOSS_DEGRADED,
-                        detail="budget approximated",
+                if current_effort in budgets:
+                    wire["thinking"] = {
+                        "type": "enabled",
+                        "budget_tokens": budgets[current_effort],
+                    }
+                    losses.append(
+                        Loss(
+                            path="params.reasoning_effort",
+                            field="reasoning_effort",
+                            reason=LOSS_DEGRADED,
+                            detail="budget approximated",
+                        )
                     )
-                )
-            else:
-                wire["thinking"] = {"type": "adaptive"}
-                wire["output_config"] = {"effort": current_effort}
-
-    # System cache_control
-    if "system" in wire and isinstance(wire["system"], list):
-        for i, sb in enumerate(req.system):
-            cc = get_block_cache_control(sb.native)
-            if cc is not None and i < len(wire["system"]) and isinstance(wire["system"][i], dict):
-                wire["system"][i]["cache_control"] = cc
-
-    # Tools cache_control
-    if "tools" in wire and isinstance(wire["tools"], list) and req.tools is not None:
-        for i, t in enumerate(req.tools):
-            cc = get_block_cache_control(t.native)
-            if cc is not None and i < len(wire["tools"]) and isinstance(wire["tools"][i], dict):
-                wire["tools"][i]["cache_control"] = cc
+                else:
+                    wire["thinking"] = {"type": "adaptive"}
+                    wire["output_config"] = {"effort": current_effort}
 
     return losses

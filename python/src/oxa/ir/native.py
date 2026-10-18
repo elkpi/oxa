@@ -62,14 +62,27 @@ def validate_native_request(req: Any) -> None:
     explicit_proj = 0
     for n in getattr(req, "native", ()):
         if n.projection is not None:
-            if n.projection.origin == "budget":
+            orig = n.projection.origin
+            if orig not in ("budget", "explicit"):
+                raise CodecError(f'ir: native projection origin "{orig}" invalid')
+            eff = n.projection.effort
+            if eff not in ("minimal", "low", "medium", "high", "xhigh", "max"):
+                raise CodecError(f'ir: native projection effort "{eff}" invalid')
+            if orig == "budget":
+                if n.kind != NATIVE_KIND_THINKING_BUDGET:
+                    raise CodecError("ir: budget projection is only allowed on thinking_budget")
                 budget_proj += 1
                 if budget_proj > 1:
                     raise CodecError("ir: duplicate budget projection on request")
-            elif n.projection.origin == "explicit":
+            elif orig == "explicit":
+                if n.kind != NATIVE_KIND_OUTPUT_EFFORT:
+                    raise CodecError("ir: explicit projection is only allowed on output_effort")
                 explicit_proj += 1
                 if explicit_proj > 1:
                     raise CodecError("ir: duplicate explicit projection on request")
+
+    if budget_proj > 0 and explicit_proj > 0:
+        raise CodecError("ir: conflicting effort projections on request")
 
     for i, sb in enumerate(getattr(req, "system", ()) or ()):
         validate_annotations(getattr(sb, "native", ()), HostType.SYSTEM, f"system[{i}]")
@@ -94,11 +107,19 @@ def validate_annotations(
         if not ann.kind:
             raise CodecError(f"{path}.native[{i}]: kind cannot be empty")
         try:
-            json.loads(ann.value)
+            parsed_json = json.loads(ann.value)
         except Exception:
             raise CodecError(f"{path}.native[{i}]: value is not valid JSON text")
-        if ann.omission is not None and not ann.omission.field:
-            raise CodecError(f"{path}.native[{i}]: omission field cannot be empty")
+        if ann.omission is not None:
+            if not ann.omission.field:
+                raise CodecError(f"{path}.native[{i}]: omission field cannot be empty")
+            if ann.omission.reason not in (
+                "unmapped-field",
+                "unmapped-value",
+                "unsupported-semantic",
+                "degraded",
+            ):
+                raise CodecError(f"{path}.native[{i}]: invalid omission reason")
 
         key = f"{ann.source}:{ann.kind}"
         if key in seen:
@@ -106,14 +127,36 @@ def validate_annotations(
         seen.add(key)
 
         if ann.source == NATIVE_SOURCE_ANTHROPIC:
-            if ann.kind in (
-                NATIVE_KIND_THINKING_MODE,
-                NATIVE_KIND_THINKING_BUDGET,
-                NATIVE_KIND_THINKING_DISPLAY,
-                NATIVE_KIND_OUTPUT_EFFORT,
-                NATIVE_KIND_CONTEXT_MANAGEMENT,
-            ) and host != HostType.REQUEST:
-                raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+            if ann.kind == NATIVE_KIND_THINKING_MODE:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if parsed_json not in ("adaptive", "enabled", "disabled"):
+                    raise CodecError(f"invalid thinking_mode {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_THINKING_BUDGET:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if not (isinstance(parsed_json, int) and parsed_json > 0):
+                    raise CodecError("anthropic thinking_budget must be a positive integer")
+            elif ann.kind == NATIVE_KIND_THINKING_DISPLAY:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if parsed_json not in ("summarized", "omitted", "updates"):
+                    raise CodecError(f"invalid thinking_display {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_OUTPUT_EFFORT:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if parsed_json not in ("low", "medium", "high", "xhigh", "max"):
+                    raise CodecError(f"invalid output_effort {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, dict) or not isinstance(parsed_json.get("edits"), list):
+                    raise CodecError("context_management requires edits array")
+            elif ann.kind == NATIVE_KIND_CACHE_CONTROL:
+                if not isinstance(parsed_json, dict) or parsed_json.get("type") != "ephemeral":
+                    raise CodecError("invalid cache_control object")
+                if "ttl" in parsed_json and parsed_json["ttl"] not in ("5m", "1h"):
+                    raise CodecError(f'invalid cache_control ttl {parsed_json["ttl"]!r}')
 
 
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
@@ -233,6 +276,14 @@ def _append_omission_loss(
                     field=ann.omission.field,
                     reason=ann.omission.reason,
                     detail=ann.omission.detail or "",
+                )
+            )
+        else:
+            losses.append(
+                Loss(
+                    path=path,
+                    field="type",
+                    reason="unmapped-field",
                 )
             )
         return

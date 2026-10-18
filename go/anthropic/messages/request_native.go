@@ -356,7 +356,7 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 				Source:   ir.NativeSourceAnthropic,
 				Kind:     ir.NativeKindCacheControl,
 				Value:    canon,
-				Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+				Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
 			})
 		}
 	}
@@ -378,12 +378,17 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 	return losses, nil
 }
 
+// cacheControlLossDetail reports the spec/15 s3.2 capability-gap detail for
+// Anthropic cache breakpoints dropped when crossing to a face without
+// cache_control representation.
+const cacheControlLossDetail = "anthropic-native cache breakpoint; the target face has no cache_control representation"
+
 func attachCacheControlToBlock(blk *ir.Block, canon string) {
 	ann := ir.NativeAnnotation{
 		Source:   ir.NativeSourceAnthropic,
 		Kind:     ir.NativeKindCacheControl,
 		Value:    canon,
-		Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField},
+		Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
 	}
 	switch b := (*blk).(type) {
 	case ir.TextBlock:

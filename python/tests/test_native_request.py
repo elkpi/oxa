@@ -429,6 +429,66 @@ class NativeRequestTest(unittest.TestCase):
         self.assertIsInstance(inner_content, list)
         self.assertEqual(inner_content[0].get("cache_control"), {"type": "ephemeral"})
 
+    def test_cache_control_omission_loss_detail_cross_encoding(self) -> None:
+        from oxa.ir import CACHE_CONTROL_LOSS_DETAIL
+
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 64000,
+            "system": [{"type": "text", "text": "S", "cache_control": {"type": "ephemeral"}}],
+            "tools": [{"name": "f", "description": "d", "input_schema": {"type": "object"}, "cache_control": {"type": "ephemeral"}}],
+            "messages": [{"role": "user", "content": [{"type": "text", "text": "go", "cache_control": {"type": "ephemeral"}}]}],
+        }
+        req, dec_losses = an_decode_request(wire)
+        self.assertEqual(len(dec_losses), 0)
+
+        _, cc_losses = cc_encode_request(req)
+        self.assertEqual(len(cc_losses), 3)
+        for l in cc_losses:
+            self.assertEqual(l.field, "cache_control")
+            self.assertEqual(l.reason, LOSS_UNMAPPED_FIELD)
+            self.assertEqual(l.detail, CACHE_CONTROL_LOSS_DETAIL)
+
+        _, resp_losses = resp_encode_request(req)
+        self.assertEqual(len(resp_losses), 3)
+        for l in resp_losses:
+            self.assertEqual(l.detail, CACHE_CONTROL_LOSS_DETAIL)
+
+        # Directly constructed IR without omission
+        req_no_om = Request(
+            model="claude-opus-5-5",
+            native=(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_CACHE_CONTROL,
+                    value=json.dumps({"type": "ephemeral"}),
+                ),
+            ),
+            messages=[Message(role="user", content=[TextBlock(text="hi")])],
+        )
+        _, cc_no_om_losses = cc_encode_request(req_no_om)
+        self.assertEqual(len(cc_no_om_losses), 1)
+        self.assertEqual(cc_no_om_losses[0].field, "cache_control")
+        self.assertEqual(cc_no_om_losses[0].reason, LOSS_UNMAPPED_FIELD)
+        self.assertEqual(cc_no_om_losses[0].detail, CACHE_CONTROL_LOSS_DETAIL)
+
+        # Directly constructed IR with empty detail
+        req_empty_detail = Request(
+            model="claude-opus-5-5",
+            native=(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_CACHE_CONTROL,
+                    value=json.dumps({"type": "ephemeral"}),
+                    omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=""),
+                ),
+            ),
+            messages=[Message(role="user", content=[TextBlock(text="hi")])],
+        )
+        _, cc_empty_losses = cc_encode_request(req_empty_detail)
+        self.assertEqual(len(cc_empty_losses), 1)
+        self.assertEqual(cc_empty_losses[0].detail, CACHE_CONTROL_LOSS_DETAIL)
+
 
 if __name__ == "__main__":
     unittest.main()

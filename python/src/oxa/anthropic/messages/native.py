@@ -23,13 +23,11 @@ from oxa.ir.native import (
     NATIVE_KIND_THINKING_DISPLAY,
     NATIVE_KIND_THINKING_MODE,
     NATIVE_SOURCE_ANTHROPIC,
+    CACHE_CONTROL_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     NativeProjection,
 )
-
-
-CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
 
 def parse_cache_control(cc: Any, path: str) -> tuple[str | None, Loss | None]:
     if not isinstance(cc, dict):

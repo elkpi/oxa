@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from oxa.ir.constants import (
+    LOSS_UNMAPPED_FIELD,
     ReasoningEffort,
 )
 from oxa.ir.loss import Loss
@@ -19,6 +20,8 @@ NATIVE_KIND_THINKING_DISPLAY = "thinking_display"
 NATIVE_KIND_OUTPUT_EFFORT = "output_effort"
 NATIVE_KIND_CACHE_CONTROL = "cache_control"
 NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management"
+
+CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
 
 
 class CodecError(ValueError):
@@ -311,9 +314,29 @@ def _append_omission_loss(
             )
         return
 
+    if ann.kind == NATIVE_KIND_CACHE_CONTROL:
+        field = "cache_control"
+        reason = LOSS_UNMAPPED_FIELD
+        detail = CACHE_CONTROL_LOSS_DETAIL
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(
+            Loss(
+                path=path,
+                field=field,
+                reason=reason,
+                detail=detail,
+            )
+        )
+        return
+
     if ann.kind in (
         NATIVE_KIND_THINKING_DISPLAY,
-        NATIVE_KIND_CACHE_CONTROL,
         NATIVE_KIND_CONTEXT_MANAGEMENT,
     ):
         if ann.omission is not None:

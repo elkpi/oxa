@@ -80,6 +80,7 @@ from oxa.ir.native import (
     NATIVE_KIND_THINKING_DISPLAY,
     NATIVE_KIND_THINKING_MODE,
     NATIVE_SOURCE_ANTHROPIC,
+    CACHE_CONTROL_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     NativeProjection,
@@ -251,4 +252,5 @@ __all__ = [
     "Violation",
     "validate_event_stream",
     "validate_event_stream_for_encoder",
+    "CACHE_CONTROL_LOSS_DETAIL",
 ]

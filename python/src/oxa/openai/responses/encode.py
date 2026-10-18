@@ -31,6 +31,7 @@ from oxa.ir import (
     ThinkingBlock,
     ToolUseBlock,
 )
+from oxa.ir.native import omitted_native_request_losses
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
 )
@@ -165,6 +166,8 @@ def encode_request(
                     "Responses requests have no stop-sequences parameter; the IR stop sequences are dropped.",
                 )
             )
+
+    losses.extend(omitted_native_request_losses(req, "responses"))
 
     return out, losses
 

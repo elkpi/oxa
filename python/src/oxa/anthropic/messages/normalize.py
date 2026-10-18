@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from typing import Any
 
@@ -18,6 +19,10 @@ from oxa.anthropic.messages.constants import (
     TOOL_CHOICE_TYPE_AUTO,
     TOOL_CHOICE_TYPE_NONE,
     TOOL_CHOICE_TYPE_TOOL,
+)
+from oxa.anthropic.messages.native import (
+    get_block_cache_control,
+    parse_cache_control,
 )
 from oxa.ir import (
     LOSS_UNMAPPED_FIELD,
@@ -37,6 +42,12 @@ from oxa.ir import (
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
+)
+from oxa.ir.native import (
+    NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_SOURCE_ANTHROPIC,
+    NativeAnnotation,
+    NativeOmission,
 )
 
 
@@ -77,21 +88,19 @@ def decode_system(system: Any) -> tuple[list[SystemBlock], list[Loss]]:
                 kind = block.get("type") if isinstance(block, dict) else type(block).__name__
                 raise ValueError(f"anthropic: system[{index}]: unsupported block type {kind!r}")
             out.append(TextBlock(text=block.get("text", "")))
-            if block.get("cache_control") is not None:
-                losses.append(
-                    loss(
-                        f"system[{index}].cache_control",
-                        "cache_control",
-                        LOSS_UNMAPPED_FIELD,
-                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                    )
-                )
         return out, losses
     raise ValueError("anthropic: system must be a string or array of blocks")
 
 
 def encode_system(system: list[SystemBlock]) -> list[dict[str, Any]]:
-    return [{"type": BLOCK_TYPE_TEXT, "text": b.text} for b in system]
+    out: list[dict[str, Any]] = []
+    for b in system:
+        item: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": b.text}
+        cc = get_block_cache_control(b.native)
+        if cc is not None:
+            item["cache_control"] = cc
+        out.append(item)
+    return out
 
 
 def decode_content(
@@ -138,41 +147,21 @@ def decode_block(
     """Decodes one wire block (N-AN-5)."""
     kind = wire.get("type", "")
     losses: list[Loss] = []
-    block: Block
+    block: Block | None = None
 
     if kind == BLOCK_TYPE_TEXT:
         text_val = wire.get("text")
         if not isinstance(text_val, str):
             raise ValueError(f"anthropic: {path}.text must be a string")
         block = TextBlock(text=text_val)
-        if "cache_control" in wire:
-            losses.append(
-                loss(
-                    f"{path}.cache_control",
-                    "cache_control",
-                    LOSS_UNMAPPED_FIELD,
-                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                )
-            )
-        return [block], losses, True
 
-    if kind == BLOCK_TYPE_THINKING:
+    elif kind == BLOCK_TYPE_THINKING:
         block = ThinkingBlock(
             thinking=wire.get("thinking", ""),
             signature=wire.get("signature"),
         )
-        if "cache_control" in wire:
-            losses.append(
-                loss(
-                    f"{path}.cache_control",
-                    "cache_control",
-                    LOSS_UNMAPPED_FIELD,
-                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                )
-            )
-        return [block], losses, True
 
-    if kind == BLOCK_TYPE_IMAGE:
+    elif kind == BLOCK_TYPE_IMAGE:
         source = wire.get("source")
         if not isinstance(source, dict):
             raise ValueError(f"anthropic: {path}.source is required")
@@ -185,42 +174,23 @@ def decode_block(
             if not data:
                 raise ValueError(f"anthropic: {path}.source.data is required")
             block = ImageBlock(media_type=media_type, data=data)
-            if "cache_control" in wire:
-                losses.append(
-                    loss(
-                        f"{path}.cache_control",
-                        "cache_control",
-                        LOSS_UNMAPPED_FIELD,
-                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                    )
-                )
-            return [block], losses, True
-        if src_kind == SOURCE_TYPE_URL:
+        elif src_kind == SOURCE_TYPE_URL:
             url = source.get("url", "")
             if not url:
                 raise ValueError(f"anthropic: {path}.source.url is required")
             block = ImageBlock(url=url)
-            if "cache_control" in wire:
-                losses.append(
-                    loss(
-                        f"{path}.cache_control",
-                        "cache_control",
-                        LOSS_UNMAPPED_FIELD,
-                        "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                    )
+        else:
+            losses.append(
+                loss(
+                    f"{path}.source",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    f"Anthropic image source type {src_kind!r} has no IR equivalent",
                 )
-            return [block], losses, True
-        losses.append(
-            loss(
-                f"{path}.source",
-                "type",
-                LOSS_UNSUPPORTED_SEMANTIC,
-                f"Anthropic image source type {src_kind!r} has no IR equivalent",
             )
-        )
-        return [], losses, False
+            return [], losses, False
 
-    if kind == BLOCK_TYPE_TOOL_USE:
+    elif kind == BLOCK_TYPE_TOOL_USE:
         tool_id = wire.get("id", "")
         name = wire.get("name", "")
         if not tool_id:
@@ -256,67 +226,65 @@ def decode_block(
                 name=name,
                 input=custom_input if custom_input is not None else "",
             )
-            return [block], losses, True
-
-        raw_slice = extract_tool_input_raw(raw_text, f"{path}.input")
-        if raw_slice is not None:
-            input_text = raw_slice
         else:
-            input_text = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
-        block = ToolUseBlock(id=tool_id, name=name, input=input_text)
-        if "cache_control" in wire:
-            losses.append(
-                loss(
-                    f"{path}.cache_control",
-                    "cache_control",
-                    LOSS_UNMAPPED_FIELD,
-                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
-                )
-            )
-        return [block], losses, True
+            raw_slice = extract_tool_input_raw(raw_text, f"{path}.input")
+            if raw_slice is not None:
+                input_text = raw_slice
+            else:
+                input_text = json.dumps(raw_input, separators=(",", ":"), ensure_ascii=False)
+            block = ToolUseBlock(id=tool_id, name=name, input=input_text)
 
-    if kind == BLOCK_TYPE_TOOL_RESULT:
+    elif kind == BLOCK_TYPE_TOOL_RESULT:
         tool_use_id = wire.get("tool_use_id", "")
         if not tool_use_id:
             raise ValueError(f"anthropic: {path}.tool_use_id is required")
         inner_content = wire.get("content", [])
         if custom_call_ids and tool_use_id in custom_call_ids:
             if isinstance(inner_content, str):
-                return (
-                    [CustomToolResultBlock(tool_use_id=tool_use_id, output=inner_content)],
-                    losses,
-                    True,
+                block = CustomToolResultBlock(tool_use_id=tool_use_id, output=inner_content)
+            else:
+                content_blocks, c_losses = decode_content(
+                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
                 )
-            content_blocks, c_losses = decode_content(
-                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
-            )
-            losses.extend(c_losses)
-            return (
-                [CustomToolResultBlock(tool_use_id=tool_use_id, output=content_blocks)],
-                losses,
-                True,
-            )
-
-        content_blocks: list[Block]
-        if isinstance(inner_content, str):
-            content_blocks = [TextBlock(text=inner_content)]
+                losses.extend(c_losses)
+                block = CustomToolResultBlock(tool_use_id=tool_use_id, output=content_blocks)
         else:
-            content_blocks, c_losses = decode_content(
-                inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
-            )
-            losses.extend(c_losses)
-        is_error = bool(wire.get("is_error", False))
-        block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
-        if "cache_control" in wire:
-            losses.append(
-                loss(
-                    f"{path}.cache_control",
-                    "cache_control",
-                    LOSS_UNMAPPED_FIELD,
-                    "Anthropic prompt caching annotations have no IR equivalent in v1.",
+            content_blocks: list[Block]
+            if isinstance(inner_content, str):
+                content_blocks = [TextBlock(text=inner_content)]
+            else:
+                content_blocks, c_losses = decode_content(
+                    inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools
                 )
+                losses.extend(c_losses)
+            is_error = bool(wire.get("is_error", False))
+            block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
+
+    else:
+        losses.append(
+            loss(
+                path,
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f"Anthropic block type {kind!r} has no IR equivalent",
             )
-        return [block], losses, True
+        )
+        return [], losses, False
+
+    if "cache_control" in wire and block is not None:
+        canon, l = parse_cache_control(wire["cache_control"], f"{path}.cache_control")
+        if l is not None:
+            losses.append(l)
+        if canon is not None:
+            ann = NativeAnnotation(
+                source=NATIVE_SOURCE_ANTHROPIC,
+                kind=NATIVE_KIND_CACHE_CONTROL,
+                value=canon,
+                omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD),
+            )
+            block = dataclasses.replace(block, native=block.native + (ann,))
+
+    return [block] if block is not None else [], losses, True
 
     losses.append(
         loss(

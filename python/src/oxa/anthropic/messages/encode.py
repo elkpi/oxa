@@ -22,6 +22,10 @@ from oxa.anthropic.messages.constants import (
     STOP_REASON_TOOL_USE,
     TYPE_MESSAGE,
 )
+from oxa.anthropic.messages.native import (
+    encode_request_native,
+    get_block_cache_control,
+)
 from oxa.anthropic.messages.normalize import (
     encode_system,
     encode_tool_choice,
@@ -140,6 +144,7 @@ def encode_request(
         and len(req.messages) == 1
         and len(req.messages[0].content) == 1
         and isinstance(req.messages[0].content[0], TextBlock)
+        and not req.messages[0].content[0].native
     )
 
     for index, message in enumerate(req.messages):
@@ -184,25 +189,6 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.stop_sequences:
             out["stop_sequences"] = req.params.stop_sequences
-        if req.params.reasoning_effort is not None:
-            budgets = {
-                "minimal": 1024,
-                "low": 2048,
-                "medium": 8192,
-                "high": 16384,
-            }
-            out["thinking"] = {
-                "type": "enabled",
-                "budget_tokens": budgets[req.params.reasoning_effort],
-            }
-            losses.append(
-                loss(
-                    "params.reasoning_effort",
-                    "reasoning_effort",
-                    LOSS_DEGRADED,
-                    "budget approximated",
-                )
-            )
         if req.params.response_format is not None:
             losses.append(
                 loss(
@@ -213,6 +199,9 @@ def encode_request(
                     "structured output preference is dropped.",
                 )
             )
+
+    native_losses = encode_request_native(req, out)
+    losses.extend(native_losses)
 
     return out, losses
 
@@ -235,12 +224,14 @@ def encode_request_block(
     block: Block,
     path: str,
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
-    if isinstance(block, TextBlock):
-        return {"type": BLOCK_TYPE_TEXT, "text": block.text}, [], True
+    encoded: dict[str, Any] | None = None
+    losses: list[Loss] = []
 
-    if isinstance(block, ThinkingBlock):
+    if isinstance(block, TextBlock):
+        encoded = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+
+    elif isinstance(block, ThinkingBlock):
         signature = block.signature if block.signature else None
-        losses = []
         if signature is None:
             losses.append(
                 loss(
@@ -253,86 +244,86 @@ def encode_request_block(
         encoded = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
         if signature is not None:
             encoded["signature"] = signature
-        return encoded, losses, True
 
-    if isinstance(block, ImageBlock):
-        return encode_image_block(block.media_type, block.data, block.url, path)
+    elif isinstance(block, ImageBlock):
+        encoded, img_losses, mapped = encode_image_block(
+            block.media_type, block.data, block.url, path, block.native
+        )
+        losses.extend(img_losses)
+        if not mapped:
+            return None, losses, False
 
-    if isinstance(block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
+    elif isinstance(block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no Anthropic mapping")], False
 
-    if isinstance(block, CustomToolUseBlock):
+    elif isinstance(block, CustomToolUseBlock):
         if not block.id:
             raise ValueError(f"anthropic: {path}.id is required")
         if not block.name:
             raise ValueError(f"anthropic: {path}.name is required")
-        return (
-            {
-                "type": BLOCK_TYPE_TOOL_USE,
-                "id": block.id,
-                "name": block.name,
-                "input": {"input": block.input},
-            },
-            [],
-            True,
-        )
+        encoded = {
+            "type": BLOCK_TYPE_TOOL_USE,
+            "id": block.id,
+            "name": block.name,
+            "input": {"input": block.input},
+        }
 
-    if isinstance(block, CustomToolResultBlock):
+    elif isinstance(block, CustomToolResultBlock):
         if not block.tool_use_id:
             raise ValueError(f"anthropic: {path}.tool_use_id is required")
         if isinstance(block.output, str):
-            return (
-                {
-                    "type": BLOCK_TYPE_TOOL_RESULT,
-                    "tool_use_id": block.tool_use_id,
-                    "content": block.output,
-                },
-                [],
-                True,
-            )
-        wire_content: list[dict[str, Any]] = []
-        c_losses: list[Loss] = []
-        for i, inner in enumerate(block.output or []):
-            if isinstance(inner, TextBlock):
-                wire_content.append({"type": BLOCK_TYPE_TEXT, "text": inner.text})
-            elif isinstance(inner, ImageBlock):
-                img_wire, img_losses, mapped = encode_image_block(
-                    inner.media_type, inner.data, inner.url, f"{path}.content[{i}]"
-                )
-                if mapped and img_wire:
-                    wire_content.append(img_wire)
-                c_losses.extend(img_losses)
-        return (
-            {
+            encoded = {
+                "type": BLOCK_TYPE_TOOL_RESULT,
+                "tool_use_id": block.tool_use_id,
+                "content": block.output,
+            }
+        else:
+            wire_content: list[dict[str, Any]] = []
+            for i, inner in enumerate(block.output or []):
+                if isinstance(inner, TextBlock):
+                    item: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": inner.text}
+                    cc = get_block_cache_control(inner.native)
+                    if cc is not None:
+                        item["cache_control"] = cc
+                    wire_content.append(item)
+                elif isinstance(inner, ImageBlock):
+                    img_wire, img_losses, mapped = encode_image_block(
+                        inner.media_type, inner.data, inner.url, f"{path}.content[{i}]", inner.native
+                    )
+                    if mapped and img_wire:
+                        wire_content.append(img_wire)
+                    losses.extend(img_losses)
+            encoded = {
                 "type": BLOCK_TYPE_TOOL_RESULT,
                 "tool_use_id": block.tool_use_id,
                 "content": wire_content,
-            },
-            c_losses,
-            True,
-        )
+            }
 
-    if isinstance(block, ToolUseBlock):
+    elif isinstance(block, ToolUseBlock):
         if not block.id:
             raise ValueError(f"anthropic: {path}.id is required")
         if not block.name:
             raise ValueError(f"anthropic: {path}.name is required")
         raw = input_from_ir_string(block.input, path)
-        return (
-            {
-                "type": BLOCK_TYPE_TOOL_USE,
-                "id": block.id,
-                "name": block.name,
-                "input": raw,
-            },
-            [],
-            True,
-        )
+        encoded = {
+            "type": BLOCK_TYPE_TOOL_USE,
+            "id": block.id,
+            "name": block.name,
+            "input": raw,
+        }
 
-    if isinstance(block, ToolResultBlock):
+    elif isinstance(block, ToolResultBlock):
         return encode_tool_result_block(block, path)
 
-    return None, [], False
+    else:
+        return None, [], False
+
+    if encoded is not None:
+        cc = get_block_cache_control(block.native)
+        if cc is not None:
+            encoded["cache_control"] = cc
+
+    return encoded, losses, True
 
 
 def input_from_ir_string(input_str: str, path: str) -> dict[str, Any]:
@@ -355,6 +346,7 @@ def encode_image_block(
     data: str | None,
     url: str | None,
     path: str,
+    native: tuple[Any, ...] = (),
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     has_data = bool(data)
     has_url = bool(url)
@@ -385,15 +377,19 @@ def encode_image_block(
                 ],
                 False,
             )
-        return (
-            {
-                "type": BLOCK_TYPE_IMAGE,
-                "source": {
-                    "type": SOURCE_TYPE_BASE64,
-                    "media_type": media_type,
-                    "data": data,
-                },
+        encoded: dict[str, Any] = {
+            "type": BLOCK_TYPE_IMAGE,
+            "source": {
+                "type": SOURCE_TYPE_BASE64,
+                "media_type": media_type,
+                "data": data,
             },
+        }
+        cc = get_block_cache_control(native)
+        if cc is not None:
+            encoded["cache_control"] = cc
+        return (
+            encoded,
             [],
             True,
         )
@@ -403,14 +399,18 @@ def encode_image_block(
             [loss(path, "image", LOSS_UNSUPPORTED_SEMANTIC, "URL image must not carry media_type")],
             False,
         )
-    return (
-        {
-            "type": BLOCK_TYPE_IMAGE,
-            "source": {
-                "type": SOURCE_TYPE_URL,
-                "url": url,
-            },
+    encoded = {
+        "type": BLOCK_TYPE_IMAGE,
+        "source": {
+            "type": SOURCE_TYPE_URL,
+            "url": url,
         },
+    }
+    cc = get_block_cache_control(native)
+    if cc is not None:
+        encoded["cache_control"] = cc
+    return (
+        encoded,
         [],
         True,
     )
@@ -429,10 +429,14 @@ def encode_tool_result_block(
     for index, inner in enumerate(block.content):
         content_path = f"{path}.content[{index}]"
         if isinstance(inner, TextBlock):
-            wire_content.append({"type": BLOCK_TYPE_TEXT, "text": inner.text})
+            item: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": inner.text}
+            cc = get_block_cache_control(inner.native)
+            if cc is not None:
+                item["cache_control"] = cc
+            wire_content.append(item)
         elif isinstance(inner, ImageBlock):
             img_wire, img_losses, mapped = encode_image_block(
-                inner.media_type, inner.data, inner.url, content_path
+                inner.media_type, inner.data, inner.url, content_path, inner.native
             )
             if mapped and img_wire is not None:
                 wire_content.append(img_wire)
@@ -454,6 +458,10 @@ def encode_tool_result_block(
     }
     if block.is_error:
         out["is_error"] = True
+
+    cc = get_block_cache_control(block.native)
+    if cc is not None:
+        out["cache_control"] = cc
 
     return out, losses, True
 

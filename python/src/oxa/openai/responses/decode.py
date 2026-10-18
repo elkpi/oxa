@@ -277,7 +277,7 @@ def decode_request(
         raise ValueError("responses: reasoning must be an object or string")
 
     if raw_effort is not None:
-        if raw_effort in ("minimal", "low", "medium", "high"):
+        if raw_effort in ("minimal", "low", "medium", "high", "xhigh", "max"):
             reasoning_effort = cast(ReasoningEffort, raw_effort)
         else:
             losses.append(

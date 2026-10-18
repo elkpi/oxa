@@ -27,6 +27,7 @@ from oxa.ir import (
     ResponseFormatText,
     ToolResultBlock,
 )
+from oxa.ir.native import omitted_native_request_losses
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
 )
@@ -186,6 +187,8 @@ def encode_request(
             out["reasoning_effort"] = req.params.reasoning_effort
         if req.params.response_format is not None:
             out["response_format"] = encode_response_format(req.params.response_format)
+
+    losses.extend(omitted_native_request_losses(req, "chatcompletions"))
 
     return out, losses
 

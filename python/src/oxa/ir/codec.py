@@ -32,6 +32,12 @@ from oxa.ir.constants import (
     TOOL_CHOICE_TOOL,
 )
 from oxa.ir.loss import Loss
+from oxa.ir.native import (
+    CodecError,
+    NativeAnnotation,
+    NativeOmission,
+    NativeProjection,
+)
 from oxa.ir.types import (
     ApplyPatchCreateFileOperation,
     ApplyPatchDeleteFileOperation,
@@ -80,8 +86,71 @@ from oxa.ir.types import (
 )
 
 
-class CodecError(ValueError):
-    """Raised when an IR document violates structural schema requirements."""
+def dump_native_annotation(ann: NativeAnnotation) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "source": ann.source,
+        "kind": ann.kind,
+        "value": ann.value,
+    }
+    if ann.omission is not None:
+        om_dict: dict[str, Any] = {
+            "field": ann.omission.field,
+            "reason": ann.omission.reason,
+        }
+        if ann.omission.detail is not None:
+            om_dict["detail"] = ann.omission.detail
+        out["omission"] = om_dict
+    if ann.projection is not None:
+        out["projection"] = {
+            "origin": ann.projection.origin,
+            "effort": ann.projection.effort,
+        }
+    return out
+
+
+def load_native_annotation(data: dict[str, Any]) -> NativeAnnotation:
+    if not isinstance(data, dict):
+        raise CodecError("native annotation must be an object")
+    source = data.get("source")
+    kind = data.get("kind")
+    value = data.get("value")
+    if not isinstance(source, str) or not isinstance(kind, str) or not isinstance(value, str):
+        raise CodecError("native annotation requires string source, kind, and value")
+
+    omission: NativeOmission | None = None
+    if "omission" in data:
+        om_data = data["omission"]
+        if not isinstance(om_data, dict):
+            raise CodecError("native omission must be an object")
+        field = om_data.get("field")
+        reason = om_data.get("reason")
+        if not isinstance(field, str) or not isinstance(reason, str):
+            raise CodecError("native omission requires string field and reason")
+        detail = om_data.get("detail")
+        if detail is not None and not isinstance(detail, str):
+            raise CodecError("native omission detail must be a string")
+        omission = NativeOmission(field=field, reason=reason, detail=detail)
+
+    projection: NativeProjection | None = None
+    if "projection" in data:
+        proj_data = data["projection"]
+        if not isinstance(proj_data, dict):
+            raise CodecError("native projection must be an object")
+        origin = proj_data.get("origin")
+        effort = proj_data.get("effort")
+        if origin not in ("budget", "explicit"):
+            raise CodecError("native projection origin must be 'budget' or 'explicit'")
+        if effort not in ("minimal", "low", "medium", "high", "xhigh", "max"):
+            raise CodecError("native projection effort is invalid")
+        projection = NativeProjection(origin=origin, effort=effort)
+
+    return NativeAnnotation(
+        source=source,
+        kind=kind,
+        value=value,
+        omission=omission,
+        projection=projection,
+    )
 
 
 def _dump_usage(usage: Usage) -> dict[str, Any]:
@@ -135,6 +204,8 @@ def _load_usage(data: dict[str, Any]) -> Usage:
 
 
 def dump_block(block: Block) -> dict[str, Any]:
+    if getattr(block, "native", ()):
+        raise CodecError("native is only permitted on request blocks")
     if isinstance(block, TextBlock):
         return {"type": BLOCK_TYPE_TEXT, "text": block.text}
     if isinstance(block, ThinkingBlock):
@@ -210,7 +281,7 @@ def dump_block(block: Block) -> dict[str, Any]:
     if isinstance(block, ApplyPatchToolResultBlock):
         if not block.tool_use_id:
             raise CodecError("apply_patch_tool_result requires non-empty tool_use_id")
-        res: dict[str, Any] = {
+        res = {
             "type": BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
             "tool_use_id": block.tool_use_id,
             "status": block.status,
@@ -219,6 +290,95 @@ def dump_block(block: Block) -> dict[str, Any]:
             res["output"] = block.output
         return res
     raise CodecError(f"unknown block type: {type(block)}")
+
+
+def dump_request_block(block: Block) -> dict[str, Any]:
+    if isinstance(block, TextBlock):
+        out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+    elif isinstance(block, ThinkingBlock):
+        out = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
+        if block.signature is not None:
+            out["signature"] = block.signature
+    elif isinstance(block, ImageBlock):
+        has_data = bool(block.data)
+        has_url = bool(block.url)
+        if has_data == has_url:
+            raise CodecError("image block must carry exactly one of data or url")
+        if has_data:
+            if not block.media_type:
+                raise CodecError("image block with data requires media_type")
+            out = {
+                "type": BLOCK_TYPE_IMAGE,
+                "media_type": block.media_type,
+                "data": block.data,
+            }
+        else:
+            out = {"type": BLOCK_TYPE_IMAGE, "url": block.url}
+    elif isinstance(block, ToolUseBlock):
+        if not block.id:
+            raise CodecError("tool_use block requires non-empty id")
+        if not block.name:
+            raise CodecError("tool_use block requires non-empty name")
+        if block.input is None:
+            raise CodecError("tool_use block requires input")
+        out = {
+            "type": BLOCK_TYPE_TOOL_USE,
+            "id": block.id,
+            "name": block.name,
+            "input": block.input,
+        }
+    elif isinstance(block, ToolResultBlock):
+        if not block.tool_use_id:
+            raise CodecError("tool_result block requires non-empty tool_use_id")
+        out = {
+            "type": BLOCK_TYPE_TOOL_RESULT,
+            "tool_use_id": block.tool_use_id,
+            "content": [dump_request_block(b) for b in block.content],
+        }
+        if block.is_error:
+            out["is_error"] = True
+    elif isinstance(block, CustomToolUseBlock):
+        if not block.id or not block.name or not isinstance(block.input, str):
+            raise CodecError("custom_tool_use requires non-empty id/name and string input")
+        out = {"type": BLOCK_TYPE_CUSTOM_TOOL_USE, "id": block.id, "name": block.name, "input": block.input}
+    elif isinstance(block, CustomToolResultBlock):
+        if not block.tool_use_id:
+            raise CodecError("custom_tool_result block requires non-empty tool_use_id")
+        output = block.output
+        if isinstance(output, list):
+            if any(not isinstance(b, (TextBlock, ImageBlock)) for b in output):
+                raise CodecError("custom_tool_result output array accepts only text and image blocks")
+            output_dumped = [dump_request_block(b) for b in output]
+        elif not isinstance(output, str):
+            raise CodecError("custom_tool_result output must be a string or array")
+        else:
+            output_dumped = output
+        out = {"type": BLOCK_TYPE_CUSTOM_TOOL_RESULT, "tool_use_id": block.tool_use_id, "output": output_dumped}
+    elif isinstance(block, ApplyPatchToolUseBlock):
+        if not block.id:
+            raise CodecError("apply_patch_tool_use requires non-empty id")
+        out = {
+            "type": BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
+            "id": block.id,
+            "status": block.status,
+            "operation": dump_apply_patch_operation(block.operation),
+        }
+    elif isinstance(block, ApplyPatchToolResultBlock):
+        if not block.tool_use_id:
+            raise CodecError("apply_patch_tool_result requires non-empty tool_use_id")
+        out = {
+            "type": BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+            "tool_use_id": block.tool_use_id,
+            "status": block.status,
+        }
+        if block.output is not None:
+            out["output"] = block.output
+    else:
+        raise CodecError(f"unknown block type: {type(block)}")
+
+    if getattr(block, "native", ()):
+        out["native"] = [dump_native_annotation(a) for a in block.native]
+    return out
 
 
 def dump_apply_patch_operation(op: ApplyPatchOperation) -> dict[str, Any]:
@@ -266,6 +426,8 @@ def load_apply_patch_result_status(status: Any) -> str:
 
 
 def load_block(data: dict[str, Any]) -> Block:
+    if "native" in data:
+        raise CodecError("native is only permitted on request blocks")
     kind = data.get("type")
     if kind == BLOCK_TYPE_TEXT:
         return TextBlock(text=data["text"])
@@ -327,6 +489,78 @@ def load_block(data: dict[str, Any]) -> Block:
             tool_use_id=call_id,
             status=load_apply_patch_result_status(data.get("status")),
             output=output,
+        )
+    raise CodecError(f"unknown block discriminant: {kind}")
+
+
+def load_request_block(data: dict[str, Any]) -> Block:
+    native = tuple(load_native_annotation(a) for a in data.get("native", []))
+    kind = data.get("type")
+    if kind == BLOCK_TYPE_TEXT:
+        return TextBlock(text=data["text"], native=native)
+    if kind == BLOCK_TYPE_THINKING:
+        return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"), native=native)
+    if kind == BLOCK_TYPE_IMAGE:
+        return ImageBlock(
+            media_type=data.get("media_type"),
+            data=data.get("data"),
+            url=data.get("url"),
+            native=native,
+        )
+    if kind == BLOCK_TYPE_TOOL_USE:
+        return ToolUseBlock(
+            id=data["id"],
+            name=data["name"],
+            input=data["input"],
+            native=native,
+        )
+    if kind == BLOCK_TYPE_TOOL_RESULT:
+        content_raw = data.get("content", [])
+        return ToolResultBlock(
+            tool_use_id=data["tool_use_id"],
+            content=[load_request_block(b) for b in content_raw],
+            is_error=bool(data.get("is_error", False)),
+            native=native,
+        )
+    if kind == BLOCK_TYPE_CUSTOM_TOOL_USE:
+        call_id, name, input_text = data.get("id"), data.get("name"), data.get("input")
+        if not isinstance(call_id, str) or not call_id or not isinstance(name, str) or not name or not isinstance(input_text, str):
+            raise CodecError("custom_tool_use requires non-empty id/name and string input")
+        return CustomToolUseBlock(id=call_id, name=name, input=input_text, native=native)
+    if kind == BLOCK_TYPE_CUSTOM_TOOL_RESULT:
+        call_id, output = data.get("tool_use_id"), data.get("output")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("custom_tool_result requires non-empty tool_use_id")
+        if isinstance(output, list):
+            blocks = [load_request_block(b) for b in output]
+            if any(not isinstance(b, (TextBlock, ImageBlock)) for b in blocks):
+                raise CodecError("custom_tool_result output array accepts only text and image blocks")
+            output = blocks
+        elif not isinstance(output, str):
+            raise CodecError("custom_tool_result output must be a string or array")
+        return CustomToolResultBlock(tool_use_id=call_id, output=output, native=native)
+    if kind == BLOCK_TYPE_APPLY_PATCH_TOOL_USE:
+        call_id = data.get("id")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("apply_patch_tool_use requires non-empty id")
+        return ApplyPatchToolUseBlock(
+            id=call_id,
+            status=load_apply_patch_call_status(data.get("status")),
+            operation=load_apply_patch_operation(data.get("operation")),
+            native=native,
+        )
+    if kind == BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT:
+        call_id = data.get("tool_use_id")
+        if not isinstance(call_id, str) or not call_id:
+            raise CodecError("apply_patch_tool_result requires non-empty tool_use_id")
+        output = data.get("output")
+        if output is not None and not isinstance(output, str):
+            raise CodecError("apply_patch_tool_result output must be a string")
+        return ApplyPatchToolResultBlock(
+            tool_use_id=call_id,
+            status=load_apply_patch_result_status(data.get("status")),
+            output=output,
+            native=native,
         )
     raise CodecError(f"unknown block discriminant: {kind}")
 
@@ -437,13 +671,15 @@ def dump_request(req: Request) -> dict[str, Any]:
         "messages": [
             {
                 "role": m.role,
-                "content": [dump_block(b) for b in m.content],
+                "content": [dump_request_block(b) for b in m.content],
             }
             for m in req.messages
         ],
     }
+    if req.native:
+        out["native"] = [dump_native_annotation(a) for a in req.native]
     if req.system:
-        out["system"] = [dump_block(b) for b in req.system]
+        out["system"] = [dump_request_block(b) for b in req.system]
     if req.tools:
         tools_out: list[dict[str, Any]] = []
         for t in req.tools:
@@ -465,6 +701,8 @@ def dump_request(req: Request) -> dict[str, Any]:
                     t_dict["description"] = t.description
             else:
                 raise CodecError(f"unknown tool type: {t.type!r}")
+            if t.native:
+                t_dict["native"] = [dump_native_annotation(a) for a in t.native]
             tools_out.append(t_dict)
         out["tools"] = tools_out
     if req.tool_choice:
@@ -581,10 +819,12 @@ def load_request(data: dict[str, Any] | str) -> Request:
             f"unsupported specVersion {version!r}, supported versions are {SUPPORTED_SPEC_VERSIONS!r}"
         )
 
+    req_native = tuple(load_native_annotation(a) for a in raw.get("native", []))
+
     system: list[TextBlock] = []
     if "system" in raw:
         for b in raw["system"]:
-            blk = load_block(b)
+            blk = load_request_block(b)
             if not isinstance(blk, TextBlock):
                 raise CodecError("system block must be text")
             system.append(blk)
@@ -594,7 +834,7 @@ def load_request(data: dict[str, Any] | str) -> Request:
         messages.append(
             Message(
                 role=m["role"],
-                content=[load_block(b) for b in m["content"]],
+                content=[load_request_block(b) for b in m["content"]],
             )
         )
 
@@ -602,20 +842,21 @@ def load_request(data: dict[str, Any] | str) -> Request:
     if "tools" in raw:
         tools = []
         for t in raw["tools"]:
+            tool_native = tuple(load_native_annotation(a) for a in t.get("native", []))
             tool_type = t.get("type", "function")
             if tool_type == "apply_patch":
                 if any(k in t for k in ("name", "description", "input_schema", "format")):
                     raise CodecError("apply_patch declaration must only contain type")
-                tools.append(Tool(type="apply_patch"))
+                tools.append(Tool(type="apply_patch", native=tool_native))
             elif tool_type == "custom":
                 if "input_schema" in t:
                     raise CodecError("custom tool must not carry input_schema")
                 fmt = t.get("format")
-                tools.append(Tool(name=t["name"], description=t.get("description"), type="custom", format=load_custom_tool_format(fmt) if fmt is not None else None))
+                tools.append(Tool(name=t["name"], description=t.get("description"), type="custom", format=load_custom_tool_format(fmt) if fmt is not None else None, native=tool_native))
             elif tool_type == "function":
                 if "format" in t:
                     raise CodecError("function tool must not carry format")
-                tools.append(Tool(name=t["name"], input_schema=t["input_schema"], description=t.get("description")))
+                tools.append(Tool(name=t["name"], input_schema=t["input_schema"], description=t.get("description"), native=tool_native))
             else:
                 raise CodecError(f"unknown tool type: {tool_type!r}")
 
@@ -641,7 +882,7 @@ def load_request(data: dict[str, Any] | str) -> Request:
     if "params" in raw:
         p = raw["params"]
         effort = p.get("reasoning_effort")
-        if effort is not None and effort not in ("minimal", "low", "medium", "high"):
+        if effort is not None and effort not in ("minimal", "low", "medium", "high", "xhigh", "max"):
             raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
         rf_data = p.get("response_format")
         response_format = load_response_format(rf_data) if rf_data is not None else None
@@ -664,6 +905,7 @@ def load_request(data: dict[str, Any] | str) -> Request:
         tool_choice=tool_choice,
         params=params,
         metadata=metadata,
+        native=req_native,
     )
 
 

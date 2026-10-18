@@ -28,6 +28,16 @@ from oxa.ir.constants import (
     EVENT_TYPE_MESSAGE_START,
     ReasoningEffort,
 )
+from oxa.ir.native import NativeAnnotation
+
+
+def _normalize_native(val: Any) -> tuple[NativeAnnotation, ...]:
+    if isinstance(val, tuple):
+        return val
+    if isinstance(val, list):
+        return tuple(val)
+    return ()
+
 
 # ---- Blocks ----------------------------------------------------------------
 
@@ -37,7 +47,12 @@ class TextBlock:
     """A run of text (spec/01 §3.4)."""
 
     text: str
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +61,12 @@ class ThinkingBlock:
 
     thinking: str
     signature: str | None = None
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_THINKING, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,7 +79,12 @@ class ImageBlock:
     media_type: str | None = None
     data: str | None = None
     url: str | None = None
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_IMAGE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,7 +98,12 @@ class ToolUseBlock:
     id: str
     name: str
     input: str
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_TOOL_USE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +113,12 @@ class ToolResultBlock:
     tool_use_id: str
     content: list[Block] = field(default_factory=list)
     is_error: bool = False
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_TOOL_RESULT, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -92,7 +127,12 @@ class CustomToolUseBlock:
     id: str
     name: str
     input: str
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_CUSTOM_TOOL_USE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,7 +140,12 @@ class CustomToolResultBlock:
     """A custom tool result with string or text/image-list output."""
     tool_use_id: str
     output: str | list[TextBlock | ImageBlock]
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_CUSTOM_TOOL_RESULT, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -135,7 +180,12 @@ class ApplyPatchToolUseBlock:
     id: str
     status: str
     operation: ApplyPatchOperation
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_APPLY_PATCH_TOOL_USE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -143,7 +193,12 @@ class ApplyPatchToolResultBlock:
     tool_use_id: str
     status: str
     output: str | None = None
+    native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 Block = (
@@ -197,6 +252,11 @@ class Tool:
     description: str | None = None
     type: str = "function"
     format: CustomToolFormat | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 @dataclass(frozen=True, slots=True)
@@ -267,6 +327,11 @@ class Request:
     tool_choice: ToolChoice | None = None
     params: Params | None = None
     metadata: dict[str, str] | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
 
 
 # ---- Response Components --------------------------------------------------

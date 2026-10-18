@@ -5,6 +5,16 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.3] - 2026-10-19
+
+### Fixed
+
+- Anthropic Messages 原生请求系统块缓存控制回转保真（spec/15 §3.2 / N-AN-14）：
+  - 修复 Go 参考实现中 `getBlockCacheControl` 缺少 `ir.SystemBlock` 类型分支，导致 `system[]` 块上的 `cache_control` 在 Anthropic → IR → Anthropic 同协议往返编码时静默丢失的问题。
+  - 为 Go 模块补充单个/多个系统块不同缓存配置（TTL 省略、5m、1h）以及直接构造 IR 系统块的往返回归测试。
+- 文档与版本状态：
+  - 更新项目 README、规范说明与各语言版本状态矩阵至 `v2.4.3` 准备态，标明最新已发布版本为 `v2.4.2`。
+
 ## [v2.4.2] - 2026-10-18
 
 ### Fixed

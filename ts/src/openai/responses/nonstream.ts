@@ -11,7 +11,11 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { parseUsageInteger, validateRequest } from "../../ir/index.js";
+import {
+  parseUsageInteger,
+  validateRequest,
+  omittedNativeRequestLosses,
+} from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { RESPONSES_REQUEST, RESPONSES_RESPONSE } from "./audit.js";
 import type {
@@ -72,7 +76,9 @@ function decodeRequestObject(
         effort === "minimal" ||
         effort === "low" ||
         effort === "medium" ||
-        effort === "high"
+        effort === "high" ||
+        effort === "xhigh" ||
+        effort === "max"
       )
         effortValue = effort;
       else losses.push(loss("reasoning.effort", "effort", "unmapped-value"));
@@ -1070,6 +1076,8 @@ export function encodeRequest(
     losses.push(
       loss("params.stop_sequences", "stop_sequences", "unmapped-field"),
     );
+  const omissionLosses = omittedNativeRequestLosses(request, "responses");
+  losses.push(...omissionLosses);
   return {
     value: {
       model: mapModel(options.modelMapper, request.model),

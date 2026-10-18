@@ -1,7 +1,7 @@
 import type { WireAuditSpec } from "../../json/wire-audit.js";
 
 const SYSTEM_BLOCK: WireAuditSpec = {
-  fields: { type: undefined, text: undefined },
+  fields: { type: undefined, text: undefined, cache_control: undefined },
 };
 
 const SOURCE: WireAuditSpec = {
@@ -17,18 +17,25 @@ const BLOCK: WireAuditSpec = {
   variant: (block) => {
     switch (block.type) {
       case "text":
-        return { fields: { type: undefined, text: undefined } };
+        return {
+          fields: {
+            type: undefined,
+            text: undefined,
+            cache_control: undefined,
+          },
+        };
       case "thinking":
         return {
           fields: {
             type: undefined,
             thinking: undefined,
             signature: undefined,
+            cache_control: undefined,
           },
         };
       case "image":
         return {
-          fields: { type: undefined, source: SOURCE },
+          fields: { type: undefined, source: SOURCE, cache_control: undefined },
         };
       case "tool_use":
         return {
@@ -37,6 +44,7 @@ const BLOCK: WireAuditSpec = {
             id: undefined,
             name: undefined,
             input: undefined,
+            cache_control: undefined,
           },
         };
       case "tool_result":
@@ -46,6 +54,7 @@ const BLOCK: WireAuditSpec = {
             tool_use_id: undefined,
             content: { items: BLOCK },
             is_error: undefined,
+            cache_control: undefined,
           },
         };
       default:
@@ -55,7 +64,12 @@ const BLOCK: WireAuditSpec = {
 };
 
 const TOOL: WireAuditSpec = {
-  fields: { name: undefined, description: undefined, input_schema: undefined },
+  fields: {
+    name: undefined,
+    description: undefined,
+    input_schema: undefined,
+    cache_control: undefined,
+  },
 };
 
 const TOOL_CHOICE: WireAuditSpec = {
@@ -66,7 +80,15 @@ const TOOL_CHOICE: WireAuditSpec = {
 };
 
 const THINKING: WireAuditSpec = {
-  fields: { type: undefined, budget_tokens: undefined },
+  fields: { type: undefined, budget_tokens: undefined, display: undefined },
+};
+
+const OUTPUT_CONFIG: WireAuditSpec = {
+  fields: { effort: undefined },
+};
+
+const CONTEXT_MANAGEMENT: WireAuditSpec = {
+  fields: { edits: undefined },
 };
 
 const MESSAGE: WireAuditSpec = {
@@ -110,6 +132,9 @@ export const ANTHROPIC_REQUEST: WireAuditSpec = {
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
     thinking: THINKING,
+    cache_control: undefined,
+    output_config: OUTPUT_CONFIG,
+    context_management: CONTEXT_MANAGEMENT,
   },
 };
 

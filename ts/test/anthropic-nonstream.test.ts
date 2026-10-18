@@ -116,21 +116,7 @@ test("maps reasoning effort budgets in both directions with degraded losses", ()
       effort,
       `budget ${budget}`,
     );
-    assert.deepEqual(
-      decoded.losses.map(({ path, field, reason }) => ({
-        path,
-        field,
-        reason,
-      })),
-      [
-        {
-          path: "thinking.budget_tokens",
-          field: "budget_tokens",
-          reason: "degraded",
-        },
-      ],
-      `budget ${budget}`,
-    );
+    assert.deepEqual(decoded.losses, [], `budget ${budget}`);
   }
 
   const encodeCases = [

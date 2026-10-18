@@ -18,6 +18,12 @@ import { mapModel, type ModelMapper } from "../../modelmap.js";
 import { parseUsageInteger, validateRequest } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
+import {
+  decodeRequestNative,
+  encodeRequestNative,
+  getBlockCacheControl,
+  attachBlockCacheControl,
+} from "./native.js";
 import type {
   Block,
   CustomToolResultBlock,
@@ -101,14 +107,6 @@ function decodeRequestObject(
         type: "text",
         text: string(block.text, `system[${index}].text`),
       });
-      if (block.cache_control !== undefined)
-        losses.push(
-          loss(
-            `system[${index}].cache_control`,
-            "cache_control",
-            "unmapped-field",
-          ),
-        );
     }
   }
   const declaredTools = new Set<string>();
@@ -165,17 +163,6 @@ function decodeRequestObject(
     if (content.length === 0) content.push({ type: "text", text: "" });
     return { role: normalizedRole, content };
   });
-  let effortValue: ReasoningEffort | undefined;
-  if (wire.thinking !== undefined && wire.thinking !== null) {
-    const thinking = object(wire.thinking, "thinking");
-    const thinkingType = string(thinking.type, "thinking.type");
-    if (thinkingType === "enabled") {
-      const budget = whole(thinking.budget_tokens, "thinking.budget_tokens");
-      effortValue =
-        budget <= 2048n ? "low" : budget <= 8192n ? "medium" : "high";
-      losses.push(loss("thinking.budget_tokens", "budget_tokens", "degraded"));
-    }
-  }
   const params = {
     max_tokens: maxTokens,
     ...(wire.temperature === undefined
@@ -187,9 +174,8 @@ function decodeRequestObject(
       : {
           stop_sequences: strings(wire.stop_sequences, "stop_sequences"),
         }),
-    ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
   };
-  const request: Request = {
+  const baseRequest: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
     ...(system.length === 0 ? {} : { system }),
     messages,
@@ -197,6 +183,7 @@ function decodeRequestObject(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     params,
   };
+  const request = decodeRequestNative(wire, baseRequest, losses);
   validateRequest(request);
   return { value: request, losses };
 }
@@ -294,34 +281,18 @@ export function encodeRequest(
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
     losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
-  let thinkingWire: JsonObject | undefined;
-  if (request.params?.reasoning_effort !== undefined) {
-    const budgets = {
-      minimal: 1024n,
-      low: 2048n,
-      medium: 8192n,
-      high: 16384n,
-    } as const;
-    thinkingWire = {
-      type: "enabled",
-      budget_tokens: integer(
-        budgets[request.params.reasoning_effort as ReasoningEffort],
-      ),
-    };
-    losses.push(
-      loss("params.reasoning_effort", "reasoning_effort", "degraded"),
-    );
-  }
   if (request.params?.response_format !== undefined) {
     losses.push(
       loss("params.response_format", "response_format", "unmapped-field"),
     );
   }
+  const firstBlock = request.messages[0]?.content[0];
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     request.messages.length === 1 &&
     request.messages[0]!.content.length === 1 &&
-    request.messages[0]!.content[0]!.type === "text";
+    firstBlock?.type === "text" &&
+    (firstBlock.native === undefined || firstBlock.native.length === 0);
   const messages = request.messages.map((message, index) => {
     const encoded = shorthand
       ? (message.content[0] as { readonly text: string }).text
@@ -385,33 +356,32 @@ export function encodeRequest(
         undefined)
       : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
+  const outValue: JsonObject = {
+    model: mapModel(options.modelMapper, request.model),
+    max_tokens: integer(maxTokens),
+    ...(request.system === undefined || request.system.length === 0
+      ? {}
+      : {
+          system: request.system.map((block) => ({
+            type: "text",
+            text: block.text,
+          })),
+        }),
+    messages,
+    ...(params?.temperature === undefined
+      ? {}
+      : { temperature: fromValue(params.temperature) }),
+    ...(params?.top_p === undefined ? {} : { top_p: fromValue(params.top_p) }),
+    ...(params?.stop_sequences === undefined ||
+    params.stop_sequences.length === 0
+      ? {}
+      : { stop_sequences: [...params.stop_sequences] }),
+    ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+  };
+  encodeRequestNative(request, outValue, losses);
   return {
-    value: {
-      model: mapModel(options.modelMapper, request.model),
-      max_tokens: integer(maxTokens),
-      ...(request.system === undefined || request.system.length === 0
-        ? {}
-        : {
-            system: request.system.map((block) => ({
-              type: "text",
-              text: block.text,
-            })),
-          }),
-      messages,
-      ...(thinkingWire === undefined ? {} : { thinking: thinkingWire }),
-      ...(params?.temperature === undefined
-        ? {}
-        : { temperature: fromValue(params.temperature) }),
-      ...(params?.top_p === undefined
-        ? {}
-        : { top_p: fromValue(params.top_p) }),
-      ...(params?.stop_sequences === undefined ||
-      params.stop_sequences.length === 0
-        ? {}
-        : { stop_sequences: [...params.stop_sequences] }),
-      ...(tools.length === 0 ? {} : { tools }),
-      ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
-    },
+    value: outValue,
     losses,
   };
 }
@@ -493,12 +463,23 @@ function decodeContent(
     const block = object(array(value, path)[index], `${path}[${index}]`);
     const type = string(block.type, `${path}[${index}].type`);
     if (type === "text") {
+      const native = attachBlockCacheControl(
+        block,
+        `${path}[${index}]`,
+        losses,
+      );
       blocks.push({
         type: "text",
         text: string(block.text, `${path}[${index}].text`),
+        ...(native ? { native } : {}),
       });
     } else if (type === "image") {
       const source = object(block.source, `${path}[${index}].source`);
+      const native = attachBlockCacheControl(
+        block,
+        `${path}[${index}]`,
+        losses,
+      );
       if (source.type === "base64")
         blocks.push({
           type: "image",
@@ -507,17 +488,24 @@ function decodeContent(
             `${path}[${index}].source.media_type`,
           ),
           data: string(source.data, `${path}[${index}].source.data`),
+          ...(native ? { native } : {}),
         });
       else if (source.type === "url")
         blocks.push({
           type: "image",
           url: string(source.url, `${path}[${index}].source.url`),
+          ...(native ? { native } : {}),
         });
       else {
         losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
         continue;
       }
     } else if (type === "thinking") {
+      const native = attachBlockCacheControl(
+        block,
+        `${path}[${index}]`,
+        losses,
+      );
       blocks.push({
         type: "thinking",
         thinking: string(block.thinking, `${path}[${index}].thinking`),
@@ -529,8 +517,14 @@ function decodeContent(
                 `${path}[${index}].signature`,
               ),
             }),
+        ...(native ? { native } : {}),
       });
     } else if (type === "tool_use") {
+      const native = attachBlockCacheControl(
+        block,
+        `${path}[${index}]`,
+        losses,
+      );
       const inputPath = `${path}[${index}].input`;
       const input = object(block.input, inputPath);
       const id = string(block.id, `${path}[${index}].id`);
@@ -543,6 +537,7 @@ function decodeContent(
           id,
           name,
           input: customInput ?? "",
+          ...(native ? { native } : {}),
         });
       } else if (declaredTools?.has(name)) {
         const inputText =
@@ -554,6 +549,7 @@ function decodeContent(
           id,
           name,
           input: inputText,
+          ...(native ? { native } : {}),
         });
       } else if (customInput !== undefined) {
         customCallIds?.add(id);
@@ -562,6 +558,7 @@ function decodeContent(
           id,
           name,
           input: customInput,
+          ...(native ? { native } : {}),
         });
       } else {
         const inputText =
@@ -573,9 +570,15 @@ function decodeContent(
           id,
           name,
           input: inputText,
+          ...(native ? { native } : {}),
         });
       }
     } else if (type === "tool_result") {
+      const native = attachBlockCacheControl(
+        block,
+        `${path}[${index}]`,
+        losses,
+      );
       const toolUseId = string(
         block.tool_use_id,
         `${path}[${index}].tool_use_id`,
@@ -616,20 +619,13 @@ function decodeContent(
             : {
                 is_error: boolean(block.is_error, `${path}[${index}].is_error`),
               }),
+          ...(native ? { native } : {}),
         });
       }
     } else {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
       continue;
     }
-    if (block.cache_control !== undefined)
-      losses.push(
-        loss(
-          `${path}[${index}].cache_control`,
-          "cache_control",
-          "unmapped-field",
-        ),
-      );
   }
   return blocks;
 }
@@ -643,7 +639,13 @@ function encodeContent(
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
-    if (block.type === "text") output.push({ type: "text", text: block.text });
+    const cc = getBlockCacheControl(block);
+    if (block.type === "text")
+      output.push({
+        type: "text",
+        text: block.text,
+        ...(cc ? { cache_control: cc } : {}),
+      });
     else if (block.type === "thinking") {
       output.push({
         type: "thinking",
@@ -651,6 +653,7 @@ function encodeContent(
         ...(block.signature === undefined
           ? {}
           : { signature: block.signature }),
+        ...(cc ? { cache_control: cc } : {}),
       });
       if (replay && block.signature === undefined)
         losses.push({
@@ -663,7 +666,7 @@ function encodeContent(
       const image = encodeImage(block);
       if (image === undefined)
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
-      else output.push(image);
+      else output.push({ ...image, ...(cc ? { cache_control: cc } : {}) });
     } else if (block.type === "tool_use") {
       const value = parseJson(block.input);
       const inputPath = `${path}[${index}].input`;
@@ -672,13 +675,19 @@ function encodeContent(
         id: block.id,
         name: block.name,
         input: withSourceText(object(value, inputPath), block.input),
+        ...(cc ? { cache_control: cc } : {}),
       });
     } else if (block.type === "tool_result") {
       const content: JsonValue[] = [];
       for (let child = 0; child < block.content.length; child += 1) {
         const nested = block.content[child]!;
+        const nestedCc = getBlockCacheControl(nested);
         if (nested.type === "text")
-          content.push({ type: "text", text: nested.text });
+          content.push({
+            type: "text",
+            text: nested.text,
+            ...(nestedCc ? { cache_control: nestedCc } : {}),
+          });
         else if (nested.type === "image") {
           const image = encodeImage(nested);
           if (image === undefined)
@@ -689,7 +698,11 @@ function encodeContent(
                 "unsupported-semantic",
               ),
             );
-          else content.push(image);
+          else
+            content.push({
+              ...image,
+              ...(nestedCc ? { cache_control: nestedCc } : {}),
+            });
         } else
           losses.push(
             loss(
@@ -704,6 +717,7 @@ function encodeContent(
         tool_use_id: block.tool_use_id,
         content,
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
+        ...(cc ? { cache_control: cc } : {}),
       });
     } else if (block.type === "custom_tool_use") {
       output.push({

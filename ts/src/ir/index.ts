@@ -52,6 +52,17 @@ export {
   parseUsageInteger,
 } from "./usage.js";
 export {
+  validateNativeRequest,
+  omittedNativeRequestLosses,
+  NATIVE_KIND_THINKING_MODE,
+  NATIVE_KIND_THINKING_BUDGET,
+  NATIVE_KIND_THINKING_DISPLAY,
+  NATIVE_KIND_OUTPUT_EFFORT,
+  NATIVE_KIND_CACHE_CONTROL,
+  NATIVE_KIND_CONTEXT_MANAGEMENT,
+  NATIVE_SOURCE_ANTHROPIC,
+} from "./native.js";
+export {
   specVersion,
   type ApplyPatchCreateFileOperation,
   type ApplyPatchDeleteFileOperation,
@@ -66,6 +77,9 @@ export {
   type CustomToolUseBlock,
   type CustomToolFormat,
   type ImageBlock,
+  type NativeAnnotation,
+  type NativeOmission,
+  type NativeProjection,
   type TextBlock,
   type ThinkingBlock,
   type ContentBlockDelta,

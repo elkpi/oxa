@@ -10,6 +10,9 @@
 
 namespace oxa::anthropic::messages {
 
+inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
+    "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
 inline std::optional<std::string> parse_cache_control(
     const json::Value& cc,
     std::string_view path,
@@ -440,7 +443,7 @@ inline void decode_request_native(
                 std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                 std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                 std::move(*canon),
-                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)},
                 std::nullopt,
             });
         }

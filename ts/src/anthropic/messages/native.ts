@@ -543,7 +543,11 @@ export function decodeRequestNative(
         source: NATIVE_SOURCE_ANTHROPIC,
         kind: NATIVE_KIND_CACHE_CONTROL,
         value: parsed.canonical,
-        omission: { field: "cache_control", reason: "unmapped-field" as const, detail: CACHE_CONTROL_LOSS_DETAIL },
+        omission: {
+          field: "cache_control",
+          reason: "unmapped-field" as const,
+          detail: CACHE_CONTROL_LOSS_DETAIL,
+        },
       });
     }
   }

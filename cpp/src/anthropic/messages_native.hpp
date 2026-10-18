@@ -68,7 +68,19 @@ inline std::optional<std::string> parse_context_management(
         std::string type_str = (type_val != nullptr && type_val->is_string()) ? type_val->as_string() : "";
 
         if (type_str == "clear_thinking_20251015") {
+            for (const auto& kv : edit.as_object()) {
+                if (kv.first != "type" && kv.first != "keep") {
+                    losses.push_back(ir::Loss{
+                        edit_path + "." + kv.first,
+                        kv.first,
+                        std::string(ir::LOSS_UNMAPPED_FIELD),
+                        "",
+                    });
+                }
+            }
             bool valid = true;
+            auto canon_edit = json::Value::object();
+            canon_edit.set("type", json::Value::string("clear_thinking_20251015"));
             if (const auto* keep_val = edit.find("keep")) {
                 if (keep_val->is_string()) {
                     if (keep_val->as_string() != "all") {
@@ -79,8 +91,20 @@ inline std::optional<std::string> parse_context_management(
                             "",
                         });
                         valid = false;
+                    } else {
+                        canon_edit.set("keep", json::Value::string("all"));
                     }
                 } else if (keep_val->is_object()) {
+                    for (const auto& kv : keep_val->as_object()) {
+                        if (kv.first != "type" && kv.first != "value") {
+                            losses.push_back(ir::Loss{
+                                edit_path + ".keep." + kv.first,
+                                kv.first,
+                                std::string(ir::LOSS_UNMAPPED_FIELD),
+                                "",
+                            });
+                        }
+                    }
                     const auto* k_type = keep_val->find("type");
                     if (k_type == nullptr || !k_type->is_string() || k_type->as_string() != "thinking_turns") {
                         losses.push_back(ir::Loss{
@@ -90,6 +114,13 @@ inline std::optional<std::string> parse_context_management(
                             "",
                         });
                         valid = false;
+                    } else {
+                        auto keep_obj = json::Value::object();
+                        keep_obj.set("type", json::Value::string("thinking_turns"));
+                        if (const auto* v = keep_val->find("value")) {
+                            keep_obj.set("value", *v);
+                        }
+                        canon_edit.set("keep", std::move(keep_obj));
                     }
                 } else {
                     losses.push_back(ir::Loss{
@@ -102,12 +133,37 @@ inline std::optional<std::string> parse_context_management(
                 }
             }
             if (valid) {
-                valid_edits.push_back(edit);
+                valid_edits.push_back(std::move(canon_edit));
             }
         } else if (type_str == "clear_tool_uses_20250919") {
+            for (const auto& kv : edit.as_object()) {
+                if (kv.first != "type" && kv.first != "trigger" && kv.first != "keep" &&
+                    kv.first != "clear_at_least" && kv.first != "exclude_tools" &&
+                    kv.first != "clear_tool_inputs") {
+                    losses.push_back(ir::Loss{
+                        edit_path + "." + kv.first,
+                        kv.first,
+                        std::string(ir::LOSS_UNMAPPED_FIELD),
+                        "",
+                    });
+                }
+            }
             bool valid = true;
+            auto canon_edit = json::Value::object();
+            canon_edit.set("type", json::Value::string("clear_tool_uses_20250919"));
+
             if (const auto* trig_val = edit.find("trigger")) {
                 if (trig_val->is_object()) {
+                    for (const auto& kv : trig_val->as_object()) {
+                        if (kv.first != "type" && kv.first != "value") {
+                            losses.push_back(ir::Loss{
+                                edit_path + ".trigger." + kv.first,
+                                kv.first,
+                                std::string(ir::LOSS_UNMAPPED_FIELD),
+                                "",
+                            });
+                        }
+                    }
                     const auto* t_type = trig_val->find("type");
                     if (t_type == nullptr || !t_type->is_string() || t_type->as_string() != "input_tokens") {
                         losses.push_back(ir::Loss{
@@ -117,11 +173,37 @@ inline std::optional<std::string> parse_context_management(
                             "",
                         });
                         valid = false;
+                    } else {
+                        auto trig_obj = json::Value::object();
+                        trig_obj.set("type", json::Value::string("input_tokens"));
+                        if (const auto* v = trig_val->find("value")) {
+                            trig_obj.set("value", *v);
+                        }
+                        canon_edit.set("trigger", std::move(trig_obj));
                     }
+                } else {
+                    losses.push_back(ir::Loss{
+                        edit_path + ".trigger",
+                        "trigger",
+                        std::string(ir::LOSS_UNMAPPED_VALUE),
+                        "",
+                    });
+                    valid = false;
                 }
             }
+
             if (const auto* keep_val = edit.find("keep")) {
                 if (keep_val->is_object()) {
+                    for (const auto& kv : keep_val->as_object()) {
+                        if (kv.first != "type" && kv.first != "value") {
+                            losses.push_back(ir::Loss{
+                                edit_path + ".keep." + kv.first,
+                                kv.first,
+                                std::string(ir::LOSS_UNMAPPED_FIELD),
+                                "",
+                            });
+                        }
+                    }
                     const auto* k_type = keep_val->find("type");
                     if (k_type == nullptr || !k_type->is_string() || k_type->as_string() != "tool_uses") {
                         losses.push_back(ir::Loss{
@@ -131,11 +213,74 @@ inline std::optional<std::string> parse_context_management(
                             "",
                         });
                         valid = false;
+                    } else {
+                        auto keep_obj = json::Value::object();
+                        keep_obj.set("type", json::Value::string("tool_uses"));
+                        if (const auto* v = keep_val->find("value")) {
+                            keep_obj.set("value", *v);
+                        }
+                        canon_edit.set("keep", std::move(keep_obj));
                     }
+                } else {
+                    losses.push_back(ir::Loss{
+                        edit_path + ".keep",
+                        "keep",
+                        std::string(ir::LOSS_UNMAPPED_VALUE),
+                        "",
+                    });
+                    valid = false;
                 }
             }
+
+            if (const auto* cal_val = edit.find("clear_at_least")) {
+                if (cal_val->is_object()) {
+                    for (const auto& kv : cal_val->as_object()) {
+                        if (kv.first != "type" && kv.first != "value") {
+                            losses.push_back(ir::Loss{
+                                edit_path + ".clear_at_least." + kv.first,
+                                kv.first,
+                                std::string(ir::LOSS_UNMAPPED_FIELD),
+                                "",
+                            });
+                        }
+                    }
+                    const auto* c_type = cal_val->find("type");
+                    if (c_type == nullptr || !c_type->is_string() || c_type->as_string() != "input_tokens") {
+                        losses.push_back(ir::Loss{
+                            edit_path + ".clear_at_least",
+                            "clear_at_least",
+                            std::string(ir::LOSS_UNMAPPED_VALUE),
+                            "",
+                        });
+                        valid = false;
+                    } else {
+                        auto cal_obj = json::Value::object();
+                        cal_obj.set("type", json::Value::string("input_tokens"));
+                        if (const auto* v = cal_val->find("value")) {
+                            cal_obj.set("value", *v);
+                        }
+                        canon_edit.set("clear_at_least", std::move(cal_obj));
+                    }
+                } else {
+                    losses.push_back(ir::Loss{
+                        edit_path + ".clear_at_least",
+                        "clear_at_least",
+                        std::string(ir::LOSS_UNMAPPED_VALUE),
+                        "",
+                    });
+                    valid = false;
+                }
+            }
+
+            if (const auto* et = edit.find("exclude_tools")) {
+                canon_edit.set("exclude_tools", *et);
+            }
+            if (const auto* cti = edit.find("clear_tool_inputs")) {
+                canon_edit.set("clear_tool_inputs", *cti);
+            }
+
             if (valid) {
-                valid_edits.push_back(edit);
+                valid_edits.push_back(std::move(canon_edit));
             }
         } else {
             losses.push_back(ir::Loss{
@@ -314,50 +459,6 @@ inline void decode_request_native(
             });
         }
     }
-
-    // 5. System blocks cache_control
-    if (const auto* sys_val = wire.find("system"); sys_val != nullptr && sys_val->is_array()) {
-        for (std::size_t i = 0; i < sys_val->as_array().size() && i < req.system.size(); ++i) {
-            const auto& sb_wire = sys_val->as_array()[i];
-            if (sb_wire.is_object()) {
-                if (const auto* cc = sb_wire.find("cache_control")) {
-                    auto canon = parse_cache_control(*cc, "system[" + std::to_string(i) + "].cache_control", losses);
-                    if (canon.has_value()) {
-                        req.system[i].native.push_back(ir::NativeAnnotation{
-                            std::string(ir::NATIVE_SOURCE_ANTHROPIC),
-                            std::string(ir::NATIVE_KIND_CACHE_CONTROL),
-                            std::move(*canon),
-                            ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
-                            std::nullopt,
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // 6. Tools cache_control
-    if (req.tools.has_value()) {
-        if (const auto* tools_val = wire.find("tools"); tools_val != nullptr && tools_val->is_array()) {
-            for (std::size_t i = 0; i < tools_val->as_array().size() && i < req.tools->size(); ++i) {
-                const auto& t_wire = tools_val->as_array()[i];
-                if (t_wire.is_object()) {
-                    if (const auto* cc = t_wire.find("cache_control")) {
-                        auto canon = parse_cache_control(*cc, "tools[" + std::to_string(i) + "].cache_control", losses);
-                        if (canon.has_value()) {
-                            (*req.tools)[i].native.push_back(ir::NativeAnnotation{
-                                std::string(ir::NATIVE_SOURCE_ANTHROPIC),
-                                std::string(ir::NATIVE_KIND_CACHE_CONTROL),
-                                std::move(*canon),
-                                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
-                                std::nullopt,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 inline void encode_request_native(
@@ -369,9 +470,17 @@ inline void encode_request_native(
     std::optional<ir::NativeProjection> native_budget_proj;
     std::optional<std::string> native_display;
     std::optional<std::string> native_effort;
+    std::optional<ir::NativeProjection> native_effort_proj;
 
-    for (const auto& n : req.native) {
+    for (std::size_t i = 0; i < req.native.size(); ++i) {
+        const auto& n = req.native[i];
         if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) {
+            losses.push_back(ir::Loss{
+                "native[" + std::to_string(i) + "]",
+                "source",
+                std::string(ir::LOSS_UNSUPPORTED_SEMANTIC),
+                "unsupported native option source \"" + n.source + "\"",
+            });
             continue;
         }
         if (n.kind == ir::NATIVE_KIND_THINKING_MODE) {
@@ -394,6 +503,7 @@ inline void encode_request_native(
             auto parsed = json::parse(n.value);
             if (parsed.ok() && parsed->is_string()) {
                 native_effort = parsed->as_string();
+                native_effort_proj = n.projection;
             }
         } else if (n.kind == ir::NATIVE_KIND_CACHE_CONTROL) {
             auto parsed = json::parse(n.value);
@@ -405,6 +515,13 @@ inline void encode_request_native(
             if (parsed.ok()) {
                 wire.set("context_management", std::move(*parsed));
             }
+        } else {
+            losses.push_back(ir::Loss{
+                "native[" + std::to_string(i) + "]",
+                "kind",
+                std::string(ir::LOSS_UNSUPPORTED_SEMANTIC),
+                "unsupported native option kind \"" + n.kind + "\"",
+            });
         }
     }
 
@@ -415,6 +532,11 @@ inline void encode_request_native(
             auto th = json::Value::object();
             th.set("type", json::Value::string("disabled"));
             wire.set("thinking", std::move(th));
+            if ((native_effort.has_value() || native_effort_proj.has_value()) && current_effort.has_value()) {
+                auto oc = json::Value::object();
+                oc.set("effort", json::Value::string(*current_effort));
+                wire.set("output_config", std::move(oc));
+            }
         } else if (native_mode == "adaptive") {
             auto th = json::Value::object();
             th.set("type", json::Value::string("adaptive"));
@@ -476,6 +598,13 @@ inline void encode_request_native(
                                 "switched to adaptive thinking mode for extended effort",
                             });
                         }
+                    } else {
+                        losses.push_back(ir::Loss{
+                            "thinking",
+                            "thinking",
+                            std::string(ir::LOSS_UNSUPPORTED_SEMANTIC),
+                            "budget projection invalidated when effort is cleared",
+                        });
                     }
                 } else {
                     auto th = json::Value::object();
@@ -491,6 +620,12 @@ inline void encode_request_native(
                         wire.set("output_config", std::move(oc));
                     }
                 }
+            }
+        } else if (native_effort.has_value() || native_effort_proj.has_value()) {
+            if (current_effort.has_value()) {
+                auto oc = json::Value::object();
+                oc.set("effort", json::Value::string(*current_effort));
+                wire.set("output_config", std::move(oc));
             }
         } else if (current_effort.has_value()) {
             std::int64_t b = 0;
@@ -517,28 +652,6 @@ inline void encode_request_native(
                 auto oc = json::Value::object();
                 oc.set("effort", json::Value::string(*current_effort));
                 wire.set("output_config", std::move(oc));
-            }
-        }
-    }
-
-    // System cache_control
-    if (auto* sys_val = wire.find("system"); sys_val != nullptr && sys_val->is_array()) {
-        for (std::size_t i = 0; i < req.system.size() && i < sys_val->as_array().size(); ++i) {
-            auto cc = get_block_cache_control(req.system[i].native);
-            if (cc.has_value()) {
-                sys_val->as_array()[i].set("cache_control", std::move(*cc));
-            }
-        }
-    }
-
-    // Tools cache_control
-    if (req.tools.has_value()) {
-        if (auto* tools_val = wire.find("tools"); tools_val != nullptr && tools_val->is_array()) {
-            for (std::size_t i = 0; i < req.tools->size() && i < tools_val->as_array().size(); ++i) {
-                auto cc = get_block_cache_control((*req.tools)[i].native);
-                if (cc.has_value()) {
-                    tools_val->as_array()[i].set("cache_control", std::move(*cc));
-                }
             }
         }
     }

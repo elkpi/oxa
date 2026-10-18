@@ -38,7 +38,7 @@ std::optional<std::string> extract_custom_input(const json::Value& input) {
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
     const json::Value* content, const std::string& path, bool keep_raw_input = true,
     const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
-    const std::set<std::string>& declared_tools = {}) {
+    const std::set<std::string>& declared_tools = {}, bool is_request = false) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -160,7 +160,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 if (c_val && c_val->is_string()) {
                     ctr.output = c_val->as_string();
                 } else if (c_val) {
-                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids));
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request));
                     losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
                     std::vector<ir::BlockHolder> holders;
                     for (auto& b : inner_res.first) holders.push_back(ir::BlockHolder{std::move(b)});
@@ -175,7 +175,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 }
                 const auto* c_val = item.find("content");
                 if (c_val) {
-                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids));
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request));
                     losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
                     for (auto& b : inner_res.first) {
                         tr.content.push_back(ir::BlockHolder{std::move(b)});
@@ -192,16 +192,24 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
 
         if (const auto* cc = item.find("cache_control")) {
             auto canon = parse_cache_control(*cc, block_path + ".cache_control", losses);
-            if (canon.has_value() && !blocks.empty()) {
-                std::visit([&](auto& blk) {
-                    blk.native.push_back(ir::NativeAnnotation{
-                        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
-                        std::string(ir::NATIVE_KIND_CACHE_CONTROL),
-                        std::move(*canon),
-                        ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
-                        std::nullopt,
-                    });
-                }, blocks.back());
+            if (is_request) {
+                if (canon.has_value() && !blocks.empty()) {
+                    std::visit([&](auto& blk) {
+                        blk.native.push_back(ir::NativeAnnotation{
+                            std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                            std::string(ir::NATIVE_KIND_CACHE_CONTROL),
+                            std::move(*canon),
+                            ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                            std::nullopt,
+                        });
+                    }, blocks.back());
+                }
+            } else {
+                if (canon.has_value()) {
+                    losses.push_back(make_ant_loss(
+                        block_path + ".cache_control", "cache_control", ir::LOSS_UNMAPPED_FIELD,
+                        "Anthropic response block cache_control has no IR equivalent"));
+                }
             }
         }
     }
@@ -269,15 +277,26 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 tool.description = dv->as_string();
                 tool.has_description = true;
             }
-            const auto* is_val = t.find("input_schema");
-            if (!is_val || !is_val->is_object()) {
+            if (const auto* is_val = t.find("input_schema"); !is_val || !is_val->is_object()) {
                 return invalid_argument(tool_path + ".input_schema: must be a JSON object");
             }
-            if (is_custom_tool_input_schema(*is_val)) {
+            if (const auto* cc = t.find("cache_control")) {
+                auto canon = parse_cache_control(*cc, tool_path + ".cache_control", losses);
+                if (canon.has_value()) {
+                    tool.native.push_back(ir::NativeAnnotation{
+                        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                        std::string(ir::NATIVE_KIND_CACHE_CONTROL),
+                        std::move(*canon),
+                        ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                        std::nullopt,
+                    });
+                }
+            }
+            if (is_custom_tool_input_schema(*t.find("input_schema"))) {
                 tool.type = "custom";
                 custom_tools.insert(tool.name);
             } else {
-                tool.input_schema = *is_val;
+                tool.input_schema = *t.find("input_schema");
             }
             tools.push_back(std::move(tool));
         }
@@ -318,7 +337,20 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (kind == "text") {
                     const auto* txt = item.find("text");
                     std::string text = txt && txt->is_string() ? txt->as_string() : "";
-                    req.system.push_back(ir::TextBlock{std::move(text)});
+                    ir::TextBlock sb{std::move(text)};
+                    if (const auto* cc = item.find("cache_control")) {
+                        auto canon = parse_cache_control(*cc, "system[" + std::to_string(i) + "].cache_control", losses);
+                        if (canon.has_value()) {
+                            sb.native.push_back(ir::NativeAnnotation{
+                                std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                                std::string(ir::NATIVE_KIND_CACHE_CONTROL),
+                                std::move(*canon),
+                                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                                std::nullopt,
+                            });
+                        }
+                    }
+                    req.system.push_back(std::move(sb));
                 }
             }
         }
@@ -337,7 +369,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: unknown role \"" + role + "\"");
         }
         std::string content_path = "messages[" + std::to_string(i) + "].content";
-        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools));
+        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools, true));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         req.messages.push_back(ir::Message{role, std::move(c_res.first)});
     }
@@ -378,6 +410,7 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_native_request(req));
     std::vector<ir::Loss> losses;
     if (req.metadata.has_value() && !req.metadata->empty()) {
         losses.push_back(make_ant_loss(
@@ -394,6 +427,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             json::Value sb = json::Value::object();
             sb.set("type", json::Value::string("text"));
             sb.set("text", json::Value::string(s.text));
+            if (auto cc = get_block_cache_control(s.native)) {
+                sb.set("cache_control", std::move(*cc));
+            }
             sys_arr.push_back(std::move(sb));
         }
         out.set("system", std::move(sys_arr));
@@ -429,6 +465,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 req_arr.push_back(json::Value::string("input"));
                 schema.set("required", std::move(req_arr));
                 tw.set("input_schema", std::move(schema));
+                if (auto cc = get_block_cache_control(t.native)) {
+                    tw.set("cache_control", std::move(*cc));
+                }
                 tools_arr.push_back(std::move(tw));
                 continue;
             }
@@ -443,6 +482,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 tw.set("description", json::Value::string(t.description));
             }
             tw.set("input_schema", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
+            if (auto cc = get_block_cache_control(t.native)) {
+                tw.set("cache_control", std::move(*cc));
+            }
             tools_arr.push_back(std::move(tw));
         }
         if (!tools_arr.as_array().empty()) {

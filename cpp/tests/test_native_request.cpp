@@ -279,6 +279,117 @@ void test_native_omission_unknown_source() {
     CHECK((*losses)[0].reason == oxa::ir::LOSS_UNSUPPORTED_SEMANTIC);
 }
 
+void test_explicit_effort_only_encodes_to_output_config() {
+    auto wire = oxa::json::parse(
+        "{\"model\":\"claude-opus-5-5\",\"max_tokens\":16000,"
+        "\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
+        "\"output_config\":{\"effort\":\"low\"}}");
+    CHECK(wire.ok());
+    auto dec = oxa::anthropic::messages::decode_request(*wire);
+    CHECK(dec.ok());
+    CHECK(dec->losses.empty());
+    CHECK(dec->value.params.has_value() && dec->value.params->reasoning_effort == "low");
+
+    auto enc = oxa::anthropic::messages::encode_request(dec->value);
+    CHECK(enc.ok());
+    CHECK(enc->losses.empty());
+    CHECK(enc->value.find("thinking") == nullptr);
+    const auto* oc = enc->value.find("output_config");
+    CHECK(oc != nullptr && oc->is_object());
+    const auto* eff = oc->find("effort");
+    CHECK(eff != nullptr && eff->as_string() == "low");
+}
+
+void test_context_management_recursive_audit() {
+    auto wire = oxa::json::parse(
+        "{\"model\":\"claude-opus-5-5\",\"max_tokens\":16000,"
+        "\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],"
+        "\"context_management\":{\"edits\":[{"
+        "\"type\":\"clear_tool_uses_20250919\","
+        "\"future_policy\":true,"
+        "\"trigger\":{\"type\":\"input_tokens\",\"value\":30000,\"future_nested\":false}"
+        "}]}}");
+    CHECK(wire.ok());
+    auto dec = oxa::anthropic::messages::decode_request(*wire);
+    CHECK(dec.ok());
+    bool found_fp = false;
+    bool found_fn = false;
+    for (const auto& l : dec->losses) {
+        if (l.field == "future_policy" && l.reason == oxa::ir::LOSS_UNMAPPED_FIELD) found_fp = true;
+        if (l.field == "future_nested" && l.reason == oxa::ir::LOSS_UNMAPPED_FIELD) found_fn = true;
+    }
+    CHECK(found_fp);
+    CHECK(found_fn);
+
+    auto enc = oxa::anthropic::messages::encode_request(dec->value);
+    CHECK(enc.ok());
+    const auto* cm = enc->value.find("context_management");
+    CHECK(cm != nullptr && cm->is_object());
+    const auto* edits = cm->find("edits");
+    CHECK(edits != nullptr && edits->is_array() && edits->as_array().size() == 1);
+    const auto& edit = edits->as_array()[0];
+    CHECK(edit.find("future_policy") == nullptr);
+    const auto* trig = edit.find("trigger");
+    CHECK(trig != nullptr && trig->is_object());
+    CHECK(trig->find("future_nested") == nullptr);
+}
+
+void test_response_native_isolation() {
+    auto wire = oxa::json::parse(
+        "{\"id\":\"r1\",\"model\":\"claude-opus-5-5\",\"stop_reason\":\"end_turn\","
+        "\"content\":[{\"type\":\"text\",\"text\":\"hi\",\"cache_control\":{\"type\":\"ephemeral\"}}],"
+        "\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}");
+    CHECK(wire.ok());
+    auto dec = oxa::anthropic::messages::decode_response(*wire);
+    CHECK(dec.ok());
+    bool found_cc = false;
+    for (const auto& l : dec->losses) {
+        if (l.field == "cache_control" && l.reason == oxa::ir::LOSS_UNMAPPED_FIELD) found_cc = true;
+    }
+    CHECK(found_cc);
+
+    // Response blocks must have no native annotations
+    const auto* tb = std::get_if<oxa::ir::TextBlock>(&dec->value.content[0]);
+    CHECK(tb != nullptr);
+    CHECK(tb->native.empty());
+
+    // Must dump without throwing
+    auto dumped = oxa::ir::dump_response(dec->value);
+    auto ser = oxa::json::serialize(dumped);
+    CHECK(!ser.empty());
+}
+
+void test_custom_tool_result_nested_cache_control() {
+    auto wire = oxa::json::parse(
+        "{\"model\":\"claude-opus-5-5\",\"max_tokens\":16000,"
+        "\"tools\":[{\"name\":\"f\",\"input_schema\":{\"type\":\"object\",\"properties\":{\"input\":{\"type\":\"string\"}},\"required\":[\"input\"]}}],"
+        "\"messages\":["
+        "{\"role\":\"user\",\"content\":\"hi\"},"
+        "{\"role\":\"assistant\",\"content\":[{\"type\":\"tool_use\",\"id\":\"c1\",\"name\":\"f\",\"input\":{\"input\":\"run\"}}]},"
+        "{\"role\":\"user\",\"content\":[{\"type\":\"tool_result\",\"tool_use_id\":\"c1\",\"content\":[{\"type\":\"text\",\"text\":\"result\",\"cache_control\":{\"type\":\"ephemeral\"}}]}]}"
+        "]}");
+    CHECK(wire.ok());
+    auto dec = oxa::anthropic::messages::decode_request(*wire);
+    CHECK(dec.ok());
+    auto ir_json = oxa::json::serialize(oxa::ir::dump_request(dec->value));
+    auto parsed_ir = oxa::json::parse(ir_json);
+    CHECK(parsed_ir.ok());
+    auto reloaded = oxa::ir::load_request(*parsed_ir);
+    CHECK(reloaded.ok());
+    auto enc = oxa::anthropic::messages::encode_request(*reloaded);
+    CHECK(enc.ok());
+    const auto* msgs = enc->value.find("messages");
+    CHECK(msgs != nullptr && msgs->is_array());
+    const auto& user_msg = msgs->as_array()[2];
+    const auto* content = user_msg.find("content");
+    CHECK(content != nullptr && content->is_array());
+    const auto& tr = content->as_array()[0];
+    const auto* inner_content = tr.find("content");
+    CHECK(inner_content != nullptr && inner_content->is_array());
+    const auto& text_blk = inner_content->as_array()[0];
+    CHECK(text_blk.find("cache_control") != nullptr);
+}
+
 }  // namespace
 
 int main() {
@@ -289,6 +400,10 @@ int main() {
     test_native_unknown_enum_drops_unit();
     test_native_request_only();
     test_native_omission_unknown_source();
+    test_explicit_effort_only_encodes_to_output_config();
+    test_context_management_recursive_audit();
+    test_response_native_isolation();
+    test_custom_tool_result_nested_cache_control();
 
     std::printf("test_native_request: all tests passed\n");
     return 0;

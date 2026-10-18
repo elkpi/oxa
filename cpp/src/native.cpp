@@ -40,13 +40,57 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
         }
 
         if (ann.source == NATIVE_SOURCE_ANTHROPIC) {
-            if (ann.kind == NATIVE_KIND_THINKING_MODE ||
-                ann.kind == NATIVE_KIND_THINKING_BUDGET ||
-                ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
-                ann.kind == NATIVE_KIND_OUTPUT_EFFORT ||
-                ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+            if (ann.kind == NATIVE_KIND_THINKING_MODE) {
                 if (host != HostType::Request) {
                     return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                std::string s = parsed->is_string() ? parsed->as_string() : "";
+                if (s != "adaptive" && s != "enabled" && s != "disabled") {
+                    return invalid_argument("invalid thinking_mode \"" + s + "\"");
+                }
+            } else if (ann.kind == NATIVE_KIND_THINKING_BUDGET) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_int() || parsed->as_int() <= 0) {
+                    return invalid_argument("anthropic thinking_budget must be a positive integer");
+                }
+            } else if (ann.kind == NATIVE_KIND_THINKING_DISPLAY) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                std::string s = parsed->is_string() ? parsed->as_string() : "";
+                if (s != "summarized" && s != "omitted" && s != "updates") {
+                    return invalid_argument("invalid thinking_display \"" + s + "\"");
+                }
+            } else if (ann.kind == NATIVE_KIND_OUTPUT_EFFORT) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                std::string s = parsed->is_string() ? parsed->as_string() : "";
+                if (s != "low" && s != "medium" && s != "high" && s != "xhigh" && s != "max") {
+                    return invalid_argument("invalid output_effort \"" + s + "\"");
+                }
+            } else if (ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_object() || parsed->find("edits") == nullptr || !parsed->find("edits")->is_array()) {
+                    return invalid_argument("context_management requires edits array");
+                }
+            } else if (ann.kind == NATIVE_KIND_CACHE_CONTROL) {
+                if (!parsed->is_object()) {
+                    return invalid_argument("invalid cache_control object");
+                }
+                const auto* t = parsed->find("type");
+                if (t == nullptr || !t->is_string() || t->as_string() != "ephemeral") {
+                    return invalid_argument("invalid cache_control object");
+                }
+                if (const auto* ttl = parsed->find("ttl")) {
+                    std::string ttl_str = ttl->is_string() ? ttl->as_string() : "";
+                    if (ttl_str != "5m" && ttl_str != "1h") {
+                        return invalid_argument("invalid cache_control ttl \"" + ttl_str + "\"");
+                    }
                 }
             }
         }
@@ -138,6 +182,13 @@ void append_omission_loss(std::vector<Loss>& losses,
                 ann.omission->field,
                 ann.omission->reason,
                 ann.omission->detail.value_or(""),
+            });
+        } else {
+            losses.push_back(Loss{
+                std::string(path),
+                "type",
+                std::string(LOSS_UNMAPPED_FIELD),
+                "",
             });
         }
         return;
@@ -351,18 +402,31 @@ Status validate_native_request(const Request& req) {
     int explicit_proj = 0;
     for (const auto& n : req.native) {
         if (n.projection.has_value()) {
+            if (n.projection->origin != "budget" && n.projection->origin != "explicit") {
+                return invalid_argument("ir: native projection origin \"" + n.projection->origin + "\" invalid");
+            }
             if (n.projection->origin == "budget") {
+                if (n.kind != NATIVE_KIND_THINKING_BUDGET) {
+                    return invalid_argument("ir: budget projection is only allowed on thinking_budget");
+                }
                 budget_proj++;
                 if (budget_proj > 1) {
                     return invalid_argument("ir: duplicate budget projection on request");
                 }
             } else if (n.projection->origin == "explicit") {
+                if (n.kind != NATIVE_KIND_OUTPUT_EFFORT) {
+                    return invalid_argument("ir: explicit projection is only allowed on output_effort");
+                }
                 explicit_proj++;
                 if (explicit_proj > 1) {
                     return invalid_argument("ir: duplicate explicit projection on request");
                 }
             }
         }
+    }
+
+    if (budget_proj > 0 && explicit_proj > 0) {
+        return invalid_argument("ir: conflicting effort projections on request");
     }
 
     for (std::size_t i = 0; i < req.system.size(); ++i) {

@@ -1,0 +1,58 @@
+{
+  "name": "anthropic.nonstream.native-context-unknown-edit-type-request-to-ir",
+  "description": "Unknown context_management edit type is dropped as an unsupported-semantic loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Question."
+      }
+    ],
+    "context_management": {
+      "edits": [
+        {
+          "type": "future_unknown_strategy_2027",
+          "foo": "bar"
+        }
+      ]
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "context_management.edits[0]",
+      "field": "type",
+      "reason": "unsupported-semantic"
+    }
+  ],
+  "tags": [
+    "request",
+    "context-management",
+    "loss"
+  ]
+}

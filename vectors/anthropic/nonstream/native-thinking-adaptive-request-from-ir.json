@@ -1,0 +1,61 @@
+{
+  "name": "anthropic.nonstream.native-thinking-adaptive-request-from-ir",
+  "description": "IR request with native adaptive thinking mode encodes to Anthropic thinking: {type: adaptive}.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Analyze this problem."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"adaptive\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Analyze this problem."
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "native"
+  ]
+}

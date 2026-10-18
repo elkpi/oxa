@@ -1,0 +1,66 @@
+{
+  "name": "anthropic.nonstream.native-thinking-unknown-display-request-to-ir",
+  "description": "Unknown thinking.display produces an unmapped-value loss while valid thinking mode is retained.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Question."
+      }
+    ],
+    "thinking": {
+      "type": "adaptive",
+      "display": "future_unknown_display"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"adaptive\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "thinking.display",
+      "field": "display",
+      "reason": "unmapped-value"
+    }
+  ],
+  "tags": [
+    "request",
+    "thinking",
+    "display",
+    "loss"
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "name": "anthropic.nonstream.native-cache-content-ttl-request-from-ir",
+  "description": "IR request with content block native cache_control (ttl 1h) encodes to Anthropic content block.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Cached large doc.",
+            "native": [
+              {
+                "source": "anthropic",
+                "kind": "cache_control",
+                "value": "{\"ttl\":\"1h\",\"type\":\"ephemeral\"}",
+                "omission": {
+                  "field": "cache_control",
+                  "reason": "unmapped-field"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Cached large doc.",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "1h"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "cache-control",
+    "native"
+  ]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "anthropic.nonstream.native-thinking-unknown-type-request-to-ir",
+  "description": "Unknown thinking.type produces an unmapped-value loss and drops thinking configuration.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Question."
+      }
+    ],
+    "thinking": {
+      "type": "future_unknown_mode",
+      "budget_tokens": 2048
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Question."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "thinking.type",
+      "field": "type",
+      "reason": "unmapped-value"
+    }
+  ],
+  "tags": [
+    "request",
+    "thinking",
+    "loss"
+  ]
+}

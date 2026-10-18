@@ -1,0 +1,72 @@
+{
+  "name": "anthropic.nonstream.native-thinking-adaptive-display-request-from-ir",
+  "description": "IR request with native adaptive thinking and display encodes to Anthropic request with display.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Analyze."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"adaptive\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      },
+      {
+        "source": "anthropic",
+        "kind": "thinking_display",
+        "value": "\"summarized\"",
+        "omission": {
+          "field": "display",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Analyze."
+      }
+    ],
+    "thinking": {
+      "type": "adaptive",
+      "display": "summarized"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "display",
+    "native"
+  ]
+}

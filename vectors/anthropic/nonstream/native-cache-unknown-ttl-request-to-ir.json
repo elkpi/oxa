@@ -1,0 +1,59 @@
+{
+  "name": "anthropic.nonstream.native-cache-unknown-ttl-request-to-ir",
+  "description": "cache_control with unknown ttl is dropped with unmapped-value loss without retaining default ttl.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Text.",
+            "cache_control": {
+              "type": "ephemeral",
+              "ttl": "invalid_ttl"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Text."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "messages[0].content[0].cache_control.ttl",
+      "field": "ttl",
+      "reason": "unmapped-value"
+    }
+  ],
+  "tags": [
+    "request",
+    "cache-control",
+    "loss"
+  ]
+}

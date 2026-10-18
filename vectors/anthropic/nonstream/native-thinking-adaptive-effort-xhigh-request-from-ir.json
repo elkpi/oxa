@@ -1,0 +1,75 @@
+{
+  "name": "anthropic.nonstream.native-thinking-adaptive-effort-xhigh-request-from-ir",
+  "description": "IR request with reasoning_effort xhigh and native adaptive option encodes to Anthropic output_config.effort xhigh.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hard problem."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 64000,
+      "reasoning_effort": "xhigh"
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"adaptive\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      },
+      {
+        "source": "anthropic",
+        "kind": "output_effort",
+        "value": "\"xhigh\"",
+        "projection": {
+          "origin": "explicit",
+          "effort": "xhigh"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 64000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hard problem."
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    },
+    "output_config": {
+      "effort": "xhigh"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "effort",
+    "native"
+  ]
+}

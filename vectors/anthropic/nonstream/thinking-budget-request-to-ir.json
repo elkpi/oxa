@@ -23,14 +23,29 @@
     "params": {
       "max_tokens": 16000,
       "reasoning_effort": "medium"
-    }
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"enabled\""
+      },
+      {
+        "source": "anthropic",
+        "kind": "thinking_budget",
+        "value": "8192",
+        "omission": {
+          "field": "budget_tokens",
+          "reason": "degraded",
+          "detail": "budget approximated"
+        },
+        "projection": {
+          "origin": "budget",
+          "effort": "medium"
+        }
+      }
+    ]
   },
-  "expected_losses": [
-    {
-      "path": "thinking.budget_tokens",
-      "field": "budget_tokens",
-      "reason": "degraded"
-    }
-  ],
+  "expected_losses": [],
   "tags": ["params", "request", "thinking", "loss", "n-an-11"]
 }

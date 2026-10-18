@@ -1,0 +1,50 @@
+{
+  "name": "cross.nonstream.anthropic-to-responses-budget-request",
+  "description": "Cross-protocol: Anthropic enabled thinking with budget 8192 maps to Responses medium effort with degraded budget_tokens loss and no duplicate type loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "claude-3-7-sonnet-20250219",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve."
+      }
+    ],
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 8192
+    }
+  },
+  "expected_output": {
+    "model": "claude-3-7-sonnet-20250219",
+    "max_output_tokens": 16000,
+    "input": "Solve.",
+    "reasoning": {
+      "effort": "medium"
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "native[1]",
+      "field": "budget_tokens",
+      "reason": "degraded",
+      "detail": "budget approximated"
+    }
+  ],
+  "tags": [
+    "cross",
+    "request",
+    "thinking",
+    "budget",
+    "loss"
+  ]
+}

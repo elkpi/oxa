@@ -1,0 +1,58 @@
+{
+  "name": "anthropic.nonstream.native-thinking-adaptive-request-to-ir",
+  "description": "Anthropic adaptive thinking mode is preserved as native IR option without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Analyze this problem."
+      }
+    ],
+    "thinking": {
+      "type": "adaptive"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Analyze this problem."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"adaptive\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "native"
+  ]
+}

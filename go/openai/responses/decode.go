@@ -9,7 +9,7 @@ import (
 
 func isValidReasoningEffort(effort string) bool {
 	switch effort {
-	case ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh:
+	case ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:
 		return true
 	}
 	return false

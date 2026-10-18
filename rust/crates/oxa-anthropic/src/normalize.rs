@@ -114,7 +114,7 @@ pub(crate) fn decode_system(
                             omission: Some(oxa_ir::NativeOmission {
                                 field: "cache_control".into(),
                                 reason: LossReason::UnmappedField,
-                                detail: None,
+                                detail: Some(crate::native::CACHE_CONTROL_LOSS_DETAIL.into()),
                             }),
                             projection: None,
                         });
@@ -364,7 +364,7 @@ pub(crate) fn decode_block(
                     omission: Some(oxa_ir::NativeOmission {
                         field: "cache_control".into(),
                         reason: LossReason::UnmappedField,
-                        detail: None,
+                        detail: Some(crate::native::CACHE_CONTROL_LOSS_DETAIL.into()),
                     }),
                     projection: None,
                 };

@@ -119,7 +119,7 @@ fn repository_loader_includes_all_spec_2_vectors() {
             .iter()
             .filter(|vector| vector.spec_version == "0.2.0")
             .count(),
-        167
+        168
     );
 }
 

@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.4] - 2026-10-21
+
+### Fixed
+
+- OpenAI Responses 推理摘要 `summary_text` 解码保真（spec/11 §4 / N-R-13）：
+  - 修复 Go 参考实现中 `OutputContent` 的 raw JSON 变体 schema 仅识别 `output_text` 而未包含 `summary_text`，导致 `DecodeRequestJSON` 与 `DecodeResponseJSON` 在原始 JSON 过滤阶段将 `summary[].text` 静默抹除且不报损的问题。
+  - 在 Go `types.go` 补齐 `PartTypeSummaryText = "summary_text"` 常量定义，并在 `rawjson.go` 中将 `OutputContent` schema 变体对齐为同时接受 `output_text` 与 `summary_text`。
+  - 补充请求侧、响应侧及多块混合场景下保留 `summary_text` 文本且与类型化解码保持一致的回归测试。
+- 文档与版本状态：
+  - 更新项目 README、规范说明与各语言版本状态矩阵至 `v2.4.4` 准备态，标明最新已发布版本为 `v2.4.3`。
+
 ## [v2.4.3] - 2026-10-19
 
 ### Fixed

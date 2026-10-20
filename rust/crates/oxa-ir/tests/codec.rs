@@ -112,8 +112,8 @@ fn rejects_non_object_response_format_schema() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_4_3() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.3");
+fn workspace_crate_version_is_2_4_4() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.4");
 }
 
 #[test]

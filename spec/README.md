@@ -14,8 +14,8 @@ Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14
 上一冻结规范版本为 **2.3.1**。Go, TypeScript, Rust, Python, and C++ share
 one golden suite of **318 vectors**, covering reasoning, usage granularity,
 structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, and Native Request Options.
-Implementation release **v2.4.3 is prepared**; the latest published
-coordinated release is **v2.4.2**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Implementation release **v2.4.4 is prepared**; the latest published
+coordinated release is **v2.4.3**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 

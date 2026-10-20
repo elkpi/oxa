@@ -385,10 +385,12 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
-			if kind != PartTypeOutputText {
+			switch kind {
+			case PartTypeOutputText, PartTypeSummaryText:
+				return rawObjectSchema(t, []string{"type", "text", "annotations"}, nil, seen)
+			default:
 				return nil
 			}
-			return rawObjectSchema(t, []string{"type", "text", "annotations"}, nil, seen)
 		}
 		return schema
 	case reflect.TypeOf(StreamEvent{}):

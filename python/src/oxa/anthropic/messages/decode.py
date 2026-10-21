@@ -153,7 +153,7 @@ def decode_request(
                             omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
                         ),
                     )
-            if tool_type == "custom" or is_custom_tool_input_schema(schema):
+            if is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(
                     Tool(

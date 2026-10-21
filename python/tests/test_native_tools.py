@@ -1,5 +1,6 @@
 import json
 import unittest
+from dataclasses import replace
 
 from oxa.anthropic.messages.decode import decode_request, decode_request_json
 from oxa.anthropic.messages.encode import encode_request
@@ -93,6 +94,57 @@ class NativeToolsTest(unittest.TestCase):
                         "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
                         "tools": [t],
                     })
+
+    def test_explicit_custom_label_keeps_input_schema(self) -> None:
+        schema = {
+            "type": "object",
+            "properties": {"city": {"type": "string"}},
+            "required": ["city"],
+        }
+        raw = (
+            '{"model":"m","max_tokens":32,'
+            '"tools":[{"type":"custom","name":"lookup","description":"Look up a city.",'
+            f'"input_schema":{json.dumps(schema)}}}],'
+            '"messages":[{"role":"user","content":"hi"}]}'
+        )
+        req, losses = decode_request_json(raw)
+        self.assertEqual(len(losses), 0)
+        tool = req.tools[0]
+        self.assertNotEqual(tool.type, "custom")
+        self.assertEqual(tool.input_schema, schema)
+
+        output, encode_losses = encode_request(req)
+        self.assertEqual(len(encode_losses), 0)
+        self.assertEqual(output["tools"][0]["input_schema"], schema)
+
+    def test_native_definition_numbers_survive_round_trip(self) -> None:
+        raw = '{"model":"m","max_tokens":32,"tools":[{"type":"advisor_20260301","name":"advisor","model":"opus","vendor_config":{"limit":9007199254740993.0,"rate":0.5,"retries":3}}],"messages":[{"role":"user","content":"hi"}]}'
+        req, _ = decode_request_json(raw)
+        output, encode_losses = encode_request(req)
+        self.assertEqual(len(encode_losses), 0)
+        config = output["tools"][0]["vendor_config"]
+        self.assertEqual(config["limit"], 9007199254740993)
+        self.assertIsInstance(config["limit"], int)
+        self.assertEqual(config["rate"], 0.5)
+        self.assertEqual(config["retries"], 3)
+
+    def test_encode_rejects_contradicting_native_identity(self) -> None:
+        raw = '{"model":"m","max_tokens":32,"tools":[{"type":"advisor_20260301","name":"advisor","model":"opus"}],"messages":[{"role":"user","content":"hi"}]}'
+        req, _ = decode_request_json(raw)
+        mismatched = replace(
+            req.tools[0],
+            definition='{"type":"advisor_20260301","name":"other","model":"opus"}',
+        )
+        replaced = replace(req, tools=[mismatched])
+        with self.assertRaises(ValueError):
+            encode_request(replaced)
+
+        empty = replace(
+            req,
+            tools=[replace(req.tools[0], definition="{}")],
+        )
+        with self.assertRaises(ValueError):
+            encode_request(empty)
 
 
 if __name__ == "__main__":

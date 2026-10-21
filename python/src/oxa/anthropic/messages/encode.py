@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
@@ -64,6 +65,20 @@ from oxa.modelmap import Table
 DEFAULT_MAX_TOKENS = 4096
 
 
+def _parse_definition_number(text: str) -> int | float:
+    """Parses a native-declaration number without silent corruption (spec/16).
+
+    Integral literals that a double would round (e.g. 9007199254740993.0)
+    come back as exact ints; every other literal keeps the standard float
+    value, matching the face's canonical in-memory convention.
+    """
+    value = Decimal(text)
+    if value == value.to_integral_value():
+        exact = int(value)
+        return exact if float(text) != exact else float(text)
+    return float(text)
+
+
 def encode_request(
     req: Request,
     table: Table | None = None,
@@ -108,11 +123,21 @@ def encode_request(
                         )
                     )
                     continue
-                import json
                 try:
-                    parsed = json.loads(tool.definition or "")
-                except Exception as e:
+                    parsed = json.loads(tool.definition or "", parse_float=_parse_definition_number)
+                except ValueError as e:
                     raise ValueError(f"anthropic: invalid native tool definition: {e}") from e
+                if not isinstance(parsed, dict):
+                    raise ValueError("anthropic: native tool definition must be a JSON object")
+                declaration_type = parsed.get("type")
+                if (
+                    not isinstance(declaration_type, str)
+                    or not declaration_type
+                    or declaration_type in ("function", "custom")
+                ):
+                    raise ValueError("anthropic: native tool definition requires a native type")
+                if parsed.get("name") != tool.name:
+                    raise ValueError("anthropic: native tool definition name must match tool name")
                 tools_wire.append(parsed)
                 continue
             if tool.type == "custom":

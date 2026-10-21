@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - 修复 Go 参考实现中 `OutputContent` 的 raw JSON 变体 schema 仅识别 `output_text` 而未包含 `summary_text`，导致 `DecodeRequestJSON` 与 `DecodeResponseJSON` 在原始 JSON 过滤阶段将 `summary[].text` 静默抹除且不报损的问题。
   - 在 Go `types.go` 补齐 `PartTypeSummaryText = "summary_text"` 常量定义，并在 `rawjson.go` 中将 `OutputContent` schema 变体对齐为同时接受 `output_text` 与 `summary_text`。
   - 补充请求侧、响应侧及多块混合场景下保留 `summary_text` 文本且与类型化解码保持一致的回归测试。
+  - 对齐 TypeScript、Rust、Python、C++ 的非流式响应解码，使其与 Go 一样保留标准 `summary_text`，并继续兼容 `output_text`。
+  - 统一五种语言的摘要边界报损：缺失或未知 `type` 跳过该摘要并产生一条逐项 `unsupported-semantic`，不生成空 ThinkingBlock；已识别摘要中的非空 `annotations` 产生一条 `unmapped-field`，空 annotations 继续免报损。
+  - 新增 12 条共享黄金向量，覆盖请求和响应的标准摘要、混合摘要、未知类型、缺失类型、annotations 与未知扩展字段，总向量数为 330；Go 增加 typed/raw 完整 IR 与 loss 一致性测试。
+  - 编码器、流式行为和既有 `id` / `status` / `encrypted_content` 等元数据报损策略保持不变。
 - 文档与版本状态：
   - 更新项目 README、规范说明与各语言版本状态矩阵至 `v2.4.4` 准备态，标明最新已发布版本为 `v2.4.3`。
 

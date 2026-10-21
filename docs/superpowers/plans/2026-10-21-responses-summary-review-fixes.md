@@ -1,6 +1,6 @@
 # Responses 摘要审查修正实施计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** 在 v2.4.4 PR #53 中修正摘要未知类型与 annotations 的报损，并以共享向量约束五种语言的请求、响应解码一致性。
 
@@ -46,9 +46,9 @@
 **验证：** `go run ./cmd/veccheck -root .. -write-manifest`、`-check-manifest`；在修改实现前运行 Responses 向量测试，记录失败。
 **时限/清理：** 10 分钟；生成文件仅 manifest，无临时生成器残留。
 
-- [ ] 逐一写入 12 个命名匹配路径的向量，保留原有向量。
-- [ ] 刷新和校验 manifest。
-- [ ] 运行 Go 向量测试确认未知类型/annotations 场景为 RED，提交向量。
+- [x] 逐一写入 12 个命名匹配路径的向量，保留原有向量。
+- [x] 刷新和校验 manifest。
+- [x] 运行 Go 向量测试确认未知类型/annotations 场景为 RED，提交向量。
 
 ## 工作单元 G：Go
 
@@ -58,9 +58,9 @@
 **验证：** `go test -count=1 ./openai/responses`；`go test -count=1 ./...`；`go vet ./...`；`gofmt -l .`。
 **时限/清理：** 15 分钟；无仓库外工件。
 
-- [ ] 添加 typed/raw 未知摘要、annotations 一致性断言，先运行确认 RED。
-- [ ] 添加 `decodeReasoningSummary(parts []OutputContent, path string) ([]ir.Block, []ir.Loss)`，用于请求和响应摘要分支。
-- [ ] 运行验证并提交 Go 修正。
+- [x] 添加 typed/raw 未知摘要、annotations 一致性断言，先运行确认 RED。
+- [x] 添加 `decodeReasoningSummary(parts []OutputContent, path string) ([]ir.Block, []ir.Loss)`，用于请求和响应摘要分支。
+- [x] 运行验证并提交 Go 修正。
 
 ## 工作单元 T：TypeScript
 
@@ -70,9 +70,9 @@
 **验证：** `npm --prefix ts ci`（仅缺少依赖时）、`npm --prefix ts test`、`npm --prefix ts run check`、`npm --prefix ts run fmt`。
 **时限/清理：** 15 分钟；构建输出与 node_modules 保持忽略，不进入提交。
 
-- [ ] 运行现有测试器确认新向量 RED。
-- [ ] 修改请求/响应摘要分支；维持真正空 summary 的既有报损。
-- [ ] 格式化、运行验证并提交。
+- [x] 运行现有测试器确认新向量 RED。
+- [x] 修改请求/响应摘要分支；维持真正空 summary 的既有报损。
+- [x] 格式化、运行验证并提交。
 
 ## 工作单元 R：Rust
 
@@ -82,9 +82,9 @@
 **验证：** `cargo test --manifest-path rust/Cargo.toml --workspace`；`cargo fmt --manifest-path rust/Cargo.toml --all -- --check`；`cargo clippy --manifest-path rust/Cargo.toml --workspace --all-targets -- -D warnings`。
 **时限/清理：** 15 分钟；不更新依赖，target 目录保持忽略。
 
-- [ ] 运行 Responses 向量测试确认 RED。
-- [ ] 补充响应 summary_text 和两方向 annotations 报损。
-- [ ] 运行验证并提交。
+- [x] 运行 Responses 向量测试确认 RED。
+- [x] 补充响应 summary_text 和两方向 annotations 报损。
+- [x] 运行验证并提交。
 
 ## 工作单元 P：Python
 
@@ -94,9 +94,9 @@
 **验证：** `PYTHONPATH=python/src python3 -m unittest discover -s python/tests`。
 **时限/清理：** 15 分钟；不安装全局依赖，缓存目录保持忽略。
 
-- [ ] 运行 Responses 向量测试确认 RED。
-- [ ] 补充响应 summary_text 和两方向 annotations 报损。
-- [ ] 运行完整测试并提交。
+- [x] 运行 Responses 向量测试确认 RED。
+- [x] 补充响应 summary_text 和两方向 annotations 报损。
+- [x] 运行完整测试并提交。
 
 ## 工作单元 C：C++
 
@@ -106,8 +106,8 @@
 **验证：** `cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Debug`；`cmake --build cpp/build -j2`；`ctest --test-dir cpp/build --output-on-failure`。
 **时限/清理：** 15 分钟；build 目录保持忽略。
 
-- [ ] 配置、构建并运行新向量，确认 RED。
-- [ ] 修正摘要转换分支，运行验证并提交。
+- [x] 配置、构建并运行新向量，确认 RED。
+- [x] 修正摘要转换分支，运行验证并提交。
 
 ## 工作单元 A：集成、审查与 PR 更新
 

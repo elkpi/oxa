@@ -28,7 +28,7 @@ Anthropic 的 Advisor、web search 等服务端工具和 bash、text editor 等�
 - `source` 和 `definition` MUST NOT 出现在其他 Tool 变体上。
 - 此新增 union 变体不改变已有 function/custom/apply_patch 语义。消费方的穷尽匹配 MUST 增加 native 分支。
 
-`definition` 是 provider-neutral 的来源标记 opaque 载荷，而不是公开的 provider wire struct。原始 JSON 路径 MUST 保存完整声明对象的源文本，包括未知配置、字段顺序、内部空白与数值拼写。IR JSON 编解码 MUST 保留字符串内容；同来源 typed 编码恢复原始对象文本。最外层 JSON 序列化允许调整对象间的格式，但不得丢失声明配置或改写数值。无源文本的内存对象采用既有 canonical JSON 编码，不产生 loss。
+`definition` 是 provider-neutral 的来源标记 opaque 载荷，而不是公开的 provider wire struct。原始 JSON 路径 MUST 保存完整声明对象的源文本，包括未知配置、字段顺序、内部空白与数值拼写。IR JSON 编解码 MUST 保留字符串内容；同来源 typed 编码恢复原始对象文本。最外层 JSON 序列化允许调整对象间的格式，但不得丢失声明配置或改写数值。数值恢复语义：整数值（无论书写为 `2`、`2.0` 还是 `1e+03`）MUST 以精确值恢复，双精度浮点无法精确表示的整数字面量 MUST NOT 静默取整；非整数十进制字面量 MAY 按实现的标准双精度数值语义恢复。Go、TypeScript、Rust、C++ 以原始文本恢复全部字面量拼写。无源文本的内存对象采用既有 canonical JSON 编码，不产生 loss。
 
 这是限定在原生 Tool 声明边界的保真规则，不改变 spec/15 的 NativeAnnotation 审计和禁止通用未知字段透传的规则。原生声明内的 cache_control 整体保留，不再投影独立 native annotation；嵌套 model 不经过顶层 modelmap，也不进行别名或能力推断。
 

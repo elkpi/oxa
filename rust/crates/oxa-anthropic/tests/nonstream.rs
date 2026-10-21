@@ -607,6 +607,8 @@ fn test_grammar_format_loss_on_anthropic_encode() {
                 definition: Some("[0-9]+".to_string()),
             }),
             native: Vec::new(),
+            source: None,
+            definition: None,
         }]),
         tool_choice: None,
         params: Some(oxa_ir::Params {

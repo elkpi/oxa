@@ -204,6 +204,14 @@ pub struct Tool {
     pub format: Option<CustomToolFormat>,
     #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
     pub native: Vec<NativeAnnotation>,
+    #[serde(rename = "source", default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(
+        rename = "definition",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub definition: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,6 +222,8 @@ pub enum ToolType {
     Custom,
     #[serde(rename = "apply_patch")]
     ApplyPatch,
+    #[serde(rename = "native")]
+    Native,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

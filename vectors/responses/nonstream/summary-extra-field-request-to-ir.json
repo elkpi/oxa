@@ -1,0 +1,81 @@
+{
+  "name": "responses.nonstream.summary-extra-field-request-to-ir",
+  "description": "Responses request summary-extra-field follows N-R-13 summary fidelity and loss rules.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "m",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "q"
+      },
+      {
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "T",
+            "unknown_extension": false
+          }
+        ]
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": "u"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "q"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "T"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "u"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "input[1].summary[0].unknown_extension",
+      "field": "unknown_extension",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": [
+    "request",
+    "thinking",
+    "summary",
+    "n-r-13"
+  ]
+}

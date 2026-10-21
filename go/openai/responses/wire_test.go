@@ -726,3 +726,86 @@ func TestEncodeResponseReportsSignedThinkingLoss(t *testing.T) {
 		t.Fatalf("losses = %#v, want signature unmapped-field loss", losses)
 	}
 }
+
+func TestDecodeRequestJSONPreservesReasoningSummaryText(t *testing.T) {
+	raw := []byte(`{"model":"m","input":[
+		{"type":"reasoning","summary":[{"type":"summary_text","text":"T"}]},
+		{"type":"message","role":"user","content":"u"}
+	]}`)
+
+	reqJSON, lossesJSON, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lossesJSON) != 0 {
+		t.Fatalf("lossesJSON = %#v, want 0", lossesJSON)
+	}
+
+	var wire Request
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	reqTyped, lossesTyped, err := DecodeRequest(&wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lossesTyped) != 0 {
+		t.Fatalf("lossesTyped = %#v, want 0", lossesTyped)
+	}
+
+	if got := reqJSON.Messages[0].Content[0].(ir.ThinkingBlock).Thinking; got != "T" {
+		t.Fatalf("DecodeRequestJSON dropped summary text: %q", got)
+	}
+	if got := reqTyped.Messages[0].Content[0].(ir.ThinkingBlock).Thinking; got != "T" {
+		t.Fatalf("DecodeRequest dropped summary text: %q", got)
+	}
+}
+
+func TestDecodeResponseJSONPreservesReasoningSummaryText(t *testing.T) {
+	raw := []byte(`{
+		"id":"resp_1",
+		"object":"response",
+		"status":"completed",
+		"model":"m",
+		"output":[
+			{"type":"reasoning","summary":[{"type":"summary_text","text":"thought"}]}
+		]
+	}`)
+
+	respJSON, lossesJSON, err := DecodeResponseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lossesJSON) != 0 {
+		t.Fatalf("lossesJSON = %#v, want 0", lossesJSON)
+	}
+	if got := respJSON.Content[0].(ir.ThinkingBlock).Thinking; got != "thought" {
+		t.Fatalf("DecodeResponseJSON dropped summary text: %q", got)
+	}
+}
+
+func TestDecodeRequestJSONPreservesMixedSummaryTextAndOutputText(t *testing.T) {
+	raw := []byte(`{"model":"m","input":[
+		{"type":"reasoning","summary":[
+			{"type":"output_text","text":"A"},
+			{"type":"summary_text","text":"B"}
+		]},
+		{"type":"message","role":"user","content":"u"}
+	]}`)
+
+	reqJSON, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v, want 0", losses)
+	}
+	if len(reqJSON.Messages[0].Content) != 2 {
+		t.Fatalf("content blocks = %#v, want 2 thinking blocks", reqJSON.Messages[0].Content)
+	}
+	first := reqJSON.Messages[0].Content[0].(ir.ThinkingBlock).Thinking
+	second := reqJSON.Messages[0].Content[1].(ir.ThinkingBlock).Thinking
+	if first != "A" || second != "B" {
+		t.Fatalf("got thinking blocks %q and %q, want A and B", first, second)
+	}
+}

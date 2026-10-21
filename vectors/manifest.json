@@ -2918,6 +2918,50 @@
       "sha256": "4a12cf1788e610df4d7f95b29a05564b9b398a285de02d34572b78c56316f09f"
     },
     {
+      "name": "responses.nonstream.missing-type-summary-request-to-ir",
+      "file": "responses/nonstream/missing-type-summary-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "0a558c101b0c068fd77ab5a8ef1ca87e8fc652bc8803410234eb984fd0620d16"
+    },
+    {
+      "name": "responses.nonstream.missing-type-summary-response-to-ir",
+      "file": "responses/nonstream/missing-type-summary-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "6334f94143e8f6aa38b0fddc05679f8e2c855c639e83fc26776690cde9be9205"
+    },
+    {
+      "name": "responses.nonstream.mixed-summary-request-to-ir",
+      "file": "responses/nonstream/mixed-summary-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "13fd5a816dc5d2f60c1e35b3549008311f080eccb781631107d67ea0c70eeb93"
+    },
+    {
+      "name": "responses.nonstream.mixed-summary-response-to-ir",
+      "file": "responses/nonstream/mixed-summary-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "d269f91a5595f6829d309dd8be2f83a46c20896972ef8c26af632a60c5e7e61f"
+    },
+    {
       "name": "responses.nonstream.multiturn-request-from-ir",
       "file": "responses/nonstream/multiturn-request-from-ir.json",
       "tags": [
@@ -3013,6 +3057,72 @@
         "N-R-11"
       ],
       "sha256": "f49157cd7e153d85abe89a99f73ef8712420cd25ab268e3a9de607be6067b69c"
+    },
+    {
+      "name": "responses.nonstream.summary-annotations-request-to-ir",
+      "file": "responses/nonstream/summary-annotations-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "fe3a4e0c9ba20488cd8dff24442b8af30c8ace46d3bfb962b904e900b5397ed5"
+    },
+    {
+      "name": "responses.nonstream.summary-annotations-response-to-ir",
+      "file": "responses/nonstream/summary-annotations-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "e9c45ddc93ce64dcc2b82e3c95bc6c54ae642f639716bc7084ff5362fe5845ba"
+    },
+    {
+      "name": "responses.nonstream.summary-extra-field-request-to-ir",
+      "file": "responses/nonstream/summary-extra-field-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "021d61b8a6c33f8e03f9454e90b365ec041876fed2db3d3566bf61305a1dfbf3"
+    },
+    {
+      "name": "responses.nonstream.summary-extra-field-response-to-ir",
+      "file": "responses/nonstream/summary-extra-field-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "f4aa16c7b9ec3ac25ccc134b643d36953f5337370cd4cd9a519449029353445c"
+    },
+    {
+      "name": "responses.nonstream.summary-text-request-to-ir",
+      "file": "responses/nonstream/summary-text-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "f938029b52f4e140eba712e80d58afa0729807a51d9264142d09096cb598732e"
+    },
+    {
+      "name": "responses.nonstream.summary-text-response-to-ir",
+      "file": "responses/nonstream/summary-text-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "93a5ff195d16ee36de59a1f0d883b4d3b25d087affd05a202c7ed67bba2078b7"
     },
     {
       "name": "responses.nonstream.system-developer-order-request-to-ir",
@@ -3298,6 +3408,28 @@
         "responses"
       ],
       "sha256": "b6fca4b216d97608d16399ada38a5a1eaed2675b0b3f8425cc8d0862d5c91402"
+    },
+    {
+      "name": "responses.nonstream.unknown-summary-request-to-ir",
+      "file": "responses/nonstream/unknown-summary-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "b93b2e2612994cf4014648e11d6acccb87bd4dafd0a624bd5737dc246136f665"
+    },
+    {
+      "name": "responses.nonstream.unknown-summary-response-to-ir",
+      "file": "responses/nonstream/unknown-summary-response-to-ir.json",
+      "tags": [
+        "response",
+        "thinking",
+        "summary",
+        "n-r-13"
+      ],
+      "sha256": "0d70d5a1be58040cf8f615e90885d98ce424c2484839dc700480e9b8644ff301"
     },
     {
       "name": "responses.nonstream.usage-details-to-ir",

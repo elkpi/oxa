@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.4.2 (v2.4.3 prepared).** Implements Spec 2.4.2 across Go,
-TypeScript, Rust, Python, and C++, and validates all 318 shared golden vectors.
+**Latest coordinated release: v2.4.3 (v2.4.4 prepared).** Implements Spec 2.4.2 across Go,
+TypeScript, Rust, Python, and C++, and validates all 330 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,30 +54,30 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.4.3  | 2.4.2            |
-| TypeScript | `ts/`     | 2.4.3  | 2.4.2            |
-| Rust       | `rust/`   | 2.4.3  | 2.4.2            |
-| Python     | `python/` | 2.4.3  | 2.4.2            |
-| C++        | `cpp/`    | 2.4.3  | 2.4.2            |
+| Go         | `go/`     | 2.4.4  | 2.4.3            |
+| TypeScript | `ts/`     | 2.4.4  | 2.4.3            |
+| Rust       | `rust/`   | 2.4.4  | 2.4.3            |
+| Python     | `python/` | 2.4.4  | 2.4.3            |
+| C++        | `cpp/`    | 2.4.4  | 2.4.3            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.4.3 prepared)
-ts/        TypeScript implementation (v2.4.3 prepared)
+go/        Go reference implementation (v2.4.4 prepared)
+ts/        TypeScript implementation (v2.4.4 prepared)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.4.3 prepared)
-python/    Python implementation (v2.4.3 prepared)
-cpp/       C++ implementation (v2.4.3 prepared)
+rust/      Rust implementation (v2.4.4 prepared)
+python/    Python implementation (v2.4.4 prepared)
+cpp/       C++ implementation (v2.4.4 prepared)
 ```
 
 ## Current capabilities
 
 The current source tree implements Spec 2.4.2 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). Coordinated release v2.4.3 is prepared.
+representation (IR). Coordinated release v2.4.4 is prepared.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |

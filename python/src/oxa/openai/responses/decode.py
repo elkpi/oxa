@@ -430,7 +430,16 @@ def decode_response(
                 )
             else:
                 for part_index, part in enumerate(summary):
-                    if part.get("type") == PART_TYPE_OUTPUT_TEXT:
+                    if part.get("type") in (PART_TYPE_OUTPUT_TEXT, "summary_text"):
+                        if part.get("annotations"):
+                            losses.append(
+                                loss(
+                                    f"output[{item_index}].summary[{part_index}].annotations",
+                                    "annotations",
+                                    LOSS_UNMAPPED_FIELD,
+                                    "Responses reasoning summary annotations have no IR equivalent",
+                                )
+                            )
                         thinkings.append(ThinkingBlock(thinking=part.get("text", "")))
                     else:
                         part_type = part.get("type", "")

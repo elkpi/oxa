@@ -1,0 +1,77 @@
+{
+  "name": "responses.nonstream.summary-annotations-response-to-ir",
+  "description": "Responses response summary-annotations follows N-R-13 summary fidelity and loss rules.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "id": "resp_summary",
+    "object": "response",
+    "status": "completed",
+    "model": "m",
+    "output": [
+      {
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "T",
+            "annotations": [
+              {
+                "type": "url_citation",
+                "url": "https://example.test/"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "a",
+            "annotations": []
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_summary",
+    "model": "m",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "T"
+      },
+      {
+        "type": "text",
+        "text": "a"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].summary[0].annotations",
+      "field": "annotations",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": [
+    "response",
+    "thinking",
+    "summary",
+    "n-r-13"
+  ]
+}

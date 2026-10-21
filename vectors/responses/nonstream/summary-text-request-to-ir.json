@@ -1,0 +1,74 @@
+{
+  "name": "responses.nonstream.summary-text-request-to-ir",
+  "description": "Responses request summary-text follows N-R-13 summary fidelity and loss rules.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "m",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "q"
+      },
+      {
+        "type": "reasoning",
+        "summary": [
+          {
+            "type": "summary_text",
+            "text": "T"
+          }
+        ]
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": "u"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "q"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "thinking",
+            "thinking": "T"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "u"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "thinking",
+    "summary",
+    "n-r-13"
+  ]
+}

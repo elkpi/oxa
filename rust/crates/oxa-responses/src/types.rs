@@ -154,7 +154,12 @@ pub struct InputItem {
     pub role: String,
     #[serde(rename = "content", default, skip_serializing_if = "Option::is_none")]
     pub content: Option<ContentValue>,
-    #[serde(rename = "summary", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "summary",
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_summary_parts"
+    )]
     pub summary: Vec<OutputPart>,
     #[serde(rename = "call_id", default, skip_serializing_if = "String::is_empty")]
     pub call_id: String,
@@ -273,7 +278,12 @@ pub struct OutputItem {
     pub role: String,
     #[serde(rename = "content", default, skip_serializing_if = "Vec::is_empty")]
     pub content: Vec<OutputPart>,
-    #[serde(rename = "summary", default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(
+        rename = "summary",
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "deserialize_summary_parts"
+    )]
     pub summary: Vec<OutputPart>,
     #[serde(
         rename = "encrypted_content",
@@ -316,6 +326,30 @@ pub struct OutputPart {
     pub text: String,
     #[serde(rename = "annotations", default)]
     pub annotations: Vec<Value>,
+}
+
+fn deserialize_summary_parts<'de, D>(deserializer: D) -> Result<Vec<OutputPart>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    struct SummaryPart {
+        #[serde(rename = "type", default)]
+        kind: String,
+        #[serde(default)]
+        text: String,
+        #[serde(default)]
+        annotations: Vec<Value>,
+    }
+
+    Ok(Vec::<SummaryPart>::deserialize(deserializer)?
+        .into_iter()
+        .map(|part| OutputPart {
+            kind: part.kind,
+            text: part.text,
+            annotations: part.annotations,
+        })
+        .collect())
 }
 
 /// Cached input-token breakdown from Responses.

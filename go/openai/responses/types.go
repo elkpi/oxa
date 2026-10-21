@@ -35,9 +35,10 @@ const (
 	ItemTypeFunctionCallOutput = "function_call_output"
 	ItemTypeReasoning          = "reasoning"
 
-	PartTypeInputText  = "input_text"
-	PartTypeOutputText = "output_text"
-	PartTypeInputImage = "input_image"
+	PartTypeInputText   = "input_text"
+	PartTypeOutputText  = "output_text"
+	PartTypeSummaryText = "summary_text"
+	PartTypeInputImage  = "input_image"
 
 	StatusInProgress = "in_progress"
 	StatusCompleted  = "completed"

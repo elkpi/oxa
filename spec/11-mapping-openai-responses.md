@@ -50,7 +50,8 @@ The wire objects in scope are:
 - **InputItem**: a message item (`type` absent or `"message"`, `role`
   `system` | `developer` | `user` | `assistant`, `content` string or parts array), a
   `function_call` item (`call_id`, `name`, `arguments`), a
-  `function_call_output` item (`call_id`, `output`), or an unknown type.
+  `function_call_output` item (`call_id`, `output`), a `reasoning` item
+  (`summary[]` text parts), or an unknown type.
 - **ContentPart**: `type` (`input_text` | `output_text` | `input_image`),
   `text`, `image_url` (a plain https or `data:` URL string, unlike the
   Chat Completions object form).
@@ -74,6 +75,7 @@ The wire objects in scope are:
 | `input[role=user/assistant].content` | `Messages[].Content` blocks | N-R-3 |
 | `input[type=function_call]` (consecutive run, incl. adjacent assistant message items) | one assistant message; `ToolUseBlock`s after any text blocks | N-R-5 |
 | `input[type=function_call_output]` (consecutive run) | one user message of `ToolResultBlock`s | N-R-6 |
+| `input[type=reasoning].summary[]` | assistant `ThinkingBlock`s | N-R-13; accepts `summary_text` and legacy `output_text` in encounter order |
 | `tools[].{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | flat form; schema bytes carried verbatim (INV-1) |
 | `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; `{type:"function",name}` ⇄ mode `tool`) | N-R-9 |
 | `temperature` | `Params.Temperature` | 1:1 |
@@ -258,14 +260,29 @@ Each rule has a stable ID usable as a vector tag.
 - **N-R-12 (envelope defaults).** As specified in §5; no losses are
   recorded for synthesized envelope fields, the derived
   `total_tokens`, empty `annotations`, or absent `usage`.
-- **N-R-13 (reasoning items and effort).** On decode, `reasoning` output
-  item `summary[]` text parts convert to `ThinkingBlock`s in encounter order;
-  `encrypted_content` is dropped with an `unmapped-field` loss. On encode,
-  each IR `ThinkingBlock` renders as a `reasoning` output item with a
-  `summary` text part. Request `reasoning.effort` maps 1:1 to
-  `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`, `xhigh`, `max`); other request
-  `reasoning` properties (such as `summary` preference) are dropped with
-  `unmapped-field` losses.
+- **N-R-13 (reasoning items and effort).** On non-streaming decode, both
+  request `input[type=reasoning].summary[]` and response
+  `output[type=reasoning].summary[]` accept standard `summary_text` parts and
+  legacy `output_text` parts. Their text converts to `ThinkingBlock`s in
+  encounter order; raw JSON and typed entry points MUST preserve the same
+  supported summary text. An unknown or absent part `type` MUST skip that
+  part and record exactly one `unsupported-semantic` loss at the summary
+  part path with field `type`, rather than synthesize an empty thinking block
+  or silently discard the text. That whole-part loss covers its children.
+  Non-empty `annotations` on a recognized summary part are dropped with one
+  `unmapped-field` loss at the part's `.annotations` path; empty annotations
+  remain exempt. Other unrecognized properties on recognized summary parts
+  follow the raw-field audit policy. An absent or empty request summary adds
+  no thinking block; an absent or empty response summary records the existing
+  item-level `unsupported-semantic` loss. A non-empty array of unsupported
+  parts records only the per-part losses, not an additional empty-summary
+  loss. `encrypted_content` is dropped with an `unmapped-field` loss. On
+  encode, each IR `ThinkingBlock` renders as a `reasoning` output item with
+  a `summary` text part; this clarification does not change the existing
+  encoder representation or streaming profile. Request `reasoning.effort`
+  maps 1:1 to `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`,
+  `xhigh`, `max`); other request `reasoning` properties (such as `summary`
+  preference) are dropped with `unmapped-field` losses.
 - **N-R-14 (text format mapping).** `text.format` maps 1:1 to
   `Params.ResponseFormat` (since 2.1). `type: "text"` maps to text variant;
   `type: "json_object"` maps to json_object variant; `type: "json_schema"`
@@ -300,7 +317,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `params.stop_sequences` | unmapped-field | IR → request | Responses has no stop-sequences parameter; one loss when non-empty |
 | `output[i]` `type` other than `message`, `function_call`, `reasoning` | unsupported-semantic | response → IR | one loss per item |
 | output content `type` ≠ `output_text` | unsupported-semantic | response → IR | part has no IR equivalent |
-| non-empty `annotations` | unmapped-field | response → IR | annotations have no IR equivalent in v1 |
+| non-empty message-content `annotations` | unmapped-field | response → IR | annotations have no IR equivalent in v1 |
+| non-empty `summary[i].annotations` on a recognized reasoning part | unmapped-field | request/response → IR | one loss at the annotations path; empty annotations remain exempt (N-R-13) |
+| reasoning `summary[i].type` unknown or absent | unsupported-semantic | request/response → IR | one whole-part loss at the part path with field `type`; no empty ThinkingBlock or additional empty-summary loss (N-R-13) |
 | `incomplete_details.reason` ≠ `max_output_tokens` | unmapped-value | response → IR | maps to IR `other` |
 | `error` / `status: "failed"` | unsupported-semantic | response → IR | maps to IR `other`; loss names the error code |
 | `stop_sequence` value | unmapped-value | IR → response | Responses status carries no stop-sequence identity |

@@ -379,6 +379,15 @@ def decode_assistant_run(
             for part_index, part in enumerate(item.get("summary", [])):
                 part_type = part.get("type", "")
                 if part_type in (PART_TYPE_OUTPUT_TEXT, "summary_text"):
+                    if part.get("annotations"):
+                        losses.append(
+                            loss(
+                                f"input[{index}].summary[{part_index}].annotations",
+                                "annotations",
+                                LOSS_UNMAPPED_FIELD,
+                                "Responses reasoning summary annotations have no IR equivalent",
+                            )
+                        )
                     thinkings.append(ThinkingBlock(thinking=part.get("text", "")))
                 else:
                     losses.append(

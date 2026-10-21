@@ -149,11 +149,13 @@ responsibility; consumers treat `data` as an opaque string.
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| `Name` | `name` | string | iff function/custom，非空 | apply_patch MUST 缺失 |
+| `Name` | `name` | string | iff function/custom/native，非空 | apply_patch MUST 缺失 |
 | `Description` | `description` | string | no，限 function/custom | apply_patch MUST 缺失 |
-| `Type` | `type` | enum `function` \| `custom` \| `apply_patch` | no | 缺省 function；旧 function 编码维持省略 |
+| `Type` | `type` | enum `function` \| `custom` \| `apply_patch` \| `native` | no | 缺省 function；旧 function 编码维持省略；native 见 spec/16 |
 | `InputSchema` | `input_schema` | JSON object | iff function | a JSON-Schema-shaped object, carried verbatim; MUST NOT be analyzed or rewritten；custom/apply_patch MUST NOT 携带 |
 | `Format` | `format` | `CustomToolFormat` | no，限 custom | text 或 grammar（syntax 为 lark/regex，definition 为不透明字符串）；见 spec/13 |
+| `Source` | `source` | string | iff native，非空 | 声明来源；目前恢复 anthropic，见 spec/16 |
+| `Definition` | `definition` | string，内容为原始 JSON 对象文本 | iff native | 完整 provider 原生声明，包含与外层一致的 name；native 禁止其他工具配置及 native annotation |
 
 ### 3.6 ToolChoice
 
@@ -161,7 +163,7 @@ responsibility; consumers treat `data` as an opaque string.
 |----------|---------------|------|----------|
 | `Mode` | `mode` | enum `auto` \| `any` \| `tool` \| `none` | yes |
 | `Name` | `name` | string | named function/custom 的 mode=tool 要求非空；其他情况 MUST 缺失 |
-| `ToolType` | `tool_type` | enum `function` \| `custom` \| `apply_patch` | no；仅 Mode 为 tool 时允许，缺省 function；apply_patch 禁止 name |
+| `ToolType` | `tool_type` | enum `function` \| `custom` \| `apply_patch` \| `native` | no；仅 Mode 为 tool 时允许，缺省 function；apply_patch 禁止 name；native 要求 name，见 spec/16 |
 
 `tool` with `name` selects exactly one tool; the other modes carry no
 `name`.

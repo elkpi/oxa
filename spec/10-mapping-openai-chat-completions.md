@@ -79,6 +79,8 @@ On encode (IR → CC), `Request.System` is rendered as exactly one leading
 system block texts (N-CC-1); `Params.StopSequences` renders as `stop`;
 all other params render 1:1 with their omitempty semantics.
 
+来源限定的 `Tool[type=native]` 及指向它的 named choice 不映射为 CC function/custom，按 [spec/16](16-native-tool-declarations.md) 逐声明省略并记录 `unsupported-semantic` loss。
+
 ## 4. Response Field Mapping
 
 | CC field | IR destination | Notes |

@@ -44,7 +44,7 @@ The wire objects in scope are:
   (`id`, `name`, `input`), `tool_result` (`tool_use_id`, `content`,
   `is_error`); every block may carry a `cache_control` annotation.
 - **Source**: `base64` (`media_type`, `data`) or `url` (`url`).
-- **Tool**: `name`, `description`, `input_schema` (JSON Schema).
+- **Tool**: 普通工具的 `name`、`description`、`input_schema`（JSON Schema）；带非空且非 function/custom 的 `type` 的命名原生声明按 [spec/16](16-native-tool-declarations.md) 整体保留，不要求 `input_schema`。
 - **ToolChoice**: `type` (`auto` | `any` | `tool`), `name`,
   `disable_parallel_tool_use`.
 - **Response**: `id`, `type`, `role`, `model`, `content[]` (blocks),
@@ -69,11 +69,14 @@ The wire objects in scope are:
 | `output_config.effort` | `Params.ReasoningEffort` + `NativeAnnotation` | 1:1 effort mapping (xhigh/max supported); preserved as native option in IR (N-AN-14) |
 | `cache_control` (top-level, system, content, tools, tool_result) | `NativeAnnotation` | retained on respective IR host; no loss on decode (N-AN-14) |
 | `context_management` | `NativeAnnotation` | retained on IR Request; no loss on decode (N-AN-14) |
-| `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1); MUST be a JSON object |
+| `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | 普通工具；schema bytes carried verbatim (INV-1); MUST be a JSON object |
+| `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
 | `tool_choice.disable_parallel_tool_use` | — | unmapped-field loss |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
+
+原生声明及其 named tool_choice 的保留和跨面省略遵守 [spec/16](16-native-tool-declarations.md)。本扩展不增加 Advisor 响应/流式/历史块支持。
 
 On encode (IR → AN), `Request.System` renders as a system block array
 of `type: "text"` blocks; message content renders as block arrays,

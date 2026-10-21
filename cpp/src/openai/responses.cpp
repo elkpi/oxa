@@ -943,9 +943,18 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("instructions", json::Value::string(std::move(inst)));
     }
 
+    bool all_tools_dropped = false;
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
-        for (const auto& t : *req.tools) {
+        for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
+            const auto& t = (*req.tools)[ti];
+            if (t.type == "native") {
+                losses.push_back(make_resp_loss(
+                    "tools[" + std::to_string(ti) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "native tool \"" + t.name + "\" from \"" + t.source.value_or("") + "\" cannot be represented by the target protocol"));
+                continue;
+            }
             json::Value tw = json::Value::object();
             if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
                 tw.set("type", json::Value::string("apply_patch"));
@@ -957,15 +966,54 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             } else {
                 tw.set("type", json::Value::string("function"));
                 tw.set("name", json::Value::string(t.name));
-                tw.set("description", json::Value::string(t.description));
+                if (t.has_description && !t.description.empty()) {
+                    tw.set("description", json::Value::string(t.description));
+                }
                 tw.set("parameters", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
             }
             tools_arr.push_back(std::move(tw));
         }
-        out.set("tools", std::move(tools_arr));
+        all_tools_dropped = tools_arr.as_array().empty();
+        if (!tools_arr.as_array().empty()) {
+            out.set("tools", std::move(tools_arr));
+        }
     }
 
-    if (req.tool_choice.has_value()) {
+    bool native_named_choice_dropped = false;
+    if (req.tool_choice.has_value() && req.tool_choice->mode == "tool" && req.tool_choice->name.has_value()) {
+        const auto& cname = *req.tool_choice->name;
+        bool is_native = (req.tool_choice->tool_type == "native");
+        if (!is_native && req.tools.has_value()) {
+            for (const auto& t : *req.tools) {
+                if (t.type == "native" && t.name == cname) {
+                    is_native = true;
+                    break;
+                }
+            }
+        }
+        bool name_retained = false;
+        if (const auto* tw_arr = out.find("tools"); tw_arr && tw_arr->is_array()) {
+            for (const auto& tw : tw_arr->as_array()) {
+                if (const auto* nv = tw.find("name"); nv && nv->is_string() && nv->as_string() == cname) {
+                    name_retained = true;
+                    break;
+                }
+            }
+        }
+        if (is_native && !name_retained) {
+            native_named_choice_dropped = true;
+        }
+    }
+
+    if (req.tool_choice.has_value() && req.tool_choice->mode == "any" && all_tools_dropped) {
+        losses.push_back(make_resp_loss(
+            "tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "all tool declarations were dropped"));
+    } else if (native_named_choice_dropped) {
+        losses.push_back(make_resp_loss(
+            "tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "native tool choice \"" + *req.tool_choice->name + "\" cannot be represented by the target protocol"));
+    } else if (req.tool_choice.has_value()) {
         const auto& tc = *req.tool_choice;
         if (tc.mode == ir::TOOL_CHOICE_AUTO) {
             out.set("tool_choice", json::Value::string("auto"));

@@ -405,6 +405,11 @@ json::Value dump_request(const Request& r) {
             json::Value tv = json::Value::object();
             if (t.type == TOOL_TYPE_APPLY_PATCH) {
                 tv.set("type", json::Value::string(std::string(TOOL_TYPE_APPLY_PATCH)));
+            } else if (t.type == "native") {
+                tv.set("type", json::Value::string("native"));
+                tv.set("name", json::Value::string(t.name));
+                tv.set("source", json::Value::string(t.source.value_or("")));
+                tv.set("definition", json::Value::string(t.definition.value_or("")));
             } else if (t.type == "custom") {
                 tv.set("type", json::Value::string("custom")); tv.set("name", json::Value::string(t.name));
                 if (t.has_description) tv.set("description", json::Value::string(t.description));
@@ -541,16 +546,46 @@ StatusOr<Request> load_request(const json::Value& v) {
                 if (!type->is_string()) return invalid_argument("tool type must be a string");
                 t.type = type->as_string();
             }
-            if (t.type != "function" && t.type != "custom" && t.type != TOOL_TYPE_APPLY_PATCH)
-                return invalid_argument("tool type must be function, custom, or apply_patch");
+            if (t.type != "function" && t.type != "custom" && t.type != "native" && t.type != TOOL_TYPE_APPLY_PATCH)
+                return invalid_argument("tool type must be function, custom, native, or apply_patch");
             if (t.type == TOOL_TYPE_APPLY_PATCH) {
                 if (tv.find("name") != nullptr || tv.find("description") != nullptr ||
-                    tv.find("input_schema") != nullptr || tv.find("format") != nullptr) {
+                    tv.find("input_schema") != nullptr || tv.find("format") != nullptr ||
+                    tv.find("source") != nullptr || tv.find("definition") != nullptr) {
                     return invalid_argument("apply_patch tool must carry only type: apply_patch");
                 }
+            } else if (t.type == "native") {
+                if (tv.find("description") != nullptr || tv.find("input_schema") != nullptr ||
+                    tv.find("format") != nullptr || tv.find("native") != nullptr) {
+                    return invalid_argument("native tool must only carry type, name, source, and definition");
+                }
+                OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
+                if (t.name.empty()) return invalid_argument("tool name must be non-empty");
+                OXA_ASSIGN_OR_RETURN(std::string src, require_string(tv, "source", "tool"));
+                if (src.empty()) return invalid_argument("tool source must be non-empty");
+                t.source = std::move(src);
+                OXA_ASSIGN_OR_RETURN(std::string def, require_string(tv, "definition", "tool"));
+                if (def.empty()) return invalid_argument("tool definition must be non-empty");
+                auto def_json = json::parse(def);
+                if (!def_json.ok() || !def_json.value().is_object()) {
+                    return invalid_argument("native tool definition must be a valid JSON object");
+                }
+                const auto* def_type = def_json.value().find("type");
+                if (def_type == nullptr || !def_type->is_string() || def_type->as_string().empty() ||
+                    def_type->as_string() == "function" || def_type->as_string() == "custom") {
+                    return invalid_argument("native tool definition requires a native type");
+                }
+                const auto* def_name = def_json.value().find("name");
+                if (def_name == nullptr || !def_name->is_string() || def_name->as_string() != t.name) {
+                    return invalid_argument("native tool definition name must match tool name");
+                }
+                t.definition = std::move(def);
             } else {
                 OXA_ASSIGN_OR_RETURN(t.name, require_string(tv, "name", "tool"));
                 if (t.name.empty()) return invalid_argument("tool name must be non-empty");
+                if (tv.find("source") != nullptr || tv.find("definition") != nullptr) {
+                    return invalid_argument("only native tool may carry source/definition");
+                }
                 const json::Value* desc = tv.find("description");
                 if (desc != nullptr) {
                     if (!desc->is_string()) return invalid_argument("tool description must be a string");
@@ -592,8 +627,8 @@ StatusOr<Request> load_request(const json::Value& v) {
             choice.name = name->as_string();
         }
         if (const auto* tt = tc->find("tool_type"); tt != nullptr) {
-            if (!tt->is_string() || (tt->as_string() != "function" && tt->as_string() != "custom" && tt->as_string() != TOOL_TYPE_APPLY_PATCH))
-                return invalid_argument("tool_choice tool_type must be function, custom, or apply_patch");
+            if (!tt->is_string() || (tt->as_string() != "function" && tt->as_string() != "custom" && tt->as_string() != "native" && tt->as_string() != TOOL_TYPE_APPLY_PATCH))
+                return invalid_argument("tool_choice tool_type must be function, custom, native, or apply_patch");
             choice.tool_type = tt->as_string();
         }
         if (choice.mode != TOOL_CHOICE_TOOL && choice.tool_type.has_value()) return invalid_argument("tool_choice tool_type only applies to mode tool");

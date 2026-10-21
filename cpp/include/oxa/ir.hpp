@@ -265,6 +265,8 @@ struct Tool {
     std::string type = "function";
     std::optional<json::Value> format;
     std::vector<NativeAnnotation> native;
+    std::optional<std::string> source;
+    std::optional<std::string> definition;
 };
 
 struct ToolChoice {

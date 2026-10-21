@@ -11,6 +11,11 @@
     "model": "m",
     "input": [
       {
+        "type": "message",
+        "role": "user",
+        "content": "q"
+      },
+      {
         "type": "reasoning",
         "summary": [
           {
@@ -34,6 +39,15 @@
         "content": [
           {
             "type": "text",
+            "text": "q"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
             "text": "u"
           }
         ]
@@ -42,7 +56,7 @@
   },
   "expected_losses": [
     {
-      "path": "input[0].summary[0]",
+      "path": "input[1].summary[0]",
       "field": "type",
       "reason": "unsupported-semantic"
     }

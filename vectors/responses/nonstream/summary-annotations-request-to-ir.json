@@ -11,6 +11,11 @@
     "model": "m",
     "input": [
       {
+        "type": "message",
+        "role": "user",
+        "content": "q"
+      },
+      {
         "type": "reasoning",
         "summary": [
           {
@@ -37,6 +42,15 @@
     "model": "m",
     "messages": [
       {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "q"
+          }
+        ]
+      },
+      {
         "role": "assistant",
         "content": [
           {
@@ -58,7 +72,7 @@
   },
   "expected_losses": [
     {
-      "path": "input[0].summary[0].annotations",
+      "path": "input[1].summary[0].annotations",
       "field": "annotations",
       "reason": "unmapped-field"
     }

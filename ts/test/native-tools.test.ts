@@ -88,3 +88,54 @@ test("rejects invalid native tool in IR decode", () => {
     );
   }
 });
+
+test("keeps the JSON Schema for an explicit Anthropic custom label", () => {
+  const schema = {
+    type: "object",
+    properties: { city: { type: "string" } },
+    required: ["city"],
+  };
+  const raw = `{"model":"m","max_tokens":32,"tools":[{"type":"custom","name":"lookup","description":"Look up a city.","input_schema":${JSON.stringify(schema)}}],"messages":[{"role":"user","content":"hi"}]}`;
+  const decoded = decodeRequestJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+  const tool = decoded.value.tools![0]!;
+  assert.notEqual(tool.type, "custom");
+  assert.deepEqual(tool.input_schema, schema);
+
+  const encoded = encodeRequest(decoded.value);
+  assert.equal(encoded.losses.length, 0);
+  const wireTool = (encoded.value.tools as any[])[0]!;
+  assert.deepEqual(wireTool.input_schema, schema);
+});
+
+test("rejects native definitions whose identity contradicts the IR tool", () => {
+  const raw = `{"model":"m","max_tokens":32,"tools":[{"type":"advisor_20260301","name":"advisor","model":"opus"}],"messages":[{"role":"user","content":"hi"}]}`;
+  const decoded = decodeRequestJSON(raw);
+  const nativeTool = decoded.value.tools![0]!;
+  assert.equal(nativeTool.type, "native");
+  const mismatched = {
+    ...decoded.value,
+    tools: [
+      {
+        type: "native" as const,
+        name: nativeTool.name,
+        source: nativeTool.source,
+        definition: '{"type":"advisor_20260301","name":"other","model":"opus"}',
+      },
+    ],
+  };
+  assert.throws(() => encodeRequest(mismatched));
+
+  const emptyObject = {
+    ...decoded.value,
+    tools: [
+      {
+        type: "native" as const,
+        name: nativeTool.name,
+        source: nativeTool.source,
+        definition: "{}",
+      },
+    ],
+  };
+  assert.throws(() => encodeRequest(emptyObject));
+});

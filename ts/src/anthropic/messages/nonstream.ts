@@ -157,7 +157,7 @@ function decodeRequestObject(
 
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
     const native = attachBlockCacheControl(tool, `tools[${index}]`, losses);
-    if (tool.type === "custom" || isCustomToolInputSchema(schema)) {
+    if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
         type: "custom" as const,
@@ -174,7 +174,6 @@ function decodeRequestObject(
       };
     }
     return {
-      ...(tool.type === undefined ? {} : { type: "function" as const }),
       name,
       ...(tool.description === undefined
         ? {}
@@ -402,7 +401,26 @@ export function encodeRequest(
           return [];
         }
         const parsed = parseJson(tool.definition);
-        return [parsed as JsonObject];
+        if (
+          parsed === null ||
+          typeof parsed !== "object" ||
+          Array.isArray(parsed)
+        ) {
+          fail("native tool definition must be a JSON object");
+        }
+        const declaration = parsed as JsonObject;
+        if (
+          typeof declaration.type !== "string" ||
+          declaration.type === "" ||
+          declaration.type === "function" ||
+          declaration.type === "custom"
+        ) {
+          fail("native tool definition requires a native type");
+        }
+        if (declaration.name !== tool.name) {
+          fail("native tool definition name must match tool name");
+        }
+        return [declaration];
       }
       if (tool.type === "apply_patch") {
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));

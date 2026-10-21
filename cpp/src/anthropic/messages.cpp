@@ -314,7 +314,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     });
                 }
             }
-            if ((type_val && type_val->as_string() == "custom") || is_custom_tool_input_schema(*t.find("input_schema"))) {
+            if (is_custom_tool_input_schema(*t.find("input_schema"))) {
                 tool.type = "custom";
                 custom_tools.insert(tool.name);
             } else {
@@ -504,7 +504,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 }
                 auto parsed = json::parse(t.definition.value_or("{}"));
                 if (!parsed.ok() || !parsed.value().is_object()) {
-                    return invalid_argument("anthropic: invalid native tool definition");
+                    return invalid_argument("anthropic: native tool definition must be a JSON object");
+                }
+                const auto* def_type = parsed.value().find("type");
+                if (def_type == nullptr || !def_type->is_string() || def_type->as_string().empty() ||
+                    def_type->as_string() == "function" || def_type->as_string() == "custom") {
+                    return invalid_argument("anthropic: native tool definition requires a native type");
+                }
+                const auto* def_name = parsed.value().find("name");
+                if (def_name == nullptr || !def_name->is_string() || def_name->as_string() != t.name) {
+                    return invalid_argument("anthropic: native tool definition name must match tool name");
                 }
                 retained_tool_names.insert(t.name);
                 tools_arr.push_back(json::Value::raw(t.definition.value_or("{}")));

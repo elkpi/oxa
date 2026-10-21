@@ -77,10 +77,44 @@ static void test_native_tool_choice_without_explicit_tool_type() {
     CHECK(re_res->losses[1].reason == oxa::ir::LOSS_UNSUPPORTED_SEMANTIC);
 }
 
+static void test_explicit_custom_label_keeps_input_schema() {
+    std::string raw = R"({"model":"m","max_tokens":32,"tools":[{"type":"custom","name":"lookup","description":"Look up a city.","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],"messages":[{"role":"user","content":"hi"}]})";
+    auto dec_res = oxa::anthropic::messages::decode_request(raw);
+    CHECK(dec_res.ok());
+    CHECK(dec_res->losses.empty());
+    CHECK(dec_res->value.tools.has_value());
+    const auto& tool = (*dec_res->value.tools)[0];
+    CHECK(tool.type != "custom");
+    CHECK(!tool.input_schema.is_null());
+
+    auto enc_res = oxa::anthropic::messages::encode_request(dec_res->value);
+    CHECK(enc_res.ok());
+    CHECK(enc_res->losses.empty());
+    const auto* schema = enc_res->value.find("tools")->as_array()[0].find("input_schema");
+    CHECK(schema && schema->is_object() && schema->find("required"));
+}
+
+static void test_encode_rejects_contradicting_native_identity() {
+    std::string raw = R"({"model":"m","max_tokens":32,"tools":[{"type":"advisor_20260301","name":"advisor","model":"opus"}],"messages":[{"role":"user","content":"hi"}]})";
+    auto dec_res = oxa::anthropic::messages::decode_request(raw);
+    CHECK(dec_res.ok());
+    auto req = dec_res->value;
+
+    (*req.tools)[0].definition = R"({"type":"advisor_20260301","name":"other","model":"opus"})";
+    auto mismatched = oxa::anthropic::messages::encode_request(req);
+    CHECK(!mismatched.ok());
+
+    (*req.tools)[0].definition = "{}";
+    auto empty = oxa::anthropic::messages::encode_request(req);
+    CHECK(!empty.ok());
+}
+
 int main() {
     test_native_tool_declaration_fidelity();
     test_malformed_native_declarations_rejected();
     test_native_tool_choice_without_explicit_tool_type();
+    test_explicit_custom_label_keeps_input_schema();
+    test_encode_rejects_contradicting_native_identity();
     std::printf("test_native_tools passed\n");
     return 0;
 }

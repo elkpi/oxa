@@ -125,31 +125,31 @@ export function encodeRequest(request: Request): JsonObject {
                     source: tool.source,
                     definition: tool.definition,
                   }
-              : tool.type === "custom"
-                ? {
-                    type: "custom",
-                    name: tool.name,
-                    ...(tool.description === undefined
-                      ? {}
-                      : { description: tool.description }),
-                    ...(tool.format === undefined
-                      ? {}
-                      : { format: encodeCustomToolFormat(tool.format) }),
-                    ...(tool.native && tool.native.length > 0
-                      ? { native: tool.native.map(encodeNativeAnnotation) }
-                      : {}),
-                  }
-                : {
-                    ...(tool.type === undefined ? {} : { type: "function" }),
-                    name: tool.name,
-                    ...(tool.description === undefined
-                      ? {}
-                      : { description: tool.description }),
-                    input_schema: tool.input_schema,
-                    ...(tool.native && tool.native.length > 0
-                      ? { native: tool.native.map(encodeNativeAnnotation) }
-                      : {}),
-                  },
+                : tool.type === "custom"
+                  ? {
+                      type: "custom",
+                      name: tool.name,
+                      ...(tool.description === undefined
+                        ? {}
+                        : { description: tool.description }),
+                      ...(tool.format === undefined
+                        ? {}
+                        : { format: encodeCustomToolFormat(tool.format) }),
+                      ...(tool.native && tool.native.length > 0
+                        ? { native: tool.native.map(encodeNativeAnnotation) }
+                        : {}),
+                    }
+                  : {
+                      ...(tool.type === undefined ? {} : { type: "function" }),
+                      name: tool.name,
+                      ...(tool.description === undefined
+                        ? {}
+                        : { description: tool.description }),
+                      input_schema: tool.input_schema,
+                      ...(tool.native && tool.native.length > 0
+                        ? { native: tool.native.map(encodeNativeAnnotation) }
+                        : {}),
+                    },
           ),
         }),
     ...(request.tool_choice === undefined
@@ -1081,7 +1081,9 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
     return {
       mode,
       name: nonEmptyString(choice.name, "request.tool_choice.name"),
-      ...(toolType === undefined ? {} : { tool_type: toolType as "function" | "custom" | "native" }),
+      ...(toolType === undefined
+        ? {}
+        : { tool_type: toolType as "function" | "custom" | "native" }),
     };
   }
   if (mode === "auto" || mode === "any" || mode === "none") {

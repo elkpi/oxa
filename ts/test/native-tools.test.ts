@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { decodeRequestJSON, encodeRequest } from "../src/anthropic/messages/nonstream.js";
+import {
+  decodeRequestJSON,
+  encodeRequest,
+} from "../src/anthropic/messages/nonstream.js";
 import { encodeRequest as encodeCCRequest } from "../src/openai/chatcompletions/nonstream.js";
 import { encodeRequest as encodeRERequest } from "../src/openai/responses/nonstream.js";
 import { decodeRequest as decodeIRRequest } from "../src/ir/nonstream.js";
@@ -24,7 +27,7 @@ test("preserves native tool declaration fidelity", () => {
   const toolStr = stringifyJson((encoded.value.tools as any[])[0]);
   assert.ok(toolStr.includes('"model":"opus"'));
   assert.ok(toolStr.includes('"max_uses":2'));
-  assert.ok(toolStr.includes('1e+03'));
+  assert.ok(toolStr.includes("1e+03"));
 });
 
 test("rejects malformed native and function tool declarations", () => {

@@ -1060,8 +1060,7 @@ export function encodeRequest(
         });
         return [];
       }
-      if (tool.type === "apply_patch")
-        return [{ type: "apply_patch" }];
+      if (tool.type === "apply_patch") return [{ type: "apply_patch" }];
       if (tool.type === "custom")
         return [
           {

@@ -571,13 +571,19 @@ export function encodeRequest(
       request.tools?.some(
         (t) => t.type === "native" && t.name === choiceName,
       )) &&
-    !tools.some((t) => (t as any).function?.name === choiceName || (t as any).custom?.name === choiceName);
+    !tools.some(
+      (t) =>
+        (t as any).function?.name === choiceName ||
+        (t as any).custom?.name === choiceName,
+    );
   const toolChoice =
     request.tool_choice?.mode === "any" &&
     request.tools !== undefined &&
     request.tools.length > 0 &&
     tools.length === 0
-      ? (losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic")),
+      ? (losses.push(
+          loss("tool_choice", "tool_choice", "unsupported-semantic"),
+        ),
         undefined)
       : nativeNamedChoiceDropped
         ? (losses.push({

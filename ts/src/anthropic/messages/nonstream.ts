@@ -138,9 +138,14 @@ function decodeRequestObject(
       if (typeof tool.type !== "string") {
         fail(`tools[${index}].type must be a string`);
       }
-      if (tool.type !== "" && tool.type !== "function" && tool.type !== "custom") {
+      if (
+        tool.type !== "" &&
+        tool.type !== "function" &&
+        tool.type !== "custom"
+      ) {
         nativeTools.add(name);
-        const definition = (sourceTextOf(tool) ?? stringifyJson(tool)) as string;
+        const definition = (sourceTextOf(tool) ??
+          stringifyJson(tool)) as string;
         return {
           type: "native" as const,
           name,
@@ -183,7 +188,12 @@ function decodeRequestObject(
       ...(native ? { native } : {}),
     };
   });
-  const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools, nativeTools);
+  const toolChoice = decodeToolChoice(
+    wire.tool_choice,
+    losses,
+    customTools,
+    nativeTools,
+  );
   const messages = array(wire.messages, "messages").map((entry, index) => {
     const message = object(entry, `messages[${index}]`);
     const role = string(message.role, `messages[${index}].role`);

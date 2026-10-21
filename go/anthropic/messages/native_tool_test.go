@@ -105,3 +105,58 @@ func TestNativeToolInvalidIR(t *testing.T) {
 		}
 	}
 }
+
+// An Anthropic explicit type=custom label with a real JSON Schema is an
+// ordinary user tool: the schema must survive as a function tool instead of
+// being promoted to a free-text custom tool (spec/16 N-NT-2).
+func TestExplicitCustomLabelKeepsInputSchema(t *testing.T) {
+	raw := []byte(`{"model":"m","max_tokens":32,"tools":[{"type":"custom","name":"lookup","description":"Look up a city.","input_schema":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}],"messages":[{"role":"user","content":"hi"}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("decode: losses=%+v err=%v", losses, err)
+	}
+	tool := req.Tools[0]
+	if tool.Type == ir.ToolTypeCustom || len(tool.InputSchema) == 0 {
+		t.Fatalf("explicit custom label must keep the JSON Schema, got %+v", tool)
+	}
+	wire, encodeLosses, err := EncodeRequest(req)
+	if err != nil || len(encodeLosses) != 0 {
+		t.Fatalf("encode: losses=%+v err=%v", encodeLosses, err)
+	}
+	toolJSON, err := json.Marshal(wire.Tools[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, fragment := range []string{`"city"`, `"required":["city"]`} {
+		if !bytes.Contains(toolJSON, []byte(fragment)) {
+			t.Fatalf("missing schema fragment %s in %s", fragment, toolJSON)
+		}
+	}
+}
+
+// Raw source replay is scoped to native declarations: ordinary ToolWire values
+// must re-marshal from their exported fields so caller-side edits stick
+// (spec/16 N-NT-2).
+func TestOrdinaryToolWireEditsAreHonored(t *testing.T) {
+	var tool ToolWire
+	if err := json.Unmarshal([]byte(`{"name":"lookup","description":"original","input_schema":{"type":"object"}}`), &tool); err != nil {
+		t.Fatal(err)
+	}
+	tool.Name = "renamed"
+	tool.Description = "updated"
+	tool.InputSchema = json.RawMessage(`{"type":"object","required":["city"]}`)
+	rendered, err := json.Marshal(tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(rendered, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded["name"] != "renamed" || decoded["description"] != "updated" {
+		t.Fatalf("edits were overwritten by raw replay: %s", rendered)
+	}
+	if schema, ok := decoded["input_schema"].(map[string]any); !ok || len(schema) == 0 || schema["required"] == nil {
+		t.Fatalf("edited input_schema was overwritten by raw replay: %s", rendered)
+	}
+}

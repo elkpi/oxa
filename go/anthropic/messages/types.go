@@ -8,6 +8,8 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+
+	"github.com/elkpi/oxa/go/v2/ir"
 )
 
 const (
@@ -88,7 +90,11 @@ type ThinkingWire struct {
 
 // ToolWire is one element of the wire tools array. input_schema is a
 // JSON-Schema-shaped object carried verbatim (spec/01 s3.5): json.RawMessage
-// preserves the exact source bytes across decode and encode.
+// preserves the exact source bytes across decode and encode. Raw keeps the
+// exact declaration source only for native (provider-discriminated) tools so
+// their opaque configuration survives round trips; ordinary tools always
+// re-marshal from their exported fields so caller-side edits are honored
+// (spec/16 N-NT-2).
 type ToolWire struct {
 	Type         string          `json:"type,omitempty"`
 	Name         string          `json:"name"`
@@ -99,7 +105,6 @@ type ToolWire struct {
 }
 
 func (t *ToolWire) UnmarshalJSON(data []byte) error {
-	t.Raw = append([]byte(nil), data...)
 	type shadow struct {
 		Type         json.RawMessage `json:"type"`
 		Name         json.RawMessage `json:"name"`
@@ -131,11 +136,23 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 	t.Description = s.Description
 	t.InputSchema = s.InputSchema
 	t.CacheControl = s.CacheControl
+	if isNativeToolType(t.Type) {
+		t.Raw = append([]byte(nil), data...)
+	} else {
+		t.Raw = nil
+	}
 	return nil
 }
 
+// isNativeToolType reports whether a wire discriminator selects a
+// provider-native declaration (spec/16 N-NT-2): non-empty and neither
+// function nor custom.
+func isNativeToolType(toolType string) bool {
+	return toolType != "" && toolType != ir.ToolTypeFunction && toolType != ir.ToolTypeCustom
+}
+
 func (t ToolWire) MarshalJSON() ([]byte, error) {
-	if len(t.Raw) > 0 {
+	if len(t.Raw) > 0 && isNativeToolType(t.Type) {
 		return t.Raw, nil
 	}
 	type shadow struct {

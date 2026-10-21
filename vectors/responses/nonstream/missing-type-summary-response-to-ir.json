@@ -1,0 +1,66 @@
+{
+  "name": "responses.nonstream.missing-type-summary-response-to-ir",
+  "description": "Responses response missing-type-summary follows N-R-13 summary fidelity and loss rules.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "id": "resp_summary",
+    "object": "response",
+    "status": "completed",
+    "model": "m",
+    "output": [
+      {
+        "type": "reasoning",
+        "summary": [
+          {
+            "text": "T"
+          }
+        ]
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "a",
+            "annotations": []
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_summary",
+    "model": "m",
+    "content": [
+      {
+        "type": "text",
+        "text": "a"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "output[0].summary[0]",
+      "field": "type",
+      "reason": "unsupported-semantic"
+    }
+  ],
+  "tags": [
+    "response",
+    "thinking",
+    "summary",
+    "n-r-13"
+  ]
+}

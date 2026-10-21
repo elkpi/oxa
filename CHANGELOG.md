@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.5] - 2026-10-21
+
+### Fixed
+
+- Anthropic 原生命名工具声明保真与跨面损失报告（spec/16 / N-NT-1..4）：
+  - 修复 Anthropic Messages 解码路径无条件要求工具声明携带 `input_schema`，导致合法的 Anthropic Advisor、服务端工具及客户端内置工具（如 `advisor_20260301`、`bash_20250124` 等）无法通过解码、直接报错且无 fallback losses 的阻断性问题。
+  - 在 IR 中扩展来源限定的 `Tool[type=native]` 变体，字段为 `name`、`source`、`definition`，以完全不透明的原始 JSON 对象文本保存声明内容（含嵌套模型、最大调用次数、缓存及厂商私有配置），IR contract 保持 `0.2.0`。
+  - 在 Anthropic Messages 解码阶段将带非空且非 function/custom 的 `type` 命名工具识别为 native 工具并完整保留原文；普通 function 工具维持严格对象 `input_schema` 检查，非字符串 `type`（含 null）与非对象声明维持结构错误拒绝。
+  - 同协议回转时完整恢复 Anthropic 原生声明配置；跨协议编码至 OpenAI Chat Completions 或 OpenAI Responses 时，逐声明省略并产生精确自描述的 `unsupported-semantic` 损失；指向被省略原生声明的命名 `tool_choice` 联动省略并报损，避免悬空调用。
+  - 在 Go、TypeScript、Python、Rust、C++ 五种语言中同步实现上述契约与字段审计规则，并通过 15 条新增共享黄金向量（涵盖 Advisor、内置工具、扩展配置、混合声明、同源往返与跨面报损，向量总数达 345）。
+- 文档与版本状态：
+  - 发布 Spec 16 原生工具声明规范，更新 Spec 版本至 `2.4.3`；更新 README、规范说明与各语言版本状态矩阵至 `v2.4.5` 准备态，标明最新已发布版本为 `v2.4.3`。
+
 ## [v2.4.4] - 2026-10-21
 
 ### Fixed

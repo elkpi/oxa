@@ -117,6 +117,15 @@
 **验证：** Go race 测试、五种语言全套测试、格式/静态检查、manifest 检查、`git diff --check`、`gh pr checks 53`。
 **时限/清理：** 20 分钟；CI 采用一次有上限的 watch，不密集轮询；无后台任务遗留。若 CI 排队超时，明确报告待完成项，不取消他人的远端任务。
 
-- [ ] 更新 changelog、向量计数与 PR 描述，纠正“其他语言已全部支持响应 summary_text”的说法。
-- [ ] 当前会话检查完整差异，执行集成验证。
-- [ ] 分粒度提交、推送原分支，更新 PR #53 并确认 CI。
+- [x] 更新 changelog、向量计数与 PR 描述，纠正“其他语言已全部支持响应 summary_text”的说法。
+- [x] 当前会话检查完整差异，执行集成验证。
+- [x] 分粒度提交、推送原分支，更新 PR #53 并确认 CI。
+
+## 验收记录
+
+- 实现提交分别为 Go `e478ad9`、TypeScript `37581d6`、Rust `03700aa`、Python `54ea1e9`、C++ `05f798d`；330 条共享向量通过。
+- TypeScript 213/213、Python 136/136、C++ 14/14，以及 Go、Rust 完整测试均通过；格式、静态检查、manifest、Web Runtime 与打包消费者验证通过。
+- 实现与发布说明头提交 `6a72aa9` 的 GitHub CI [39527498981](https://github.com/elkpi/oxa/actions/runs/39527498981) 共 18 项通过，release-guard 按条件跳过；包含 Go 1.23/1.24 race。
+- 本机 race 因 ThreadSanitizer 不支持 39 位 VMA（要求 48 位）无法运行，未修改系统配置；race 验收依据上述 GitHub CI。
+- 请求向量前置 user 消息以满足 INV-2；缺失 type 统一逐项报损；Rust 缺失类型兼容仅限 summary 字段。编码器、流式行为与既有元数据报损规则不变。
+- 最终差异由当前会话直接复查，无独立审查代理；PR 保持待审，不自动合并或发布。

@@ -526,6 +526,14 @@ pub(crate) fn decode_assistant_run(
         if item.kind == ITEM_TYPE_REASONING {
             for (part_index, part) in item.summary.iter().enumerate() {
                 if part.kind == PART_TYPE_OUTPUT_TEXT || part.kind == "summary_text" {
+                    if !part.annotations.is_empty() {
+                        losses.push(loss(
+                            format!("input[{index}].summary[{part_index}].annotations"),
+                            "annotations",
+                            LossReason::UnmappedField,
+                            "Responses reasoning summary annotations have no IR equivalent",
+                        ));
+                    }
                     if !part.text.is_empty() {
                         thinkings.push(Block::Thinking {
                             thinking: part.text.clone(),

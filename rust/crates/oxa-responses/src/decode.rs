@@ -645,7 +645,17 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     ));
                 } else {
                     for (part_index, part) in item.summary.iter().enumerate() {
-                        if part.kind == PART_TYPE_OUTPUT_TEXT {
+                        if part.kind == PART_TYPE_OUTPUT_TEXT || part.kind == "summary_text" {
+                            if !part.annotations.is_empty() {
+                                losses.push(loss(
+                                    format!(
+                                        "output[{item_index}].summary[{part_index}].annotations"
+                                    ),
+                                    "annotations",
+                                    LossReason::UnmappedField,
+                                    "Responses reasoning summary annotations have no IR equivalent",
+                                ));
+                            }
                             thinkings.push(Block::Thinking {
                                 thinking: part.text.clone(),
                                 signature: None,

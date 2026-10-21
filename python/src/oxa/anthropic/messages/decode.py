@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from typing import Any
+import json
 
-from oxa._wire import RawDocument, audit_decode
+from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT as AN_ROLE_ASSISTANT,
 )
@@ -99,12 +100,42 @@ def decode_request(
 
     tools: list[Tool] | None = None
     custom_tools: set[str] = set()
+    native_tools: set[str] = set()
     declared_tools: set[str] = set()
     if "tools" in wire and wire["tools"] is not None:
         tools = []
         for index, tool in enumerate(wire["tools"]):
-            name = tool["name"]
+            if not isinstance(tool, dict):
+                raise ValueError(f"anthropic: tools[{index}] must be an object")
+            name = tool.get("name")
+            if name is None:
+                raise ValueError(f"anthropic: tools[{index}].name is required")
+            if not isinstance(name, str):
+                raise ValueError(f"anthropic: tools[{index}].name must be a string")
+            if not name:
+                raise ValueError(f"anthropic: tools[{index}].name cannot be empty")
             declared_tools.add(name)
+
+            tool_type = None
+            if "type" in tool:
+                tool_type = tool["type"]
+                if not isinstance(tool_type, str):
+                    raise ValueError(f"anthropic: tools[{index}].type must be a string")
+                if tool_type and tool_type not in ("function", "custom"):
+                    native_tools.add(name)
+                    definition = raw_field(raw_text, f"tools[{index}]")
+                    if not definition:
+                        definition = json.dumps(tool, ensure_ascii=False)
+                    tools.append(
+                        Tool(
+                            type="native",
+                            name=name,
+                            source="anthropic",
+                            definition=definition,
+                        )
+                    )
+                    continue
+
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
@@ -122,7 +153,7 @@ def decode_request(
                             omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
                         ),
                     )
-            if is_custom_tool_input_schema(schema):
+            if tool_type == "custom" or is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(
                     Tool(
@@ -142,7 +173,7 @@ def decode_request(
                     )
                 )
 
-    tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"), custom_tools=custom_tools)
+    tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"), custom_tools=custom_tools, native_tools=native_tools)
     losses.extend(tc_losses)
 
     system, sys_losses = decode_system(wire.get("system"))

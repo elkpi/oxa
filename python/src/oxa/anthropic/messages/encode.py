@@ -97,6 +97,24 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
+            if tool.type == "native":
+                if tool.source != "anthropic":
+                    losses.append(
+                        loss(
+                            f"tools[{index}]",
+                            "type",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            f'native tool "{tool.name}" from "{tool.source}" cannot be represented by the target protocol',
+                        )
+                    )
+                    continue
+                import json
+                try:
+                    parsed = json.loads(tool.definition or "")
+                except Exception as e:
+                    raise ValueError(f"anthropic: invalid native tool definition: {e}") from e
+                tools_wire.append(parsed)
+                continue
             if tool.type == "custom":
                 if tool.format is not None and getattr(tool.format, "type", "") == "grammar":
                     losses.append(
@@ -139,10 +157,29 @@ def encode_request(
         if tools_wire:
             out["tools"] = tools_wire
 
+    native_named_choice_dropped = (
+        req.tool_choice is not None
+        and req.tool_choice.mode == "tool"
+        and (
+            req.tool_choice.tool_type == "native"
+            or any(t.type == "native" and t.name == req.tool_choice.name for t in (req.tools or ()))
+        )
+        and not any(t.get("name") == req.tool_choice.name for t in tools_wire)
+    )
     choice_wire, tc_losses = encode_tool_choice(req.tool_choice)
     if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
         choice_wire = None
-        tc_losses.append(loss("tool_choice", "type", LOSS_UNSUPPORTED_SEMANTIC, "all declarations for the required tool choice were dropped"))
+        tc_losses.append(loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"))
+    elif native_named_choice_dropped:
+        choice_wire = None
+        tc_losses.append(
+            loss(
+                "tool_choice",
+                "tool_choice",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f'native tool choice "{req.tool_choice.name}" cannot be represented by the target protocol',
+            )
+        )
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     losses.extend(tc_losses)

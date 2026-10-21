@@ -128,6 +128,10 @@ def _audit(wire: dict[str, Any], face: str, kind: str, document: RawDocument | N
             return
         if not isinstance(value, dict):
             return
+        if shape == "tool" and face == "anthropic":
+            tool_type = value.get("type")
+            if isinstance(tool_type, str) and tool_type and tool_type not in ("function", "custom"):
+                return
         fields = profile.get(shape)
         if not fields:
             return

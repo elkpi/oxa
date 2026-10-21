@@ -685,6 +685,10 @@ def dump_request(req: Request) -> dict[str, Any]:
         for t in req.tools:
             if t.type == "apply_patch":
                 t_dict: dict[str, Any] = {"type": "apply_patch"}
+            elif t.type == "native":
+                if not t.name or not t.source or not t.definition:
+                    raise CodecError("native tool requires name, source, and definition")
+                t_dict = {"type": "native", "name": t.name, "source": t.source, "definition": t.definition}
             elif t.type == "custom":
                 if t.input_schema is not None:
                     raise CodecError("custom tool must not carry input_schema")
@@ -711,8 +715,8 @@ def dump_request(req: Request) -> dict[str, Any]:
             if req.tool_choice.tool_type == "apply_patch":
                 tc_dict["tool_type"] = "apply_patch"
             else:
-                if not req.tool_choice.name or req.tool_choice.tool_type not in ("function", "custom"):
-                    raise CodecError("tool choice in mode 'tool' requires name and function/custom tool_type")
+                if not req.tool_choice.name or req.tool_choice.tool_type not in ("function", "custom", "native"):
+                    raise CodecError("tool choice in mode 'tool' requires name and function/custom/native tool_type")
                 tc_dict["name"] = req.tool_choice.name
                 if req.tool_choice.tool_type != "function":
                     tc_dict["tool_type"] = req.tool_choice.tool_type
@@ -845,17 +849,34 @@ def load_request(data: dict[str, Any] | str) -> Request:
             tool_native = tuple(load_native_annotation(a) for a in t.get("native", []))
             tool_type = t.get("type", "function")
             if tool_type == "apply_patch":
-                if any(k in t for k in ("name", "description", "input_schema", "format")):
+                if any(k in t for k in ("name", "description", "input_schema", "format", "source", "definition")):
                     raise CodecError("apply_patch declaration must only contain type")
                 tools.append(Tool(type="apply_patch", native=tool_native))
+            elif tool_type == "native":
+                if any(k in t for k in ("description", "input_schema", "format", "native")):
+                    raise CodecError("native tool must only contain type, name, source, definition")
+                source = t.get("source")
+                definition = t.get("definition")
+                name = t.get("name")
+                if not isinstance(source, str) or not source or not isinstance(definition, str) or not definition or not isinstance(name, str) or not name:
+                    raise CodecError("native tool requires non-empty name, source, and definition")
+                try:
+                    def_parsed = json.loads(definition)
+                except Exception as e:
+                    raise CodecError("native tool definition must be a valid JSON object") from e
+                if not isinstance(def_parsed, dict) or not isinstance(def_parsed.get("type"), str) or not def_parsed["type"] or def_parsed["type"] in ("function", "custom"):
+                    raise CodecError("native tool definition requires a native type")
+                if def_parsed.get("name") != name:
+                    raise CodecError("native tool definition name must match tool name")
+                tools.append(Tool(type="native", name=name, source=source, definition=definition))
             elif tool_type == "custom":
-                if "input_schema" in t:
-                    raise CodecError("custom tool must not carry input_schema")
+                if "input_schema" in t or "source" in t or "definition" in t:
+                    raise CodecError("custom tool must not carry input_schema/source/definition")
                 fmt = t.get("format")
                 tools.append(Tool(name=t["name"], description=t.get("description"), type="custom", format=load_custom_tool_format(fmt) if fmt is not None else None, native=tool_native))
             elif tool_type == "function":
-                if "format" in t:
-                    raise CodecError("function tool must not carry format")
+                if "format" in t or "source" in t or "definition" in t:
+                    raise CodecError("function tool must not carry format/source/definition")
                 tools.append(Tool(name=t["name"], input_schema=t["input_schema"], description=t.get("description"), native=tool_native))
             else:
                 raise CodecError(f"unknown tool type: {tool_type!r}")
@@ -870,8 +891,8 @@ def load_request(data: dict[str, Any] | str) -> Request:
                     raise CodecError("apply_patch choice must not contain name")
                 tool_choice = ToolChoice(mode=mode, tool_type="apply_patch")
             else:
-                if tool_type not in ("function", "custom") or not tc.get("name"):
-                    raise CodecError("tool choice mode 'tool' requires name and function/custom tool_type")
+                if tool_type not in ("function", "custom", "native") or not tc.get("name"):
+                    raise CodecError("tool choice mode 'tool' requires name and function/custom/native tool_type")
                 tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type)
         elif "tool_type" in tc:
             raise CodecError("tool_choice.tool_type is only valid when mode is tool")

@@ -1,0 +1,44 @@
+{
+  "name": "anthropic.nonstream.tools-explicit-custom-schema-to-ir",
+  "description": "An Anthropic explicit type=custom label with a real JSON Schema is an ordinary user tool: the input_schema is preserved as a function tool, not promoted to a free-text custom tool.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "Find a city" }],
+    "tools": [
+      {
+        "type": "custom",
+        "name": "lookup",
+        "description": "Look up a city.",
+        "input_schema": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Find a city" }] }],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Look up a city.",
+        "input_schema": {
+          "type": "object",
+          "properties": { "city": { "type": "string" } },
+          "required": ["city"]
+        }
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "n-nt-2"]
+}

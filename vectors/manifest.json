@@ -927,6 +927,16 @@
       "sha256": "63e6c259a4395eb26a14372a28a2a9ef451a9810b7ce150164c3926b95709cab"
     },
     {
+      "name": "anthropic.nonstream.tools-explicit-custom-schema-to-ir",
+      "file": "anthropic/nonstream/tools-explicit-custom-schema-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "n-nt-2"
+      ],
+      "sha256": "2f18b6767d5243505d9d79c51073705b114e932a42118d6efc58bbbdf4fb859c"
+    },
+    {
       "name": "anthropic.nonstream.unknown-nested-request-field-to-ir",
       "file": "anthropic/nonstream/unknown-nested-request-field-to-ir.json",
       "tags": [

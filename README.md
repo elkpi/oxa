@@ -7,7 +7,7 @@ in-process libraries.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Latest coordinated release: v2.4.3 (v2.4.5 prepared).** Implements Spec 2.4.3 across Go,
-TypeScript, Rust, Python, and C++, and validates all 345 shared golden vectors.
+TypeScript, Rust, Python, and C++, and validates all 346 shared golden vectors.
 
 ## What is oxa?
 

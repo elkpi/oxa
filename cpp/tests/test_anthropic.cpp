@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 88);
+    CHECK(rep_res->executed == 89);
 
     oxa::ir::Request request;
     request.model = "claude-3-5-sonnet-20241022";

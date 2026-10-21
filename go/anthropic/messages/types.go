@@ -90,10 +90,69 @@ type ThinkingWire struct {
 // JSON-Schema-shaped object carried verbatim (spec/01 s3.5): json.RawMessage
 // preserves the exact source bytes across decode and encode.
 type ToolWire struct {
+	Type         string          `json:"type,omitempty"`
 	Name         string          `json:"name"`
 	Description  string          `json:"description,omitempty"`
-	InputSchema  json.RawMessage `json:"input_schema"`
+	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	Raw          json.RawMessage `json:"-"`
+}
+
+func (t *ToolWire) UnmarshalJSON(data []byte) error {
+	t.Raw = append([]byte(nil), data...)
+	type shadow struct {
+		Type         json.RawMessage `json:"type"`
+		Name         json.RawMessage `json:"name"`
+		Description  string          `json:"description,omitempty"`
+		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+		CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	}
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if len(s.Type) > 0 {
+		if string(s.Type) == "null" {
+			return fmt.Errorf("anthropic: tool type must be a string")
+		}
+		if err := json.Unmarshal(s.Type, &t.Type); err != nil {
+			return fmt.Errorf("anthropic: tool type must be a string")
+		}
+	}
+	if len(s.Name) == 0 || string(s.Name) == "null" {
+		return fmt.Errorf("anthropic: tool name is required")
+	}
+	if err := json.Unmarshal(s.Name, &t.Name); err != nil {
+		return fmt.Errorf("anthropic: tool name must be a string")
+	}
+	if t.Name == "" {
+		return fmt.Errorf("anthropic: tool name cannot be empty")
+	}
+	t.Description = s.Description
+	t.InputSchema = s.InputSchema
+	t.CacheControl = s.CacheControl
+	return nil
+}
+
+func (t ToolWire) MarshalJSON() ([]byte, error) {
+	if len(t.Raw) > 0 {
+		return t.Raw, nil
+	}
+	type shadow struct {
+		Type         string          `json:"type,omitempty"`
+		Name         string          `json:"name"`
+		Description  string          `json:"description,omitempty"`
+		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
+		CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	}
+	s := shadow{
+		Type:         t.Type,
+		Name:         t.Name,
+		Description:  t.Description,
+		InputSchema:  t.InputSchema,
+		CacheControl: t.CacheControl,
+	}
+	return json.Marshal(s)
 }
 
 // ToolChoiceWire is the wire tool_choice object. disable_parallel_tool_use

@@ -41,8 +41,27 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	}
 	declaredTools := make(map[string]bool)
 	customTools := make(map[string]bool)
+	nativeTools := make(map[string]bool)
 	for i, tool := range wire.Tools {
 		declaredTools[tool.Name] = true
+		if tool.Type != "" && tool.Type != ir.ToolTypeFunction && tool.Type != ir.ToolTypeCustom {
+			rawDef := tool.Raw
+			if len(rawDef) == 0 {
+				var err error
+				rawDef, err = json.Marshal(tool)
+				if err != nil {
+					return nil, nil, fmt.Errorf("anthropic: tools[%d]: %w", i, err)
+				}
+			}
+			nativeTools[tool.Name] = true
+			req.Tools = append(req.Tools, ir.Tool{
+				Type:       ir.ToolTypeNative,
+				Name:       tool.Name,
+				Source:     "anthropic",
+				Definition: string(rawDef),
+			})
+			continue
+		}
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
 		}
@@ -78,7 +97,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Native:      nat,
 		})
 	}
-	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice, customTools)
+	choice, choiceLosses, err := decodeToolChoice(wire.ToolChoice, customTools, nativeTools)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -463,7 +482,7 @@ func requireJSONObject(raw json.RawMessage, path string) error {
 	return nil
 }
 
-func decodeToolChoice(choice *ToolChoiceWire, customTools map[string]bool) (*ir.ToolChoice, []ir.Loss, error) {
+func decodeToolChoice(choice *ToolChoiceWire, customTools, nativeTools map[string]bool) (*ir.ToolChoice, []ir.Loss, error) {
 	if choice == nil {
 		return nil, nil, nil
 	}
@@ -476,7 +495,9 @@ func decodeToolChoice(choice *ToolChoiceWire, customTools map[string]bool) (*ir.
 		if choice.Name == "" {
 			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for type tool")
 		}
-		if customTools != nil && customTools[choice.Name] {
+		if nativeTools != nil && nativeTools[choice.Name] {
+			decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, ToolType: ir.ToolTypeNative, Name: choice.Name}
+		} else if customTools != nil && customTools[choice.Name] {
 			decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, ToolType: ir.ToolTypeCustom, Name: choice.Name}
 		} else {
 			decoded = &ir.ToolChoice{Mode: ir.ToolChoiceTool, Name: choice.Name}

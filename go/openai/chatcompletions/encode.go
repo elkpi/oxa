@@ -25,6 +25,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
 		for i, tool := range req.Tools {
+			if tool.Type == ir.ToolTypeNative {
+				losses = append(losses, ir.NativeToolLoss(tool, fmt.Sprintf("tools[%d]", i)))
+				continue
+			}
 			if tool.Type == ir.ToolTypeCustom {
 				out.Tools = append(out.Tools, ToolWire{
 					Type: ir.ToolTypeCustom,
@@ -50,14 +54,22 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			})
 		}
 	}
-	choice, choiceLoss := encodeToolChoice(req.ToolChoice)
-	out.ToolChoice = choice
+	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceTool && ir.IsNativeToolChoice(req) {
+		out.ToolChoice = nil
+		losses = append(losses, ir.NativeToolChoiceLoss(req.ToolChoice))
+	} else {
+		choice, choiceLoss := encodeToolChoice(req.ToolChoice)
+		out.ToolChoice = choice
+		if choiceLoss != nil {
+			losses = append(losses, *choiceLoss)
+		}
+	}
 	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceAny && len(req.Tools) > 0 && len(out.Tools) == 0 {
 		out.ToolChoice = nil
 		losses = append(losses, loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic, "all tool declarations were dropped"))
 	}
-	if choiceLoss != nil {
-		losses = append(losses, *choiceLoss)
+	if len(out.Tools) == 0 {
+		out.Tools = nil
 	}
 	if len(req.System) > 0 {
 		text := ""

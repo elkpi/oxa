@@ -1,0 +1,59 @@
+{
+  "name": "anthropic.nonstream.native-tool-config-to-ir",
+  "description": "命名原生工具 config 整体保留，不要求 input_schema，不生成字段审计损失。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "m",
+    "max_tokens": 32,
+    "tools": [
+      { "type" : "advisor_20260301", "name" : "advisor", "model" : "opus", "max_uses" : 2, "cache_control" : {"type":"ephemeral"}, "vendor_config" : {"budget":1e+03,"enabled":true} }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "advisor",
+        "source": "anthropic",
+        "definition": "{ \"type\" : \"advisor_20260301\", \"name\" : \"advisor\", \"model\" : \"opus\", \"max_uses\" : 2, \"cache_control\" : {\"type\":\"ephemeral\"}, \"vendor_config\" : {\"budget\":1e+03,\"enabled\":true} }"
+      }
+    ],
+    "params": {
+      "max_tokens": 32
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tools",
+    "native",
+    "n-nt-1",
+    "n-nt-2",
+    "n-nt-3",
+    "n-nt-4"
+  ]
+}

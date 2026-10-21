@@ -1,0 +1,87 @@
+{
+  "name": "anthropic.nonstream.native-tool-mixed-to-ir",
+  "description": "混合 function/native 保持顺序及原始配置，并标记原生 named tool_choice。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "m",
+    "max_tokens": 32,
+    "tools": [
+      {
+        "name": "lookup",
+        "input_schema": {
+          "type": "object"
+        }
+      },
+      { "type" : "advisor_20260301", "name" : "advisor", "model" : "opus", "max_uses" : 2, "cache_control" : {"type":"ephemeral"}, "vendor_config" : {"budget":1e+03,"enabled":true} },
+      {"type":"future_20990101","name":"future","config":{"opaque":[1,true,{"x":"y"}]}}
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ],
+    "tool_choice": {
+      "type": "tool",
+      "name": "advisor"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "input_schema": {
+          "type": "object"
+        }
+      },
+      {
+        "type": "native",
+        "name": "advisor",
+        "source": "anthropic",
+        "definition": "{ \"type\" : \"advisor_20260301\", \"name\" : \"advisor\", \"model\" : \"opus\", \"max_uses\" : 2, \"cache_control\" : {\"type\":\"ephemeral\"}, \"vendor_config\" : {\"budget\":1e+03,\"enabled\":true} }"
+      },
+      {
+        "type": "native",
+        "name": "future",
+        "source": "anthropic",
+        "definition": "{\"type\":\"future_20990101\",\"name\":\"future\",\"config\":{\"opaque\":[1,true,{\"x\":\"y\"}]}}"
+      }
+    ],
+    "params": {
+      "max_tokens": 32
+    },
+    "tool_choice": {
+      "mode": "tool",
+      "name": "advisor",
+      "tool_type": "native"
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tools",
+    "native",
+    "n-nt-1",
+    "n-nt-2",
+    "n-nt-3",
+    "n-nt-4"
+  ]
+}

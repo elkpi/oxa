@@ -1,0 +1,77 @@
+{
+  "name": "anthropic.nonstream.native-tool-foreign-source-from-ir",
+  "description": "不同来源即使同名，也不能恢复为 Anthropic 工具，省略声明及其 native choice。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "advisor",
+        "source": "other-provider",
+        "definition": "{\"type\":\"advisor_20260301\",\"name\":\"advisor\",\"model\":\"opus\"}"
+      }
+    ],
+    "params": {
+      "max_tokens": 32
+    },
+    "tool_choice": {
+      "mode": "tool",
+      "name": "advisor",
+      "tool_type": "native"
+    }
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 32,
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tools[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "native tool \"advisor\" from \"other-provider\" cannot be represented by the target protocol"
+    },
+    {
+      "path": "tool_choice",
+      "field": "tool_choice",
+      "reason": "unsupported-semantic",
+      "detail": "native tool choice \"advisor\" cannot be represented by the target protocol"
+    }
+  ],
+  "tags": [
+    "request",
+    "tools",
+    "native",
+    "n-nt-1",
+    "n-nt-2",
+    "n-nt-3",
+    "n-nt-4"
+  ]
+}

@@ -191,18 +191,26 @@ function decodeRequestObject(
               partIndex < summary.length;
               partIndex += 1
             ) {
-              const part = object(
-                summary[partIndex],
-                `input[${index}].summary[${partIndex}]`,
-              );
-              if (part.type === "output_text" || part.type === "summary_text") {
-                const text = string(
-                  part.text,
-                  `input[${index}].summary[${partIndex}].text`,
-                );
-                if (text !== "")
-                  thinking.push({ type: "thinking", thinking: text });
+              const partPath = `input[${index}].summary[${partIndex}]`;
+              const part = object(summary[partIndex], partPath);
+              if (part.type !== "output_text" && part.type !== "summary_text") {
+                losses.push(loss(partPath, "type", "unsupported-semantic"));
+                continue;
               }
+              if (
+                part.annotations !== undefined &&
+                array(part.annotations, `${partPath}.annotations`).length > 0
+              )
+                losses.push(
+                  loss(
+                    `${partPath}.annotations`,
+                    "annotations",
+                    "unmapped-field",
+                  ),
+                );
+              const text = string(part.text, `${partPath}.text`);
+              if (text !== "")
+                thinking.push({ type: "thinking", thinking: text });
             }
             index += 1;
             continue;
@@ -758,35 +766,30 @@ function decodeResponseObject(
       }
     } else if (item.type === "reasoning") {
       const summary = item.summary;
-      let converted = 0;
-      if (summary !== undefined && summary !== null) {
-        const parts = array(summary, `output[${index}].summary`);
-        for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
-          const part = object(
-            parts[partIndex],
-            `output[${index}].summary[${partIndex}]`,
-          );
-          if (part.type !== "output_text") {
-            losses.push(
-              loss(
-                `output[${index}].summary[${partIndex}]`,
-                "type",
-                "unsupported-semantic",
-              ),
-            );
-            continue;
-          }
-          texts.push({
-            type: "thinking",
-            thinking: string(
-              part.text,
-              `output[${index}].summary[${partIndex}].text`,
-            ),
-          });
-          converted += 1;
+      const parts =
+        summary === undefined || summary === null
+          ? []
+          : array(summary, `output[${index}].summary`);
+      for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
+        const partPath = `output[${index}].summary[${partIndex}]`;
+        const part = object(parts[partIndex], partPath);
+        if (part.type !== "output_text" && part.type !== "summary_text") {
+          losses.push(loss(partPath, "type", "unsupported-semantic"));
+          continue;
         }
+        if (
+          part.annotations !== undefined &&
+          array(part.annotations, `${partPath}.annotations`).length > 0
+        )
+          losses.push(
+            loss(`${partPath}.annotations`, "annotations", "unmapped-field"),
+          );
+        texts.push({
+          type: "thinking",
+          thinking: string(part.text, `${partPath}.text`),
+        });
       }
-      if (converted === 0)
+      if (parts.length === 0)
         losses.push({
           path: `output[${index}]`,
           field: "type",

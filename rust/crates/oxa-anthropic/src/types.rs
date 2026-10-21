@@ -157,7 +157,12 @@ impl<'de> Deserialize<'de> for ToolWire {
     where
         D: serde::Deserializer<'de>,
     {
-        let map = serde_json::Map::<String, Value>::deserialize(deserializer)?;
+        // Capture the exact declaration source so native tools survive typed
+        // decode verbatim (spec/16 N-NT-2); ordinary tools re-serialize from
+        // their fields so caller-side edits are honored.
+        let raw_json = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        let map: serde_json::Map<String, Value> =
+            serde_json::from_str(raw_json.get()).map_err(serde::de::Error::custom)?;
         let tool_type = match map.get("type") {
             None => None,
             Some(Value::String(s)) => Some(s.clone()),
@@ -190,13 +195,16 @@ impl<'de> Deserialize<'de> for ToolWire {
             .to_string();
         let input_schema = map.get("input_schema").cloned();
         let cache_control = map.get("cache_control").cloned();
+        let is_native = tool_type
+            .as_deref()
+            .is_some_and(|t| !t.is_empty() && t != "function" && t != "custom");
         Ok(ToolWire {
             tool_type,
             name,
             description,
             input_schema,
             cache_control,
-            raw_definition: None,
+            raw_definition: is_native.then(|| raw_json.get().to_string()),
         })
     }
 }

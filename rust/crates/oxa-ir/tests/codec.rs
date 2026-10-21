@@ -117,6 +117,37 @@ fn workspace_crate_version_is_2_4_5() {
 }
 
 #[test]
+fn rejects_invalid_native_tool_documents() {
+    let invalid_tools = [
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"[]"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"other\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"function\",\"name\":\"advisor\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}","input_schema":{}}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}","description":"x"}"#,
+        r#"{"type":"function","name":"f","input_schema":{},"source":"anthropic","definition":"{}"}"#,
+    ];
+    for tool in invalid_tools {
+        let document = format!(
+            r#"{{"specVersion":"0.2.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"tools":[{tool}]}}"#
+        );
+        assert!(
+            from_json::<Request>(&document).is_err(),
+            "invalid native tool accepted: {tool}"
+        );
+    }
+}
+
+#[test]
+fn accepts_wellformed_native_tool_documents() {
+    let document = r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}],"params":{"max_tokens":32}}"#;
+    let request: Request = from_json(document).expect("valid native tool");
+    let round_tripped = to_json(&request).expect("re-encode");
+    assert!(round_tripped.contains(r#"\"type\":\"advisor_20260301\""#));
+}
+
+#[test]
 fn rejects_wrong_spec_version() {
     let bad = SPEC_RESPONSE.replace("\"0.1.0\"", "\"9.9.9\"");
     assert!(from_json::<Response>(&bad).is_err());

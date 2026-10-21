@@ -133,9 +133,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     });
                 }
             }
-            if tool.tool_type.as_deref() == Some("custom")
-                || is_custom_tool_input_schema(schema_val)
-            {
+            if is_custom_tool_input_schema(schema_val) {
                 custom_tools.insert(tool.name.clone());
                 tools.push(oxa_ir::Tool {
                     tool_type: Some(oxa_ir::ToolType::Custom),

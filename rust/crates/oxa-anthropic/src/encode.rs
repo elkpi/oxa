@@ -81,6 +81,19 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 let mut tw: ToolWire = serde_json::from_value(wire_val).map_err(|e| {
                     Error::new(format!("anthropic: invalid native tool definition: {e}"))
                 })?;
+                if tw.name != tool.name {
+                    return Err(Error::new(
+                        "anthropic: native tool definition name must match tool name",
+                    ));
+                }
+                match tw.tool_type.as_deref() {
+                    Some(t) if !t.is_empty() && t != "function" && t != "custom" => {}
+                    _ => {
+                        return Err(Error::new(
+                            "anthropic: native tool definition requires a native type",
+                        ));
+                    }
+                }
                 tw.raw_definition = Some(def.to_string());
                 wire_tools.push(tw);
                 continue;

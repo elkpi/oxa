@@ -1,0 +1,62 @@
+{
+  "name": "anthropic.nonstream.native-tool-builtin-from-ir",
+  "description": "从 IR 恢复来源为 Anthropic 的原生工具 builtin 完整声明。",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "hi"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "bash",
+        "source": "anthropic",
+        "definition": "{\"type\":\"bash_20250124\",\"name\":\"bash\",\"cache_control\":{\"type\":\"ephemeral\"}}"
+      }
+    ],
+    "params": {
+      "max_tokens": 32
+    }
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 32,
+    "tools": [
+      {"type":"bash_20250124","name":"bash","cache_control":{"type":"ephemeral"}}
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hi"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tools",
+    "native",
+    "n-nt-1",
+    "n-nt-2",
+    "n-nt-3",
+    "n-nt-4"
+  ]
+}

@@ -508,11 +508,22 @@
           },
           "required": ["type"],
           "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "native" },
+            "name": { "type": "string", "minLength": 1 },
+            "source": { "type": "string", "minLength": 1 },
+            "definition": { "type": "string", "minLength": 2, "description": "Opaque provider declaration JSON object text; identity validation follows spec/16." }
+          },
+          "required": ["type", "name", "source", "definition"],
+          "additionalProperties": false
         }
       ]
     },
     "toolChoice": {
-      "description": "Named function/custom choices require name; the dedicated apply_patch choice forbids name (spec/14).",
+      "description": "Named function/custom/native choices require name; the dedicated apply_patch choice forbids name (spec/14, spec/16).",
       "oneOf": [
         {
           "type": "object",
@@ -537,7 +548,7 @@
           "properties": {
             "mode": { "const": "tool" },
             "name": { "type": "string", "minLength": 1 },
-            "tool_type": { "enum": ["function", "custom"] }
+            "tool_type": { "enum": ["function", "custom", "native"] }
           },
           "required": ["mode", "name"],
           "additionalProperties": false

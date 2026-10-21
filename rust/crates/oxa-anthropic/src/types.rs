@@ -142,17 +142,104 @@ pub struct SystemBlockWire {
 
 /// One element of the wire tools array. `input_schema` is a JSON-Schema-shaped
 /// object carried verbatim (spec/01 §3.5).
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolWire {
-    #[serde(rename = "name")]
+    pub tool_type: Option<String>,
     pub name: String,
-    #[serde(rename = "description", skip_serializing_if = "String::is_empty")]
     pub description: String,
-    #[serde(rename = "input_schema")]
-    pub input_schema: Value,
-    #[serde(rename = "cache_control", skip_serializing_if = "Option::is_none")]
+    pub input_schema: Option<Value>,
     pub cache_control: Option<Value>,
+    pub raw_definition: Option<String>,
+}
+
+impl<'de> Deserialize<'de> for ToolWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Capture the exact declaration source so native tools survive typed
+        // decode verbatim (spec/16 N-NT-2); ordinary tools re-serialize from
+        // their fields so caller-side edits are honored.
+        let raw_json = Box::<serde_json::value::RawValue>::deserialize(deserializer)?;
+        let map: serde_json::Map<String, Value> =
+            serde_json::from_str(raw_json.get()).map_err(serde::de::Error::custom)?;
+        let tool_type = match map.get("type") {
+            None => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => {
+                return Err(serde::de::Error::custom(
+                    "anthropic: tool type must be a string",
+                ));
+            }
+        };
+        let name_val = map
+            .get("name")
+            .ok_or_else(|| serde::de::Error::custom("anthropic: tool name is required"))?;
+        let name = match name_val {
+            Value::String(s) if !s.is_empty() => s.clone(),
+            Value::String(_) => {
+                return Err(serde::de::Error::custom(
+                    "anthropic: tool name cannot be empty",
+                ));
+            }
+            _ => {
+                return Err(serde::de::Error::custom(
+                    "anthropic: tool name must be a string",
+                ));
+            }
+        };
+        let description = map
+            .get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default()
+            .to_string();
+        let input_schema = map.get("input_schema").cloned();
+        let cache_control = map.get("cache_control").cloned();
+        let is_native = tool_type
+            .as_deref()
+            .is_some_and(|t| !t.is_empty() && t != "function" && t != "custom");
+        Ok(ToolWire {
+            tool_type,
+            name,
+            description,
+            input_schema,
+            cache_control,
+            raw_definition: is_native.then(|| raw_json.get().to_string()),
+        })
+    }
+}
+
+impl Serialize for ToolWire {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(ref raw_json) = self.raw_definition {
+            let raw: &serde_json::value::RawValue =
+                serde_json::from_str(raw_json).map_err(serde::ser::Error::custom)?;
+            return raw.serialize(serializer);
+        }
+        #[derive(Serialize)]
+        struct Shadow<'a> {
+            #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+            tool_type: Option<&'a str>,
+            name: &'a str,
+            #[serde(skip_serializing_if = "str::is_empty")]
+            description: &'a str,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            input_schema: Option<&'a Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            cache_control: Option<&'a Value>,
+        }
+        let s = Shadow {
+            tool_type: self.tool_type.as_deref(),
+            name: &self.name,
+            description: &self.description,
+            input_schema: self.input_schema.as_ref(),
+            cache_control: self.cache_control.as_ref(),
+        };
+        s.serialize(serializer)
+    }
 }
 
 /// The wire tool_choice object. `disable_parallel_tool_use` has no IR

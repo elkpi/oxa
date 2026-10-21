@@ -21,6 +21,9 @@ BLOCK_TYPE_CUSTOM_TOOL_RESULT: Final = "custom_tool_result"
 BLOCK_TYPE_APPLY_PATCH_TOOL_USE: Final = "apply_patch_tool_use"
 BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT: Final = "apply_patch_tool_result"
 TOOL_TYPE_APPLY_PATCH: Final = "apply_patch"
+TOOL_TYPE_FUNCTION: Final = "function"
+TOOL_TYPE_CUSTOM: Final = "custom"
+TOOL_TYPE_NATIVE: Final = "native"
 BlockType = Literal[
     "text",
     "thinking",

@@ -253,6 +253,8 @@ class Tool:
     type: str = "function"
     format: CustomToolFormat | None = None
     native: tuple[NativeAnnotation, ...] = ()
+    source: str | None = None
+    definition: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.native, tuple):

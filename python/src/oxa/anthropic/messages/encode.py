@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
@@ -64,6 +65,20 @@ from oxa.modelmap import Table
 DEFAULT_MAX_TOKENS = 4096
 
 
+def _parse_definition_number(text: str) -> int | float:
+    """Parses a native-declaration number without silent corruption (spec/16).
+
+    Integral literals that a double would round (e.g. 9007199254740993.0)
+    come back as exact ints; every other literal keeps the standard float
+    value, matching the face's canonical in-memory convention.
+    """
+    value = Decimal(text)
+    if value == value.to_integral_value():
+        exact = int(value)
+        return exact if float(text) != exact else float(text)
+    return float(text)
+
+
 def encode_request(
     req: Request,
     table: Table | None = None,
@@ -97,6 +112,34 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
+            if tool.type == "native":
+                if tool.source != "anthropic":
+                    losses.append(
+                        loss(
+                            f"tools[{index}]",
+                            "type",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            f'native tool "{tool.name}" from "{tool.source}" cannot be represented by the target protocol',
+                        )
+                    )
+                    continue
+                try:
+                    parsed = json.loads(tool.definition or "", parse_float=_parse_definition_number)
+                except ValueError as e:
+                    raise ValueError(f"anthropic: invalid native tool definition: {e}") from e
+                if not isinstance(parsed, dict):
+                    raise ValueError("anthropic: native tool definition must be a JSON object")
+                declaration_type = parsed.get("type")
+                if (
+                    not isinstance(declaration_type, str)
+                    or not declaration_type
+                    or declaration_type in ("function", "custom")
+                ):
+                    raise ValueError("anthropic: native tool definition requires a native type")
+                if parsed.get("name") != tool.name:
+                    raise ValueError("anthropic: native tool definition name must match tool name")
+                tools_wire.append(parsed)
+                continue
             if tool.type == "custom":
                 if tool.format is not None and getattr(tool.format, "type", "") == "grammar":
                     losses.append(
@@ -139,10 +182,29 @@ def encode_request(
         if tools_wire:
             out["tools"] = tools_wire
 
+    native_named_choice_dropped = (
+        req.tool_choice is not None
+        and req.tool_choice.mode == "tool"
+        and (
+            req.tool_choice.tool_type == "native"
+            or any(t.type == "native" and t.name == req.tool_choice.name for t in (req.tools or ()))
+        )
+        and not any(t.get("name") == req.tool_choice.name for t in tools_wire)
+    )
     choice_wire, tc_losses = encode_tool_choice(req.tool_choice)
     if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
         choice_wire = None
-        tc_losses.append(loss("tool_choice", "type", LOSS_UNSUPPORTED_SEMANTIC, "all declarations for the required tool choice were dropped"))
+        tc_losses.append(loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"))
+    elif native_named_choice_dropped:
+        choice_wire = None
+        tc_losses.append(
+            loss(
+                "tool_choice",
+                "tool_choice",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f'native tool choice "{req.tool_choice.name}" cannot be represented by the target protocol',
+            )
+        )
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     losses.extend(tc_losses)

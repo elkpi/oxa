@@ -63,6 +63,41 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(tools) = &req.tools {
         let mut wire_tools = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
+            if tool.tool_type == Some(oxa_ir::ToolType::Native) {
+                let source = tool.source.as_deref().unwrap_or_default();
+                if source != oxa_ir::NATIVE_SOURCE_ANTHROPIC {
+                    losses.push(loss(
+                        format!("tools[{index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        format!("native tool \"{}\" from \"{source}\" cannot be represented by the target protocol", tool.name),
+                    ));
+                    continue;
+                }
+                let def = tool.definition.as_deref().unwrap_or_default();
+                let wire_val: serde_json::Value = serde_json::from_str(def).map_err(|e| {
+                    Error::new(format!("anthropic: invalid native tool definition: {e}"))
+                })?;
+                let mut tw: ToolWire = serde_json::from_value(wire_val).map_err(|e| {
+                    Error::new(format!("anthropic: invalid native tool definition: {e}"))
+                })?;
+                if tw.name != tool.name {
+                    return Err(Error::new(
+                        "anthropic: native tool definition name must match tool name",
+                    ));
+                }
+                match tw.tool_type.as_deref() {
+                    Some(t) if !t.is_empty() && t != "function" && t != "custom" => {}
+                    _ => {
+                        return Err(Error::new(
+                            "anthropic: native tool definition requires a native type",
+                        ));
+                    }
+                }
+                tw.raw_definition = Some(def.to_string());
+                wire_tools.push(tw);
+                continue;
+            }
             if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
                 if let Some(fmt) = &tool.format
                     && fmt.format_type == "grammar"
@@ -75,14 +110,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     ));
                 }
                 wire_tools.push(ToolWire {
+                    tool_type: None,
                     name: tool.name.clone(),
                     description: tool.description.clone().unwrap_or_default(),
-                    input_schema: serde_json::json!({
+                    input_schema: Some(serde_json::json!({
                         "type": "object",
                         "properties": {"input": {"type": "string"}},
                         "required": ["input"],
-                    }),
+                    })),
                     cache_control: crate::native::get_block_cache_control(&tool.native),
+                    raw_definition: None,
                 });
                 continue;
             }
@@ -102,28 +139,50 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             let schema = serde_json::to_string(schema_val).unwrap_or_default();
             require_json_object(&schema, &format!("tools[{index}].input_schema"))?;
             wire_tools.push(ToolWire {
+                tool_type: None,
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
-                input_schema: schema_val.clone(),
+                input_schema: Some(schema_val.clone()),
                 cache_control: crate::native::get_block_cache_control(&tool.native),
+                raw_definition: None,
             });
         }
         if !wire_tools.is_empty() {
             out.tools = Some(wire_tools);
         }
     }
+    let native_named_choice_dropped = req
+        .tool_choice
+        .as_ref()
+        .map(|c| {
+            let is_native = c.tool_type == Some(oxa_ir::ToolType::Native)
+                || req.tools.as_deref().unwrap_or(&[]).iter().any(|t| {
+                    t.tool_type == Some(oxa_ir::ToolType::Native)
+                        && Some(&t.name) == c.name.as_ref()
+                });
+            let name_retained = c
+                .name
+                .as_ref()
+                .map(|n| {
+                    out.tools
+                        .as_deref()
+                        .unwrap_or(&[])
+                        .iter()
+                        .any(|t| &t.name == n)
+                })
+                .unwrap_or(false);
+            is_native && !name_retained
+        })
+        .unwrap_or(false);
+
     let (mut choice, choice_losses) = encode_tool_choice(req.tool_choice.as_ref())?;
     losses.extend(choice_losses);
     if req
         .tool_choice
         .as_ref()
         .is_some_and(|c| c.mode == oxa_ir::ToolChoiceMode::Any)
-        && req.tools.as_ref().is_some_and(|ts| {
-            !ts.is_empty()
-                && ts
-                    .iter()
-                    .all(|t| t.tool_type == Some(oxa_ir::ToolType::ApplyPatch))
-        })
+        && req.tools.as_ref().map(|t| !t.is_empty()).unwrap_or(false)
+        && out.tools.as_ref().map(|t| t.is_empty()).unwrap_or(true)
     {
         choice = None;
         losses.push(loss(
@@ -131,6 +190,19 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             "tool_choice",
             LossReason::UnsupportedSemantic,
             "all tool declarations were dropped",
+        ));
+    } else if native_named_choice_dropped {
+        let name = req
+            .tool_choice
+            .as_ref()
+            .and_then(|c| c.name.as_deref())
+            .unwrap_or("");
+        choice = None;
+        losses.push(loss(
+            "tool_choice",
+            "tool_choice",
+            LossReason::UnsupportedSemantic,
+            format!("native tool choice \"{name}\" cannot be represented by the target protocol"),
         ));
     }
     out.tool_choice = choice;

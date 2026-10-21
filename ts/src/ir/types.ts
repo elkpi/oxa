@@ -230,6 +230,8 @@ export type Tool =
       readonly input_schema: JsonObject;
       readonly format?: never;
       readonly native?: readonly NativeAnnotation[];
+      readonly source?: never;
+      readonly definition?: never;
     }
   | {
       readonly type: "custom";
@@ -238,6 +240,8 @@ export type Tool =
       readonly input_schema?: never;
       readonly format?: CustomToolFormat;
       readonly native?: readonly NativeAnnotation[];
+      readonly source?: never;
+      readonly definition?: never;
     }
   | {
       readonly type: "apply_patch";
@@ -246,13 +250,25 @@ export type Tool =
       readonly input_schema?: never;
       readonly format?: never;
       readonly native?: readonly NativeAnnotation[];
+      readonly source?: never;
+      readonly definition?: never;
+    }
+  | {
+      readonly type: "native";
+      readonly name: string;
+      readonly source: string;
+      readonly definition: string;
+      readonly description?: never;
+      readonly input_schema?: never;
+      readonly format?: never;
+      readonly native?: never;
     };
 export type ToolChoice =
   | { readonly mode: "auto" | "any" | "none" }
   | {
       readonly mode: "tool";
       readonly name: string;
-      readonly tool_type?: "function" | "custom";
+      readonly tool_type?: "function" | "custom" | "native";
     }
   | {
       readonly mode: "tool";

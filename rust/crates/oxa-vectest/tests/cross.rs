@@ -279,6 +279,37 @@ fn cross_vectors_for_filters_by_pair() {
 }
 
 #[test]
+fn test_native_tool_choice_without_explicit_tool_type() {
+    let raw = r#"{"model":"m","max_tokens":32,"tools":[{"type":"advisor_20260301","name":"advisor","model":"opus"}],"tool_choice":{"type":"tool","name":"advisor"},"messages":[{"role":"user","content":"hi"}]}"#;
+    let (mut req, _) =
+        oxa_anthropic::decode_request_json(raw, &oxa_anthropic::Config::default()).expect("decode");
+    req.tool_choice = Some(oxa_ir::ToolChoice {
+        mode: oxa_ir::ToolChoiceMode::Tool,
+        name: Some("advisor".to_string()),
+        tool_type: None,
+    });
+
+    let (cc, cc_losses) =
+        oxa_chatcompletions::encode_request(&req, &oxa_chatcompletions::Config::default())
+            .expect("cc encode");
+    assert!(cc.tools.is_none());
+    assert!(cc.tool_choice.is_none());
+    assert_eq!(cc_losses.len(), 2);
+    assert_eq!(cc_losses[0].field, "type");
+    assert_eq!(cc_losses[1].field, "tool_choice");
+    assert_eq!(cc_losses[1].reason, LossReason::UnsupportedSemantic);
+
+    let (re, re_losses) =
+        oxa_responses::encode_request(&req, &oxa_responses::Config::default()).expect("re encode");
+    assert!(re.tools.is_empty());
+    assert!(re.tool_choice.is_none());
+    assert_eq!(re_losses.len(), 2);
+    assert_eq!(re_losses[0].field, "type");
+    assert_eq!(re_losses[1].field, "tool_choice");
+    assert_eq!(re_losses[1].reason, LossReason::UnsupportedSemantic);
+}
+
+#[test]
 fn passes_source_wire_text_to_cross_decoders_without_reserializing_it() {
     let (_repo, root) = fake_repo();
     let raw_input = r#"{ "temperature": 1e+01, "city": "Paris" }"#;

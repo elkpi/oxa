@@ -585,6 +585,8 @@ type wireTool struct {
 	Type        string             `json:"type,omitempty"`
 	Format      *CustomToolFormat  `json:"format,omitempty"`
 	Native      []NativeAnnotation `json:"native,omitempty"`
+	Source      string             `json:"source,omitempty"`
+	Definition  string             `json:"definition,omitempty"`
 }
 
 type wireToolChoice struct {

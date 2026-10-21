@@ -66,13 +66,48 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         metadata: None,
         native: Vec::new(),
     };
-    let mut custom_tools = BTreeSet::new();
-    let mut declared_tools = BTreeSet::new();
+    let mut declared_tools: BTreeSet<String> = BTreeSet::new();
+    let mut custom_tools: BTreeSet<String> = BTreeSet::new();
+    let mut native_tools: BTreeSet<String> = BTreeSet::new();
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
+            if tool.name.is_empty() {
+                return Err(Error::new(format!(
+                    "anthropic: tools[{index}].name cannot be empty"
+                )));
+            }
             declared_tools.insert(tool.name.clone());
-            let schema = serde_json::to_string(&tool.input_schema).unwrap_or_default();
+
+            if let Some(ref t_type) = tool.tool_type
+                && !t_type.is_empty()
+                && t_type != "function"
+                && t_type != "custom"
+            {
+                native_tools.insert(tool.name.clone());
+                let definition = tool
+                    .raw_definition
+                    .clone()
+                    .unwrap_or_else(|| serde_json::to_string(tool).unwrap_or_default());
+                tools.push(oxa_ir::Tool {
+                    tool_type: Some(oxa_ir::ToolType::Native),
+                    name: tool.name.clone(),
+                    description: None,
+                    input_schema: None,
+                    format: None,
+                    native: Vec::new(),
+                    source: Some(oxa_ir::NATIVE_SOURCE_ANTHROPIC.into()),
+                    definition: Some(definition),
+                });
+                continue;
+            }
+
+            let schema_val = tool.input_schema.as_ref().ok_or_else(|| {
+                Error::new(format!(
+                    "anthropic: tools[{index}].input_schema is required"
+                ))
+            })?;
+            let schema = serde_json::to_string(schema_val).unwrap_or_default();
             crate::normalize::require_json_object(
                 &schema,
                 &format!("tools[{index}].input_schema"),
@@ -98,7 +133,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     });
                 }
             }
-            if is_custom_tool_input_schema(&tool.input_schema) {
+            if is_custom_tool_input_schema(schema_val) {
                 custom_tools.insert(tool.name.clone());
                 tools.push(oxa_ir::Tool {
                     tool_type: Some(oxa_ir::ToolType::Custom),
@@ -107,6 +142,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     input_schema: None,
                     format: None,
                     native,
+                    source: None,
+                    definition: None,
                 });
                 continue;
             }
@@ -114,16 +151,19 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 tool_type: None,
                 name: tool.name.clone(),
                 description: non_empty(tool.description.clone()),
-                input_schema: Some(tool.input_schema.clone()),
+                input_schema: Some(schema_val.clone()),
                 format: None,
                 native,
+                source: None,
+                definition: None,
             });
         }
         if !tools.is_empty() {
             req.tools = Some(tools);
         }
     }
-    let (choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref(), &custom_tools)?;
+    let (choice, choice_losses) =
+        decode_tool_choice(wire.tool_choice.as_ref(), &custom_tools, &native_tools)?;
     req.tool_choice = choice;
     losses.extend(choice_losses);
 

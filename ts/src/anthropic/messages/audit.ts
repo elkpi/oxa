@@ -64,11 +64,24 @@ const BLOCK: WireAuditSpec = {
 };
 
 const TOOL: WireAuditSpec = {
-  fields: {
-    name: undefined,
-    description: undefined,
-    input_schema: undefined,
-    cache_control: undefined,
+  variant: (tool) => {
+    if (
+      typeof tool.type === "string" &&
+      tool.type !== "" &&
+      tool.type !== "function" &&
+      tool.type !== "custom"
+    ) {
+      return {};
+    }
+    return {
+      fields: {
+        type: undefined,
+        name: undefined,
+        description: undefined,
+        input_schema: undefined,
+        cache_control: undefined,
+      },
+    };
   },
 };
 

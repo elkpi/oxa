@@ -55,6 +55,22 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 
 	for i, tool := range req.Tools {
+		if tool.Type == ir.ToolTypeNative {
+			if tool.Source != "anthropic" {
+				losses = append(losses, ir.NativeToolLoss(tool, fmt.Sprintf("tools[%d]", i)))
+				continue
+			}
+			if err := ir.ValidateNativeTool(tool); err != nil {
+				return nil, nil, err
+			}
+			tw := ToolWire{
+				Type: tool.Type,
+				Name: tool.Name,
+				Raw:  json.RawMessage(tool.Definition),
+			}
+			out.Tools = append(out.Tools, tw)
+			continue
+		}
 		if tool.Type == ir.ToolTypeCustom {
 			if tool.Format != nil && tool.Format.Type == "grammar" {
 				losses = append(losses, ir.Loss{
@@ -93,7 +109,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 		out.Tools = append(out.Tools, tw)
 	}
-	choice, choiceLosses, err := encodeToolChoice(req.ToolChoice)
+	choice, choiceLosses, err := encodeToolChoice(req.ToolChoice, req, out.Tools)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -102,6 +118,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceAny && len(req.Tools) > 0 && len(out.Tools) == 0 {
 		out.ToolChoice = nil
 		losses = append(losses, ir.Loss{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "all tool declarations were dropped"})
+	}
+	if len(out.Tools) == 0 {
+		out.Tools = nil
 	}
 
 	shorthand := len(req.System) == 0 && len(req.Messages) == 1 &&
@@ -170,7 +189,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	return out, losses, nil
 }
 
-func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error) {
+func encodeToolChoice(choice *ir.ToolChoice, req *ir.Request, outTools []ToolWire) (*ToolChoiceWire, []ir.Loss, error) {
 	if choice == nil {
 		return nil, nil, nil
 	}
@@ -178,6 +197,19 @@ func encodeToolChoice(choice *ir.ToolChoice) (*ToolChoiceWire, []ir.Loss, error)
 		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool choice has no equivalent"}}, nil
 	}
 	if choice.ToolType == ir.ToolTypeCustom {
+		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
+	}
+	if choice.ToolType == ir.ToolTypeNative || (req != nil && ir.IsNativeToolChoice(req)) {
+		found := false
+		for _, t := range outTools {
+			if t.Name == choice.Name {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, []ir.Loss{ir.NativeToolChoiceLoss(choice)}, nil
+		}
 		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
 	}
 	switch choice.Mode {

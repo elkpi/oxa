@@ -155,6 +155,12 @@ func validateOpaqueString(raw json.RawMessage) error {
 }
 
 func validateTool(t Tool) error {
+	if err := ValidateNativeTool(t); err != nil {
+		return err
+	}
+	if t.Type == ToolTypeNative {
+		return nil
+	}
 	if t.Type == ToolTypeApplyPatch {
 		if t.Name != "" || t.Description != "" || len(t.InputSchema) > 0 || t.Format != nil {
 			return fmt.Errorf("ir: apply_patch declaration may contain only type")
@@ -190,10 +196,10 @@ func validateToolChoice(t *ToolChoice) error {
 		}
 		return nil
 	}
-	if t.ToolType != "" && (t.Mode != ToolChoiceTool || (t.ToolType != ToolTypeFunction && t.ToolType != ToolTypeCustom)) {
-		return fmt.Errorf("ir: tool_type requires a named function/custom choice")
+	if t.ToolType != "" && (t.Mode != ToolChoiceTool || (t.ToolType != ToolTypeFunction && t.ToolType != ToolTypeCustom && t.ToolType != ToolTypeNative)) {
+		return fmt.Errorf("ir: tool_type requires a named function/custom/native choice")
 	}
-	if t.ToolType == ToolTypeCustom && t.Name == "" {
+	if (t.ToolType == ToolTypeCustom || t.ToolType == ToolTypeNative) && t.Name == "" {
 		return fmt.Errorf("ir: custom tool choice requires name")
 	}
 	return nil

@@ -1,13 +1,13 @@
 # oxa Rust implementation
 
-The Rust workspace is **2.4.4**; the latest published version is **2.4.3**. Rust emits IR documents
+The Rust workspace is **2.4.5**; the latest published version is **2.4.3**. Rust emits IR documents
 with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 330
+oxa implementation — Rust gets no vector set of its own, and CI runs all 346
 shared vectors against it, including structured outputs, Custom Tools, Apply Patch,
-native request options, and Responses reasoning-summary fidelity.
+native request options, Responses reasoning-summary fidelity, and Anthropic native tool declarations.
 
 ## Layout
 

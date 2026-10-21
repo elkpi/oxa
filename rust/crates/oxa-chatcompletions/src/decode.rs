@@ -120,6 +120,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     input_schema: None,
                     format: fmt,
                     native: Vec::new(),
+                    source: None,
+                    definition: None,
                 });
                 continue;
             }
@@ -143,6 +145,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 input_schema: Some(func.parameters.unwrap_or(Value::Null)),
                 format: None,
                 native: Vec::new(),
+                source: None,
+                definition: None,
             });
         }
         if !tools.is_empty() {

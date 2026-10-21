@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.5] - 2026-10-21
+
+### Fixed
+
+- PR #54 审查修正（原生工具声明与 custom 判定）：
+  - 修正 TypeScript、Python、Rust、C++ 将 Anthropic 显式 `type:"custom"` 且携带真实 JSON Schema 的普通用户工具误判为自由文本 custom 工具的问题：此前 `input_schema` 被无损失丢弃，回写时替换为单属性包装 schema。现按 spec/16 §3 沿用 schema-wrapper 判定，新增共享黄金向量锁定该行为（向量总数 345 → 346）。
+  - 修复 Rust typed 解码路径（`serde_json::from_str` + `decode_request`）丢弃 Advisor 声明中 `model`、`max_uses` 等配置且不报损失的问题；现通过 raw source 捕获完整声明原文。
+  - 修复 Python 同协议回写原生声明时浮点字面量被静默取整的问题（如 `9007199254740993.0` → `9007199254740992.0`）；双精度无法精确表示的整数字面量现以精确整数恢复（spec/16 数值恢复语义澄清）。
+  - 修复 Go 普通 `ToolWire` 的公开字段修改被 `Raw` 原文回写静默覆盖的问题；原文回写现限定在原生声明边界。
+  - 为 TypeScript、Python、Rust、C++ 的 Anthropic 编码入口补齐原生声明身份校验（definition 必须为对象、native type、name 与外层一致），堵住悬空 `tool_choice` 与空工具对象输出；Rust IR 反序列化同步执行 N-NT-1 校验。
+- Anthropic 原生命名工具声明保真与跨面损失报告（spec/16 / N-NT-1..4）：
+  - 修复 Anthropic Messages 解码路径无条件要求工具声明携带 `input_schema`，导致合法的 Anthropic Advisor、服务端工具及客户端内置工具（如 `advisor_20260301`、`bash_20250124` 等）无法通过解码、直接报错且无 fallback losses 的阻断性问题。
+  - 在 IR 中扩展来源限定的 `Tool[type=native]` 变体，字段为 `name`、`source`、`definition`，以完全不透明的原始 JSON 对象文本保存声明内容（含嵌套模型、最大调用次数、缓存及厂商私有配置），IR contract 保持 `0.2.0`。
+  - 在 Anthropic Messages 解码阶段将带非空且非 function/custom 的 `type` 命名工具识别为 native 工具并完整保留原文；普通 function 工具维持严格对象 `input_schema` 检查，非字符串 `type`（含 null）与非对象声明维持结构错误拒绝。
+  - 同协议回转时完整恢复 Anthropic 原生声明配置；跨协议编码至 OpenAI Chat Completions 或 OpenAI Responses 时，逐声明省略并产生精确自描述的 `unsupported-semantic` 损失；指向被省略原生声明的命名 `tool_choice` 联动省略并报损，避免悬空调用。
+  - 在 Go、TypeScript、Python、Rust、C++ 五种语言中同步实现上述契约与字段审计规则，并通过 15 条新增共享黄金向量（涵盖 Advisor、内置工具、扩展配置、混合声明、同源往返与跨面报损，向量总数达 345）。
+- 文档与版本状态：
+  - 发布 Spec 16 原生工具声明规范，更新 Spec 版本至 `2.4.3`；更新 README、规范说明与各语言版本状态矩阵至 `v2.4.5` 准备态，标明最新已发布版本为 `v2.4.3`。
+
 ## [v2.4.4] - 2026-10-21
 
 ### Fixed

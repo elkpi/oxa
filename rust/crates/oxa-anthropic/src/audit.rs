@@ -79,6 +79,19 @@ fn walk(
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "tool"
+        && let Some(tool_type) = tag(&object, "type")
+        && !tool_type.is_empty()
+        && tool_type != "function"
+        && tool_type != "custom"
+    {
+        for (key, value) in &object.0 {
+            let field_path = join(path, key);
+            let position = value.get().as_ptr() as usize - base;
+            audit.positions.insert(field_path, position);
+        }
+        return Ok(());
+    }
     let Some(fields) = shape(name, &object) else {
         return Ok(());
     };
@@ -167,6 +180,14 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "tool"
+        && let Some(tool_type) = tag(&object, "type")
+        && !tool_type.is_empty()
+        && tool_type != "function"
+        && tool_type != "custom"
+    {
+        return Ok(raw.get().to_string());
+    }
     let Some(fields) = shape(name, &object) else {
         let mut out = String::from("{");
         let mut first = true;
@@ -295,6 +316,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         "message" => Some(&[("role", ""), ("content", "block[]")]),
         "system_block" => Some(&[("type", ""), ("text", ""), ("cache_control", "")]),
         "tool" => Some(&[
+            ("type", ""),
             ("name", ""),
             ("description", ""),
             ("input_schema", ""),

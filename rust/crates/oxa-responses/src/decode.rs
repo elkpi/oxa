@@ -83,6 +83,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 input_schema: None,
                 format: None,
                 native: Vec::new(),
+                source: None,
+                definition: None,
             });
             continue;
         }
@@ -135,6 +137,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 input_schema: None,
                 format,
                 native: Vec::new(),
+                source: None,
+                definition: None,
             });
             continue;
         }
@@ -154,6 +158,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             input_schema: tool.parameters.clone(),
             format: None,
             native: Vec::new(),
+            source: None,
+            definition: None,
         });
         if tool.strict.is_some() {
             losses.push(loss(

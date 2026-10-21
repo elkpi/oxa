@@ -182,7 +182,7 @@ impl Block {
 
 /// A function or custom tool definition (spec/01 §3.5). Absent `tool_type`
 /// means the legacy function declaration and retains its historical JSON shape.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct Tool {
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub tool_type: Option<ToolType>,
@@ -204,6 +204,98 @@ pub struct Tool {
     pub format: Option<CustomToolFormat>,
     #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
     pub native: Vec<NativeAnnotation>,
+    #[serde(rename = "source", default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<String>,
+    #[serde(
+        rename = "definition",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub definition: Option<String>,
+}
+
+impl Tool {
+    /// Validates the native-tool boundaries (spec/16 N-NT-1): only native
+    /// tools may carry source/definition, and the definition must be a JSON
+    /// object whose native type and name match the outer declaration.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.tool_type == Some(ToolType::Native) {
+            if self.name.is_empty()
+                || self.source.as_deref().is_none_or(str::is_empty)
+                || self.definition.as_deref().is_none_or(str::is_empty)
+                || self.description.is_some()
+                || self.input_schema.is_some()
+                || self.format.is_some()
+                || !self.native.is_empty()
+            {
+                return Err(
+                    "ir: native tool requires name/source/definition and cannot carry other tool configuration"
+                        .into(),
+                );
+            }
+            let value: Value = serde_json::from_str(self.definition.as_deref().unwrap_or_default())
+                .map_err(|error| format!("ir: native tool definition: {error}"))?;
+            let object = value
+                .as_object()
+                .ok_or("ir: native tool definition must be a JSON object")?;
+            let kind = object
+                .get("type")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            if kind.is_empty() || kind == "function" || kind == "custom" {
+                return Err("ir: native tool definition requires a native type".into());
+            }
+            if object.get("name").and_then(Value::as_str) != Some(self.name.as_str()) {
+                return Err("ir: native tool definition name must match tool name".into());
+            }
+            return Ok(());
+        }
+        if self.source.is_some() || self.definition.is_some() {
+            return Err("ir: only native tools may carry source/definition".into());
+        }
+        Ok(())
+    }
+}
+
+impl<'de> Deserialize<'de> for Tool {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        /// Shape mirror without the native invariants; validation runs below.
+        #[derive(serde::Deserialize)]
+        struct RawTool {
+            #[serde(rename = "type", default)]
+            tool_type: Option<ToolType>,
+            #[serde(rename = "name", default)]
+            name: String,
+            #[serde(rename = "description", default)]
+            description: Option<String>,
+            #[serde(rename = "input_schema", default)]
+            input_schema: Option<Value>,
+            #[serde(rename = "format", default)]
+            format: Option<CustomToolFormat>,
+            #[serde(rename = "native", default)]
+            native: Vec<NativeAnnotation>,
+            #[serde(rename = "source", default)]
+            source: Option<String>,
+            #[serde(rename = "definition", default)]
+            definition: Option<String>,
+        }
+        let raw = RawTool::deserialize(deserializer)?;
+        let tool = Tool {
+            tool_type: raw.tool_type,
+            name: raw.name,
+            description: raw.description,
+            input_schema: raw.input_schema,
+            format: raw.format,
+            native: raw.native,
+            source: raw.source,
+            definition: raw.definition,
+        };
+        tool.validate().map_err(serde::de::Error::custom)?;
+        Ok(tool)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -214,6 +306,8 @@ pub enum ToolType {
     Custom,
     #[serde(rename = "apply_patch")]
     ApplyPatch,
+    #[serde(rename = "native")]
+    Native,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

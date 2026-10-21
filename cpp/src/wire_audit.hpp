@@ -60,6 +60,16 @@ inline std::vector<ir::Loss> audit_wire(const json::Value& root, std::string_vie
             if (!next.empty()) self(self, node, next, path);
             return;
         }
+        if (name == "tool") {
+            const auto* type_val = node.find("type");
+            if (type_val != nullptr && type_val->is_string() && !type_val->as_string().empty() &&
+                type_val->as_string() != "function" && type_val->as_string() != "custom") {
+                for (const auto& [key, value] : node.as_object()) {
+                    positions[audit_join(path, key)] = position(value);
+                }
+                return;
+            }
+        }
         auto fields = profile.fields.find(name);
         if (fields == profile.fields.end()) return;
         std::vector<std::pair<const std::string*, const json::Value*>> children;

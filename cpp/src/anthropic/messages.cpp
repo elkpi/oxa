@@ -262,17 +262,39 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
 
     std::set<std::string> custom_tools;
     std::set<std::string> declared_tools;
+    std::set<std::string> native_tools;
     if (const auto* tools_val = wire.find("tools"); tools_val && tools_val->is_array()) {
         std::vector<ir::Tool> tools;
         for (std::size_t i = 0; i < tools_val->as_array().size(); ++i) {
             const auto& t = tools_val->as_array()[i];
-            if (!t.is_object()) continue;
             std::string tool_path = "tools[" + std::to_string(i) + "]";
-            ir::Tool tool;
-            if (const auto* nv = t.find("name"); nv && nv->is_string()) {
-                tool.name = nv->as_string();
-                declared_tools.insert(tool.name);
+            if (!t.is_object()) return invalid_argument(tool_path + ": must be an object");
+            const auto* nv = t.find("name");
+            if (!nv) return invalid_argument(tool_path + ".name: is required");
+            if (!nv->is_string()) return invalid_argument(tool_path + ".name: must be a string");
+            if (nv->as_string().empty()) return invalid_argument(tool_path + ".name: cannot be empty");
+            std::string name = nv->as_string();
+            declared_tools.insert(name);
+
+            const auto* type_val = t.find("type");
+            if (type_val != nullptr) {
+                if (!type_val->is_string()) return invalid_argument(tool_path + ".type: must be a string");
+                std::string t_type = type_val->as_string();
+                if (!t_type.empty() && t_type != "function" && t_type != "custom") {
+                    native_tools.insert(name);
+                    ir::Tool tool;
+                    tool.type = "native";
+                    tool.name = std::move(name);
+                    tool.source = std::string(ir::NATIVE_SOURCE_ANTHROPIC);
+                    std::string_view slice = t.raw_slice();
+                    tool.definition = !slice.empty() ? std::string(slice) : json::serialize(t);
+                    tools.push_back(std::move(tool));
+                    continue;
+                }
             }
+
+            ir::Tool tool;
+            tool.name = std::move(name);
             if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
                 tool.description = dv->as_string();
                 tool.has_description = true;
@@ -313,9 +335,14 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         } else if (kind == "none") {
             req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_NONE), std::nullopt};
         } else if (kind == "tool") {
-            std::string name;
-            if (const auto* nv = tc_val->find("name"); nv && nv->is_string()) name = nv->as_string();
-            auto tt = custom_tools.count(name) ? std::optional<std::string>("custom") : std::nullopt;
+            const auto* nv = tc_val->find("name");
+            if (!nv || !nv->is_string() || nv->as_string().empty()) {
+                return invalid_argument("tool_choice.name is required for type tool");
+            }
+            std::string name = nv->as_string();
+            auto tt = native_tools.count(name) ? std::optional<std::string>("native")
+                    : custom_tools.count(name) ? std::optional<std::string>("custom")
+                    : std::nullopt;
             req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name, tt};
         }
         if (tc_val->find("disable_parallel_tool_use") != nullptr) {
@@ -435,10 +462,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("system", std::move(sys_arr));
     }
 
-    const bool all_tools_dropped = req.tools.has_value() && !req.tools->empty() &&
-        std::all_of(req.tools->begin(), req.tools->end(), [](const ir::Tool& tool) {
-            return tool.type == ir::TOOL_TYPE_APPLY_PATCH;
-        });
+    std::set<std::string> retained_tool_names;
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
@@ -468,7 +492,31 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 if (auto cc = get_block_cache_control(t.native)) {
                     tw.set("cache_control", std::move(*cc));
                 }
+                retained_tool_names.insert(t.name);
                 tools_arr.push_back(std::move(tw));
+                continue;
+            }
+            if (t.type == "native") {
+                if (t.source.value_or("") != ir::NATIVE_SOURCE_ANTHROPIC) {
+                    losses.push_back(make_ant_loss("tools[" + std::to_string(ti) + "]", "type",
+                        ir::LOSS_UNSUPPORTED_SEMANTIC, "native tool \"" + t.name + "\" from \"" + t.source.value_or("") + "\" cannot be represented by the target protocol"));
+                    continue;
+                }
+                auto parsed = json::parse(t.definition.value_or("{}"));
+                if (!parsed.ok() || !parsed.value().is_object()) {
+                    return invalid_argument("anthropic: native tool definition must be a JSON object");
+                }
+                const auto* def_type = parsed.value().find("type");
+                if (def_type == nullptr || !def_type->is_string() || def_type->as_string().empty() ||
+                    def_type->as_string() == "function" || def_type->as_string() == "custom") {
+                    return invalid_argument("anthropic: native tool definition requires a native type");
+                }
+                const auto* def_name = parsed.value().find("name");
+                if (def_name == nullptr || !def_name->is_string() || def_name->as_string() != t.name) {
+                    return invalid_argument("anthropic: native tool definition name must match tool name");
+                }
+                retained_tool_names.insert(t.name);
+                tools_arr.push_back(json::Value::raw(t.definition.value_or("{}")));
                 continue;
             }
             if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
@@ -485,6 +533,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             if (auto cc = get_block_cache_control(t.native)) {
                 tw.set("cache_control", std::move(*cc));
             }
+            retained_tool_names.insert(t.name);
             tools_arr.push_back(std::move(tw));
         }
         if (!tools_arr.as_array().empty()) {
@@ -492,20 +541,41 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
-    if (req.tool_choice.has_value()) {
+    bool all_tools_dropped = req.tools.has_value() && !req.tools->empty() && (!out.find("tools") || out.find("tools")->as_array().empty());
+    bool native_named_choice_dropped = false;
+    if (req.tool_choice.has_value() && req.tool_choice->mode == "tool" && req.tool_choice->name.has_value()) {
+        const auto& cname = *req.tool_choice->name;
+        bool is_native = (req.tool_choice->tool_type == "native");
+        if (!is_native && req.tools.has_value()) {
+            for (const auto& t : *req.tools) {
+                if (t.type == "native" && t.name == cname) {
+                    is_native = true;
+                    break;
+                }
+            }
+        }
+        bool name_retained = retained_tool_names.contains(cname);
+        if (is_native && !name_retained) {
+            native_named_choice_dropped = true;
+        }
+    }
+
+    if (req.tool_choice.has_value() && req.tool_choice->mode == "any" && all_tools_dropped) {
+        losses.push_back(make_ant_loss("tool_choice", "tool_choice",
+            ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
+    } else if (native_named_choice_dropped) {
+        losses.push_back(make_ant_loss("tool_choice", "tool_choice",
+            ir::LOSS_UNSUPPORTED_SEMANTIC, "native tool choice \"" + *req.tool_choice->name + "\" cannot be represented by the target protocol"));
+    } else if (req.tool_choice.has_value()) {
         const auto& tc = *req.tool_choice;
         if (tc.mode == ir::TOOL_CHOICE_AUTO) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("auto"));
             out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
-            if (all_tools_dropped) losses.push_back(make_ant_loss("tool_choice", "tool_choice",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
-            else {
-                json::Value tco = json::Value::object();
-                tco.set("type", json::Value::string("any"));
-                out.set("tool_choice", std::move(tco));
-            }
+            json::Value tco = json::Value::object();
+            tco.set("type", json::Value::string("any"));
+            out.set("tool_choice", std::move(tco));
         } else if (tc.mode == ir::TOOL_CHOICE_NONE) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("none"));

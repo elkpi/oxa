@@ -17,7 +17,8 @@ struct RawRequest<'a> {
     stop_sequences: Option<Vec<String>>,
     thinking: Option<ThinkingWire>,
     metadata: Option<Value>,
-    tools: Option<Vec<ToolWire>>,
+    #[serde(borrow)]
+    tools: Option<Vec<&'a RawValue>>,
     tool_choice: Option<ToolChoiceWire>,
     cache_control: Option<Value>,
     output_config: Option<OutputConfigWire>,
@@ -52,6 +53,19 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;
+    let tools = match source.tools {
+        Some(raw_tools) => {
+            let mut list = Vec::with_capacity(raw_tools.len());
+            for (idx, raw_tool) in raw_tools.into_iter().enumerate() {
+                let mut wire: ToolWire = serde_json::from_str(raw_tool.get())
+                    .map_err(|error| Error::new(format!("anthropic: tools[{idx}]: {error}")))?;
+                wire.raw_definition = Some(raw_tool.get().to_string());
+                list.push(wire);
+            }
+            Some(list)
+        }
+        None => None,
+    };
     let wire = Request {
         model: source.model,
         system: source.system,
@@ -62,7 +76,7 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
         stop_sequences: source.stop_sequences,
         thinking: source.thinking,
         metadata: source.metadata,
-        tools: source.tools,
+        tools,
         tool_choice: source.tool_choice,
         cache_control: source.cache_control,
         output_config: source.output_config,

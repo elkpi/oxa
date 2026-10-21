@@ -64,6 +64,8 @@ The wire objects in scope are:
   `id`, `status`, `role`, `content[]` (`output_text` parts with
   `annotations`), `call_id`, `name`, `arguments`.
 
+来源限定的 `Tool[type=native]` 及指向它的 named choice 不映射为 Responses function/custom 或同名 builtin，按 [spec/16](16-native-tool-declarations.md) 逐声明省略并记录 `unsupported-semantic` loss。
+
 ## 3. Request Field Mapping (RE → IR / IR → RE)
 
 | RE field | IR destination | Notes |

@@ -98,7 +98,17 @@ def encode_request(
 
     if req.tools:
         tools_wire: list[dict[str, Any]] = []
-        for tool in req.tools:
+        for index, tool in enumerate(req.tools):
+            if tool.type == "native":
+                losses.append(
+                    loss(
+                        f"tools[{index}]",
+                        "type",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        f'native tool "{tool.name}" from "{tool.source}" cannot be represented by the target protocol',
+                    )
+                )
+                continue
             if tool.type == "apply_patch":
                 tools_wire.append({"type": "apply_patch"})
                 continue
@@ -115,9 +125,30 @@ def encode_request(
                 if tool.description:
                     t_dict["description"] = tool.description
             tools_wire.append(t_dict)
-        out["tools"] = tools_wire
+        if tools_wire:
+            out["tools"] = tools_wire
 
+    native_named_choice_dropped = (
+        req.tool_choice is not None
+        and req.tool_choice.mode == "tool"
+        and (
+            req.tool_choice.tool_type == "native"
+            or any(t.type == "native" and t.name == req.tool_choice.name for t in (req.tools or ()))
+        )
+        and not any(t.get("name") == req.tool_choice.name for t in tools_wire)
+    )
     choice_wire, choice_loss = encode_tool_choice(req.tool_choice)
+    if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
+        choice_wire = None
+        choice_loss = loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped")
+    elif native_named_choice_dropped:
+        choice_wire = None
+        choice_loss = loss(
+            "tool_choice",
+            "tool_choice",
+            LOSS_UNSUPPORTED_SEMANTIC,
+            f'native tool choice "{req.tool_choice.name}" cannot be represented by the target protocol',
+        )
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     if choice_loss is not None:

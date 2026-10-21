@@ -40,11 +40,14 @@ type Tool struct {
 	Type        string
 	Format      *CustomToolFormat
 	Native      []NativeAnnotation
+	Source      string
+	Definition  string
 }
 
 const (
 	ToolTypeFunction = "function"
 	ToolTypeCustom   = "custom"
+	ToolTypeNative   = "native"
 )
 
 // ToolChoice selects tool-usage behavior (spec/01 s3.6). Name is set iff Mode

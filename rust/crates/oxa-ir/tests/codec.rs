@@ -112,8 +112,39 @@ fn rejects_non_object_response_format_schema() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_4_4() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.4");
+fn workspace_crate_version_is_2_4_5() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.5");
+}
+
+#[test]
+fn rejects_invalid_native_tool_documents() {
+    let invalid_tools = [
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"[]"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"other\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"function\",\"name\":\"advisor\"}"}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}","input_schema":{}}"#,
+        r#"{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}","description":"x"}"#,
+        r#"{"type":"function","name":"f","input_schema":{},"source":"anthropic","definition":"{}"}"#,
+    ];
+    for tool in invalid_tools {
+        let document = format!(
+            r#"{{"specVersion":"0.2.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"tools":[{tool}]}}"#
+        );
+        assert!(
+            from_json::<Request>(&document).is_err(),
+            "invalid native tool accepted: {tool}"
+        );
+    }
+}
+
+#[test]
+fn accepts_wellformed_native_tool_documents() {
+    let document = r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}],"params":{"max_tokens":32}}"#;
+    let request: Request = from_json(document).expect("valid native tool");
+    let round_tripped = to_json(&request).expect("re-encode");
+    assert!(round_tripped.contains(r#"\"type\":\"advisor_20260301\""#));
 }
 
 #[test]

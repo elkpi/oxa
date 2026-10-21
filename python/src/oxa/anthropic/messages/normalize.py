@@ -307,6 +307,7 @@ def decode_block(
 def decode_tool_choice(
     choice: Any,
     custom_tools: set[str] | None = None,
+    native_tools: set[str] | None = None,
 ) -> tuple[ToolChoice | None, list[Loss]]:
     """Decodes the wire tool_choice object (N-AN-6)."""
     if choice is None:
@@ -327,7 +328,12 @@ def decode_tool_choice(
         name = choice.get("name", "")
         if not name:
             raise ValueError("anthropic: tool_choice.name is required for type tool")
-        tool_type = "custom" if (custom_tools and name in custom_tools) else "function"
+        if native_tools and name in native_tools:
+            tool_type = "native"
+        elif custom_tools and name in custom_tools:
+            tool_type = "custom"
+        else:
+            tool_type = "function"
         decoded = ToolChoice(mode=TOOL_CHOICE_TOOL, name=name, tool_type=tool_type)
     else:
         losses.append(

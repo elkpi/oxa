@@ -405,6 +405,7 @@ pub(crate) fn decode_block(
 pub(crate) fn decode_tool_choice(
     choice: Option<&ToolChoiceWire>,
     custom_tools: &BTreeSet<String>,
+    native_tools: &BTreeSet<String>,
 ) -> Result<(Option<ToolChoice>, Vec<Loss>), Error> {
     let Some(choice) = choice else {
         return Ok((None, Vec::new()));
@@ -439,7 +440,9 @@ pub(crate) fn decode_tool_choice(
                     "anthropic: tool_choice.name is required for type tool",
                 ));
             }
-            let tool_type = if custom_tools.contains(&choice.name) {
+            let tool_type = if native_tools.contains(&choice.name) {
+                Some(oxa_ir::ToolType::Native)
+            } else if custom_tools.contains(&choice.name) {
                 Some(oxa_ir::ToolType::Custom)
             } else {
                 None

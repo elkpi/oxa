@@ -471,6 +471,25 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 	}
 }
 
+func decodeReasoningSummary(parts []OutputContent, path string) ([]ir.Block, []ir.Loss) {
+	var blocks []ir.Block
+	var losses []ir.Loss
+	for i, part := range parts {
+		partPath := fmt.Sprintf("%s[%d]", path, i)
+		if part.Type != PartTypeOutputText && part.Type != PartTypeSummaryText {
+			losses = append(losses, loss(partPath, "type", ir.LossUnsupportedSemantic,
+				fmt.Sprintf("Responses reasoning summary type %q has no IR equivalent", part.Type)))
+			continue
+		}
+		if len(part.Annotations) > 0 {
+			losses = append(losses, loss(partPath+".annotations", "annotations", ir.LossUnmappedField,
+				"Responses reasoning summary annotations have no IR equivalent."))
+		}
+		blocks = append(blocks, ir.ThinkingBlock{Thinking: part.Text})
+	}
+	return blocks, losses
+}
+
 // decodeAssistantRun converts a maximal run of assistant message items and
 // function_call items into one IR assistant message (N-R-5): the text blocks
 // first (in document order), then the ToolUseBlocks, regardless of how the
@@ -510,9 +529,9 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			continue
 		}
 		if item.Type == ItemTypeReasoning {
-			for _, part := range item.Summary {
-				thinkings = append(thinkings, ir.ThinkingBlock{Thinking: part.Text})
-			}
+			blocks, summaryLosses := decodeReasoningSummary(item.Summary, fmt.Sprintf("input[%d].summary", i))
+			thinkings = append(thinkings, blocks...)
+			losses = append(losses, summaryLosses...)
 			continue
 		}
 		if item.Type != "" && item.Type != ItemTypeMessage {
@@ -740,9 +759,9 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 					"Responses reasoning output item with empty summary carries no convertible content",
 				))
 			} else {
-				for _, part := range item.Summary {
-					thinkings = append(thinkings, ir.ThinkingBlock{Thinking: part.Text})
-				}
+				blocks, summaryLosses := decodeReasoningSummary(item.Summary, fmt.Sprintf("output[%d].summary", i))
+				thinkings = append(thinkings, blocks...)
+				losses = append(losses, summaryLosses...)
 			}
 			if item.EncryptedContent != "" {
 				losses = append(losses, loss(

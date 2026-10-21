@@ -509,6 +509,15 @@ export function encodeRequest(
   }
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
+      if (tool.type === "native") {
+        losses.push({
+          path: `tools[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail: `native tool "${tool.name}" from "${tool.source}" cannot be represented by the target protocol`,
+        });
+        return [];
+      }
       if (tool.type === "custom") {
         return [
           {
@@ -551,14 +560,34 @@ export function encodeRequest(
         },
       ];
     }) ?? [];
-  const toolChoice = encodeToolChoice(request.tool_choice, losses);
-  if (
+  const choiceName =
+    request.tool_choice?.mode === "tool" && "name" in request.tool_choice
+      ? request.tool_choice.name
+      : undefined;
+  const nativeNamedChoiceDropped =
+    choiceName !== undefined &&
+    ((request.tool_choice?.mode === "tool" &&
+      request.tool_choice.tool_type === "native") ||
+      request.tools?.some(
+        (t) => t.type === "native" && t.name === choiceName,
+      )) &&
+    !tools.some((t) => (t as any).function?.name === choiceName || (t as any).custom?.name === choiceName);
+  const toolChoice =
     request.tool_choice?.mode === "any" &&
     request.tools !== undefined &&
     request.tools.length > 0 &&
     tools.length === 0
-  )
-    losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
+      ? (losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic")),
+        undefined)
+      : nativeNamedChoiceDropped
+        ? (losses.push({
+            path: "tool_choice",
+            field: "tool_choice",
+            reason: "unsupported-semantic",
+            detail: `native tool choice "${choiceName}" cannot be represented by the target protocol`,
+          }),
+          undefined)
+        : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),

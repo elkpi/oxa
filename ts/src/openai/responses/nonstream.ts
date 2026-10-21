@@ -1050,30 +1050,71 @@ export function encodeRequest(
       ? object(items[0], "input[0]").content
       : undefined;
   const tools =
-    request.tools?.map((tool) =>
-      tool.type === "apply_patch"
-        ? { type: "apply_patch" }
-        : tool.type === "custom"
-          ? {
-              type: "custom",
-              name: tool.name,
-              ...(tool.description === undefined
-                ? {}
-                : { description: tool.description }),
-              ...(tool.format === undefined
-                ? {}
-                : { format: encodeCustomToolFormat(tool.format) }),
-            }
-          : {
-              type: "function",
-              name: tool.name,
-              ...(tool.description === undefined
-                ? {}
-                : { description: tool.description }),
-              parameters: tool.input_schema,
-            },
-    ) ?? [];
-  const toolChoice = encodeToolChoice(request.tool_choice, losses);
+    request.tools?.flatMap((tool, index) => {
+      if (tool.type === "native") {
+        losses.push({
+          path: `tools[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail: `native tool "${tool.name}" from "${tool.source}" cannot be represented by the target protocol`,
+        });
+        return [];
+      }
+      if (tool.type === "apply_patch")
+        return [{ type: "apply_patch" }];
+      if (tool.type === "custom")
+        return [
+          {
+            type: "custom",
+            name: tool.name,
+            ...(tool.description === undefined
+              ? {}
+              : { description: tool.description }),
+            ...(tool.format === undefined
+              ? {}
+              : { format: encodeCustomToolFormat(tool.format) }),
+          },
+        ];
+      return [
+        {
+          type: "function",
+          name: tool.name,
+          ...(tool.description === undefined
+            ? {}
+            : { description: tool.description }),
+          parameters: tool.input_schema,
+        },
+      ];
+    }) ?? [];
+  const allToolsDropped =
+    (request.tools?.length ?? 0) > 0 && tools.length === 0;
+  const choiceName =
+    request.tool_choice?.mode === "tool" && "name" in request.tool_choice
+      ? request.tool_choice.name
+      : undefined;
+  const nativeNamedChoiceDropped =
+    choiceName !== undefined &&
+    ((request.tool_choice?.mode === "tool" &&
+      request.tool_choice.tool_type === "native") ||
+      request.tools?.some(
+        (t) => t.type === "native" && t.name === choiceName,
+      )) &&
+    !tools.some((t) => (t as any).name === choiceName);
+  const toolChoice =
+    request.tool_choice?.mode === "any" && allToolsDropped
+      ? (losses.push(
+          loss("tool_choice", "tool_choice", "unsupported-semantic"),
+        ),
+        undefined)
+      : nativeNamedChoiceDropped
+        ? (losses.push({
+            path: "tool_choice",
+            field: "tool_choice",
+            reason: "unsupported-semantic",
+            detail: `native tool choice "${choiceName}" cannot be represented by the target protocol`,
+          }),
+          undefined)
+        : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   if (params?.stop_sequences !== undefined && params.stop_sequences.length > 0)
     losses.push(

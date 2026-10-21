@@ -118,6 +118,13 @@ export function encodeRequest(request: Request): JsonObject {
                     ? { native: tool.native.map(encodeNativeAnnotation) }
                     : {}),
                 }
+              : tool.type === "native"
+                ? {
+                    type: "native",
+                    name: tool.name,
+                    source: tool.source,
+                    definition: tool.definition,
+                  }
               : tool.type === "custom"
                 ? {
                     type: "custom",
@@ -242,6 +249,53 @@ export function decodeRequest(document: JsonValue): Request {
                   ? {}
                   : { format: decodeCustomToolFormat(tool.format) }),
                 ...(native ? { native } : {}),
+              };
+            }
+            if (type === "native") {
+              const source = nonEmptyString(tool.source, "request.tool.source");
+              const definition = nonEmptyString(
+                tool.definition,
+                "request.tool.definition",
+              );
+              if (
+                tool.description !== undefined ||
+                tool.input_schema !== undefined ||
+                tool.format !== undefined ||
+                tool.native !== undefined
+              ) {
+                fail(
+                  "native tool must only contain type, name, source, definition",
+                );
+              }
+              let defParsed: any;
+              try {
+                defParsed = JSON.parse(definition);
+              } catch {
+                fail("native tool definition must be a valid JSON object");
+              }
+              if (
+                typeof defParsed !== "object" ||
+                defParsed === null ||
+                Array.isArray(defParsed)
+              ) {
+                fail("native tool definition must be a valid JSON object");
+              }
+              if (
+                typeof defParsed.type !== "string" ||
+                !defParsed.type ||
+                defParsed.type === "function" ||
+                defParsed.type === "custom"
+              ) {
+                fail("native tool definition requires a native type");
+              }
+              if (defParsed.name !== name) {
+                fail("native tool definition name must match tool name");
+              }
+              return {
+                type: "native" as const,
+                name,
+                source,
+                definition,
               };
             }
             if (type !== "function" || tool.format !== undefined)
@@ -1020,13 +1074,14 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
     if (
       toolType !== undefined &&
       toolType !== "function" &&
-      toolType !== "custom"
+      toolType !== "custom" &&
+      toolType !== "native"
     )
       fail("request.tool_choice.tool_type is unsupported");
     return {
       mode,
       name: nonEmptyString(choice.name, "request.tool_choice.name"),
-      ...(toolType === undefined ? {} : { tool_type: toolType }),
+      ...(toolType === undefined ? {} : { tool_type: toolType as "function" | "custom" | "native" }),
     };
   }
   if (mode === "auto" || mode === "any" || mode === "none") {

@@ -118,14 +118,41 @@ function decodeRequestObject(
   }
   const declaredTools = new Set<string>();
   const customTools = new Set<string>();
+  const nativeTools = new Set<string>();
   const customCallIds = new Set<string>();
   const tools = optionalArray(wire.tools, "tools").map<Tool>((entry, index) => {
     const tool = object(entry, `tools[${index}]`);
-    const schema = object(tool.input_schema, `tools[${index}].input_schema`);
-    const name = string(tool.name, `tools[${index}].name`);
+    if (tool.name === undefined || tool.name === null) {
+      fail(`tools[${index}].name is required`);
+    }
+    if (typeof tool.name !== "string") {
+      fail(`tools[${index}].name must be a string`);
+    }
+    const name = tool.name;
+    if (name.length === 0) {
+      fail(`tools[${index}].name cannot be empty`);
+    }
     declaredTools.add(name);
+
+    if (tool.type !== undefined) {
+      if (typeof tool.type !== "string") {
+        fail(`tools[${index}].type must be a string`);
+      }
+      if (tool.type !== "" && tool.type !== "function" && tool.type !== "custom") {
+        nativeTools.add(name);
+        const definition = (sourceTextOf(tool) ?? stringifyJson(tool)) as string;
+        return {
+          type: "native" as const,
+          name,
+          source: "anthropic",
+          definition,
+        };
+      }
+    }
+
+    const schema = object(tool.input_schema, `tools[${index}].input_schema`);
     const native = attachBlockCacheControl(tool, `tools[${index}]`, losses);
-    if (isCustomToolInputSchema(schema)) {
+    if (tool.type === "custom" || isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
         type: "custom" as const,
@@ -142,6 +169,7 @@ function decodeRequestObject(
       };
     }
     return {
+      ...(tool.type === undefined ? {} : { type: "function" as const }),
       name,
       ...(tool.description === undefined
         ? {}
@@ -155,7 +183,7 @@ function decodeRequestObject(
       ...(native ? { native } : {}),
     };
   });
-  const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools);
+  const toolChoice = decodeToolChoice(wire.tool_choice, losses, customTools, nativeTools);
   const messages = array(wire.messages, "messages").map((entry, index) => {
     const message = object(entry, `messages[${index}]`);
     const role = string(message.role, `messages[${index}].role`);
@@ -353,6 +381,19 @@ export function encodeRequest(
           },
         ];
       }
+      if (tool.type === "native") {
+        if (tool.source !== "anthropic") {
+          losses.push({
+            path: `tools[${index}]`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail: `native tool "${tool.name}" from "${tool.source}" cannot be represented by the target protocol`,
+          });
+          return [];
+        }
+        const parsed = parseJson(tool.definition);
+        return [parsed as JsonObject];
+      }
       if (tool.type === "apply_patch") {
         losses.push(loss(`tools[${index}]`, "type", "unsupported-semantic"));
         return [];
@@ -370,13 +411,33 @@ export function encodeRequest(
     }) ?? [];
   const allToolsDropped =
     (request.tools?.length ?? 0) > 0 && tools.length === 0;
+  const choiceName =
+    request.tool_choice?.mode === "tool" && "name" in request.tool_choice
+      ? request.tool_choice.name
+      : undefined;
+  const nativeNamedChoiceDropped =
+    choiceName !== undefined &&
+    ((request.tool_choice?.mode === "tool" &&
+      request.tool_choice.tool_type === "native") ||
+      request.tools?.some(
+        (t) => t.type === "native" && t.name === choiceName,
+      )) &&
+    !tools.some((t) => t.name === choiceName);
   const toolChoice =
     request.tool_choice?.mode === "any" && allToolsDropped
       ? (losses.push(
           loss("tool_choice", "tool_choice", "unsupported-semantic"),
         ),
         undefined)
-      : encodeToolChoice(request.tool_choice, losses);
+      : nativeNamedChoiceDropped
+        ? (losses.push({
+            path: "tool_choice",
+            field: "tool_choice",
+            reason: "unsupported-semantic",
+            detail: `native tool choice "${choiceName}" cannot be represented by the target protocol`,
+          }),
+          undefined)
+        : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),
@@ -802,6 +863,7 @@ function decodeToolChoice(
   value: JsonValue | undefined,
   losses: Loss[],
   customTools?: ReadonlySet<string>,
+  nativeTools?: ReadonlySet<string>,
 ): ToolChoice | undefined {
   if (value === undefined || value === null) return undefined;
   const choice = object(value, "tool_choice");
@@ -821,7 +883,11 @@ function decodeToolChoice(
     return {
       mode: "tool",
       name,
-      ...(customTools?.has(name) ? { tool_type: "custom" as const } : {}),
+      ...(nativeTools?.has(name)
+        ? { tool_type: "native" as const }
+        : customTools?.has(name)
+          ? { tool_type: "custom" as const }
+          : {}),
     };
   }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
@@ -834,7 +900,7 @@ function encodeToolChoice(
 ): JsonObject | undefined {
   if (value === undefined) return undefined;
   if (value.mode === "tool") {
-    if (value.tool_type === "custom") {
+    if (value.tool_type === "custom" || value.tool_type === "native") {
       if (value.name === "") fail("tool_choice.name must not be empty");
       return { type: "tool", name: value.name };
     }

@@ -287,6 +287,13 @@ std::vector<ir::Block> decode_reasoning_summary(
         const auto* type = part.find("type");
         const std::string kind = type && type->is_string() ? type->as_string() : "";
         if (kind == "output_text" || kind == "summary_text") {
+            if (const auto* annotations = part.find("annotations");
+                annotations && annotations->is_array() && !annotations->as_array().empty()) {
+                losses.push_back(make_resp_loss(
+                    "input[" + std::to_string(input_index) + "].summary[" + std::to_string(i) + "].annotations",
+                    "annotations", ir::LOSS_UNMAPPED_FIELD,
+                    "Responses reasoning summary annotations have no IR equivalent"));
+            }
             const auto* text = part.find("text");
             blocks.push_back(ir::ThinkingBlock{
                 text && text->is_string() ? text->as_string() : "", std::nullopt});
@@ -1260,7 +1267,14 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         const auto& part = summary->as_array()[si];
                         const auto* pt = part.find("type");
                         const std::string pkind = pt && pt->is_string() ? pt->as_string() : "";
-                        if (pkind == "output_text") {
+                        if (pkind == "output_text" || pkind == "summary_text") {
+                            if (const auto* annotations = part.find("annotations");
+                                annotations && annotations->is_array() && !annotations->as_array().empty()) {
+                                losses.push_back(make_resp_loss(
+                                    item_path + ".summary[" + std::to_string(si) + "].annotations",
+                                    "annotations", ir::LOSS_UNMAPPED_FIELD,
+                                    "Responses reasoning summary annotations have no IR equivalent"));
+                            }
                             const auto* text = part.find("text");
                             resp.content.push_back(ir::ThinkingBlock{
                                 text && text->is_string() ? text->as_string() : "", std::nullopt});

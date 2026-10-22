@@ -302,7 +302,27 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             if (const auto* is_val = t.find("input_schema"); !is_val || !is_val->is_object()) {
                 return invalid_argument(tool_path + ".input_schema: must be a JSON object");
             }
+            if (const auto* dl = t.find("defer_loading")) {
+                if (!dl->is_bool()) {
+                    return invalid_argument("anthropic: " + tool_path + ".defer_loading must be a boolean");
+                }
+                if (dl->as_bool() && t.find("cache_control")) {
+                    return invalid_argument("anthropic: " + tool_path + ": cannot specify both defer_loading and cache_control");
+                }
+                if (dl->as_bool()) {
+                    tool.native.push_back(ir::NativeAnnotation{
+                        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                        std::string(ir::NATIVE_KIND_DEFER_LOADING),
+                        "true",
+                        ir::NativeOmission{"defer_loading", std::string(ir::LOSS_DEGRADED), std::string(ir::DEFER_LOADING_LOSS_DETAIL)},
+                        std::nullopt,
+                    });
+                }
+            }
             if (const auto* cc = t.find("cache_control")) {
+                if (const auto* dl = t.find("defer_loading"); dl && dl->is_bool() && dl->as_bool()) {
+                    return invalid_argument("anthropic: " + tool_path + ": cannot specify both defer_loading and cache_control");
+                }
                 auto canon = parse_cache_control(*cc, tool_path + ".cache_control", losses);
                 if (canon.has_value()) {
                     tool.native.push_back(ir::NativeAnnotation{
@@ -571,6 +591,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 if (auto cc = get_block_cache_control(t.native)) {
                     tw.set("cache_control", std::move(*cc));
                 }
+                if (get_tool_defer_loading(t.native)) {
+                    tw.set("defer_loading", json::Value::boolean(true));
+                }
                 retained_tool_names.insert(t.name);
                 tools_arr.push_back(std::move(tw));
                 continue;
@@ -611,6 +634,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             tw.set("input_schema", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
             if (auto cc = get_block_cache_control(t.native)) {
                 tw.set("cache_control", std::move(*cc));
+            }
+            if (get_tool_defer_loading(t.native)) {
+                tw.set("defer_loading", json::Value::boolean(true));
             }
             retained_tool_names.insert(t.name);
             tools_arr.push_back(std::move(tw));

@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 91);
+    CHECK(rep_res->executed == 93);
 
     // Test mid-conversation system messages
     {
@@ -146,6 +146,75 @@ int main() {
         auto dec_content = oxa::anthropic::messages::decode_request(*err_content);
         CHECK(!dec_content.ok());
         CHECK(dec_content.status().to_string().find("system content must be text") != std::string::npos);
+    }
+
+    // Test defer_loading tool native option
+    {
+        // 1. defer_loading: true round-trip
+        auto raw1 = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": true}]
+        })");
+        CHECK(raw1.ok());
+        auto dec1 = oxa::anthropic::messages::decode_request(*raw1);
+        CHECK(dec1.ok());
+        if (dec1.ok()) {
+            CHECK(dec1->losses.empty());
+            CHECK(dec1->value.tools.has_value());
+            CHECK(dec1->value.tools->size() == 1);
+            CHECK((*dec1->value.tools)[0].native.size() == 1);
+            CHECK((*dec1->value.tools)[0].native[0].kind == oxa::ir::NATIVE_KIND_DEFER_LOADING);
+            CHECK((*dec1->value.tools)[0].native[0].value == "true");
+            CHECK((*dec1->value.tools)[0].native[0].omission.has_value());
+            CHECK((*dec1->value.tools)[0].native[0].omission->reason == oxa::ir::LOSS_DEGRADED);
+
+            auto enc1 = oxa::anthropic::messages::encode_request(dec1->value);
+            CHECK(enc1.ok());
+            if (enc1.ok()) {
+                CHECK(enc1->losses.empty());
+                const auto* tools_arr = enc1->value.find("tools");
+                CHECK(tools_arr != nullptr && tools_arr->is_array());
+                const auto* t0 = tools_arr->as_array()[0].find("defer_loading");
+                CHECK(t0 != nullptr && t0->is_bool() && t0->as_bool());
+            }
+        }
+
+        // 2. defer_loading: false
+        auto raw_false = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": false}]
+        })");
+        CHECK(raw_false.ok());
+        auto dec_false = oxa::anthropic::messages::decode_request(*raw_false);
+        CHECK(dec_false.ok());
+        if (dec_false.ok()) {
+            CHECK(dec_false->losses.empty());
+            CHECK((*dec_false->value.tools)[0].native.empty());
+        }
+
+        // 3. conflict: defer_loading: true AND cache_control
+        auto raw_conflict = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": true, "cache_control": {"type": "ephemeral"}}]
+        })");
+        CHECK(raw_conflict.ok());
+        auto dec_conflict = oxa::anthropic::messages::decode_request(*raw_conflict);
+        CHECK(!dec_conflict.ok());
+        CHECK(dec_conflict.status().to_string().find("cannot specify both defer_loading and cache_control") != std::string::npos);
+
+        // 4. non-boolean defer_loading
+        auto raw_non_bool = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": "true"}]
+        })");
+        CHECK(raw_non_bool.ok());
+        auto dec_non_bool = oxa::anthropic::messages::decode_request(*raw_non_bool);
+        CHECK(!dec_non_bool.ok());
+        CHECK(dec_non_bool.status().to_string().find("defer_loading must be a boolean") != std::string::npos);
     }
 
     oxa::ir::Request request;

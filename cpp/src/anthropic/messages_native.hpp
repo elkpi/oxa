@@ -320,6 +320,16 @@ inline std::optional<json::Value> get_block_cache_control(
     return std::nullopt;
 }
 
+inline bool get_tool_defer_loading(
+    const std::vector<ir::NativeAnnotation>& native) {
+    for (const auto& n : native) {
+        if (n.source == ir::NATIVE_SOURCE_ANTHROPIC && n.kind == ir::NATIVE_KIND_DEFER_LOADING && n.value == "true") {
+            return true;
+        }
+    }
+    return false;
+}
+
 inline void decode_request_native(
     const json::Value& wire,
     ir::Request& req,

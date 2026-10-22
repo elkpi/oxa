@@ -165,7 +165,9 @@ function decodeRequestObject(
         fail(`tools[${index}].defer_loading must be a boolean`);
       }
       if (tool.defer_loading === true && tool.cache_control !== undefined) {
-        fail(`tools[${index}]: cannot specify both defer_loading and cache_control`);
+        fail(
+          `tools[${index}]: cannot specify both defer_loading and cache_control`,
+        );
       }
     }
 
@@ -482,6 +484,11 @@ export function encodeRequest(
     request.tools?.flatMap<JsonObject>((tool, index) => {
       const cc = getBlockCacheControl(tool);
       const dl = getToolDeferLoading(tool);
+      if (cc && dl) {
+        fail(
+          `tools[${index}]: cannot specify both defer_loading and cache_control`,
+        );
+      }
       if (tool.type === "custom") {
         if (tool.format?.type === "grammar") {
           losses.push(

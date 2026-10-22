@@ -109,6 +109,23 @@ export function validateNativeRequest(request: Request): void {
   request.tools?.forEach((t, tIdx) => {
     if (t.native) {
       validateAnnotations(t.native, "tool", `tools[${tIdx}]`);
+      let hasCacheControl = false;
+      let hasDeferLoading = false;
+      for (const n of t.native) {
+        if (n.source === NATIVE_SOURCE_ANTHROPIC) {
+          if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
+            hasCacheControl = true;
+          } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
+            hasDeferLoading = true;
+          }
+        }
+      }
+      if (hasCacheControl && hasDeferLoading) {
+        throw new OxaError(
+          "invalid-input",
+          `ir: tools[${tIdx}]: cannot specify both defer_loading and cache_control`,
+        );
+      }
     }
   });
 }

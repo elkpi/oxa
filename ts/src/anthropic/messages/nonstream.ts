@@ -23,7 +23,11 @@ import {
   encodeRequestNative,
   getBlockCacheControl,
   attachBlockCacheControl,
+  getToolDeferLoading,
+  DEFER_LOADING_LOSS_DETAIL,
+  NATIVE_KIND_DEFER_LOADING,
 } from "./native.js";
+import { NATIVE_SOURCE_ANTHROPIC } from "../../ir/native.js";
 import type {
   Block,
   CustomToolResultBlock,
@@ -156,8 +160,35 @@ function decodeRequestObject(
       }
     }
 
+    if ("defer_loading" in tool && tool.defer_loading !== undefined) {
+      if (typeof tool.defer_loading !== "boolean") {
+        fail(`tools[${index}].defer_loading must be a boolean`);
+      }
+      if (tool.defer_loading === true && tool.cache_control !== undefined) {
+        fail(`tools[${index}]: cannot specify both defer_loading and cache_control`);
+      }
+    }
+
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
-    const native = attachBlockCacheControl(tool, `tools[${index}]`, losses);
+    let native: NativeAnnotation[] | undefined = undefined;
+    if (tool.defer_loading === true) {
+      native = [
+        {
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: NATIVE_KIND_DEFER_LOADING,
+          value: "true",
+          omission: {
+            field: "defer_loading",
+            reason: "degraded" as const,
+            detail: DEFER_LOADING_LOSS_DETAIL,
+          },
+        },
+      ];
+    } else {
+      native = attachBlockCacheControl(tool, `tools[${index}]`, losses) as
+        | NativeAnnotation[]
+        | undefined;
+    }
     if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
@@ -450,6 +481,7 @@ export function encodeRequest(
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
       const cc = getBlockCacheControl(tool);
+      const dl = getToolDeferLoading(tool);
       if (tool.type === "custom") {
         if (tool.format?.type === "grammar") {
           losses.push(
@@ -468,6 +500,7 @@ export function encodeRequest(
               required: ["input"],
             },
             ...(cc ? { cache_control: cc } : {}),
+            ...(dl ? { defer_loading: true } : {}),
           },
         ];
       }
@@ -515,6 +548,7 @@ export function encodeRequest(
             : { description: tool.description }),
           input_schema: tool.input_schema,
           ...(cc ? { cache_control: cc } : {}),
+          ...(dl ? { defer_loading: true } : {}),
         },
       ];
     }) ?? [];

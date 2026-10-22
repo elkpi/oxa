@@ -488,3 +488,87 @@ test("custom tool result with nested native preserves cache_control", () => {
   assert.equal(Array.isArray(innerContent), true);
   assert.equal(innerContent[0]?.cache_control?.type, "ephemeral");
 });
+
+test("defer_loading tool native option round-trip and validation", () => {
+  // 1. defer_loading: true round-trip with zero losses
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        description: "tool 1",
+        input_schema: { type: "object" },
+        defer_loading: true,
+      },
+    ],
+  });
+  const decoded = decodeAnthropicJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+  assert.equal(decoded.value.tools?.[0]?.native?.[0]?.kind, "defer_loading");
+  assert.equal(decoded.value.tools?.[0]?.native?.[0]?.value, "true");
+  assert.equal(
+    decoded.value.tools?.[0]?.native?.[0]?.omission?.reason,
+    "degraded",
+  );
+
+  const encoded = encodeAnthropic(decoded.value);
+  assert.equal(encoded.losses.length, 0);
+  const outTool = (encoded.value as any).tools?.[0];
+  assert.equal(outTool?.defer_loading, true);
+
+  // 2. defer_loading: false produces no native annotation
+  const rawFalse = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: false,
+      },
+    ],
+  });
+  const decodedFalse = decodeAnthropicJSON(rawFalse);
+  assert.equal(decodedFalse.losses.length, 0);
+  assert.equal(decodedFalse.value.tools?.[0]?.native, undefined);
+
+  // 3. conflict: defer_loading: true AND cache_control throws
+  const rawConflict = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: true,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+  });
+  assert.throws(
+    () => decodeAnthropicJSON(rawConflict),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  // 4. non-boolean defer_loading throws
+  const rawNonBool = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: "true",
+      },
+    ],
+  });
+  assert.throws(
+    () => decodeAnthropicJSON(rawNonBool),
+    /tools\[0\]\.defer_loading must be a boolean/,
+  );
+});

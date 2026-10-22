@@ -278,3 +278,126 @@ test("rejects tool input sidecar that is not an object token", () => {
       error instanceof OxaError && error.code === "type-violation",
   );
 });
+
+test("decodes mid-conversation system messages and reports degraded loss", () => {
+  const decoded = decodeRequest({
+    model: "claude-opus-5-5",
+    max_tokens: integer(1024n),
+    system: [{ type: "text", text: "Base prompt." }],
+    messages: [
+      { role: "user", content: "Hi" },
+      { role: "assistant", content: "Hello" },
+      { role: "user", content: "Summarize" },
+      { role: "system", content: "Be concise." },
+      {
+        role: "system",
+        content: [
+          {
+            type: "text",
+            text: "Limit 20 words.",
+            cache_control: { type: "ephemeral" },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(decoded.value.messages.length, 3);
+  assert.equal(decoded.value.system?.length, 3);
+  assert.equal(decoded.value.system[0]?.text, "Base prompt.");
+  assert.equal(decoded.value.system[1]?.text, "Be concise.");
+  assert.equal(decoded.value.system[2]?.text, "Limit 20 words.");
+  assert.equal(decoded.value.system[2]?.native?.[0]?.kind, "cache_control");
+
+  assert.equal(decoded.losses.length, 2);
+  assert.deepEqual(decoded.losses[0], {
+    path: "messages[3].role",
+    field: "role",
+    reason: "degraded",
+    detail:
+      "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+  });
+  assert.deepEqual(decoded.losses[1], {
+    path: "messages[4].role",
+    field: "role",
+    reason: "degraded",
+    detail:
+      "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+  });
+});
+
+test("rejects invalid mid-conversation system placement and content", () => {
+  // system at index 0
+  assert.throws(
+    () =>
+      decodeRequest({
+        model: "claude-opus-5-5",
+        max_tokens: integer(1024n),
+        messages: [
+          { role: "system", content: "Initial." },
+          { role: "user", content: "Hi" },
+        ],
+      }),
+    (error: unknown) =>
+      error instanceof OxaError &&
+      error.message.includes("messages[0]: system message cannot appear at messages[0]"),
+  );
+
+  // system followed by user
+  assert.throws(
+    () =>
+      decodeRequest({
+        model: "claude-opus-5-5",
+        max_tokens: integer(1024n),
+        messages: [
+          { role: "user", content: "Hi" },
+          { role: "system", content: "Mid" },
+          { role: "user", content: "Another" },
+        ],
+      }),
+    (error: unknown) =>
+      error instanceof OxaError &&
+      error.message.includes("system message must be followed by an assistant turn or be the last message"),
+  );
+
+  // system preceded by assistant
+  assert.throws(
+    () =>
+      decodeRequest({
+        model: "claude-opus-5-5",
+        max_tokens: integer(1024n),
+        messages: [
+          { role: "user", content: "Hi" },
+          { role: "assistant", content: "Answer" },
+          { role: "system", content: "Mid" },
+        ],
+      }),
+    (error: unknown) =>
+      error instanceof OxaError &&
+      error.message.includes("system message must follow a user turn"),
+  );
+
+  // non-text content block
+  assert.throws(
+    () =>
+      decodeRequest({
+        model: "claude-opus-5-5",
+        max_tokens: integer(1024n),
+        messages: [
+          { role: "user", content: "Hi" },
+          {
+            role: "system",
+            content: [
+              {
+                type: "image",
+                source: { type: "base64", media_type: "image/png", data: "abc" },
+              },
+            ],
+          },
+        ],
+      }),
+    (error: unknown) =>
+      error instanceof OxaError &&
+      error.message.includes("system content must be text"),
+  );
+});

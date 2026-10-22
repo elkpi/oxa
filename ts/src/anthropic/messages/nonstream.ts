@@ -29,6 +29,7 @@ import type {
   CustomToolResultBlock,
   CustomToolUseBlock,
   ImageBlock,
+  Message,
   NativeAnnotation,
   ReasoningEffort,
   Request,
@@ -193,14 +194,94 @@ function decodeRequestObject(
     customTools,
     nativeTools,
   );
-  const messages = array(wire.messages, "messages").map((entry, index) => {
-    const message = object(entry, `messages[${index}]`);
-    const role = string(message.role, `messages[${index}].role`);
-    if (role !== "user" && role !== "assistant")
-      fail(`messages[${index}]: unknown role ${role}`);
-    const normalizedRole: "user" | "assistant" = role;
+  const rawMessages = array(wire.messages, "messages").map((entry, index) => {
+    const msg = object(entry, `messages[${index}]`);
+    const role = string(msg.role, `messages[${index}].role`);
+    return { msg, role, index };
+  });
+
+  for (let i = 0; i < rawMessages.length; i++) {
+    const { role } = rawMessages[i]!;
+    if (role === "system") {
+      if (i === 0) {
+        fail("messages[0]: system message cannot appear at messages[0]");
+      }
+      const prevRole = rawMessages[i - 1]!.role;
+      if (prevRole !== "user" && prevRole !== "system") {
+        fail(`messages[${i}]: system message must follow a user turn`);
+      }
+      let lastInRun = i;
+      while (
+        lastInRun + 1 < rawMessages.length &&
+        rawMessages[lastInRun + 1]!.role === "system"
+      ) {
+        lastInRun++;
+      }
+      if (lastInRun + 1 < rawMessages.length) {
+        const nextRole = rawMessages[lastInRun + 1]!.role;
+        if (nextRole !== "assistant") {
+          fail(
+            `messages[${i}]: system message must be followed by an assistant turn or be the last message`,
+          );
+        }
+      }
+    } else if (role !== "user" && role !== "assistant") {
+      fail(`messages[${i}]: unknown role ${role}`);
+    }
+  }
+
+  const messages: Message[] = [];
+  for (const { msg, role, index } of rawMessages) {
+    if (role === "system") {
+      if (msg.content === undefined || msg.content === null) {
+        fail(`messages[${index}]: content is missing`);
+      }
+      if (typeof msg.content === "string") {
+        system.push({ type: "text", text: msg.content });
+      } else if (Array.isArray(msg.content)) {
+        for (let j = 0; j < msg.content.length; j++) {
+          const block = object(
+            msg.content[j],
+            `messages[${index}].content[${j}]`,
+          );
+          const blockType = string(
+            block.type,
+            `messages[${index}].content[${j}].type`,
+          );
+          if (blockType !== "text") {
+            fail(`messages[${index}]: system content must be text`);
+          }
+          const text = string(
+            block.text,
+            `messages[${index}].content[${j}].text`,
+          );
+          const native = attachBlockCacheControl(
+            block,
+            `messages[${index}].content[${j}]`,
+            losses,
+          );
+          system.push({
+            type: "text",
+            text,
+            ...(native ? { native } : {}),
+          });
+        }
+      } else {
+        fail(`messages[${index}]: system content must be text`);
+      }
+      losses.push({
+        path: `messages[${index}].role`,
+        field: "role",
+        reason: "degraded",
+        detail:
+          "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+      });
+      continue;
+    }
+
+    const normalizedRole = role as "user" | "assistant";
     const content = decodeContent(
-      message.content,
+      msg.content,
       `messages[${index}].content`,
       losses,
       customTools,
@@ -209,8 +290,8 @@ function decodeRequestObject(
       true,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
-    return { role: normalizedRole, content };
-  });
+    messages.push({ role: normalizedRole, content });
+  }
   const params = {
     max_tokens: maxTokens,
     ...(wire.temperature === undefined

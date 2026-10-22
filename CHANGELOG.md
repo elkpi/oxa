@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.7] - 2026-10-22
+
+### Fixed
+
+- Anthropic Messages 工具 GA 属性 `defer_loading` 保真与跨面降级 (spec/15 §3.4, N-NAT-2/3, N-AN-14)：
+  - 修复 Anthropic Messages 解码器因审计白名单未包含 `defer_loading` 导致将合法延迟装载工具属性误判为致命 `unmapped-field` 损失（`path: "tools[N].defer_loading"`），阻塞 Claude Code 等使用 Tool Search 的客户端请求走 OXA 路径的问题。
+  - 依据 spec/15 Native Request Options 规范制定扩展契约：
+    - 在通用 IR 的 `Tool.native` 原生选项容器中建模 `kind: "defer_loading"`，Anthropic 解码时将 `defer_loading: true` 保真捕获，**无解码损失（0 decode loss）**。
+    - 严格校验 `defer_loading` 类型（必须为布尔值，非布尔值返回结构解析错误）及 API 冲突语义（同一工具不可同时携带 `defer_loading: true` 与 `cache_control`，冲突时返回明确结构错误）。
+    - 针对默认行为 `defer_loading: false` 或缺省，保持 API 缺省语义，不生成附加项与损失。
+    - 原生回转保真：编码回 Anthropic 时依据 `Tool.native` 完整恢复 wire 上的 `"defer_loading": true`。
+    - 跨协议中立降级：编码至无 Tool Search / 延迟装载支持的目标面（OpenAI Chat Completions、OpenAI Responses）时，由于工具定义本身已完整下发至目标上下文，仅按需装载优化退化，通过既有原生遗漏收集管线自动发射自描述的 `degraded` 损失（`field: "defer_loading", reason: "degraded"`）。
+  - 在 Go、TypeScript、Python、Rust、C++ 全部五种语言中同步对齐上述审计白名单、校验、保真与跨面降级实现。
+  - 新增 4 个共享黄金向量（向量总数 348 → 352）：
+    - `anthropic.nonstream.native-tool-defer-loading-to-ir`
+    - `anthropic.nonstream.native-tool-defer-loading-from-ir`
+    - `cross.nonstream.anthropic-to-chatcompletions-tool-defer-loading`
+    - `cross.nonstream.anthropic-to-responses-tool-defer-loading`
+- 版本与规范状态：
+  - 更新 Spec 版本至 `2.4.7`，IR contract 保持 `0.2.0`；
+  - 更新 README、规范说明与各语言版本状态矩阵至 `v2.4.7` 准备态。
+
 ## [v2.4.6] - 2026-10-22
 
 ### Fixed

@@ -146,7 +146,27 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		}
 	}
 
+	if err := validateSystemMessagePlacement(wire.Messages); err != nil {
+		return nil, nil, err
+	}
+
 	for i, m := range wire.Messages {
+		if m.Role == RoleSystem {
+			sysBlocks, sysBlockLosses, err := decodeSystemMessageContent(m.Content, i)
+			if err != nil {
+				return nil, nil, err
+			}
+			req.System = append(req.System, sysBlocks...)
+			losses = append(losses, sysBlockLosses...)
+			losses = append(losses, ir.Loss{
+				Path:   fmt.Sprintf("messages[%d].role", i),
+				Field:  "role",
+				Reason: ir.LossDegraded,
+				Detail: "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+			})
+			continue
+		}
+
 		var role ir.Role
 		switch m.Role {
 		case RoleUser:
@@ -519,6 +539,132 @@ func decodeToolChoice(choice *ToolChoiceWire, customTools, nativeTools map[strin
 		})
 	}
 	return decoded, losses, nil
+}
+
+func validateSystemMessagePlacement(msgs []Message) error {
+	for i, m := range msgs {
+		if m.Role == RoleSystem {
+			if i == 0 {
+				return fmt.Errorf("anthropic: messages[0]: system message cannot appear at messages[0]")
+			}
+			prevRole := msgs[i-1].Role
+			if prevRole != RoleUser && prevRole != RoleSystem {
+				if !endsInServerToolResult(msgs[i-1]) {
+					return fmt.Errorf("anthropic: messages[%d]: system message must follow a user turn", i)
+				}
+			}
+			last := i
+			for last+1 < len(msgs) && msgs[last+1].Role == RoleSystem {
+				last++
+			}
+			if last+1 < len(msgs) {
+				nextRole := msgs[last+1].Role
+				if nextRole != RoleAssistant {
+					return fmt.Errorf("anthropic: messages[%d]: system message must be followed by an assistant turn or be the last message", i)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func endsInServerToolResult(m Message) bool {
+	return false
+}
+
+func decodeSystemMessageContent(content any, msgIndex int) ([]ir.SystemBlock, []ir.Loss, error) {
+	if content == nil {
+		return nil, nil, fmt.Errorf("anthropic: messages[%d]: content is missing", msgIndex)
+	}
+	switch v := content.(type) {
+	case string:
+		return []ir.SystemBlock{{Text: v}}, nil, nil
+	case []BlockWire:
+		blocks := make([]ir.SystemBlock, 0, len(v))
+		var losses []ir.Loss
+		for j, b := range v {
+			if b.Type != BlockTypeText {
+				return nil, nil, fmt.Errorf("anthropic: messages[%d]: system content must be text", msgIndex)
+			}
+			sb := ir.SystemBlock{Text: b.Text}
+			if len(b.CacheControl) > 0 {
+				canon, l, ok := parseCacheControl(b.CacheControl, fmt.Sprintf("messages[%d].content[%d].cache_control", msgIndex, j))
+				if l != nil {
+					losses = append(losses, *l)
+				}
+				if ok {
+					sb.Native = []ir.NativeAnnotation{{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    canon,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
+					}}
+				}
+			}
+			blocks = append(blocks, sb)
+		}
+		return blocks, losses, nil
+	case []SystemBlockWire:
+		blocks := make([]ir.SystemBlock, 0, len(v))
+		var losses []ir.Loss
+		for j, w := range v {
+			if w.Type != BlockTypeText {
+				return nil, nil, fmt.Errorf("anthropic: messages[%d]: system content must be text", msgIndex)
+			}
+			sb := ir.SystemBlock{Text: w.Text}
+			if len(w.CacheControl) > 0 {
+				canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("messages[%d].content[%d].cache_control", msgIndex, j))
+				if l != nil {
+					losses = append(losses, *l)
+				}
+				if ok {
+					sb.Native = []ir.NativeAnnotation{{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    canon,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
+					}}
+				}
+			}
+			blocks = append(blocks, sb)
+		}
+		return blocks, losses, nil
+	case []any:
+		blocks := make([]ir.SystemBlock, 0, len(v))
+		var losses []ir.Loss
+		for j, part := range v {
+			raw, err := json.Marshal(part)
+			if err != nil {
+				return nil, nil, err
+			}
+			var w SystemBlockWire
+			if err := json.Unmarshal(raw, &w); err != nil {
+				return nil, nil, fmt.Errorf("anthropic: messages[%d]: %w", msgIndex, err)
+			}
+			if w.Type != BlockTypeText {
+				return nil, nil, fmt.Errorf("anthropic: messages[%d]: system content must be text", msgIndex)
+			}
+			sb := ir.SystemBlock{Text: w.Text}
+			if len(w.CacheControl) > 0 {
+				canon, l, ok := parseCacheControl(w.CacheControl, fmt.Sprintf("messages[%d].content[%d].cache_control", msgIndex, j))
+				if l != nil {
+					losses = append(losses, *l)
+				}
+				if ok {
+					sb.Native = []ir.NativeAnnotation{{
+						Source:   ir.NativeSourceAnthropic,
+						Kind:     ir.NativeKindCacheControl,
+						Value:    canon,
+						Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
+					}}
+				}
+			}
+			blocks = append(blocks, sb)
+		}
+		return blocks, losses, nil
+	default:
+		return nil, nil, fmt.Errorf("anthropic: messages[%d]: system content must be text", msgIndex)
+	}
 }
 
 // DecodeResponse converts an Anthropic Messages wire response to the IR

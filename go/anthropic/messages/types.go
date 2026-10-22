@@ -15,6 +15,7 @@ import (
 const (
 	RoleUser      = "user"
 	RoleAssistant = "assistant"
+	RoleSystem    = "system"
 
 	BlockTypeText       = "text"
 	BlockTypeImage      = "image"

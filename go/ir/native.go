@@ -126,9 +126,10 @@ func ValidateNativeRequest(req *Request) error {
 		var hasCacheControl, hasDeferLoading bool
 		for _, n := range tool.Native {
 			if n.Source == NativeSourceAnthropic {
-				if n.Kind == NativeKindCacheControl {
+				switch n.Kind {
+				case NativeKindCacheControl:
 					hasCacheControl = true
-				} else if n.Kind == NativeKindDeferLoading {
+				case NativeKindDeferLoading:
 					hasDeferLoading = true
 				}
 			}

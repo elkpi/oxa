@@ -326,6 +326,35 @@ test("decodes mid-conversation system messages and reports degraded loss", () =>
   });
 });
 
+test("records role loss before content-derived losses for mid-conversation system", () => {
+  const decoded = decodeRequest({
+    model: "claude-opus-5-5",
+    max_tokens: integer(1024n),
+    messages: [
+      { role: "user", content: "Hi" },
+      {
+        role: "system",
+        content: [
+          {
+            type: "text",
+            text: "x",
+            cache_control: { type: "ephemeral", ttl: "10m" },
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(decoded.losses.length, 2);
+  assert.equal(decoded.losses[0]?.path, "messages[1].role");
+  assert.equal(decoded.losses[0]?.reason, "degraded");
+  assert.equal(
+    decoded.losses[1]?.path,
+    "messages[1].content[0].cache_control.ttl",
+  );
+  assert.equal(decoded.losses[1]?.reason, "unmapped-value");
+});
+
 test("rejects invalid mid-conversation system placement and content", () => {
   // system at index 0
   assert.throws(

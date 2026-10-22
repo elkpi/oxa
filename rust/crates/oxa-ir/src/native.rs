@@ -91,6 +91,22 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
     if let Some(ref tools) = request.tools {
         for (t_idx, tool) in tools.iter().enumerate() {
             validate_annotations(&tool.native, HostType::Tool, &format!("tools[{t_idx}]"))?;
+            let mut has_cache_control = false;
+            let mut has_defer_loading = false;
+            for n in &tool.native {
+                if n.source == NATIVE_SOURCE_ANTHROPIC {
+                    if n.kind == NATIVE_KIND_CACHE_CONTROL {
+                        has_cache_control = true;
+                    } else if n.kind == NATIVE_KIND_DEFER_LOADING {
+                        has_defer_loading = true;
+                    }
+                }
+            }
+            if has_cache_control && has_defer_loading {
+                return Err(Error::Custom(format!(
+                    "ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control"
+                )));
+            }
         }
     }
 

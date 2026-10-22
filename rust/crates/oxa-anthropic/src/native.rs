@@ -529,7 +529,7 @@ pub fn get_tool_defer_loading(native: &[NativeAnnotation]) -> Option<bool> {
     for n in native {
         if n.source == NATIVE_SOURCE_ANTHROPIC
             && n.kind == oxa_ir::NATIVE_KIND_DEFER_LOADING
-            && n.value == "true"
+            && serde_json::from_str::<bool>(&n.value).ok() == Some(true)
         {
             return Some(true);
         }

@@ -197,18 +197,22 @@ impl<'de> Deserialize<'de> for ToolWire {
             .to_string();
         let input_schema = map.get("input_schema").cloned();
         let cache_control = map.get("cache_control").cloned();
-        let defer_loading = match map.get("defer_loading") {
-            None => None,
-            Some(Value::Bool(b)) => Some(*b),
-            Some(_) => {
-                return Err(serde::de::Error::custom(
-                    "anthropic: tool defer_loading must be a boolean",
-                ));
-            }
-        };
         let is_native = tool_type
             .as_deref()
             .is_some_and(|t| !t.is_empty() && t != "function" && t != "custom");
+        let defer_loading = if is_native {
+            None
+        } else {
+            match map.get("defer_loading") {
+                None => None,
+                Some(Value::Bool(b)) => Some(*b),
+                Some(_) => {
+                    return Err(serde::de::Error::custom(
+                        "anthropic: tool defer_loading must be a boolean",
+                    ));
+                }
+            }
+        };
         Ok(ToolWire {
             tool_type,
             name,

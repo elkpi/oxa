@@ -109,6 +109,13 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "Anthropic Messages structured tool wrapper cannot represent custom tool format constraints",
                     ));
                 }
+                let cache_control = crate::native::get_block_cache_control(&tool.native);
+                let defer_loading = crate::native::get_tool_defer_loading(&tool.native);
+                if cache_control.is_some() && defer_loading == Some(true) {
+                    return Err(Error::new(format!(
+                        "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"
+                    )));
+                }
                 wire_tools.push(ToolWire {
                     tool_type: None,
                     name: tool.name.clone(),
@@ -118,8 +125,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "properties": {"input": {"type": "string"}},
                         "required": ["input"],
                     })),
-                    cache_control: crate::native::get_block_cache_control(&tool.native),
-                    defer_loading: crate::native::get_tool_defer_loading(&tool.native),
+                    cache_control,
+                    defer_loading,
                     raw_definition: None,
                 });
                 continue;
@@ -139,13 +146,20 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 .unwrap_or(&serde_json::Value::Null);
             let schema = serde_json::to_string(schema_val).unwrap_or_default();
             require_json_object(&schema, &format!("tools[{index}].input_schema"))?;
+            let cache_control = crate::native::get_block_cache_control(&tool.native);
+            let defer_loading = crate::native::get_tool_defer_loading(&tool.native);
+            if cache_control.is_some() && defer_loading == Some(true) {
+                return Err(Error::new(format!(
+                    "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"
+                )));
+            }
             wire_tools.push(ToolWire {
                 tool_type: None,
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 input_schema: Some(schema_val.clone()),
-                cache_control: crate::native::get_block_cache_control(&tool.native),
-                defer_loading: crate::native::get_tool_defer_loading(&tool.native),
+                cache_control,
+                defer_loading,
                 raw_definition: None,
             });
         }

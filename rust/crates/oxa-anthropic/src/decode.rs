@@ -10,8 +10,8 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{decode_block, decode_content, decode_system, decode_tool_choice, loss};
 use crate::types::{
-    ROLE_ASSISTANT, ROLE_USER, Request, Response, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
-    STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE,
+    ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_USER, Request, Response, STOP_REASON_END_TURN,
+    STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE,
 };
 
 fn is_custom_tool_input_schema(schema: &serde_json::Value) -> bool {
@@ -171,8 +171,99 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     losses.extend(system_losses);
     req.system = system;
 
+    for (i, m) in wire.messages.iter().enumerate() {
+        if m.role.as_str() == ROLE_SYSTEM {
+            if i == 0 {
+                return Err(Error::new(
+                    "anthropic: messages[0]: system message cannot appear at messages[0]",
+                ));
+            }
+            let prev_role = wire.messages[i - 1].role.as_str();
+            if prev_role != ROLE_USER && prev_role != ROLE_SYSTEM {
+                return Err(Error::new(format!(
+                    "anthropic: messages[{i}]: system message must follow a user turn"
+                )));
+            }
+            let mut last_in_run = i;
+            while last_in_run + 1 < wire.messages.len()
+                && wire.messages[last_in_run + 1].role.as_str() == ROLE_SYSTEM
+            {
+                last_in_run += 1;
+            }
+            if last_in_run + 1 < wire.messages.len() {
+                let next_role = wire.messages[last_in_run + 1].role.as_str();
+                if next_role != ROLE_ASSISTANT {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{i}]: system message must be followed by an assistant turn or be the last message"
+                    )));
+                }
+            }
+        }
+    }
+
     let mut custom_call_ids = BTreeSet::new();
     for (index, message) in wire.messages.iter().enumerate() {
+        if message.role.as_str() == ROLE_SYSTEM {
+            let Some(content) = message.content.as_ref() else {
+                return Err(Error::new(format!(
+                    "anthropic: messages[{index}]: content is missing"
+                )));
+            };
+            match content {
+                crate::types::ContentValue::Text(text) => {
+                    req.system.push(oxa_ir::SystemBlock::Text {
+                        text: text.clone(),
+                        native: Vec::new(),
+                    });
+                }
+                crate::types::ContentValue::Blocks(blocks) => {
+                    for (j, b) in blocks.iter().enumerate() {
+                        if b.kind != crate::types::BLOCK_TYPE_TEXT {
+                            return Err(Error::new(format!(
+                                "anthropic: messages[{index}]: system content must be text"
+                            )));
+                        }
+                        let mut nat = Vec::new();
+                        if let Some(cc) = &b.cache_control {
+                            let (canon, l) = crate::native::parse_cache_control(
+                                cc,
+                                &format!("messages[{index}].content[{j}].cache_control"),
+                            );
+                            if let Some(l) = l {
+                                losses.push(l);
+                            }
+                            if let Some(canon) = canon {
+                                nat.push(oxa_ir::NativeAnnotation {
+                                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.to_string(),
+                                    kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.to_string(),
+                                    value: canon,
+                                    omission: Some(oxa_ir::NativeOmission {
+                                        field: "cache_control".to_string(),
+                                        reason: LossReason::UnmappedField,
+                                        detail: Some(
+                                            crate::native::CACHE_CONTROL_LOSS_DETAIL.to_string(),
+                                        ),
+                                    }),
+                                    projection: None,
+                                });
+                            }
+                        }
+                        req.system.push(oxa_ir::SystemBlock::Text {
+                            text: b.text.clone(),
+                            native: nat,
+                        });
+                    }
+                }
+            }
+            losses.push(loss(
+                &format!("messages[{index}].role"),
+                "role",
+                LossReason::Degraded,
+                "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+            ));
+            continue;
+        }
+
         let role = match message.role.as_str() {
             ROLE_USER => oxa_ir::Role::User,
             ROLE_ASSISTANT => oxa_ir::Role::Assistant,

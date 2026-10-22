@@ -489,6 +489,90 @@ class NativeRequestTest(unittest.TestCase):
         self.assertEqual(len(cc_empty_losses), 1)
         self.assertEqual(cc_empty_losses[0].detail, CACHE_CONTROL_LOSS_DETAIL)
 
+    def test_defer_loading_tool_native_option(self) -> None:
+        from oxa.ir import NATIVE_KIND_DEFER_LOADING
+
+        # 1. defer_loading: true round-trip with zero decode losses
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "t1",
+                    "description": "tool 1",
+                    "input_schema": {"type": "object"},
+                    "defer_loading": True,
+                }
+            ],
+        }
+        req, losses = an_decode_request(wire)
+        self.assertEqual(len(losses), 0)
+        self.assertEqual(len(req.tools), 1)
+        self.assertEqual(len(req.tools[0].native), 1)
+        ann = req.tools[0].native[0]
+        self.assertEqual(ann.kind, NATIVE_KIND_DEFER_LOADING)
+        self.assertEqual(ann.value, "true")
+        self.assertIsNotNone(ann.omission)
+        self.assertEqual(ann.omission.reason, LOSS_DEGRADED)
+
+        encoded, el = an_encode_request(req)
+        self.assertEqual(len(el), 0)
+        self.assertEqual(len(encoded["tools"]), 1)
+        self.assertEqual(encoded["tools"][0].get("defer_loading"), True)
+
+        # 2. defer_loading: false produces no annotation
+        wire_false = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "t1",
+                    "input_schema": {"type": "object"},
+                    "defer_loading": False,
+                }
+            ],
+        }
+        req_false, losses_false = an_decode_request(wire_false)
+        self.assertEqual(len(losses_false), 0)
+        self.assertEqual(len(req_false.tools[0].native), 0)
+
+        # 3. conflict: defer_loading: true AND cache_control
+        wire_conflict = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "t1",
+                    "input_schema": {"type": "object"},
+                    "defer_loading": True,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        }
+        with self.assertRaises(ValueError) as cm:
+            an_decode_request(wire_conflict)
+        self.assertIn("cannot specify both defer_loading and cache_control", str(cm.exception))
+
+        # 4. non-boolean defer_loading
+        wire_non_bool = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "t1",
+                    "input_schema": {"type": "object"},
+                    "defer_loading": "true",
+                }
+            ],
+        }
+        with self.assertRaises(ValueError) as cm:
+            an_decode_request(wire_non_bool)
+        self.assertIn("tools[0].defer_loading must be a boolean", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

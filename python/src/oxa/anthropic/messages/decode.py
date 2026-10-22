@@ -51,10 +51,13 @@ from oxa.ir import (
 )
 from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_KIND_DEFER_LOADING,
     NATIVE_SOURCE_ANTHROPIC,
+    DEFER_LOADING_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
 )
+from oxa.ir.constants import LOSS_DEGRADED
 from oxa.ir import (
     Message as IrMessage,
 )
@@ -139,8 +142,23 @@ def decode_request(
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
+            if "defer_loading" in tool:
+                dl = tool["defer_loading"]
+                if not isinstance(dl, bool):
+                    raise ValueError(f"anthropic: tools[{index}].defer_loading must be a boolean")
+                if dl is True and "cache_control" in tool and tool["cache_control"] is not None:
+                    raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
             native: tuple[NativeAnnotation, ...] = ()
-            if "cache_control" in tool:
+            if tool.get("defer_loading") is True:
+                native = (
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_ANTHROPIC,
+                        kind=NATIVE_KIND_DEFER_LOADING,
+                        value="true",
+                        omission=NativeOmission(field="defer_loading", reason=LOSS_DEGRADED, detail=DEFER_LOADING_LOSS_DETAIL),
+                    ),
+                )
+            elif "cache_control" in tool:
                 canon, l = parse_cache_control(tool["cache_control"], f"tools[{index}].cache_control")
                 if l is not None:
                     losses.append(l)

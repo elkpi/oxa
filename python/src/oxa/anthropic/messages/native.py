@@ -18,12 +18,14 @@ from oxa.ir import (
 from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
     NATIVE_KIND_CONTEXT_MANAGEMENT,
+    NATIVE_KIND_DEFER_LOADING,
     NATIVE_KIND_OUTPUT_EFFORT,
     NATIVE_KIND_THINKING_BUDGET,
     NATIVE_KIND_THINKING_DISPLAY,
     NATIVE_KIND_THINKING_MODE,
     NATIVE_SOURCE_ANTHROPIC,
     CACHE_CONTROL_LOSS_DETAIL,
+    DEFER_LOADING_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     NativeProjection,
@@ -353,6 +355,15 @@ def get_block_cache_control(native: tuple[NativeAnnotation, ...]) -> dict[str, A
             except Exception:
                 return None
     return None
+
+
+def get_tool_defer_loading(native: tuple[NativeAnnotation, ...] | list[NativeAnnotation] | None) -> bool:
+    if not native:
+        return False
+    for n in native:
+        if n.source == NATIVE_SOURCE_ANTHROPIC and n.kind == NATIVE_KIND_DEFER_LOADING and n.value == "true":
+            return True
+    return False
 
 
 def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:

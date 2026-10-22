@@ -549,9 +549,7 @@ func validateSystemMessagePlacement(msgs []Message) error {
 			}
 			prevRole := msgs[i-1].Role
 			if prevRole != RoleUser && prevRole != RoleSystem {
-				if !endsInServerToolResult(msgs[i-1]) {
-					return fmt.Errorf("anthropic: messages[%d]: system message must follow a user turn", i)
-				}
+				return fmt.Errorf("anthropic: messages[%d]: system message must follow a user turn", i)
 			}
 			last := i
 			for last+1 < len(msgs) && msgs[last+1].Role == RoleSystem {
@@ -566,10 +564,6 @@ func validateSystemMessagePlacement(msgs []Message) error {
 		}
 	}
 	return nil
-}
-
-func endsInServerToolResult(m Message) bool {
-	return false
 }
 
 func decodeSystemMessageContent(content any, msgIndex int) ([]ir.SystemBlock, []ir.Loss, error) {

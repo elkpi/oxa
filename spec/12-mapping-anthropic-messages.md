@@ -247,12 +247,17 @@ Each rule has a stable ID usable as a vector tag.
   - **Placement validation.** A `role: "system"` message MUST NOT appear at `messages[0]`
     (top-level `system` MUST be used for the initial prompt; violation is a structural error).
     A mid-conversation system message (or run of consecutive system messages) MUST follow
-    a `user` turn (or an `assistant` turn ending in a server tool result), and MUST either
-    be the last entry in `messages` or be immediately followed by an `assistant` turn.
-    A system message followed directly by a `user` turn is a structural error.
+    a `user` turn, and MUST either be the last entry in `messages` or be immediately followed
+    by an `assistant` turn. A system message followed directly by a `user` turn is a
+    structural error. The documented server-tool exception (an `assistant` turn ending in a
+    server tool result) is NOT recognized in this version: any `assistant` predecessor is
+    rejected as a structural error; recognizing it is deferred to a follow-up release.
   - **Content validation.** Content MUST be a string or an array of blocks where every block
     is `type: "text"`. Non-text block types (e.g. `image`, `tool_use`, `tool_result`) are
-    structural errors.
+    structural errors. An empty block array carries no text: no IR system blocks are
+    produced and only the degraded role loss is recorded (the API's effort-only message
+    shape; any extra fields on such a message are audited as unmapped-field losses per
+    spec/02).
   - **Destination.** Extracted text blocks are appended in encounter order to `Request.System[]`,
     following any top-level `system` blocks and preceding mid-conversation system messages.
     If a text block carries a valid `cache_control` annotation, it is preserved as a
@@ -261,6 +266,9 @@ Each rule has a stable ID usable as a vector tag.
     the mid-conversation position or activation point, each decoded mid-conversation
     system message records exactly one `degraded` loss:
     `{ "path": "messages[i].role", "field": "role", "reason": "degraded", "detail": "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved." }`.
+    The `degraded` loss is recorded before any losses derived from that message's
+    `content` (spec/02 encounter order: `role` precedes `content` in the wire object;
+    for typed in-memory input this defines the deterministic order).
   - **Encode (IR → Messages).** `Request.System` renders in top-level `system` (N-AN-1);
     IR conversation messages retain only `user` and `assistant` roles.
 

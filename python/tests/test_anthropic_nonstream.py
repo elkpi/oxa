@@ -151,6 +151,28 @@ class AnthropicNonstreamTest(unittest.TestCase):
         self.assertEqual(losses[1].field, "role")
         self.assertEqual(losses[1].reason, LOSS_DEGRADED)
 
+    def test_mid_conversation_system_loss_order(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": "x", "cache_control": {"type": "ephemeral", "ttl": "10m"}}
+                    ],
+                },
+            ],
+        }
+        req, losses = decode_request(wire)
+        self.assertEqual(len(req.system), 1)
+        self.assertEqual(len(losses), 2)
+        self.assertEqual(losses[0].path, "messages[1].role")
+        self.assertEqual(losses[0].reason, LOSS_DEGRADED)
+        self.assertEqual(losses[1].path, "messages[1].content[0].cache_control.ttl")
+        self.assertEqual(losses[1].reason, LOSS_UNMAPPED_VALUE)
+
     def test_mid_conversation_system_placement_errors(self) -> None:
         # at index 0
         with self.assertRaises(ValueError) as cm:

@@ -656,7 +656,10 @@ fn test_mid_conversation_system_messages() {
     assert_eq!(t0, "Base prompt.");
     let oxa_ir::SystemBlock::Text { text: t1, .. } = &req.system[1];
     assert_eq!(t1, "Terse mode.");
-    let oxa_ir::SystemBlock::Text { text: t2, native: n2 } = &req.system[2];
+    let oxa_ir::SystemBlock::Text {
+        text: t2,
+        native: n2,
+    } = &req.system[2];
     assert_eq!(t2, "Under 20 words.");
     assert_eq!(n2.len(), 1);
     assert_eq!(n2[0].kind, "cache_control");
@@ -665,7 +668,11 @@ fn test_mid_conversation_system_messages() {
     assert_eq!(losses[0].path, "messages[3].role");
     assert_eq!(losses[0].field, "role");
     assert_eq!(losses[0].reason, LossReason::Degraded);
-    assert!(losses[0].detail.contains("carried as request-level system content"));
+    assert!(
+        losses[0]
+            .detail
+            .contains("carried as request-level system content")
+    );
     assert_eq!(losses[1].path, "messages[4].role");
     assert_eq!(losses[1].field, "role");
     assert_eq!(losses[1].reason, LossReason::Degraded);
@@ -683,7 +690,10 @@ fn test_mid_conversation_system_placement_and_content_errors() {
         ]
     }));
     let err = decode_request(&wire, &Config::default()).expect_err("system at 0");
-    assert!(err.to_string().contains("messages[0]: system message cannot appear at messages[0]"));
+    assert!(
+        err.to_string()
+            .contains("messages[0]: system message cannot appear at messages[0]")
+    );
 
     // followed by user
     let wire = wire_request(serde_json::json!({
@@ -696,7 +706,11 @@ fn test_mid_conversation_system_placement_and_content_errors() {
         ]
     }));
     let err = decode_request(&wire, &Config::default()).expect_err("followed by user");
-    assert!(err.to_string().contains("system message must be followed by an assistant turn or be the last message"));
+    assert!(
+        err.to_string().contains(
+            "system message must be followed by an assistant turn or be the last message"
+        )
+    );
 
     // preceded by assistant
     let wire = wire_request(serde_json::json!({
@@ -709,7 +723,10 @@ fn test_mid_conversation_system_placement_and_content_errors() {
         ]
     }));
     let err = decode_request(&wire, &Config::default()).expect_err("preceded by assistant");
-    assert!(err.to_string().contains("system message must follow a user turn"));
+    assert!(
+        err.to_string()
+            .contains("system message must follow a user turn")
+    );
 
     // non-text block
     let wire = wire_request(serde_json::json!({

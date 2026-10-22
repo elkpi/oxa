@@ -70,11 +70,11 @@ int main() {
         if (decoded.ok()) {
             CHECK(decoded->value.messages.size() == 3);
             CHECK(decoded->value.system.size() == 3);
-            CHECK(std::get<oxa::ir::TextBlock>(decoded->value.system[0]).text == "Base prompt.");
-            CHECK(std::get<oxa::ir::TextBlock>(decoded->value.system[1]).text == "Terse mode.");
-            CHECK(std::get<oxa::ir::TextBlock>(decoded->value.system[2]).text == "Under 20 words.");
-            CHECK(std::get<oxa::ir::TextBlock>(decoded->value.system[2]).native.size() == 1);
-            CHECK(std::get<oxa::ir::TextBlock>(decoded->value.system[2]).native[0].kind == "cache_control");
+            CHECK(decoded->value.system[0].text == "Base prompt.");
+            CHECK(decoded->value.system[1].text == "Terse mode.");
+            CHECK(decoded->value.system[2].text == "Under 20 words.");
+            CHECK(decoded->value.system[2].native.size() == 1);
+            CHECK(decoded->value.system[2].native[0].kind == "cache_control");
             CHECK(decoded->losses.size() == 2);
             CHECK(decoded->losses[0].path == "messages[3].role");
             CHECK(decoded->losses[0].field == "role");

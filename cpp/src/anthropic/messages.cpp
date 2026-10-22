@@ -387,18 +387,97 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!msgs_val || !msgs_val->is_array() || msgs_val->as_array().empty()) {
         return invalid_argument("anthropic: request carries no messages");
     }
-    std::set<std::string> custom_call_ids;
-    for (std::size_t i = 0; i < msgs_val->as_array().size(); ++i) {
-        const auto& m = msgs_val->as_array()[i];
-        const auto* role_val = m.find("role");
+
+    const auto& msgs = msgs_val->as_array();
+    for (std::size_t i = 0; i < msgs.size(); ++i) {
+        const auto* role_val = msgs[i].find("role");
         std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
-        if (role != "user" && role != "assistant") {
+        if (role == "system") {
+            if (i == 0) {
+                return invalid_argument("anthropic: messages[0]: system message cannot appear at messages[0]");
+            }
+            const auto* prev_role_val = msgs[i - 1].find("role");
+            std::string prev_role = prev_role_val && prev_role_val->is_string() ? prev_role_val->as_string() : "";
+            if (prev_role != "user" && prev_role != "system") {
+                return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: system message must follow a user turn");
+            }
+            std::size_t last_in_run = i;
+            while (last_in_run + 1 < msgs.size()) {
+                const auto* next_r = msgs[last_in_run + 1].find("role");
+                if (next_r && next_r->is_string() && next_r->as_string() == "system") {
+                    last_in_run++;
+                } else {
+                    break;
+                }
+            }
+            if (last_in_run + 1 < msgs.size()) {
+                const auto* next_role_val = msgs[last_in_run + 1].find("role");
+                std::string next_role = next_role_val && next_role_val->is_string() ? next_role_val->as_string() : "";
+                if (next_role != "assistant") {
+                    return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: system message must be followed by an assistant turn or be the last message");
+                }
+            }
+        } else if (role != "user" && role != "assistant") {
             return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: unknown role \"" + role + "\"");
         }
+    }
+
+    std::set<std::string> custom_call_ids;
+    for (std::size_t i = 0; i < msgs.size(); ++i) {
+        const auto& m = msgs[i];
+        const auto* role_val = m.find("role");
+        std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
+        if (role == "system") {
+            const auto* content_val = m.find("content");
+            if (!content_val) {
+                return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: content is missing");
+            }
+            if (content_val->is_string()) {
+                req.system.push_back(ir::TextBlock{content_val->as_string()});
+            } else if (content_val->is_array()) {
+                for (std::size_t j = 0; j < content_val->as_array().size(); ++j) {
+                    const auto& item = content_val->as_array()[j];
+                    const auto* t = item.find("type");
+                    std::string kind = t && t->is_string() ? t->as_string() : "";
+                    if (kind != "text") {
+                        return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: system content must be text");
+                    }
+                    const auto* txt = item.find("text");
+                    std::string text = txt && txt->is_string() ? txt->as_string() : "";
+                    ir::TextBlock sb{std::move(text)};
+                    if (const auto* cc = item.find("cache_control")) {
+                        auto canon = parse_cache_control(*cc, "messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "].cache_control", losses);
+                        if (canon.has_value()) {
+                            sb.native.push_back(ir::NativeAnnotation{
+                                std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                                std::string(ir::NATIVE_KIND_CACHE_CONTROL),
+                                std::move(*canon),
+                                ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)},
+                                std::nullopt,
+                            });
+                        }
+                    }
+                    req.system.push_back(std::move(sb));
+                }
+            } else {
+                return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: system content must be text");
+            }
+            losses.push_back(ir::Loss{
+                "messages[" + std::to_string(i) + "].role",
+                "role",
+                ir::LOSS_DEGRADED,
+                "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+            });
+            continue;
+        }
+
         std::string content_path = "messages[" + std::to_string(i) + "].content";
         OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools, true));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         req.messages.push_back(ir::Message{role, std::move(c_res.first)});
+    }
+    if (req.messages.empty()) {
+        return invalid_argument("anthropic: request carries no messages");
     }
 
     ir::Params params;

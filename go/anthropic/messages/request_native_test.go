@@ -854,4 +854,84 @@ func TestNativeToolDeferLoading(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "tool defer_loading must be a boolean") {
 		t.Fatalf("expected boolean type error, got %v", err)
 	}
+
+	// 5. whitespace boolean annotation round-trips
+	maxTokens := int64(16000)
+	reqWhitespace := &ir.Request{
+		Model:    "claude-opus-5-5",
+		Params:   ir.Params{MaxTokens: &maxTokens},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Tools: []ir.Tool{
+			{
+				Name:        "t1",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+				Native: []ir.NativeAnnotation{
+					{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindDeferLoading, Value: " true \n"},
+				},
+			},
+		},
+	}
+	if err := ir.ValidateNativeRequest(reqWhitespace); err != nil {
+		t.Fatalf("validate whitespace boolean failed: %v", err)
+	}
+	encWhitespace, elWhitespace, err := EncodeRequest(reqWhitespace)
+	if err != nil || len(elWhitespace) != 0 {
+		t.Fatalf("encode whitespace boolean failed: %v, losses: %+v", err, elWhitespace)
+	}
+	if len(encWhitespace.Tools) != 1 || encWhitespace.Tools[0].DeferLoading == nil || !*encWhitespace.Tools[0].DeferLoading {
+		t.Fatalf("expected defer_loading: true on wire for whitespace annotation, got %+v", encWhitespace.Tools)
+	}
+
+	// 6. direct IR conflict: Tool with both cache_control and defer_loading
+	reqDirectConflict := &ir.Request{
+		Model:    "claude-opus-5-5",
+		Params:   ir.Params{MaxTokens: &maxTokens},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Tools: []ir.Tool{
+			{
+				Name:        "t1",
+				InputSchema: json.RawMessage(`{"type":"object"}`),
+				Native: []ir.NativeAnnotation{
+					{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindDeferLoading, Value: "true"},
+					{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindCacheControl, Value: `{"type":"ephemeral"}`},
+				},
+			},
+		},
+	}
+	if err := ir.ValidateNativeRequest(reqDirectConflict); err == nil || !strings.Contains(err.Error(), "cannot specify both defer_loading and cache_control") {
+		t.Fatalf("expected direct IR validation conflict error, got %v", err)
+	}
+	if _, _, err := EncodeRequest(reqDirectConflict); err == nil || !strings.Contains(err.Error(), "cannot specify both defer_loading and cache_control") {
+		t.Fatalf("expected direct IR encode conflict error, got %v", err)
+	}
+
+	// 7. native tool declaration with non-boolean defer_loading is preserved opaquely
+	rawNative := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [
+			{"type": "future_20990101", "name": "future", "defer_loading": {"future": true}}
+		]
+	}`)
+	reqNative, lossesNative, err := DecodeRequestJSON(rawNative)
+	if err != nil || len(lossesNative) != 0 {
+		t.Fatalf("native tool decode with arbitrary defer_loading failed: %v, losses: %+v", err, lossesNative)
+	}
+	if len(reqNative.Tools) != 1 || reqNative.Tools[0].Type != ir.ToolTypeNative {
+		t.Fatalf("expected native tool, got %+v", reqNative.Tools)
+	}
+
+	// 8. cache_control: null + defer_loading: true returns conflict error
+	rawNullCache := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"tools": [
+			{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": true, "cache_control": null}
+		]
+	}`)
+	if _, _, err := DecodeRequestJSON(rawNullCache); err == nil || !strings.Contains(err.Error(), "cannot specify both defer_loading and cache_control") {
+		t.Fatalf("expected conflict error with null cache_control, got %v", err)
+	}
 }

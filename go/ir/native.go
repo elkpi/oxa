@@ -123,6 +123,19 @@ func ValidateNativeRequest(req *Request) error {
 		if err := validateAnnotations(tool.Native, hostTool); err != nil {
 			return fmt.Errorf("ir: tools[%d] native invalid: %w", tIdx, err)
 		}
+		var hasCacheControl, hasDeferLoading bool
+		for _, n := range tool.Native {
+			if n.Source == NativeSourceAnthropic {
+				if n.Kind == NativeKindCacheControl {
+					hasCacheControl = true
+				} else if n.Kind == NativeKindDeferLoading {
+					hasDeferLoading = true
+				}
+			}
+		}
+		if hasCacheControl && hasDeferLoading {
+			return fmt.Errorf("ir: tools[%d]: cannot specify both defer_loading and cache_control", tIdx)
+		}
 	}
 
 	return nil

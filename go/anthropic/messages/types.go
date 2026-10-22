@@ -139,20 +139,20 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 	t.Description = s.Description
 	t.InputSchema = s.InputSchema
 	t.CacheControl = s.CacheControl
-	if len(s.DeferLoading) > 0 {
-		if string(s.DeferLoading) == "null" {
-			return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
-		}
-		var b bool
-		if err := json.Unmarshal(s.DeferLoading, &b); err != nil {
-			return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
-		}
-		t.DeferLoading = &b
-	}
 	if isNativeToolType(t.Type) {
 		t.Raw = append([]byte(nil), data...)
 	} else {
 		t.Raw = nil
+		if len(s.DeferLoading) > 0 {
+			if string(s.DeferLoading) == "null" {
+				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
+			}
+			var b bool
+			if err := json.Unmarshal(s.DeferLoading, &b); err != nil {
+				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
+			}
+			t.DeferLoading = &b
+		}
 	}
 	return nil
 }

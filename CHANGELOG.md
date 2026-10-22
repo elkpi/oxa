@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- PR #55 审查修订：
+  - 修订 spec/12 N-AN-15：明确本版不识别 server-tool-result 例外（`assistant` 前驱一律结构错误，识别该例外推迟到后续版本）；文档化空 content 块数组的 system 消息行为（不产生 IR 文本块，仅记录 degraded loss）；规范固化 role 的 degraded loss 先于该消息 content 派生损失的输出顺序。
+  - 修复 Go、Rust typed 解码路径的报损顺序：`messages[i].role` 的 degraded loss 现先于该消息 content 派生的损失（如非法 `cache_control` 的 unmapped-value），与 spec/02 源 encounter order 一致；TypeScript、Python、C++ 经审计层按源位置排序本就正确，补回归测试钉住。
+  - 移除 Go 解码器中恒为 false 的 server tool 例外占位函数，对齐规范修订。
+  - 新增共享黄金向量 `anthropic.nonstream.mid-conversation-system-blocks-to-ir`，锁定块数组 content 的 `cache_control` 原生注解保留语义（向量总数 347 → 348）。
 - Anthropic Messages 会话中间 `role: "system"` 消息支持与降级折叠规范 (N-AN-15)：
   - 修复 Anthropic Messages 解码器将 `messages[]` 中合法的会话中间 `role: "system"` 消息直接作为未知角色拒绝（`unknown role "system"`），导致 Claude Code 等官方客户端请求无法走 OXA 路径的问题。
   - 依据 Anthropic 官方 GA 规范制定 N-AN-15 规则：

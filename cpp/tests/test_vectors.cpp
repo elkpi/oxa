@@ -94,7 +94,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 89);
+        CHECK(r->executed == 91);
     }
 
     // 3. Responses nonstream

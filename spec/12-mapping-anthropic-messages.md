@@ -15,15 +15,17 @@ interpreted as described in RFC 2119 and RFC 8174 (see
 The Messages face is Anthropic's `POST /v1/messages` protocol: a
 required top-level `max_tokens`, an optional `system` (string or block
 array), and a `messages` array whose content is a string or a block
-array (`text`, `image`, `tool_use`, `tool_result`). Conversion is
-near-identity for the supported subset; Anthropic-only annotations
-(`cache_control`, `disable_parallel_tool_use`, `metadata.user_id`) are
-dropped with losses rather than errors (spec/02). Errors are reserved
+array (`text`, `image`, `tool_use`, `tool_result`). Mid-conversation
+system messages (`role: "system"` in `messages[]`) are supported and
+folded into the request-level `system` list with a `degraded` loss (N-AN-15).
+Conversion is near-identity for the supported subset; Anthropic-only
+annotations (`cache_control`, `disable_parallel_tool_use`, `metadata.user_id`)
+are dropped with losses rather than errors (spec/02). Errors are reserved
 for structural violations: a missing or non-positive `max_tokens`,
-unknown `role` values, missing or malformed content, missing
-`tool_use` id/name/input, missing `tool_result.tool_use_id`, a
-`tool_use.input`/`input_schema` that is not a JSON object, a missing
-`stop_reason`, or a request with no messages.
+unknown `role` values, invalid `role: "system"` placement or content,
+missing or malformed content, missing `tool_use` id/name/input, missing
+`tool_result.tool_use_id`, a `tool_use.input`/`input_schema` that is not
+a JSON object, a missing `stop_reason`, or a request with no messages.
 
 ## 2. Wire Objects
 
@@ -38,8 +40,8 @@ The wire objects in scope are:
 - **Request**: `model`, `system`, `messages[]`, `max_tokens`
   (required), `temperature`, `top_p`, `stop_sequences`, `metadata`,
   `tools[]`, `tool_choice`.
-- **Message**: `role` (`user` | `assistant`), `content` (string or
-  block array).
+- **Message**: `role` (`user` | `assistant` | mid-conversation `system`),
+  `content` (string or block array).
 - **Block**: `text` (`text`), `image` (`source`), `tool_use`
   (`id`, `name`, `input`), `tool_result` (`tool_use_id`, `content`,
   `is_error`); every block may carry a `cache_control` annotation.
@@ -58,6 +60,7 @@ The wire objects in scope are:
 | `model` | `Request.Model` | via model map (spec/03) |
 | `system` (string) | one `SystemBlock` | N-AN-1 |
 | `system[]` (block array, `type: "text"`) | `SystemBlock[]` in order | N-AN-1; `cache_control` lost |
+| `messages[role=system]` | `Request.System[]` | mid-conversation system message appended to `Request.System` with `degraded` loss; text-only (N-AN-15) |
 | `messages[].content` | `Message.Content` blocks (or one `TextBlock` for string content) | N-AN-5 |
 | `max_tokens` | `Params.MaxTokens` | required and MUST be positive on decode; defaulted on encode (N-AN-2) |
 | `temperature` | `Params.Temperature` | 1:1 |
@@ -238,6 +241,36 @@ Each rule has a stable ID usable as a vector tag.
   No loss is emitted on Decode when these options are preserved. On Encode (IR → Messages), these options
   are restored to their original wire locations with full fidelity, subject to the explicit-edit priority
   rules of spec/15 §5.
+- **N-AN-15 (mid-conversation system messages).** Anthropic Messages allows
+  `role: "system"` messages inside `messages[]` as a mid-conversation operator channel.
+  On decode (AN → IR):
+  - **Placement validation.** A `role: "system"` message MUST NOT appear at `messages[0]`
+    (top-level `system` MUST be used for the initial prompt; violation is a structural error).
+    A mid-conversation system message (or run of consecutive system messages) MUST follow
+    a `user` turn, and MUST either be the last entry in `messages` or be immediately followed
+    by an `assistant` turn. A system message followed directly by a `user` turn is a
+    structural error. The documented server-tool exception (an `assistant` turn ending in a
+    server tool result) is NOT recognized in this version: any `assistant` predecessor is
+    rejected as a structural error; recognizing it is deferred to a follow-up release.
+  - **Content validation.** Content MUST be a string or an array of blocks where every block
+    is `type: "text"`. Non-text block types (e.g. `image`, `tool_use`, `tool_result`) are
+    structural errors. An empty block array carries no text: no IR system blocks are
+    produced and only the degraded role loss is recorded (the API's effort-only message
+    shape; any extra fields on such a message are audited as unmapped-field losses per
+    spec/02).
+  - **Destination.** Extracted text blocks are appended in encounter order to `Request.System[]`,
+    following any top-level `system` blocks and preceding mid-conversation system messages.
+    If a text block carries a valid `cache_control` annotation, it is preserved as a
+    `NativeAnnotation` on that `SystemBlock` per spec/15.
+  - **Loss reporting.** Because IR `Request.System` is request-level and cannot represent
+    the mid-conversation position or activation point, each decoded mid-conversation
+    system message records exactly one `degraded` loss:
+    `{ "path": "messages[i].role", "field": "role", "reason": "degraded", "detail": "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved." }`.
+    The `degraded` loss is recorded before any losses derived from that message's
+    `content` (spec/02 encounter order: `role` precedes `content` in the wire object;
+    for typed in-memory input this defines the deterministic order).
+  - **Encode (IR → Messages).** `Request.System` renders in top-level `system` (N-AN-1);
+    IR conversation messages retain only `user` and `assistant` roles.
 
 ## 8. Loss Catalog
 
@@ -253,6 +286,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |
 | unknown block type or unknown image source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
+| `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `tool_choice.disable_parallel_tool_use` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `max_tokens` default on encode | degraded | IR → request | N-AN-2: default 4096 applied when IR lacks `Params.MaxTokens` |
 | IR image with both/neither of data and URL, data without `media_type`, URL with `media_type` | unsupported-semantic | IR → request | §4 |

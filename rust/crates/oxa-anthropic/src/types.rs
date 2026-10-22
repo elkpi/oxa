@@ -13,6 +13,7 @@ use serde_json::value::RawValue;
 
 pub const ROLE_USER: &str = "user";
 pub const ROLE_ASSISTANT: &str = "assistant";
+pub const ROLE_SYSTEM: &str = "system";
 
 pub const BLOCK_TYPE_TEXT: &str = "text";
 pub const BLOCK_TYPE_THINKING: &str = "thinking";

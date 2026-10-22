@@ -5,6 +5,27 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.6] - 2026-10-22
+
+### Fixed
+
+- PR #55 审查修订：
+  - 修订 spec/12 N-AN-15：明确本版不识别 server-tool-result 例外（`assistant` 前驱一律结构错误，识别该例外推迟到后续版本）；文档化空 content 块数组的 system 消息行为（不产生 IR 文本块，仅记录 degraded loss）；规范固化 role 的 degraded loss 先于该消息 content 派生损失的输出顺序。
+  - 修复 Go、Rust typed 解码路径的报损顺序：`messages[i].role` 的 degraded loss 现先于该消息 content 派生的损失（如非法 `cache_control` 的 unmapped-value），与 spec/02 源 encounter order 一致；TypeScript、Python、C++ 经审计层按源位置排序本就正确，补回归测试钉住。
+  - 移除 Go 解码器中恒为 false 的 server tool 例外占位函数，对齐规范修订。
+  - 新增共享黄金向量 `anthropic.nonstream.mid-conversation-system-blocks-to-ir`，锁定块数组 content 的 `cache_control` 原生注解保留语义（向量总数 347 → 348）。
+- Anthropic Messages 会话中间 `role: "system"` 消息支持与降级折叠规范 (N-AN-15)：
+  - 修复 Anthropic Messages 解码器将 `messages[]` 中合法的会话中间 `role: "system"` 消息直接作为未知角色拒绝（`unknown role "system"`），导致 Claude Code 等官方客户端请求无法走 OXA 路径的问题。
+  - 依据 Anthropic 官方 GA 规范制定 N-AN-15 规则：
+    - 严格校验 placement 约束（不可为 `messages[0]`，首个指令必须使用顶层 `system`；前驱必须为 `user` 角色；后继不可为 `user` 角色）；违规返回明确结构错误。
+    - 严格校验 content 约束（仅允许纯文本字符串或 `type: "text"` 块数组，非文本块返回结构错误）。
+    - 将会话中间 system 消息文本追加至 IR `Request.System[]`，并保留文本块上的 `cache_control` 原生注解。
+    - 由于 IR 请求级 `system` 位于消息序列前缀、无法保留指令中间生效位置，逐条折叠消息记录一条自描述的 `degraded` 损失（`path: "messages[i].role", field: "role"`）。
+  - 在 Go、TypeScript、Python、Rust、C++ 五种语言中同步实现上述校验与折叠契约，并通过新增共享黄金向量 `anthropic.nonstream.mid-conversation-system-to-ir`（向量总数达到 347）。
+- 版本与规范状态：
+  - 更新 Spec 版本至 `2.4.6`，IR contract 保持 `0.2.0`；
+  - 更新 README、规范说明与各语言版本状态矩阵至 `v2.4.6` 准备态，标明最新已发布版本为 `v2.4.3`。
+
 ## [v2.4.5] - 2026-10-21
 
 ### Fixed

@@ -8,8 +8,7 @@ import json
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT as AN_ROLE_ASSISTANT,
-)
-from oxa.anthropic.messages.constants import (
+    ROLE_SYSTEM as AN_ROLE_SYSTEM,
     ROLE_USER as AN_ROLE_USER,
 )
 from oxa.anthropic.messages.constants import (
@@ -46,6 +45,7 @@ from oxa.ir import (
     ReasoningEffort,
     Request,
     Response,
+    TextBlock,
     Tool,
     Usage,
 )
@@ -183,10 +183,66 @@ def decode_request(
     if not raw_messages:
         raise ValueError("anthropic: request carries no messages")
 
+    for i, msg in enumerate(raw_messages):
+        role_str = msg.get("role", "")
+        if role_str == AN_ROLE_SYSTEM:
+            if i == 0:
+                raise ValueError("anthropic: messages[0]: system message cannot appear at messages[0]")
+            prev_role = raw_messages[i - 1].get("role", "")
+            if prev_role not in (AN_ROLE_USER, AN_ROLE_SYSTEM):
+                raise ValueError(f"anthropic: messages[{i}]: system message must follow a user turn")
+            last_in_run = i
+            while last_in_run + 1 < len(raw_messages) and raw_messages[last_in_run + 1].get("role", "") == AN_ROLE_SYSTEM:
+                last_in_run += 1
+            if last_in_run + 1 < len(raw_messages):
+                next_role = raw_messages[last_in_run + 1].get("role", "")
+                if next_role != AN_ROLE_ASSISTANT:
+                    raise ValueError(f"anthropic: messages[{i}]: system message must be followed by an assistant turn or be the last message")
+        elif role_str not in (AN_ROLE_USER, AN_ROLE_ASSISTANT):
+            raise ValueError(f"anthropic: messages[{i}]: unknown role {role_str!r}")
+
     custom_call_ids: set[str] = set()
     messages: list[IrMessage] = []
     for index, msg in enumerate(raw_messages):
         role_str = msg.get("role", "")
+        if role_str == AN_ROLE_SYSTEM:
+            content = msg.get("content")
+            if content is None:
+                raise ValueError(f"anthropic: messages[{index}]: content is missing")
+            if isinstance(content, str):
+                system.append(TextBlock(text=content))
+            elif isinstance(content, list):
+                for j, block in enumerate(content):
+                    if not isinstance(block, dict) or block.get("type") != "text":
+                        raise ValueError(f"anthropic: messages[{index}]: system content must be text")
+                    native = ()
+                    if "cache_control" in block:
+                        canon, l = parse_cache_control(block["cache_control"], f"messages[{index}].content[{j}].cache_control")
+                        if l is not None:
+                            losses.append(l)
+                        if canon is not None:
+                            native = (
+                                NativeAnnotation(
+                                    source=NATIVE_SOURCE_ANTHROPIC,
+                                    kind=NATIVE_KIND_CACHE_CONTROL,
+                                    value=canon,
+                                    omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
+                                ),
+                            )
+                    system.append(TextBlock(text=block.get("text", ""), native=native))
+            else:
+                raise ValueError(f"anthropic: messages[{index}]: system content must be text")
+
+            losses.append(
+                loss(
+                    f"messages[{index}].role",
+                    "role",
+                    LOSS_DEGRADED,
+                    "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+                )
+            )
+            continue
+
         if role_str == AN_ROLE_USER:
             role = ROLE_USER
         elif role_str == AN_ROLE_ASSISTANT:

@@ -111,6 +111,124 @@ class AnthropicNonstreamTest(unittest.TestCase):
             any(l.reason == LOSS_UNMAPPED_VALUE and l.field == "stop_reason" for l in losses)
         )
 
+    def test_mid_conversation_system_valid(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "system": [{"type": "text", "text": "Base."}],
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": "Hello"},
+                {"role": "user", "content": "Summarize"},
+                {"role": "system", "content": "Terse mode."},
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "Under 20 words.",
+                            "cache_control": {"type": "ephemeral"},
+                        }
+                    ],
+                },
+            ],
+        }
+        req, losses = decode_request(wire)
+        self.assertEqual(len(req.messages), 3)
+        self.assertEqual(len(req.system), 3)
+        self.assertEqual(req.system[0].text, "Base.")
+        self.assertEqual(req.system[1].text, "Terse mode.")
+        self.assertEqual(req.system[2].text, "Under 20 words.")
+        self.assertEqual(len(req.system[2].native), 1)
+        self.assertEqual(req.system[2].native[0].kind, "cache_control")
+
+        self.assertEqual(len(losses), 2)
+        self.assertEqual(losses[0].path, "messages[3].role")
+        self.assertEqual(losses[0].field, "role")
+        self.assertEqual(losses[0].reason, LOSS_DEGRADED)
+        self.assertIn("carried as request-level system content", losses[0].detail)
+        self.assertEqual(losses[1].path, "messages[4].role")
+        self.assertEqual(losses[1].field, "role")
+        self.assertEqual(losses[1].reason, LOSS_DEGRADED)
+
+    def test_mid_conversation_system_loss_order(self) -> None:
+        wire = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {
+                    "role": "system",
+                    "content": [
+                        {"type": "text", "text": "x", "cache_control": {"type": "ephemeral", "ttl": "10m"}}
+                    ],
+                },
+            ],
+        }
+        req, losses = decode_request(wire)
+        self.assertEqual(len(req.system), 1)
+        self.assertEqual(len(losses), 2)
+        self.assertEqual(losses[0].path, "messages[1].role")
+        self.assertEqual(losses[0].reason, LOSS_DEGRADED)
+        self.assertEqual(losses[1].path, "messages[1].content[0].cache_control.ttl")
+        self.assertEqual(losses[1].reason, LOSS_UNMAPPED_VALUE)
+
+    def test_mid_conversation_system_placement_errors(self) -> None:
+        # at index 0
+        with self.assertRaises(ValueError) as cm:
+            decode_request({
+                "model": "claude-opus-5-5",
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "system", "content": "Init"},
+                    {"role": "user", "content": "Hi"},
+                ],
+            })
+        self.assertIn("messages[0]: system message cannot appear at messages[0]", str(cm.exception))
+
+        # followed by user
+        with self.assertRaises(ValueError) as cm:
+            decode_request({
+                "model": "claude-opus-5-5",
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "system", "content": "Mid"},
+                    {"role": "user", "content": "Another"},
+                ],
+            })
+        self.assertIn("system message must be followed by an assistant turn or be the last message", str(cm.exception))
+
+        # preceded by assistant
+        with self.assertRaises(ValueError) as cm:
+            decode_request({
+                "model": "claude-opus-5-5",
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "assistant", "content": "Answer"},
+                    {"role": "system", "content": "Mid"},
+                ],
+            })
+        self.assertIn("system message must follow a user turn", str(cm.exception))
+
+    def test_mid_conversation_system_content_errors(self) -> None:
+        with self.assertRaises(ValueError) as cm:
+            decode_request({
+                "model": "claude-opus-5-5",
+                "max_tokens": 1024,
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {
+                        "role": "system",
+                        "content": [
+                            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "abc"}}
+                        ],
+                    },
+                ],
+            })
+        self.assertIn("system content must be text", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -573,6 +573,83 @@ class NativeRequestTest(unittest.TestCase):
             an_decode_request(wire_non_bool)
         self.assertIn("tools[0].defer_loading must be a boolean", str(cm.exception))
 
+        # 5. whitespace boolean annotation round-trips
+        req_whitespace = Request(
+            model="claude-opus-5-5",
+            params=Params(max_tokens=16000),
+            messages=[Message(role="user", content=[TextBlock(text="hi")])],
+            tools=[
+                Tool(
+                    name="t1",
+                    input_schema={"type": "object"},
+                    native=(NativeAnnotation(source="anthropic", kind=NATIVE_KIND_DEFER_LOADING, value=" true \n"),),
+                )
+            ],
+        )
+        validate_native_request(req_whitespace)
+        enc_whitespace, el_whitespace = an_encode_request(req_whitespace)
+        self.assertEqual(len(el_whitespace), 0)
+        self.assertEqual(enc_whitespace["tools"][0].get("defer_loading"), True)
+
+        # 6. direct IR conflict: Tool with both cache_control and defer_loading
+        req_direct_conflict = Request(
+            model="claude-opus-5-5",
+            params=Params(max_tokens=16000),
+            messages=[Message(role="user", content=[TextBlock(text="hi")])],
+            tools=[
+                Tool(
+                    name="t1",
+                    input_schema={"type": "object"},
+                    native=(
+                        NativeAnnotation(source="anthropic", kind=NATIVE_KIND_DEFER_LOADING, value="true"),
+                        NativeAnnotation(source="anthropic", kind="cache_control", value=json.dumps({"type": "ephemeral"})),
+                    ),
+                )
+            ],
+        )
+        with self.assertRaises(Exception) as cm:
+            validate_native_request(req_direct_conflict)
+        self.assertIn("cannot specify both defer_loading and cache_control", str(cm.exception))
+        with self.assertRaises(Exception) as cm:
+            an_encode_request(req_direct_conflict)
+        self.assertIn("cannot specify both defer_loading and cache_control", str(cm.exception))
+
+        # 7. native tool declaration with non-boolean defer_loading is preserved opaquely
+        wire_native = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "type": "future_20990101",
+                    "name": "future",
+                    "defer_loading": {"future": True},
+                }
+            ],
+        }
+        req_native, losses_native = an_decode_request(wire_native)
+        self.assertEqual(len(losses_native), 0)
+        self.assertEqual(len(req_native.tools), 1)
+        self.assertEqual(req_native.tools[0].type, "native")
+
+        # 8. cache_control: null + defer_loading: true returns conflict error
+        wire_null_cache = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [
+                {
+                    "name": "t1",
+                    "input_schema": {"type": "object"},
+                    "defer_loading": True,
+                    "cache_control": None,
+                }
+            ],
+        }
+        with self.assertRaises(ValueError) as cm:
+            an_decode_request(wire_null_cache)
+        self.assertIn("cannot specify both defer_loading and cache_control", str(cm.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

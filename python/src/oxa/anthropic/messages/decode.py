@@ -146,7 +146,7 @@ def decode_request(
                 dl = tool["defer_loading"]
                 if not isinstance(dl, bool):
                     raise ValueError(f"anthropic: tools[{index}].defer_loading must be a boolean")
-                if dl is True and "cache_control" in tool and tool["cache_control"] is not None:
+                if dl is True and "cache_control" in tool:
                     raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
             native: tuple[NativeAnnotation, ...] = ()
             if tool.get("defer_loading") is True:

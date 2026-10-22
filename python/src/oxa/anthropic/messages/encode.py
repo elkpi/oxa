@@ -166,6 +166,8 @@ def encode_request(
                     t_dict["cache_control"] = cc
                 if get_tool_defer_loading(tool.native):
                     t_dict["defer_loading"] = True
+                if "cache_control" in t_dict and "defer_loading" in t_dict:
+                    raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
                 tools_wire.append(t_dict)
                 continue
             if tool.type == "apply_patch":
@@ -183,6 +185,8 @@ def encode_request(
                 t_dict["cache_control"] = cc
             if get_tool_defer_loading(tool.native):
                 t_dict["defer_loading"] = True
+            if "cache_control" in t_dict and "defer_loading" in t_dict:
+                raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
             tools_wire.append(t_dict)
         if tools_wire:
             out["tools"] = tools_wire

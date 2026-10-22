@@ -102,6 +102,16 @@ def validate_native_request(req: Any) -> None:
 
     for t_idx, tool in enumerate(getattr(req, "tools", ()) or ()):
         validate_annotations(getattr(tool, "native", ()), HostType.TOOL, f"tools[{t_idx}]")
+        has_cache_control = False
+        has_defer_loading = False
+        for n in getattr(tool, "native", ()) or ():
+            if n.source == NATIVE_SOURCE_ANTHROPIC:
+                if n.kind == NATIVE_KIND_CACHE_CONTROL:
+                    has_cache_control = True
+                elif n.kind == NATIVE_KIND_DEFER_LOADING:
+                    has_defer_loading = True
+        if has_cache_control and has_defer_loading:
+            raise CodecError(f"ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control")
 
 
 def validate_annotations(

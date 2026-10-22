@@ -361,8 +361,11 @@ def get_tool_defer_loading(native: tuple[NativeAnnotation, ...] | list[NativeAnn
     if not native:
         return False
     for n in native:
-        if n.source == NATIVE_SOURCE_ANTHROPIC and n.kind == NATIVE_KIND_DEFER_LOADING and n.value == "true":
-            return True
+        if n.source == NATIVE_SOURCE_ANTHROPIC and n.kind == NATIVE_KIND_DEFER_LOADING:
+            try:
+                return json.loads(n.value) is True
+            except Exception:
+                pass
     return False
 
 

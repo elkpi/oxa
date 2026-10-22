@@ -113,7 +113,24 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 &format!("tools[{index}].input_schema"),
             )?;
             let mut native = Vec::new();
-            if let Some(ref cc) = tool.cache_control {
+            if tool.defer_loading == Some(true) {
+                if tool.cache_control.is_some() {
+                    return Err(Error::new(format!(
+                        "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"
+                    )));
+                }
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
+                    value: "true".into(),
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "defer_loading".into(),
+                        reason: LossReason::Degraded,
+                        detail: Some(oxa_ir::DEFER_LOADING_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            } else if let Some(ref cc) = tool.cache_control {
                 let path = format!("tools[{index}].cache_control");
                 let (canon, l) = crate::native::parse_cache_control(cc, &path);
                 if let Some(loss) = l {

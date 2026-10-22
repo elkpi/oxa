@@ -150,6 +150,7 @@ pub struct ToolWire {
     pub description: String,
     pub input_schema: Option<Value>,
     pub cache_control: Option<Value>,
+    pub defer_loading: Option<bool>,
     pub raw_definition: Option<String>,
 }
 
@@ -196,6 +197,15 @@ impl<'de> Deserialize<'de> for ToolWire {
             .to_string();
         let input_schema = map.get("input_schema").cloned();
         let cache_control = map.get("cache_control").cloned();
+        let defer_loading = match map.get("defer_loading") {
+            None => None,
+            Some(Value::Bool(b)) => Some(*b),
+            Some(_) => {
+                return Err(serde::de::Error::custom(
+                    "anthropic: tool defer_loading must be a boolean",
+                ));
+            }
+        };
         let is_native = tool_type
             .as_deref()
             .is_some_and(|t| !t.is_empty() && t != "function" && t != "custom");
@@ -205,6 +215,7 @@ impl<'de> Deserialize<'de> for ToolWire {
             description,
             input_schema,
             cache_control,
+            defer_loading,
             raw_definition: is_native.then(|| raw_json.get().to_string()),
         })
     }
@@ -231,6 +242,8 @@ impl Serialize for ToolWire {
             input_schema: Option<&'a Value>,
             #[serde(skip_serializing_if = "Option::is_none")]
             cache_control: Option<&'a Value>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            defer_loading: Option<bool>,
         }
         let s = Shadow {
             tool_type: self.tool_type.as_deref(),
@@ -238,6 +251,7 @@ impl Serialize for ToolWire {
             description: &self.description,
             input_schema: self.input_schema.as_ref(),
             cache_control: self.cache_control.as_ref(),
+            defer_loading: self.defer_loading,
         };
         s.serialize(serializer)
     }

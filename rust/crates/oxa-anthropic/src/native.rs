@@ -525,6 +525,18 @@ pub fn get_block_cache_control(native: &[NativeAnnotation]) -> Option<Value> {
     None
 }
 
+pub fn get_tool_defer_loading(native: &[NativeAnnotation]) -> Option<bool> {
+    for n in native {
+        if n.source == NATIVE_SOURCE_ANTHROPIC
+            && n.kind == oxa_ir::NATIVE_KIND_DEFER_LOADING
+            && n.value == "true"
+        {
+            return Some(true);
+        }
+    }
+    None
+}
+
 pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
     let mut losses = Vec::new();
 

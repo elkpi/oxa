@@ -119,6 +119,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "required": ["input"],
                     })),
                     cache_control: crate::native::get_block_cache_control(&tool.native),
+                    defer_loading: crate::native::get_tool_defer_loading(&tool.native),
                     raw_definition: None,
                 });
                 continue;
@@ -144,6 +145,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 description: tool.description.clone().unwrap_or_default(),
                 input_schema: Some(schema_val.clone()),
                 cache_control: crate::native::get_block_cache_control(&tool.native),
+                defer_loading: crate::native::get_tool_defer_loading(&tool.native),
                 raw_definition: None,
             });
         }

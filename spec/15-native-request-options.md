@@ -78,12 +78,12 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
   - `true`：保留为 `kind: "defer_loading"` 的 `NativeAnnotation`，其 `value` 为 `"true"`。
   - `false` 或缺失：作为 API 默认行为，不生成 `NativeAnnotation`，不产生任何损失。
   - 显式非布尔类型（如数字、字符串、对象等）：属于结构类型错误（type violation），返回结构解析错误（error）。
-- 互斥约束：同一个工具声明若同时携带 `defer_loading: true` 与 `cache_control`，属于 Anthropic API 冲突配置，解码器返回结构错误（error: `anthropic: tools[i]: cannot specify both defer_loading and cache_control`）。
+- 互斥约束：同一个工具声明若同时携带 `defer_loading: true` 与 `cache_control`（包括显式 `null`），属于 Anthropic API 冲突配置，解码器返回结构错误（error: `anthropic: tools[i]: cannot specify both defer_loading and cache_control`）。若直接构造或编辑的 IR 请求在同一 Tool 宿主上同时包含 `defer_loading` 与 `cache_control` 原生配置，IR 请求校验例程（如 `ValidateNativeRequest`）与 Anthropic 编码器亦必须作为冲突结构错误拒绝。
 - 跨面遗漏与损失：当携带 `defer_loading` 附加项的 IR 编码至无延迟装载支持的目标面（OpenAI Chat Completions、OpenAI Responses）时，由于工具定义本身已完整下发至目标上下文，仅上下文按需加载优化退化，遗漏原因记录为 `degraded`：
   - `omission.field`: `"defer_loading"`
   - `omission.reason`: `"degraded"`
   - `omission.detail`: `"deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"`
-- 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "defer_loading"` 且值为 `"true"`，在 wire 工具对象上输出 `"defer_loading": true`。
+- 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "defer_loading"` 且其 JSON 布尔解析为 `true`（允许合法空白），在 wire 工具对象上输出 `"defer_loading": true`。
 
 ## 4. 跨协议遗漏报损 — N-NAT-4
 
@@ -131,3 +131,4 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 2. **Singleton 约束**：同一宿主下同一 `(source, kind)` 出现多次，返回结构错误（error）。
 3. **宿主合法性**：已知 kind 出现在未授权宿主上，返回结构错误（error）。
 4. **投影绑定冲突**：同一请求同时包含多个 conflicting effort 投影，或投影字段损坏，返回结构错误（error）。通用 effort 与 baseline 正常相异属于编辑，NOT an error。
+5. **Tool 原生选项互斥**：同一 Tool 宿主上不得同时存在 `source: "anthropic"` 的 `defer_loading` 与 `cache_control`；存在冲突时返回结构错误（error）。

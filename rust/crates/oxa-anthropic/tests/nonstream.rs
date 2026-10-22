@@ -679,6 +679,26 @@ fn test_mid_conversation_system_messages() {
 }
 
 #[test]
+fn test_mid_conversation_system_loss_order() {
+    let wire = wire_request(serde_json::json!({
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "system", "content": [
+                {"type": "text", "text": "x", "cache_control": {"type": "ephemeral", "ttl": "10m"}}
+            ]}
+        ]
+    }));
+    let (_, losses) = decode_request(&wire, &Config::default()).expect("decode request");
+    assert_eq!(losses.len(), 2);
+    assert_eq!(losses[0].path, "messages[1].role");
+    assert_eq!(losses[0].reason, LossReason::Degraded);
+    assert_eq!(losses[1].path, "messages[1].content[0].cache_control.ttl");
+    assert_eq!(losses[1].reason, LossReason::UnmappedValue);
+}
+
+#[test]
 fn test_mid_conversation_system_placement_and_content_errors() {
     // index 0
     let wire = wire_request(serde_json::json!({

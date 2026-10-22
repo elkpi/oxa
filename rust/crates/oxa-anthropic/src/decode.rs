@@ -204,6 +204,12 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     let mut custom_call_ids = BTreeSet::new();
     for (index, message) in wire.messages.iter().enumerate() {
         if message.role.as_str() == ROLE_SYSTEM {
+            losses.push(loss(
+                format!("messages[{index}].role"),
+                "role",
+                LossReason::Degraded,
+                "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
+            ));
             let Some(content) = message.content.as_ref() else {
                 return Err(Error::new(format!(
                     "anthropic: messages[{index}]: content is missing"
@@ -255,12 +261,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     }
                 }
             }
-            losses.push(loss(
-                format!("messages[{index}].role"),
-                "role",
-                LossReason::Degraded,
-                "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
-            ));
             continue;
         }
 

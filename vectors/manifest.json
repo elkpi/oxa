@@ -121,6 +121,16 @@
       "sha256": "07a17c2a2a3d797f526efa654cc82d0a8f4f51c745ac1f20e0f611bbab471b24"
     },
     {
+      "name": "anthropic.nonstream.mid-conversation-system-blocks-to-ir",
+      "file": "anthropic/nonstream/mid-conversation-system-blocks-to-ir.json",
+      "tags": [
+        "system",
+        "request",
+        "N-AN-15"
+      ],
+      "sha256": "c2b750fa79e9ce411331958179cfd80a8c24b5b8f7cd14a8d8488ee4e7766d29"
+    },
+    {
       "name": "anthropic.nonstream.mid-conversation-system-to-ir",
       "file": "anthropic/nonstream/mid-conversation-system-to-ir.json",
       "tags": [

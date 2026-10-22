@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 90);
+    CHECK(rep_res->executed == 91);
 
     // Test mid-conversation system messages
     {
@@ -82,6 +82,29 @@ int main() {
             CHECK(decoded->losses[1].path == "messages[4].role");
             CHECK(decoded->losses[1].field == "role");
             CHECK(decoded->losses[1].reason == oxa::ir::LOSS_DEGRADED);
+        }
+
+        // Loss order: role loss precedes content-derived losses
+        {
+            auto order_wire = oxa::json::parse(R"({
+                "model": "claude-opus-5-5", "max_tokens": 1024,
+                "messages": [
+                    {"role": "user", "content": "Hi"},
+                    {"role": "system", "content": [
+                        {"type": "text", "text": "x", "cache_control": {"type": "ephemeral", "ttl": "10m"}}
+                    ]}
+                ]
+            })");
+            CHECK(order_wire.ok());
+            auto dec_order = oxa::anthropic::messages::decode_request(*order_wire);
+            CHECK(dec_order.ok());
+            if (dec_order.ok()) {
+                CHECK(dec_order->losses.size() == 2);
+                CHECK(dec_order->losses[0].path == "messages[1].role");
+                CHECK(dec_order->losses[0].reason == oxa::ir::LOSS_DEGRADED);
+                CHECK(dec_order->losses[1].path == "messages[1].content[0].cache_control.ttl");
+                CHECK(dec_order->losses[1].reason == oxa::ir::LOSS_UNMAPPED_VALUE);
+            }
         }
 
         // Placement error: index 0

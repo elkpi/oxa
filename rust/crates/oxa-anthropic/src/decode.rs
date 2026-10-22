@@ -256,7 +256,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 }
             }
             losses.push(loss(
-                &format!("messages[{index}].role"),
+                format!("messages[{index}].role"),
                 "role",
                 LossReason::Degraded,
                 "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",

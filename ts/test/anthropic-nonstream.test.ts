@@ -340,7 +340,9 @@ test("rejects invalid mid-conversation system placement and content", () => {
       }),
     (error: unknown) =>
       error instanceof OxaError &&
-      error.message.includes("messages[0]: system message cannot appear at messages[0]"),
+      error.message.includes(
+        "messages[0]: system message cannot appear at messages[0]",
+      ),
   );
 
   // system followed by user
@@ -357,7 +359,9 @@ test("rejects invalid mid-conversation system placement and content", () => {
       }),
     (error: unknown) =>
       error instanceof OxaError &&
-      error.message.includes("system message must be followed by an assistant turn or be the last message"),
+      error.message.includes(
+        "system message must be followed by an assistant turn or be the last message",
+      ),
   );
 
   // system preceded by assistant
@@ -390,7 +394,11 @@ test("rejects invalid mid-conversation system placement and content", () => {
             content: [
               {
                 type: "image",
-                source: { type: "base64", media_type: "image/png", data: "abc" },
+                source: {
+                  type: "base64",
+                  media_type: "image/png",
+                  data: "abc",
+                },
               },
             ],
           },

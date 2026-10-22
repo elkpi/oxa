@@ -465,7 +465,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             losses.push_back(ir::Loss{
                 "messages[" + std::to_string(i) + "].role",
                 "role",
-                ir::LOSS_DEGRADED,
+                std::string(ir::LOSS_DEGRADED),
                 "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
             });
             continue;

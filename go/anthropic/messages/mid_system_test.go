@@ -1,6 +1,7 @@
 package messages
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -121,6 +122,34 @@ func TestMidConversationSystem_PlacementErrors(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %q", tc.errContains, err.Error())
 			}
 		})
+	}
+}
+
+func TestMidConversationSystem_LossOrderRoleBeforeContent(t *testing.T) {
+	wire := &Request{
+		Model:     "claude-opus-5-5",
+		MaxTokens: 1024,
+		Messages: []Message{
+			{Role: RoleUser, Content: "Hi"},
+			{Role: RoleSystem, Content: []BlockWire{{
+				Type:         BlockTypeText,
+				Text:         "x",
+				CacheControl: json.RawMessage(`{"type":"ephemeral","ttl":"10m"}`),
+			}}},
+		},
+	}
+	_, losses, err := DecodeRequest(wire)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	if len(losses) != 2 {
+		t.Fatalf("expected 2 losses, got %d (%+v)", len(losses), losses)
+	}
+	if losses[0].Path != "messages[1].role" || losses[0].Reason != ir.LossDegraded {
+		t.Errorf("expected role loss first, got %+v", losses[0])
+	}
+	if losses[1].Path != "messages[1].content[0].cache_control.ttl" || losses[1].Reason != ir.LossUnmappedValue {
+		t.Errorf("expected ttl loss second, got %+v", losses[1])
 	}
 }
 

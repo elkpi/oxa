@@ -152,18 +152,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	for i, m := range wire.Messages {
 		if m.Role == RoleSystem {
-			sysBlocks, sysBlockLosses, err := decodeSystemMessageContent(m.Content, i)
-			if err != nil {
-				return nil, nil, err
-			}
-			req.System = append(req.System, sysBlocks...)
-			losses = append(losses, sysBlockLosses...)
 			losses = append(losses, ir.Loss{
 				Path:   fmt.Sprintf("messages[%d].role", i),
 				Field:  "role",
 				Reason: ir.LossDegraded,
 				Detail: "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved.",
 			})
+			sysBlocks, sysBlockLosses, err := decodeSystemMessageContent(m.Content, i)
+			if err != nil {
+				return nil, nil, err
+			}
+			req.System = append(req.System, sysBlocks...)
+			losses = append(losses, sysBlockLosses...)
 			continue
 		}
 

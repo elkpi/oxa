@@ -4,6 +4,7 @@ from typing import Final
 
 ROLE_USER: Final = "user"
 ROLE_ASSISTANT: Final = "assistant"
+ROLE_SYSTEM: Final = "system"
 
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"

@@ -46,7 +46,7 @@ INV-3/4 同时适用于 function/custom 调用及结果：同一 assistant turn 
 
 output 字符串直接映射。数组 input_text 映射 TextBlock；input_image 的 https/data URL 映射 ImageBlock。input_file、file_id-only 图片等不能表达的内容 MUST 按项记录 unsupported-semantic；图片 detail 等未建模属性记录 unmapped-field。数组项目被全部丢弃时仍保存 output:[] 和关联标识。未知字段必须按 spec/02 的存在性和来源顺序审计；整体不支持的项目不再递归产生字段 loss。
 
-SDK 的 async/caller/namespace/allowed_callers/defer_loading 等未纳入当前 IR 的属性，不得静默忽略；按字段审计，不作为无损 envelope。
+SDK 的 async/caller/namespace/allowed_callers 等未纳入当前 IR 的属性，不得静默忽略；按字段审计，不作为无损 envelope（Anthropic 工具 defer_loading 属性自规范 2.4.7 起由 spec/15 NativeAnnotation 显式建模）。
 
 ## 4. 流式 — N-C-4
 

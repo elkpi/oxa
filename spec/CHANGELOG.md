@@ -5,6 +5,18 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.7 - 2026-10-22
+
+### Added
+
+- [15 — Native Request Options](15-native-request-options.md)：
+  - §2 表格新增 `Tool` 宿主支持的 `defer_loading`（仅限 `true`）原生选项。
+  - §3.4 规范定义 `defer_loading` 解析保真、`false`/缺省默认行为、与 `cache_control` 的互斥性约束、原生回转以及跨面至 OpenAI（Chat Completions / Responses）时的 `degraded` 降级遗漏损失。
+- [12 — Mapping Anthropic Messages](12-mapping-anthropic-messages.md)：
+  - 增加 `tools[].defer_loading` 的解码保真与跨面降级损失映射。
+- [13 — Custom Tools](13-custom-tools.md)：
+  - 明确 `defer_loading` 已由 `spec/15` NativeAnnotation 显式建模，移出未知字段审计列表。
+
 ## 2.4.2 - 2026-10-18
 
 ### Changed

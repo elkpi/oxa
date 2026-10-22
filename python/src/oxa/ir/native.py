@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from oxa.ir.constants import (
+    LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     ReasoningEffort,
 )
@@ -20,6 +21,11 @@ NATIVE_KIND_THINKING_DISPLAY = "thinking_display"
 NATIVE_KIND_OUTPUT_EFFORT = "output_effort"
 NATIVE_KIND_CACHE_CONTROL = "cache_control"
 NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management"
+NATIVE_KIND_DEFER_LOADING = "defer_loading"
+
+DEFER_LOADING_LOSS_DETAIL = (
+    "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
+)
 
 CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
 
@@ -96,6 +102,16 @@ def validate_native_request(req: Any) -> None:
 
     for t_idx, tool in enumerate(getattr(req, "tools", ()) or ()):
         validate_annotations(getattr(tool, "native", ()), HostType.TOOL, f"tools[{t_idx}]")
+        has_cache_control = False
+        has_defer_loading = False
+        for n in getattr(tool, "native", ()) or ():
+            if n.source == NATIVE_SOURCE_ANTHROPIC:
+                if n.kind == NATIVE_KIND_CACHE_CONTROL:
+                    has_cache_control = True
+                elif n.kind == NATIVE_KIND_DEFER_LOADING:
+                    has_defer_loading = True
+        if has_cache_control and has_defer_loading:
+            raise CodecError(f"ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control")
 
 
 def validate_annotations(
@@ -160,6 +176,11 @@ def validate_annotations(
                     raise CodecError("invalid cache_control object")
                 if "ttl" in parsed_json and parsed_json["ttl"] not in ("5m", "1h"):
                     raise CodecError(f'invalid cache_control ttl {parsed_json["ttl"]!r}')
+            elif ann.kind == NATIVE_KIND_DEFER_LOADING:
+                if host != HostType.TOOL:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Tool")
+                if parsed_json is not True:
+                    raise CodecError(f"invalid defer_loading {parsed_json!r}")
 
 
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
@@ -318,6 +339,27 @@ def _append_omission_loss(
         field = "cache_control"
         reason = LOSS_UNMAPPED_FIELD
         detail = CACHE_CONTROL_LOSS_DETAIL
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(
+            Loss(
+                path=path,
+                field=field,
+                reason=reason,
+                detail=detail,
+            )
+        )
+        return
+
+    if ann.kind == NATIVE_KIND_DEFER_LOADING:
+        field = "defer_loading"
+        reason = LOSS_DEGRADED
+        detail = DEFER_LOADING_LOSS_DETAIL
         if ann.omission is not None:
             if ann.omission.field:
                 field = ann.omission.field

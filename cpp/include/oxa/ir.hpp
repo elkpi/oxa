@@ -39,9 +39,13 @@ inline constexpr std::string_view NATIVE_KIND_THINKING_DISPLAY = "thinking_displ
 inline constexpr std::string_view NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
 inline constexpr std::string_view NATIVE_KIND_CACHE_CONTROL = "cache_control";
 inline constexpr std::string_view NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
+inline constexpr std::string_view NATIVE_KIND_DEFER_LOADING = "defer_loading";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+inline constexpr std::string_view DEFER_LOADING_LOSS_DETAIL =
+    "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";

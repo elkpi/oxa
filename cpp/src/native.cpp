@@ -92,6 +92,13 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                         return invalid_argument("invalid cache_control ttl \"" + ttl_str + "\"");
                     }
                 }
+            } else if (ann.kind == NATIVE_KIND_DEFER_LOADING) {
+                if (host != HostType::Tool) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Tool");
+                }
+                if (!parsed->is_bool() || !parsed->as_bool()) {
+                    return invalid_argument("invalid defer_loading " + ann.value);
+                }
             }
         }
     }
@@ -221,6 +228,26 @@ void append_omission_loss(std::vector<Loss>& losses,
         std::string field = "cache_control";
         std::string reason = std::string(LOSS_UNMAPPED_FIELD);
         std::string detail = std::string(CACHE_CONTROL_LOSS_DETAIL);
+        if (ann.omission.has_value()) {
+            if (!ann.omission->field.empty()) field = ann.omission->field;
+            if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+            if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                detail = *ann.omission->detail;
+            }
+        }
+        losses.push_back(Loss{
+            std::string(path),
+            std::move(field),
+            std::move(reason),
+            std::move(detail),
+        });
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_DEFER_LOADING) {
+        std::string field = "defer_loading";
+        std::string reason = std::string(LOSS_DEGRADED);
+        std::string detail = std::string(DEFER_LOADING_LOSS_DETAIL);
         if (ann.omission.has_value()) {
             if (!ann.omission->field.empty()) field = ann.omission->field;
             if (!ann.omission->reason.empty()) reason = ann.omission->reason;
@@ -467,6 +494,20 @@ Status validate_native_request(const Request& req) {
             std::string tool_path = "tools[" + std::to_string(t_idx) + "]";
             auto tool_st = validate_annotations((*req.tools)[t_idx].native, HostType::Tool, tool_path);
             if (!tool_st.ok()) return tool_st;
+            bool has_cache_control = false;
+            bool has_defer_loading = false;
+            for (const auto& n : (*req.tools)[t_idx].native) {
+                if (n.source == NATIVE_SOURCE_ANTHROPIC) {
+                    if (n.kind == NATIVE_KIND_CACHE_CONTROL) {
+                        has_cache_control = true;
+                    } else if (n.kind == NATIVE_KIND_DEFER_LOADING) {
+                        has_defer_loading = true;
+                    }
+                }
+            }
+            if (has_cache_control && has_defer_loading) {
+                return invalid_argument("ir: " + tool_path + ": cannot specify both defer_loading and cache_control");
+            }
         }
     }
 

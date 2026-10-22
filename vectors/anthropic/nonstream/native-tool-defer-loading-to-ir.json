@@ -1,0 +1,76 @@
+{
+  "name": "anthropic.nonstream.native-tool-defer-loading-to-ir",
+  "description": "Tool defer_loading is preserved as native tool option without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 16000,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Call tool."
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Search DB.",
+        "input_schema": {
+          "type": "object"
+        },
+        "defer_loading": true
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Call tool."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Search DB.",
+        "input_schema": {
+          "type": "object"
+        },
+        "native": [
+          {
+            "source": "anthropic",
+            "kind": "defer_loading",
+            "value": "true",
+            "omission": {
+              "field": "defer_loading",
+              "reason": "degraded",
+              "detail": "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
+            }
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tools",
+    "defer-loading",
+    "native"
+  ]
+}

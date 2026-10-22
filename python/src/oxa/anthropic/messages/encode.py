@@ -26,6 +26,7 @@ from oxa.anthropic.messages.constants import (
 from oxa.anthropic.messages.native import (
     encode_request_native,
     get_block_cache_control,
+    get_tool_defer_loading,
 )
 from oxa.anthropic.messages.normalize import (
     encode_system,
@@ -163,6 +164,10 @@ def encode_request(
                 cc = get_block_cache_control(tool.native)
                 if cc is not None:
                     t_dict["cache_control"] = cc
+                if get_tool_defer_loading(tool.native):
+                    t_dict["defer_loading"] = True
+                if "cache_control" in t_dict and "defer_loading" in t_dict:
+                    raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
                 tools_wire.append(t_dict)
                 continue
             if tool.type == "apply_patch":
@@ -178,6 +183,10 @@ def encode_request(
             cc = get_block_cache_control(tool.native)
             if cc is not None:
                 t_dict["cache_control"] = cc
+            if get_tool_defer_loading(tool.native):
+                t_dict["defer_loading"] = True
+            if "cache_control" in t_dict and "defer_loading" in t_dict:
+                raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
             tools_wire.append(t_dict)
         if tools_wire:
             out["tools"] = tools_wire

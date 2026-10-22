@@ -102,6 +102,7 @@ type ToolWire struct {
 	Description  string          `json:"description,omitempty"`
 	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	DeferLoading *bool           `json:"defer_loading,omitempty"`
 	Raw          json.RawMessage `json:"-"`
 }
 
@@ -112,6 +113,7 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 		Description  string          `json:"description,omitempty"`
 		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 		CacheControl json.RawMessage `json:"cache_control,omitempty"`
+		DeferLoading json.RawMessage `json:"defer_loading,omitempty"`
 	}
 	var s shadow
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -141,6 +143,16 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 		t.Raw = append([]byte(nil), data...)
 	} else {
 		t.Raw = nil
+		if len(s.DeferLoading) > 0 {
+			if string(s.DeferLoading) == "null" {
+				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
+			}
+			var b bool
+			if err := json.Unmarshal(s.DeferLoading, &b); err != nil {
+				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
+			}
+			t.DeferLoading = &b
+		}
 	}
 	return nil
 }
@@ -162,6 +174,7 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 		Description  string          `json:"description,omitempty"`
 		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
 		CacheControl json.RawMessage `json:"cache_control,omitempty"`
+		DeferLoading *bool           `json:"defer_loading,omitempty"`
 	}
 	s := shadow{
 		Type:         t.Type,
@@ -169,6 +182,7 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 		Description:  t.Description,
 		InputSchema:  t.InputSchema,
 		CacheControl: t.CacheControl,
+		DeferLoading: t.DeferLoading,
 	}
 	return json.Marshal(s)
 }

@@ -20,10 +20,10 @@ pub use codec::{Error, SPEC_VERSION, from_json, to_json};
 pub use event::{Delta, Event, EventStream};
 pub use loss::{Loss, LossReason};
 pub use native::{
-    CACHE_CONTROL_LOSS_DETAIL, NATIVE_KIND_CACHE_CONTROL, NATIVE_KIND_CONTEXT_MANAGEMENT,
-    NATIVE_KIND_OUTPUT_EFFORT, NATIVE_KIND_THINKING_BUDGET, NATIVE_KIND_THINKING_DISPLAY,
-    NATIVE_KIND_THINKING_MODE, NATIVE_SOURCE_ANTHROPIC, omitted_native_request_losses,
-    validate_native_request,
+    CACHE_CONTROL_LOSS_DETAIL, DEFER_LOADING_LOSS_DETAIL, NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_KIND_CONTEXT_MANAGEMENT, NATIVE_KIND_DEFER_LOADING, NATIVE_KIND_OUTPUT_EFFORT,
+    NATIVE_KIND_THINKING_BUDGET, NATIVE_KIND_THINKING_DISPLAY, NATIVE_KIND_THINKING_MODE,
+    NATIVE_SOURCE_ANTHROPIC, omitted_native_request_losses, validate_native_request,
 };
 pub use request::{
     ApplyPatchCallStatus, ApplyPatchOperation, ApplyPatchResultStatus, Block, CustomToolFormat,

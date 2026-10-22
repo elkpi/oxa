@@ -43,6 +43,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `ToolResultBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control` |
 | `ToolResultBlock.Content` 中的块 | `cache_control` | `messages[i].content[j].content[k].cache_control` |
 | `Tool` | `cache_control` | `tools[i].cache_control` |
+| `Tool` | `defer_loading` | `tools[i].defer_loading`（仅限 `true`） |
 
 任何已知 kind 出现在上述合法宿主之外（例如在 `Message` 或 `Params` 上，或在 `ToolChoice` 上），均属于结构错误。
 
@@ -71,14 +72,27 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 - 未知 edit `type`：跳过该项，产生针对该 edit 的 `unsupported-semantic` loss，不递归审计其子属性；其余合法 edits 正常保留。
 - 已知 edit 中的 trigger/keep 参数枚举值无法解释：跳过该 edit 并产生定位到该参数的 `unmapped-value` loss；MUST NOT 丢弃参数后执行默认策略。若所有 edits 均被跳过，则不生成 `context_management` 附加项。
 
+### 3.4 Defer Loading（规范 2.4.7）
+- `defer_loading` 仅适用于普通或 custom 工具（function / custom 工具声明）。
+- 取值规则：
+  - `true`：保留为 `kind: "defer_loading"` 的 `NativeAnnotation`，其 `value` 为 `"true"`。
+  - `false` 或缺失：作为 API 默认行为，不生成 `NativeAnnotation`，不产生任何损失。
+  - 显式非布尔类型（如数字、字符串、对象等）：属于结构类型错误（type violation），返回结构解析错误（error）。
+- 互斥约束：同一个工具声明若同时携带 `defer_loading: true` 与 `cache_control`（包括显式 `null`），属于 Anthropic API 冲突配置，解码器返回结构错误（error: `anthropic: tools[i]: cannot specify both defer_loading and cache_control`）。若直接构造或编辑的 IR 请求在同一 Tool 宿主上同时包含 `defer_loading` 与 `cache_control` 原生配置，IR 请求校验例程（如 `ValidateNativeRequest`）与 Anthropic 编码器亦必须作为冲突结构错误拒绝。
+- 跨面遗漏与损失：当携带 `defer_loading` 附加项的 IR 编码至无延迟装载支持的目标面（OpenAI Chat Completions、OpenAI Responses）时，由于工具定义本身已完整下发至目标上下文，仅上下文按需加载优化退化，遗漏原因记录为 `degraded`：
+  - `omission.field`: `"defer_loading"`
+  - `omission.reason`: `"degraded"`
+  - `omission.detail`: `"deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"`
+- 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "defer_loading"` 且其 JSON 布尔解析为 `true`（允许合法空白），在 wire 工具对象上输出 `"defer_loading": true`。
+
 ## 4. 跨协议遗漏报损 — N-NAT-4
 
-当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失。Chat Completions 与 Responses 面均无 cache 断点表示，Anthropic 的 `cache_control` 断点（顶层、system、消息内容块、嵌套 tool_result 内容、tools）跨面编码时必然逐断点产生一条 `unmapped-field` 遗漏，detail 见 §3.2：
+当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失。Chat Completions 与 Responses 面均无 cache 断点表示，Anthropic 的 `cache_control` 断点（顶层、system、消息内容块、嵌套 tool_result 内容、tools）跨面编码时必然逐断点产生一条 `unmapped-field` 遗漏，detail 见 §3.2；工具的 `defer_loading` 原生选项跨面编码时必然逐工具产生一条 `degraded` 遗漏，detail 见 §3.4：
 
 ### 4.1 遍历与路径规则
 - 遍历顺序固定为：`Request.native`（下标升序）→ `System` 顺序及其 native → `Messages` 深度优先（消息顺序 → 内容块顺序及其 native → 嵌套 tool_result 内容及其 native）→ `Tools` 顺序及其 native。
-- Encode loss 的 `Path` 基于当前 IR 结构定位到具体的宿主属性（如 `native[0]`、`system[0].native[0]`、`messages[1].content[0].native[0]`）。
-- `Field`、`Reason` 与 `detail` 采用附加项携带的 `omission` 元数据；若 `cache_control` 的 `omission` 缺省或其 `detail` 为空，跨面编码至不支持 cache 断点的目标面时统一缺省填补 §3.2 规定的规范化 `detail` 常量并报 `unmapped-field` 遗漏。
+- Encode loss 的 `Path` 基于当前 IR 结构定位到具体的宿主属性（如 `native[0]`、`system[0].native[0]`、`messages[1].content[0].native[0]`、`tools[0].native[0]`）。
+- `Field`、`Reason` 与 `detail` 采用附加项携带的 `omission` 元数据；若 `cache_control` 的 `omission` 缺省或其 `detail` 为空，跨面编码至不支持 cache 断点的目标面时统一缺省填补 §3.2 规定的规范化 `detail` 常量并报 `unmapped-field` 遗漏；若 `defer_loading` 的 `omission` 缺省或其 `detail` 为空，统一缺省填补 §3.4 规定的规范化 `detail` 常量并报 `degraded` 遗漏。
 
 ### 4.2 Thinking 组合报损去重
 对于 `Request` 上的 thinking 相关配置，遗漏记账规则如下（对应设计 §6.1）：
@@ -117,3 +131,4 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 2. **Singleton 约束**：同一宿主下同一 `(source, kind)` 出现多次，返回结构错误（error）。
 3. **宿主合法性**：已知 kind 出现在未授权宿主上，返回结构错误（error）。
 4. **投影绑定冲突**：同一请求同时包含多个 conflicting effort 投影，或投影字段损坏，返回结构错误（error）。通用 effort 与 baseline 正常相异属于编辑，NOT an error。
+5. **Tool 原生选项互斥**：同一 Tool 宿主上不得同时存在 `source: "anthropic"` 的 `defer_loading` 与 `cache_control`；存在冲突时返回结构错误（error）。

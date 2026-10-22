@@ -89,6 +89,12 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			if cc := getBlockCacheControl(tool); len(cc) > 0 {
 				tw.CacheControl = cc
 			}
+			if dl := getToolDeferLoading(tool); dl != nil {
+				tw.DeferLoading = dl
+			}
+			if len(tw.CacheControl) > 0 && tw.DeferLoading != nil && *tw.DeferLoading {
+				return nil, nil, fmt.Errorf("anthropic: tools[%d]: cannot specify both defer_loading and cache_control", i)
+			}
 			out.Tools = append(out.Tools, tw)
 			continue
 		}
@@ -106,6 +112,12 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 		if cc := getBlockCacheControl(tool); len(cc) > 0 {
 			tw.CacheControl = cc
+		}
+		if dl := getToolDeferLoading(tool); dl != nil {
+			tw.DeferLoading = dl
+		}
+		if len(tw.CacheControl) > 0 && tw.DeferLoading != nil && *tw.DeferLoading {
+			return nil, nil, fmt.Errorf("anthropic: tools[%d]: cannot specify both defer_loading and cache_control", i)
 		}
 		out.Tools = append(out.Tools, tw)
 	}

@@ -8,6 +8,8 @@ import {
   encodeResponse,
   validateRequest,
   CACHE_CONTROL_LOSS_DETAIL,
+  DEFER_LOADING_LOSS_DETAIL,
+  NATIVE_KIND_DEFER_LOADING,
   type Request,
   type TextBlock,
   type NativeAnnotation,
@@ -487,4 +489,185 @@ test("custom tool result with nested native preserves cache_control", () => {
   const innerContent = toolResult.content;
   assert.equal(Array.isArray(innerContent), true);
   assert.equal(innerContent[0]?.cache_control?.type, "ephemeral");
+});
+
+test("defer_loading tool native option round-trip and validation", () => {
+  // 1. defer_loading: true round-trip with zero losses
+  const raw = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        description: "tool 1",
+        input_schema: { type: "object" },
+        defer_loading: true,
+      },
+    ],
+  });
+  const decoded = decodeAnthropicJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+  assert.equal(decoded.value.tools?.[0]?.native?.[0]?.kind, "defer_loading");
+  assert.equal(decoded.value.tools?.[0]?.native?.[0]?.value, "true");
+  assert.equal(
+    decoded.value.tools?.[0]?.native?.[0]?.omission?.reason,
+    "degraded",
+  );
+
+  const encoded = encodeAnthropic(decoded.value);
+  assert.equal(encoded.losses.length, 0);
+  const outTool = (encoded.value as any).tools?.[0];
+  assert.equal(outTool?.defer_loading, true);
+
+  // 2. defer_loading: false produces no native annotation
+  const rawFalse = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: false,
+      },
+    ],
+  });
+  const decodedFalse = decodeAnthropicJSON(rawFalse);
+  assert.equal(decodedFalse.losses.length, 0);
+  assert.equal(decodedFalse.value.tools?.[0]?.native, undefined);
+
+  // 3. conflict: defer_loading: true AND cache_control throws
+  const rawConflict = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: true,
+        cache_control: { type: "ephemeral" },
+      },
+    ],
+  });
+  assert.throws(
+    () => decodeAnthropicJSON(rawConflict),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  // 4. non-boolean defer_loading throws
+  const rawNonBool = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: "true",
+      },
+    ],
+  });
+  assert.throws(
+    () => decodeAnthropicJSON(rawNonBool),
+    /tools\[0\]\.defer_loading must be a boolean/,
+  );
+
+  // 5. whitespace boolean annotation round-trips
+  const reqWhitespace: Request = {
+    model: "claude-opus-5-5",
+    params: { max_tokens: 16000n },
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        native: [
+          {
+            source: "anthropic",
+            kind: NATIVE_KIND_DEFER_LOADING,
+            value: " true \n",
+          },
+        ],
+      },
+    ],
+  };
+  validateNativeRequest(reqWhitespace);
+  const encWhitespace = encodeAnthropic(reqWhitespace);
+  assert.equal(encWhitespace.losses.length, 0);
+  assert.equal((encWhitespace.value as any).tools?.[0]?.defer_loading, true);
+
+  // 6. direct IR conflict: Tool with both cache_control and defer_loading
+  const reqDirectConflict: Request = {
+    model: "claude-opus-5-5",
+    params: { max_tokens: 16000n },
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        native: [
+          {
+            source: "anthropic",
+            kind: NATIVE_KIND_DEFER_LOADING,
+            value: "true",
+          },
+          {
+            source: "anthropic",
+            kind: "cache_control",
+            value: JSON.stringify({ type: "ephemeral" }),
+          },
+        ],
+      },
+    ],
+  };
+  assert.throws(
+    () => validateNativeRequest(reqDirectConflict),
+    /cannot specify both defer_loading and cache_control/,
+  );
+  assert.throws(
+    () => encodeAnthropic(reqDirectConflict),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  // 7. native tool declaration with non-boolean defer_loading is preserved opaquely
+  const rawNative = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        type: "future_20990101",
+        name: "future",
+        defer_loading: { future: true },
+      },
+    ],
+  });
+  const decodedNative = decodeAnthropicJSON(rawNative);
+  assert.equal(decodedNative.losses.length, 0);
+  assert.equal(decodedNative.value.tools?.[0]?.type, "native");
+
+  // 8. cache_control: null + defer_loading: true returns conflict error
+  const rawNullCache = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 16000,
+    messages: [{ role: "user", content: "hi" }],
+    tools: [
+      {
+        name: "t1",
+        input_schema: { type: "object" },
+        defer_loading: true,
+        cache_control: null,
+      },
+    ],
+  });
+  assert.throws(
+    () => decodeAnthropicJSON(rawNullCache),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  // 9. public exports check
+  assert.equal(NATIVE_KIND_DEFER_LOADING, "defer_loading");
+  assert.ok(DEFER_LOADING_LOSS_DETAIL.length > 0);
 });

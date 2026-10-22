@@ -601,6 +601,28 @@
       "sha256": "d2654aee4a54475f914c0814fe06fcea8900f24ff194ad64087f9116534add53"
     },
     {
+      "name": "anthropic.nonstream.native-tool-defer-loading-from-ir",
+      "file": "anthropic/nonstream/native-tool-defer-loading-from-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "defer-loading",
+        "native"
+      ],
+      "sha256": "906f50653b59a311b5d6bfc3139ea228a3831f504049f99955ea0591f2ddbfcb"
+    },
+    {
+      "name": "anthropic.nonstream.native-tool-defer-loading-to-ir",
+      "file": "anthropic/nonstream/native-tool-defer-loading-to-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "defer-loading",
+        "native"
+      ],
+      "sha256": "92661772cbfbcbc1d3a96f57da6172b2d84d294d53b5d183a9c98cdc3e66704e"
+    },
+    {
       "name": "anthropic.nonstream.native-tool-foreign-source-from-ir",
       "file": "anthropic/nonstream/native-tool-foreign-source-from-ir.json",
       "tags": [
@@ -1867,6 +1889,19 @@
       "sha256": "1c078285f808f432f24662c92ce4f40acb99692fc9a883c32d6f3d8c27069da9"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-tool-defer-loading",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-tool-defer-loading.json",
+      "tags": [
+        "cross",
+        "request",
+        "native",
+        "tools",
+        "defer-loading",
+        "loss"
+      ],
+      "sha256": "bd05817b46f9fa0feb8bbbe17f3c9acd1e6db1226208467a17cda9ee47550e69"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-responses-budget-request",
       "file": "cross/nonstream/anthropic-to-responses-budget-request.json",
       "tags": [
@@ -1940,6 +1975,19 @@
         "usage"
       ],
       "sha256": "fd6c3e4131ad83b11eab0dfb53702477fef60e24469650f01acb6bd97f4fa1cd"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",
+      "file": "cross/nonstream/anthropic-to-responses-tool-defer-loading.json",
+      "tags": [
+        "cross",
+        "request",
+        "native",
+        "tools",
+        "defer-loading",
+        "loss"
+      ],
+      "sha256": "8193ac004aa503b81707aa1b2838b4901d4830e7f9e7ff14f2c667cddee60a65"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request",

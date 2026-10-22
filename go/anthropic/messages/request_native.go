@@ -614,3 +614,16 @@ func getBlockCacheControl(item any) json.RawMessage {
 	}
 	return nil
 }
+
+func getToolDeferLoading(tool ir.Tool) *bool {
+	for _, n := range tool.Native {
+		if n.Source == ir.NativeSourceAnthropic && n.Kind == ir.NativeKindDeferLoading {
+			var b bool
+			if err := json.Unmarshal([]byte(n.Value), &b); err == nil && b {
+				val := true
+				return &val
+			}
+		}
+	}
+	return nil
+}

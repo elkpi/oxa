@@ -223,3 +223,224 @@ fn test_custom_tool_result_nested_cache_control() {
     assert_eq!(inner_blocks[0].kind, "text");
     assert!(inner_blocks[0].cache_control.is_some());
 }
+
+#[test]
+fn test_defer_loading_tool_native_option() {
+    let config = Config::default();
+
+    // 1. defer_loading: true round-trip with 0 decode losses
+    let raw = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "t1",
+                "description": "tool 1",
+                "input_schema": {"type": "object"},
+                "defer_loading": true
+            }
+        ]
+    }"#;
+    let (req, losses) = decode_request_json(raw, &config).expect("decode");
+    assert_eq!(losses.len(), 0);
+    let tools = req.tools.as_ref().unwrap();
+    assert_eq!(tools.len(), 1);
+    assert_eq!(tools[0].native.len(), 1);
+    assert_eq!(tools[0].native[0].kind, oxa_ir::NATIVE_KIND_DEFER_LOADING);
+    assert_eq!(tools[0].native[0].value, "true");
+    assert_eq!(
+        tools[0].native[0].omission.as_ref().unwrap().reason,
+        oxa_ir::LossReason::Degraded
+    );
+
+    let (wire, el) = encode_request(&req, &config).expect("encode");
+    assert_eq!(el.len(), 0);
+    assert_eq!(wire.tools.as_ref().unwrap().len(), 1);
+    assert_eq!(wire.tools.as_ref().unwrap()[0].defer_loading, Some(true));
+
+    // 2. defer_loading: false produces no annotation
+    let raw_false = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "t1",
+                "input_schema": {"type": "object"},
+                "defer_loading": false
+            }
+        ]
+    }"#;
+    let (req_false, losses_false) = decode_request_json(raw_false, &config).expect("decode");
+    assert_eq!(losses_false.len(), 0);
+    let tools_false = req_false.tools.as_ref().unwrap();
+    assert_eq!(tools_false[0].native.len(), 0);
+
+    // 3. conflict: defer_loading: true AND cache_control
+    let raw_conflict = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "t1",
+                "input_schema": {"type": "object"},
+                "defer_loading": true,
+                "cache_control": {"type": "ephemeral"}
+            }
+        ]
+    }"#;
+    let err = decode_request_json(raw_conflict, &config).unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("cannot specify both defer_loading and cache_control")
+    );
+
+    // 4. non-boolean defer_loading
+    let raw_non_bool = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "t1",
+                "input_schema": {"type": "object"},
+                "defer_loading": "true"
+            }
+        ]
+    }"#;
+    let err_non_bool = decode_request_json(raw_non_bool, &config).unwrap_err();
+    assert!(
+        err_non_bool
+            .to_string()
+            .contains("tool defer_loading must be a boolean")
+    );
+
+    // 5. whitespace boolean annotation round-trips
+    let req_whitespace = oxa_ir::Request {
+        model: "claude-opus-5-5".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![oxa_ir::Block::Text {
+                text: "hi".into(),
+                native: vec![],
+            }],
+        }],
+        tools: Some(vec![oxa_ir::Tool {
+            tool_type: None,
+            name: "t1".into(),
+            description: None,
+            input_schema: Some(serde_json::json!({"type": "object"})),
+            format: None,
+            native: vec![oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
+                value: " true \n".into(),
+                omission: None,
+                projection: None,
+            }],
+            source: None,
+            definition: None,
+        }]),
+        tool_choice: None,
+        params: Some(oxa_ir::Params {
+            max_tokens: Some(16000),
+            ..Default::default()
+        }),
+        metadata: None,
+        native: vec![],
+    };
+    oxa_ir::validate_native_request(&req_whitespace).expect("validate whitespace");
+    let (enc_whitespace, el_whitespace) = encode_request(&req_whitespace, &config).expect("encode");
+    assert_eq!(el_whitespace.len(), 0);
+    assert_eq!(
+        enc_whitespace.tools.as_ref().unwrap()[0].defer_loading,
+        Some(true)
+    );
+
+    // 6. direct IR conflict: Tool with both cache_control and defer_loading
+    let req_direct_conflict = oxa_ir::Request {
+        model: "claude-opus-5-5".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![oxa_ir::Block::Text {
+                text: "hi".into(),
+                native: vec![],
+            }],
+        }],
+        tools: Some(vec![oxa_ir::Tool {
+            tool_type: None,
+            name: "t1".into(),
+            description: None,
+            input_schema: Some(serde_json::json!({"type": "object"})),
+            format: None,
+            native: vec![
+                oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
+                    value: "true".into(),
+                    omission: None,
+                    projection: None,
+                },
+                oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_CACHE_CONTROL.into(),
+                    value: r#"{"type":"ephemeral"}"#.into(),
+                    omission: None,
+                    projection: None,
+                },
+            ],
+            source: None,
+            definition: None,
+        }]),
+        tool_choice: None,
+        params: Some(oxa_ir::Params {
+            max_tokens: Some(16000),
+            ..Default::default()
+        }),
+        metadata: None,
+        native: vec![],
+    };
+    assert!(oxa_ir::validate_native_request(&req_direct_conflict).is_err());
+    assert!(encode_request(&req_direct_conflict, &config).is_err());
+
+    // 7. native tool declaration with non-boolean defer_loading is preserved opaquely
+    let raw_native = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "type": "future_20990101",
+                "name": "future",
+                "defer_loading": {"future": true}
+            }
+        ]
+    }"#;
+    let (req_native, losses_native) =
+        decode_request_json(raw_native, &config).expect("decode native");
+    assert_eq!(losses_native.len(), 0);
+    assert_eq!(
+        req_native.tools.as_ref().unwrap()[0].tool_type,
+        Some(oxa_ir::ToolType::Native)
+    );
+
+    // 8. cache_control: null + defer_loading: true returns conflict error
+    let raw_null_cache = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 16000,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [
+            {
+                "name": "t1",
+                "input_schema": {"type": "object"},
+                "defer_loading": true,
+                "cache_control": null
+            }
+        ]
+    }"#;
+    assert!(decode_request_json(raw_null_cache, &config).is_err());
+}

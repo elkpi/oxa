@@ -14,10 +14,14 @@ export const NATIVE_KIND_THINKING_DISPLAY = "thinking_display";
 export const NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
 export const NATIVE_KIND_CACHE_CONTROL = "cache_control";
 export const NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
+export const NATIVE_KIND_DEFER_LOADING = "defer_loading";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 
 export const CACHE_CONTROL_LOSS_DETAIL =
   "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+export const DEFER_LOADING_LOSS_DETAIL =
+  "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
 type HostType = "request" | "system" | "content" | "tool";
 
@@ -105,6 +109,23 @@ export function validateNativeRequest(request: Request): void {
   request.tools?.forEach((t, tIdx) => {
     if (t.native) {
       validateAnnotations(t.native, "tool", `tools[${tIdx}]`);
+      let hasCacheControl = false;
+      let hasDeferLoading = false;
+      for (const n of t.native) {
+        if (n.source === NATIVE_SOURCE_ANTHROPIC) {
+          if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
+            hasCacheControl = true;
+          } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
+            hasDeferLoading = true;
+          }
+        }
+      }
+      if (hasCacheControl && hasDeferLoading) {
+        throw new OxaError(
+          "invalid-input",
+          `ir: tools[${tIdx}]: cannot specify both defer_loading and cache_control`,
+        );
+      }
     }
   });
 }
@@ -285,6 +306,20 @@ function validateAnnotations(
             );
           }
           break;
+        case NATIVE_KIND_DEFER_LOADING:
+          if (host !== "tool") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Tool`,
+            );
+          }
+          if (parsedJson !== true) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid defer_loading ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
       }
     }
   }
@@ -451,6 +486,18 @@ function appendOmissionLoss(
       const field = ann.omission?.field || "cache_control";
       const reason = ann.omission?.reason || "unmapped-field";
       const detail = ann.omission?.detail || CACHE_CONTROL_LOSS_DETAIL;
+      losses.push({
+        path,
+        field,
+        reason,
+        detail,
+      });
+      return;
+    }
+    case NATIVE_KIND_DEFER_LOADING: {
+      const field = ann.omission?.field || "defer_loading";
+      const reason = ann.omission?.reason || "degraded";
+      const detail = ann.omission?.detail || DEFER_LOADING_LOSS_DETAIL;
       losses.push({
         path,
         field,

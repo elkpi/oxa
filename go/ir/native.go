@@ -35,6 +35,7 @@ const (
 	NativeKindOutputEffort      = "output_effort"
 	NativeKindCacheControl      = "cache_control"
 	NativeKindContextManagement = "context_management"
+	NativeKindDeferLoading      = "defer_loading"
 )
 
 const (
@@ -44,6 +45,10 @@ const (
 // CacheControlLossDetail is the canonical spec/15 §3.2 capability-gap detail for
 // Anthropic cache breakpoints dropped when crossing to a face without cache_control.
 const CacheControlLossDetail = "anthropic-native cache breakpoint; the target face has no cache_control representation"
+
+// DeferLoadingLossDetail is the canonical spec/15 §3.4 capability-gap detail for
+// Anthropic deferred tool loading dropped when crossing to a face without deferred loading.
+const DeferLoadingLossDetail = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
 
 type hostType int
 
@@ -117,6 +122,20 @@ func ValidateNativeRequest(req *Request) error {
 	for tIdx, tool := range req.Tools {
 		if err := validateAnnotations(tool.Native, hostTool); err != nil {
 			return fmt.Errorf("ir: tools[%d] native invalid: %w", tIdx, err)
+		}
+		var hasCacheControl, hasDeferLoading bool
+		for _, n := range tool.Native {
+			if n.Source == NativeSourceAnthropic {
+				switch n.Kind {
+				case NativeKindCacheControl:
+					hasCacheControl = true
+				case NativeKindDeferLoading:
+					hasDeferLoading = true
+				}
+			}
+		}
+		if hasCacheControl && hasDeferLoading {
+			return fmt.Errorf("ir: tools[%d]: cannot specify both defer_loading and cache_control", tIdx)
 		}
 	}
 
@@ -210,6 +229,14 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 					if ttl != "5m" && ttl != "1h" {
 						return fmt.Errorf("invalid cache_control ttl %v", ttl)
 					}
+				}
+			case NativeKindDeferLoading:
+				if host != hostTool {
+					return fmt.Errorf("anthropic %s is only allowed on Tool", ann.Kind)
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil || !b {
+					return fmt.Errorf("invalid defer_loading %s", ann.Value)
 				}
 			default:
 			}
@@ -415,6 +442,28 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 		field := "cache_control"
 		reason := LossUnmappedField
 		detail := CacheControlLossDetail
+		if ann.Omission != nil {
+			if ann.Omission.Field != "" {
+				field = ann.Omission.Field
+			}
+			if ann.Omission.Reason != "" {
+				reason = ann.Omission.Reason
+			}
+			if ann.Omission.Detail != "" {
+				detail = ann.Omission.Detail
+			}
+		}
+		return append(losses, Loss{
+			Path:   path,
+			Field:  field,
+			Reason: reason,
+			Detail: detail,
+		})
+
+	case NativeKindDeferLoading:
+		field := "defer_loading"
+		reason := LossDegraded
+		detail := DeferLoadingLossDetail
 		if ann.Omission != nil {
 			if ann.Omission.Field != "" {
 				field = ann.Omission.Field

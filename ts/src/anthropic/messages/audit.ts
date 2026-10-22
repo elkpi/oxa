@@ -80,6 +80,7 @@ const TOOL: WireAuditSpec = {
         description: undefined,
         input_schema: undefined,
         cache_control: undefined,
+        defer_loading: undefined,
       },
     };
   },

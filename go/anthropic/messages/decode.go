@@ -66,18 +66,32 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			return nil, nil, err
 		}
 		var nat []ir.NativeAnnotation
+		if tool.DeferLoading != nil && *tool.DeferLoading {
+			if len(tool.CacheControl) > 0 {
+				return nil, nil, fmt.Errorf("anthropic: tools[%d]: cannot specify both defer_loading and cache_control", i)
+			}
+			nat = append(nat, ir.NativeAnnotation{
+				Source:   ir.NativeSourceAnthropic,
+				Kind:     ir.NativeKindDeferLoading,
+				Value:    "true",
+				Omission: &ir.NativeOmission{Field: "defer_loading", Reason: ir.LossDegraded, Detail: ir.DeferLoadingLossDetail},
+			})
+		}
 		if len(tool.CacheControl) > 0 {
+			if tool.DeferLoading != nil && *tool.DeferLoading {
+				return nil, nil, fmt.Errorf("anthropic: tools[%d]: cannot specify both defer_loading and cache_control", i)
+			}
 			canon, l, ok := parseCacheControl(tool.CacheControl, fmt.Sprintf("tools[%d].cache_control", i))
 			if l != nil {
 				losses = append(losses, *l)
 			}
 			if ok {
-				nat = []ir.NativeAnnotation{{
+				nat = append(nat, ir.NativeAnnotation{
 					Source:   ir.NativeSourceAnthropic,
 					Kind:     ir.NativeKindCacheControl,
 					Value:    canon,
 					Omission: &ir.NativeOmission{Field: "cache_control", Reason: ir.LossUnmappedField, Detail: cacheControlLossDetail},
-				}}
+				})
 			}
 		}
 		if isCustomToolInputSchema(tool.InputSchema) {

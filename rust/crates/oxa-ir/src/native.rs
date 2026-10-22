@@ -10,10 +10,13 @@ pub const NATIVE_KIND_THINKING_DISPLAY: &str = "thinking_display";
 pub const NATIVE_KIND_OUTPUT_EFFORT: &str = "output_effort";
 pub const NATIVE_KIND_CACHE_CONTROL: &str = "cache_control";
 pub const NATIVE_KIND_CONTEXT_MANAGEMENT: &str = "context_management";
+pub const NATIVE_KIND_DEFER_LOADING: &str = "defer_loading";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 
 pub const CACHE_CONTROL_LOSS_DETAIL: &str =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HostType {
@@ -88,6 +91,22 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
     if let Some(ref tools) = request.tools {
         for (t_idx, tool) in tools.iter().enumerate() {
             validate_annotations(&tool.native, HostType::Tool, &format!("tools[{t_idx}]"))?;
+            let mut has_cache_control = false;
+            let mut has_defer_loading = false;
+            for n in &tool.native {
+                if n.source == NATIVE_SOURCE_ANTHROPIC {
+                    if n.kind == NATIVE_KIND_CACHE_CONTROL {
+                        has_cache_control = true;
+                    } else if n.kind == NATIVE_KIND_DEFER_LOADING {
+                        has_defer_loading = true;
+                    }
+                }
+            }
+            if has_cache_control && has_defer_loading {
+                return Err(Error::Custom(format!(
+                    "ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control"
+                )));
+            }
         }
     }
 
@@ -213,6 +232,19 @@ fn validate_annotations(
                                 "invalid cache_control ttl {ttl_str:?}"
                             )));
                         }
+                    }
+                }
+                NATIVE_KIND_DEFER_LOADING => {
+                    if host != HostType::Tool {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Tool",
+                            ann.kind
+                        )));
+                    }
+                    if parsed_json.as_bool() != Some(true) {
+                        return Err(Error::Custom(format!(
+                            "invalid defer_loading {parsed_json:?}"
+                        )));
                     }
                 }
                 _ => {}
@@ -432,6 +464,33 @@ fn append_omission_loss(
                     "cache_control".to_string(),
                     LossReason::UnmappedField,
                     CACHE_CONTROL_LOSS_DETAIL.to_string(),
+                )
+            };
+            losses.push(Loss {
+                path: path.into(),
+                field,
+                reason,
+                detail,
+            });
+        }
+        NATIVE_KIND_DEFER_LOADING => {
+            let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                let f = if om.field.is_empty() {
+                    "defer_loading".to_string()
+                } else {
+                    om.field.clone()
+                };
+                let r = om.reason;
+                let d = match om.detail.as_deref() {
+                    Some(s) if !s.is_empty() => s.to_string(),
+                    _ => DEFER_LOADING_LOSS_DETAIL.to_string(),
+                };
+                (f, r, d)
+            } else {
+                (
+                    "defer_loading".to_string(),
+                    LossReason::Degraded,
+                    DEFER_LOADING_LOSS_DETAIL.to_string(),
                 )
             };
             losses.push(Loss {

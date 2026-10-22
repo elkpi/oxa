@@ -215,6 +215,92 @@ int main() {
         auto dec_non_bool = oxa::anthropic::messages::decode_request(*raw_non_bool);
         CHECK(!dec_non_bool.ok());
         CHECK(dec_non_bool.status().to_string().find("defer_loading must be a boolean") != std::string::npos);
+
+        // 5. whitespace boolean annotation round-trips
+        oxa::ir::Request req_whitespace;
+        req_whitespace.model = "claude-opus-5-5";
+        req_whitespace.params = oxa::ir::Params{};
+        req_whitespace.params->max_tokens = 16000;
+        req_whitespace.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+        oxa::ir::Tool t_ws;
+        t_ws.name = "t1";
+        t_ws.input_schema = *oxa::json::parse(R"({"type":"object"})");
+        t_ws.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+            std::string(oxa::ir::NATIVE_KIND_DEFER_LOADING),
+            " true \n",
+            std::nullopt,
+            std::nullopt,
+        });
+        req_whitespace.tools = std::vector<oxa::ir::Tool>{t_ws};
+        auto val_ws = oxa::ir::validate_native_request(req_whitespace);
+        CHECK(val_ws.ok());
+        auto enc_ws = oxa::anthropic::messages::encode_request(req_whitespace);
+        CHECK(enc_ws.ok());
+        if (enc_ws.ok()) {
+            CHECK(enc_ws->losses.empty());
+            const auto* tools_arr = enc_ws->value.find("tools");
+            CHECK(tools_arr != nullptr && tools_arr->is_array());
+            const auto* t0 = tools_arr->as_array()[0].find("defer_loading");
+            CHECK(t0 != nullptr && t0->is_bool() && t0->as_bool());
+        }
+
+        // 6. direct IR conflict: Tool with both cache_control and defer_loading
+        oxa::ir::Request req_conflict;
+        req_conflict.model = "claude-opus-5-5";
+        req_conflict.params = oxa::ir::Params{};
+        req_conflict.params->max_tokens = 16000;
+        req_conflict.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+        oxa::ir::Tool t_conf;
+        t_conf.name = "t1";
+        t_conf.input_schema = *oxa::json::parse(R"({"type":"object"})");
+        t_conf.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+            std::string(oxa::ir::NATIVE_KIND_DEFER_LOADING),
+            "true",
+            std::nullopt,
+            std::nullopt,
+        });
+        t_conf.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_ANTHROPIC),
+            std::string(oxa::ir::NATIVE_KIND_CACHE_CONTROL),
+            R"({"type":"ephemeral"})",
+            std::nullopt,
+            std::nullopt,
+        });
+        req_conflict.tools = std::vector<oxa::ir::Tool>{t_conf};
+        auto val_conf = oxa::ir::validate_native_request(req_conflict);
+        CHECK(!val_conf.ok());
+        CHECK(val_conf.to_string().find("cannot specify both defer_loading and cache_control") != std::string::npos);
+        auto enc_conf = oxa::anthropic::messages::encode_request(req_conflict);
+        CHECK(!enc_conf.ok());
+        CHECK(enc_conf.status().to_string().find("cannot specify both defer_loading and cache_control") != std::string::npos);
+
+        // 7. native tool declaration with non-boolean defer_loading is preserved opaquely
+        auto raw_native = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"type": "future_20990101", "name": "future", "defer_loading": {"future": true}}]
+        })");
+        CHECK(raw_native.ok());
+        auto dec_native = oxa::anthropic::messages::decode_request(*raw_native);
+        CHECK(dec_native.ok());
+        if (dec_native.ok()) {
+            CHECK(dec_native->losses.empty());
+            CHECK(dec_native->value.tools.has_value());
+            CHECK((*dec_native->value.tools)[0].type == "native");
+        }
+
+        // 8. cache_control: null + defer_loading: true returns conflict error
+        auto raw_null_cache = oxa::json::parse(R"({
+            "model": "claude-opus-5-5", "max_tokens": 16000,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}, "defer_loading": true, "cache_control": null}]
+        })");
+        CHECK(raw_null_cache.ok());
+        auto dec_null_cache = oxa::anthropic::messages::decode_request(*raw_null_cache);
+        CHECK(!dec_null_cache.ok());
+        CHECK(dec_null_cache.status().to_string().find("cannot specify both defer_loading and cache_control") != std::string::npos);
     }
 
     oxa::ir::Request request;

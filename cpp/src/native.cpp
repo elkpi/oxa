@@ -494,6 +494,20 @@ Status validate_native_request(const Request& req) {
             std::string tool_path = "tools[" + std::to_string(t_idx) + "]";
             auto tool_st = validate_annotations((*req.tools)[t_idx].native, HostType::Tool, tool_path);
             if (!tool_st.ok()) return tool_st;
+            bool has_cache_control = false;
+            bool has_defer_loading = false;
+            for (const auto& n : (*req.tools)[t_idx].native) {
+                if (n.source == NATIVE_SOURCE_ANTHROPIC) {
+                    if (n.kind == NATIVE_KIND_CACHE_CONTROL) {
+                        has_cache_control = true;
+                    } else if (n.kind == NATIVE_KIND_DEFER_LOADING) {
+                        has_defer_loading = true;
+                    }
+                }
+            }
+            if (has_cache_control && has_defer_loading) {
+                return invalid_argument("ir: " + tool_path + ": cannot specify both defer_loading and cache_control");
+            }
         }
     }
 

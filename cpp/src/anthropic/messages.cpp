@@ -594,6 +594,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 if (get_tool_defer_loading(t.native)) {
                     tw.set("defer_loading", json::Value::boolean(true));
                 }
+                if (tw.find("cache_control") && tw.find("defer_loading")) {
+                    return invalid_argument("anthropic: tools[" + std::to_string(ti) + "]: cannot specify both defer_loading and cache_control");
+                }
                 retained_tool_names.insert(t.name);
                 tools_arr.push_back(std::move(tw));
                 continue;
@@ -637,6 +640,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             }
             if (get_tool_defer_loading(t.native)) {
                 tw.set("defer_loading", json::Value::boolean(true));
+            }
+            if (tw.find("cache_control") && tw.find("defer_loading")) {
+                return invalid_argument("anthropic: tools[" + std::to_string(ti) + "]: cannot specify both defer_loading and cache_control");
             }
             retained_tool_names.insert(t.name);
             tools_arr.push_back(std::move(tw));

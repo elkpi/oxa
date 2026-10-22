@@ -89,6 +89,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			if cc := getBlockCacheControl(tool); len(cc) > 0 {
 				tw.CacheControl = cc
 			}
+			if dl := getToolDeferLoading(tool); dl != nil {
+				tw.DeferLoading = dl
+			}
 			out.Tools = append(out.Tools, tw)
 			continue
 		}
@@ -106,6 +109,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 		if cc := getBlockCacheControl(tool); len(cc) > 0 {
 			tw.CacheControl = cc
+		}
+		if dl := getToolDeferLoading(tool); dl != nil {
+			tw.DeferLoading = dl
 		}
 		out.Tools = append(out.Tools, tw)
 	}

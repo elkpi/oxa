@@ -98,6 +98,23 @@ pub enum Block {
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
+    #[serde(rename = "document")]
+    Document {
+        #[serde(
+            rename = "media_type",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        media_type: Option<String>,
+        #[serde(rename = "data", default, skip_serializing_if = "Option::is_none")]
+        data: Option<String>,
+        #[serde(rename = "url", default, skip_serializing_if = "Option::is_none")]
+        url: Option<String>,
+        #[serde(rename = "file_id", default, skip_serializing_if = "Option::is_none")]
+        file_id: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
     #[serde(rename = "tool_use")]
     ToolUse {
         #[serde(rename = "id")]
@@ -170,6 +187,7 @@ impl Block {
             Block::Text { native, .. }
             | Block::Thinking { native, .. }
             | Block::Image { native, .. }
+            | Block::Document { native, .. }
             | Block::ToolUse { native, .. }
             | Block::CustomToolUse { native, .. }
             | Block::CustomToolResult { native, .. }

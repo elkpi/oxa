@@ -20,9 +20,11 @@ pub const BLOCK_TYPE_THINKING: &str = "thinking";
 pub const BLOCK_TYPE_IMAGE: &str = "image";
 pub const BLOCK_TYPE_TOOL_USE: &str = "tool_use";
 pub const BLOCK_TYPE_TOOL_RESULT: &str = "tool_result";
+pub const BLOCK_TYPE_DOCUMENT: &str = "document";
 
 pub const SOURCE_TYPE_BASE64: &str = "base64";
 pub const SOURCE_TYPE_URL: &str = "url";
+pub const SOURCE_TYPE_FILE: &str = "file";
 
 pub const TOOL_CHOICE_TYPE_AUTO: &str = "auto";
 pub const TOOL_CHOICE_TYPE_ANY: &str = "any";
@@ -362,6 +364,13 @@ impl<'de> Deserialize<'de> for ContentValue {
     }
 }
 
+fn deserialize_optional_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    String::deserialize(deserializer).map(Some)
+}
+
 /// One content block: text, image, tool_use, or tool_result. `input` is a raw
 /// JSON object captured byte-exactly; decoders and encoders MUST copy it
 /// without parsing or re-serializing it (INV-1).
@@ -395,6 +404,23 @@ pub struct BlockWire {
     // image
     #[serde(rename = "source", skip_serializing_if = "Option::is_none")]
     pub source: Option<SourceWire>,
+    // document
+    #[serde(
+        rename = "title",
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub title: Option<String>,
+    #[serde(
+        rename = "context",
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub context: Option<String>,
+    #[serde(rename = "citations", skip_serializing_if = "Option::is_none")]
+    pub citations: Option<Value>,
 }
 
 impl PartialEq for BlockWire {
@@ -411,15 +437,17 @@ impl PartialEq for BlockWire {
             && self.content == other.content
             && self.is_error == other.is_error
             && self.source == other.source
+            && self.title == other.title
+            && self.context == other.context
+            && self.citations == other.citations
     }
 }
 
-/// The source object of an image block: a base64 payload (media_type + data)
-/// or a URL.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
+/// The source object of an image or document block: a base64 payload
+/// (media_type + data), a URL, or a Files-API reference (file_id).
+#[derive(Clone, Debug, Default, Serialize)]
 pub struct SourceWire {
-    /// base64 | url
+    /// base64 | url | file
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(rename = "media_type", skip_serializing_if = "String::is_empty")]
@@ -428,6 +456,63 @@ pub struct SourceWire {
     pub data: String,
     #[serde(rename = "url", skip_serializing_if = "String::is_empty")]
     pub url: String,
+    #[serde(rename = "file_id", skip_serializing_if = "String::is_empty")]
+    pub file_id: String,
+    #[serde(skip)]
+    pub has_media_type: bool,
+    #[serde(skip)]
+    pub has_data: bool,
+    #[serde(skip)]
+    pub has_url: bool,
+    #[serde(skip)]
+    pub has_file_id: bool,
+}
+
+impl PartialEq for SourceWire {
+    fn eq(&self, other: &Self) -> bool {
+        self.kind == other.kind
+            && self.media_type == other.media_type
+            && self.data == other.data
+            && self.url == other.url
+            && self.file_id == other.file_id
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceWire {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let value = Value::deserialize(deserializer)?;
+        let object = value
+            .as_object()
+            .ok_or_else(|| D::Error::custom("source must be an object"))?;
+        let read = |key: &str| -> Result<(String, bool), D::Error> {
+            match object.get(key) {
+                None => Ok((String::new(), false)),
+                Some(v) => v
+                    .as_str()
+                    .map(|s| (s.to_string(), true))
+                    .ok_or_else(|| D::Error::custom(format!("source.{key} must be a string"))),
+            }
+        };
+        let (kind, _) = read("type")?;
+        let (media_type, has_media_type) = read("media_type")?;
+        let (data, has_data) = read("data")?;
+        let (url, has_url) = read("url")?;
+        let (file_id, has_file_id) = read("file_id")?;
+        Ok(Self {
+            kind,
+            media_type,
+            data,
+            url,
+            file_id,
+            has_media_type,
+            has_data,
+            has_url,
+            has_file_id,
+        })
+    }
 }
 
 /// The Anthropic Messages wire response object.

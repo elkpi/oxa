@@ -3,7 +3,8 @@
 //! and verbatim tool-input bytes (INV-1).
 
 use oxa_anthropic::{
-    Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
+    Config, Request, Response, decode_request, decode_request_json, decode_response,
+    encode_request, encode_response,
 };
 use oxa_ir::{Block, LossReason, ReasoningEffort, StopReason, Usage};
 use serde_json::Value;
@@ -764,4 +765,19 @@ fn test_mid_conversation_system_placement_and_content_errors() {
     }));
     let err = decode_request(&wire, &Config::default()).expect_err("non-text content");
     assert!(err.to_string().contains("system content must be text"));
+}
+
+#[test]
+fn document_source_rejects_explicit_conflicting_empty_field() {
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"YQ==","url":""}}]}]}"#;
+    let err = decode_request_json(raw, &Config::default()).expect_err("conflicting source field");
+    assert!(err.to_string().contains("conflicting source fields"));
+
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"file","file_id":"f"},"title":"","context":""}]}]}"#;
+    let (request, _) = decode_request_json(raw, &Config::default()).expect("empty metadata decode");
+    let (wire, _) = encode_request(&request, &Config::default()).expect("empty metadata encode");
+    let value = serde_json::to_value(wire).expect("serialize wire");
+    let block = &value["messages"][0]["content"][0];
+    assert_eq!(block["title"], "");
+    assert_eq!(block["context"], "");
 }

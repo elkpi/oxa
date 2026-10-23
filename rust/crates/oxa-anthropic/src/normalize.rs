@@ -9,10 +9,10 @@ use oxa_ir::{Block, Loss, LossReason, SystemBlock, ToolChoice, ToolChoiceMode};
 
 use crate::error::Error;
 use crate::types::{
-    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT,
-    BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL,
-    SystemBlockWire, TOOL_CHOICE_TYPE_ANY, TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE,
-    TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
+    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, SOURCE_TYPE_BASE64,
+    SOURCE_TYPE_FILE, SOURCE_TYPE_URL, SystemBlockWire, TOOL_CHOICE_TYPE_ANY,
+    TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE, TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
 };
 
 pub(crate) fn extract_custom_input(raw: &str) -> Option<String> {
@@ -258,6 +258,152 @@ pub(crate) fn decode_block(
                 )),
             }
         }
+        BLOCK_TYPE_DOCUMENT => {
+            if !is_request {
+                losses.push(loss(
+                    path.to_string(),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    "Anthropic block type \"document\" has no IR equivalent".to_string(),
+                ));
+                return Ok((Vec::new(), losses, false));
+            }
+            let Some(source) = wire.source.as_ref() else {
+                return Err(Error::new(format!("anthropic: {path}.source is required")));
+            };
+            if source.kind.is_empty() {
+                return Err(Error::new(format!("anthropic: {path}.source.type is required")));
+            }
+            let mut doc = match source.kind.as_str() {
+                SOURCE_TYPE_BASE64 => {
+                    if source.media_type.is_empty() {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source.media_type is required"
+                        )));
+                    }
+                    if source.data.is_empty() {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source.data is required"
+                        )));
+                    }
+                    if source.has_url || source.has_file_id {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source has conflicting source fields"
+                        )));
+                    }
+                    Block::Document {
+                        media_type: Some(source.media_type.clone()),
+                        data: Some(source.data.clone()),
+                        url: None,
+                        file_id: None,
+                        native: Vec::new(),
+                    }
+                }
+                SOURCE_TYPE_URL => {
+                    if source.url.is_empty() {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source.url is required"
+                        )));
+                    }
+                    if source.has_media_type || source.has_data || source.has_file_id {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source has conflicting source fields"
+                        )));
+                    }
+                    Block::Document {
+                        media_type: None,
+                        data: None,
+                        url: Some(source.url.clone()),
+                        file_id: None,
+                        native: Vec::new(),
+                    }
+                }
+                SOURCE_TYPE_FILE => {
+                    if source.file_id.is_empty() {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source.file_id is required"
+                        )));
+                    }
+                    if source.has_media_type || source.has_data || source.has_url {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.source has conflicting source fields"
+                        )));
+                    }
+                    Block::Document {
+                        media_type: None,
+                        data: None,
+                        url: None,
+                        file_id: Some(source.file_id.clone()),
+                        native: Vec::new(),
+                    }
+                }
+                other => {
+                    losses.push(loss(
+                        path.to_string(),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        format!("Anthropic document source type {other:?} has no IR equivalent"),
+                    ));
+                    return Ok((Vec::new(), losses, false));
+                }
+            };
+            let Block::Document { native, .. } = &mut doc else {
+                unreachable!("document branch constructed a Document block");
+            };
+            if let Some(title) = wire.title.as_ref() {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_DOCUMENT_TITLE.into(),
+                    value: serde_json::to_string(title).map_err(|e| Error::new(e.to_string()))?,
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "title".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: Some(oxa_ir::DOCUMENT_TITLE_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
+            if let Some(context) = wire.context.as_ref() {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_DOCUMENT_CONTEXT.into(),
+                    value: serde_json::to_string(context).map_err(|e| Error::new(e.to_string()))?,
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "context".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: Some(oxa_ir::DOCUMENT_CONTEXT_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
+            if let Some(citations) = wire.citations.as_ref() {
+                let Some(obj) = citations.as_object() else {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.citations must be a JSON object"
+                    )));
+                };
+                if let Some(enabled) = obj.get("enabled")
+                    && !enabled.is_boolean()
+                {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.citations.enabled must be a boolean"
+                    )));
+                }
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_DOCUMENT_CITATIONS.into(),
+                    value: serde_json::to_string(citations)
+                        .map_err(|e| Error::new(e.to_string()))?,
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "citations".into(),
+                        reason: LossReason::UnsupportedSemantic,
+                        detail: Some(oxa_ir::DOCUMENT_CITATIONS_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
+            block = Some(doc);
+        }
         BLOCK_TYPE_TOOL_USE => {
             if wire.id.is_empty() {
                 return Err(Error::new(format!("anthropic: {path}.id is required")));
@@ -372,6 +518,7 @@ pub(crate) fn decode_block(
                     Block::Text { native, .. }
                     | Block::Thinking { native, .. }
                     | Block::Image { native, .. }
+                    | Block::Document { native, .. }
                     | Block::ToolUse { native, .. }
                     | Block::CustomToolUse { native, .. }
                     | Block::ApplyPatchToolUse { native, .. }

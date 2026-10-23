@@ -235,6 +235,8 @@ def decode_block(
         src_kind = source.get("type", "")
         if "type" in source and not isinstance(src_kind, str):
             raise ValueError(f"anthropic: {path}.source.type must be a string")
+        if not src_kind:
+            raise ValueError(f"anthropic: {path}.source.type is required")
         if src_kind == SOURCE_TYPE_BASE64:
             media_type = source.get("media_type", "")
             data = source.get("data", "")
@@ -302,8 +304,8 @@ def decode_block(
                     ),
                 )
             )
-        citations = wire.get("citations")
-        if citations is not None:
+        if "citations" in wire:
+            citations = wire["citations"]
             if not isinstance(citations, dict):
                 raise ValueError(f"anthropic: {path}.citations must be a JSON object")
             if "enabled" in citations and not isinstance(citations["enabled"], bool):

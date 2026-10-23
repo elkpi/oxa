@@ -40,6 +40,41 @@ class AnthropicVectorsTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting source fields"):
             decode_request(request)
 
+    def test_document_missing_or_empty_source_type_is_error(self) -> None:
+        for source in ({}, {"type": ""}):
+            request = {
+                "model": "m",
+                "max_tokens": 1,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [{"type": "document", "source": source}],
+                    }
+                ],
+            }
+            with self.assertRaisesRegex(ValueError, "source.type is required"):
+                decode_request(request)
+
+    def test_document_null_citations_is_error(self) -> None:
+        request = {
+            "model": "m",
+            "max_tokens": 1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {"type": "file", "file_id": "f"},
+                            "citations": None,
+                        }
+                    ],
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "citations must be a JSON object"):
+            decode_request(request)
+
     def test_preserves_empty_document_metadata(self) -> None:
         request = {
             "model": "m",

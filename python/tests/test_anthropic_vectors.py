@@ -16,6 +16,54 @@ from oxa.vectest import (
 
 
 class AnthropicVectorsTest(unittest.TestCase):
+    def test_rejects_conflicting_document_source_fields(self) -> None:
+        request = {
+            "model": "m",
+            "max_tokens": 1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": "YQ==",
+                                "url": "",
+                            },
+                        }
+                    ],
+                }
+            ],
+        }
+        with self.assertRaisesRegex(ValueError, "conflicting source fields"):
+            decode_request(request)
+
+    def test_preserves_empty_document_metadata(self) -> None:
+        request = {
+            "model": "m",
+            "max_tokens": 1,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {"type": "file", "file_id": "f"},
+                            "title": "",
+                            "context": "",
+                        }
+                    ],
+                }
+            ],
+        }
+        decoded, _ = decode_request(request)
+        encoded, _ = encode_request(decoded)
+        block = encoded["messages"][0]["content"][0]
+        self.assertEqual(block["title"], "")
+        self.assertEqual(block["context"], "")
+
     def test_all_nonstream_vectors(self) -> None:
         root = find_repo_root()
         if root is None:
@@ -23,7 +71,7 @@ class AnthropicVectorsTest(unittest.TestCase):
             return
 
         vectors = load_vectors(root, "anthropic", "nonstream")
-        self.assertEqual(len(vectors), 93, "expected 93 nonstream anthropic vectors")
+        self.assertEqual(len(vectors), 98, "expected 98 nonstream anthropic vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

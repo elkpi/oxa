@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from oxa.ir.constants import (
+    BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
@@ -81,6 +82,27 @@ class ImageBlock:
     url: str | None = None
     native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_IMAGE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentBlock:
+    """A document input (spec/01 §3.4, since 2.4.8, request-side only).
+
+    Exactly one of data / url / file_id must be present; media_type is
+    required with data. Document-level provider metadata (title, context,
+    citations) travels as native annotations (spec/15 §3.5).
+    """
+
+    media_type: str | None = None
+    data: str | None = None
+    url: str | None = None
+    file_id: str | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+    type: str = field(default=BLOCK_TYPE_DOCUMENT, init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.native, tuple):
@@ -205,6 +227,7 @@ Block = (
     TextBlock
     | ThinkingBlock
     | ImageBlock
+    | DocumentBlock
     | ToolUseBlock
     | ToolResultBlock
     | CustomToolUseBlock

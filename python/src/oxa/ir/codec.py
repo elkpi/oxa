@@ -10,6 +10,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+    BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
@@ -58,6 +59,7 @@ from oxa.ir.types import (
     Delta,
     Event,
     EventStream,
+    DocumentBlock,
     ImageBlock,
     InputJsonDelta,
     InputTokensDetails,
@@ -314,6 +316,28 @@ def dump_request_block(block: Block) -> dict[str, Any]:
             }
         else:
             out = {"type": BLOCK_TYPE_IMAGE, "url": block.url}
+    elif isinstance(block, DocumentBlock):
+        has_data = bool(block.data)
+        has_url = bool(block.url)
+        has_file = bool(block.file_id)
+        if has_data + has_url + has_file != 1:
+            raise CodecError("document block must carry exactly one of data, url, or file_id")
+        if has_data:
+            if not block.media_type:
+                raise CodecError("document block with data requires media_type")
+            out = {
+                "type": BLOCK_TYPE_DOCUMENT,
+                "media_type": block.media_type,
+                "data": block.data,
+            }
+        elif has_url:
+            if block.media_type:
+                raise CodecError("document block with url must not carry media_type")
+            out = {"type": BLOCK_TYPE_DOCUMENT, "url": block.url}
+        else:
+            if block.media_type:
+                raise CodecError("document block with file_id must not carry media_type")
+            out = {"type": BLOCK_TYPE_DOCUMENT, "file_id": block.file_id}
     elif isinstance(block, ToolUseBlock):
         if not block.id:
             raise CodecError("tool_use block requires non-empty id")
@@ -429,6 +453,8 @@ def load_block(data: dict[str, Any]) -> Block:
     if "native" in data:
         raise CodecError("native is only permitted on request blocks")
     kind = data.get("type")
+    if kind == BLOCK_TYPE_DOCUMENT:
+        raise CodecError('unknown block type "document"')
     if kind == BLOCK_TYPE_TEXT:
         return TextBlock(text=data["text"])
     if kind == BLOCK_TYPE_THINKING:
@@ -505,6 +531,14 @@ def load_request_block(data: dict[str, Any]) -> Block:
             media_type=data.get("media_type"),
             data=data.get("data"),
             url=data.get("url"),
+            native=native,
+        )
+    if kind == BLOCK_TYPE_DOCUMENT:
+        return DocumentBlock(
+            media_type=data.get("media_type"),
+            data=data.get("data"),
+            url=data.get("url"),
+            file_id=data.get("file_id"),
             native=native,
         )
     if kind == BLOCK_TYPE_TOOL_USE:

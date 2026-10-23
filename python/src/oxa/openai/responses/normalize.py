@@ -606,6 +606,7 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
     parts: list[dict[str, Any]] = []
     text_chunks: list[str] = []
     has_image = False
+    other_blocks = 0
     losses: list[Loss] = []
 
     for index, block in enumerate(blocks):
@@ -621,8 +622,10 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                 continue
             if part is not None:
                 has_image = True
+                other_blocks += 1
                 parts.append(part)
         else:
+            other_blocks += 1
             losses.append(
                 loss(
                     f"{path}[{index}]",
@@ -632,7 +635,7 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                 )
             )
 
-    if len(text_chunks) <= 1 and not has_image:
+    if len(text_chunks) <= 1 and not has_image and other_blocks == 0:
         return "".join(text_chunks), losses
     return parts, losses
 

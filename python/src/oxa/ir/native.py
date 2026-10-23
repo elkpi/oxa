@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Sequence
 
 from oxa.ir.constants import (
+    BLOCK_TYPE_DOCUMENT,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     ReasoningEffort,
@@ -22,12 +23,24 @@ NATIVE_KIND_OUTPUT_EFFORT = "output_effort"
 NATIVE_KIND_CACHE_CONTROL = "cache_control"
 NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management"
 NATIVE_KIND_DEFER_LOADING = "defer_loading"
+NATIVE_KIND_DOCUMENT_TITLE = "document_title"
+NATIVE_KIND_DOCUMENT_CONTEXT = "document_context"
+NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations"
 
 DEFER_LOADING_LOSS_DETAIL = (
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
 )
 
 CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
+DOCUMENT_TITLE_LOSS_DETAIL = (
+    "anthropic-native document title; the target face has no document representation"
+)
+DOCUMENT_CONTEXT_LOSS_DETAIL = (
+    "anthropic-native document context; the target face has no document representation"
+)
+DOCUMENT_CITATIONS_LOSS_DETAIL = (
+    "anthropic-native document citations; citations alter response semantics and the target face has no document representation"
+)
 
 
 class CodecError(ValueError):
@@ -181,6 +194,18 @@ def validate_annotations(
                     raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Tool")
                 if parsed_json is not True:
                     raise CodecError(f"invalid defer_loading {parsed_json!r}")
+            elif ann.kind in (NATIVE_KIND_DOCUMENT_TITLE, NATIVE_KIND_DOCUMENT_CONTEXT):
+                if host != HostType.CONTENT:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on content blocks")
+                if not isinstance(parsed_json, str):
+                    raise CodecError(f"anthropic {ann.kind} value must be a JSON string")
+            elif ann.kind == NATIVE_KIND_DOCUMENT_CITATIONS:
+                if host != HostType.CONTENT:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on content blocks")
+                if not isinstance(parsed_json, dict):
+                    raise CodecError(f"anthropic {ann.kind} value must be a JSON object")
+                if "enabled" in parsed_json and not isinstance(parsed_json["enabled"], bool):
+                    raise CodecError(f"anthropic {ann.kind} enabled must be a boolean")
 
 
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
@@ -255,6 +280,11 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
 
 
 def _collect_block_omissions(losses: list[Loss], blk: Any, path: str) -> None:
+    if getattr(blk, "type", "") == BLOCK_TYPE_DOCUMENT:
+        # N-AN-16: a document block crossing to a face without document
+        # support is dropped as one whole-block loss; its annotations are
+        # part of it and are not reported a second time.
+        return
     for i, ann in enumerate(getattr(blk, "native", ())):
         _append_omission_loss(losses, ann, f"{path}.native[{i}]", False, None)
 

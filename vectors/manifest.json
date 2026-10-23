@@ -100,7 +100,7 @@
         "n-an-5",
         "n-an-16"
       ],
-      "sha256": "1428746dbdf841f4e01d04309f29173d93857ecaebe6339c64ea3bb17d9009ce"
+      "sha256": "1e7921d4994afd9f16d8d449303db6c83973952c43b3c6927d1c408ef198cc48"
     },
     {
       "name": "anthropic.nonstream.documents-nested-tool-result-to-ir",
@@ -112,7 +112,7 @@
         "n-an-5",
         "n-an-16"
       ],
-      "sha256": "f62abc2cdbd1a8b514dc009ea7fad65171011cdc047f1e898790b2a79df04398"
+      "sha256": "c001accab8b76fd9907a20be0f0d807c27d10ea6c8063915ae76f1bc9e72e7c4"
     },
     {
       "name": "anthropic.nonstream.documents-to-ir",

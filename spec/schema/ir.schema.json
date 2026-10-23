@@ -91,6 +91,7 @@
       "oneOf": [
         { "$ref": "#/$defs/requestTextBlock" },
         { "$ref": "#/$defs/requestImageBlock" },
+        { "$ref": "#/$defs/requestDocumentBlock" },
         { "$ref": "#/$defs/requestToolUseBlock" },
         { "$ref": "#/$defs/requestToolResultBlock" },
         { "$ref": "#/$defs/requestThinkingBlock" },
@@ -135,6 +136,36 @@
         {
           "required": ["url"],
           "not": { "required": ["data"] }
+        }
+      ]
+    },
+    "requestDocumentBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "document" },
+        "media_type": { "type": "string" },
+        "data": { "type": "string" },
+        "url": { "type": "string" },
+        "file_id": { "type": "string" },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
+        }
+      },
+      "required": ["type"],
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "required": ["data", "media_type"],
+          "not": { "anyOf": [{ "required": ["url"] }, { "required": ["file_id"] }] }
+        },
+        {
+          "required": ["url"],
+          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["file_id"] }] }
+        },
+        {
+          "required": ["file_id"],
+          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["url"] }] }
         }
       ]
     },

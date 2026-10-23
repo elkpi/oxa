@@ -5,6 +5,15 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.8 - 2026-10-23
+
+### Added
+
+- [01 — Intermediate Representation](01-intermediate-representation.md)：请求侧 sealed `Block` 联合新增 `DocumentBlock`；定义 `data` / `url` / `file_id` 三选一来源、base64 原文保留以及穷尽匹配消费者的迁移要求。
+- [12 — Mapping Anthropic Messages](12-mapping-anthropic-messages.md)：新增 N-AN-16，规范 Anthropic `document` 的 source 映射、结构校验、tool_result 递归位置、原生回转及无 document 目标面的整块降级损失。
+- [15 — Native Request Options](15-native-request-options.md)：新增 document `title`、`context`、`citations` 原生注解宿主、校验和跨面遗漏规则。
+- IR JSON Schema 的 request block union 新增 `document` 变体；IR contract 维持 `0.2.0`。
+
 ## 2.4.7 - 2026-10-22
 
 ### Added

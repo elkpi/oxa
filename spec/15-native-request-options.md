@@ -44,6 +44,10 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `ToolResultBlock.Content` 中的块 | `cache_control` | `messages[i].content[j].content[k].cache_control` |
 | `Tool` | `cache_control` | `tools[i].cache_control` |
 | `Tool` | `defer_loading` | `tools[i].defer_loading`（仅限 `true`） |
+| `DocumentBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.8） |
+| `DocumentBlock`（仅限 Request） | `document_title` | `messages[i].content[j].title`（2.4.8） |
+| `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
+| `DocumentBlock`（仅限 Request） | `document_citations` | `messages[i].content[j].citations`（2.4.8） |
 
 任何已知 kind 出现在上述合法宿主之外（例如在 `Message` 或 `Params` 上，或在 `ToolChoice` 上），均属于结构错误。
 
@@ -84,6 +88,20 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
   - `omission.reason`: `"degraded"`
   - `omission.detail`: `"deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"`
 - 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "defer_loading"` 且其 JSON 布尔解析为 `true`（允许合法空白），在 wire 工具对象上输出 `"defer_loading": true`。
+
+### 3.5 Document Metadata（规范 2.4.8）
+
+Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、`context`、`citations` 按 `NativeAnnotation` 保留在 `DocumentBlock.native` 上：
+
+| kind | value 形态 | 宿主 |
+|---|---|---|
+| `document_title` | JSON 字符串 | 内容块（实践中仅 `DocumentBlock`） |
+| `document_context` | JSON 字符串 | 内容块（实践中仅 `DocumentBlock`） |
+| `document_citations` | JSON 对象，可选布尔 `enabled` | 内容块（实践中仅 `DocumentBlock`） |
+
+- 解码保真：三项按原值无损捕获（0 decode loss）；`citations` 的 `value` 为规范化紧凑 JSON（与 §3.2 `cache_control` 的规范化一致，键序与空白不作保真承诺）。`title`/`context` 非字符串、`citations` 非对象或 `enabled` 非布尔，属于结构类型错误（error），与 §3.4 的类型违例处理一致。
+- 原生回转：编码回 Anthropic 时按 `kind` 完整恢复 wire 上的 `title`/`context`/`citations`。
+- 跨面遗漏：目标面无 document 契约时，`DocumentBlock` 整块以一条 `unsupported-semantic` 损失报损（spec/12 N-AN-16）；块内注解随整块丢弃，不再逐条报损（N-AN-9 对称原则），区别于 §4.1 中存续块注解的逐条遗漏报损。
 
 ## 4. 跨协议遗漏报损 — N-NAT-4
 

@@ -96,6 +96,7 @@ A content block. Sealed; discriminated on the JSON `type` property:
 |---------|-------------|---------|
 | `TextBlock` | `text` | a run of text |
 | `ImageBlock` | `image` | an image input |
+| `DocumentBlock` | `document` | a document input (2.4.8, request-side only; mapping in spec/12 N-AN-16) |
 | `ToolUseBlock` | `tool_use` | a tool invocation produced by the model |
 | `ToolResultBlock` | `tool_result` | the outcome of a tool invocation, supplied by the caller |
 | `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
@@ -103,6 +104,8 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
 | `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
 | `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
+
+Adding `DocumentBlock` (2.4.8) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variant; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers.
 
 #### TextBlock
 
@@ -128,6 +131,17 @@ A content block. Sealed; discriminated on the JSON `type` property:
 The `Data` XOR `URL` rule is enforced by the schema: a document carrying
 both or neither is invalid. Base64 validity is the producer's
 responsibility; consumers treat `data` as an opaque string.
+
+#### DocumentBlock
+
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `MediaType` | `media_type` | string | iff `Data` present | e.g. `application/pdf` |
+| `Data` | `data` | string, base64 (annotation) | XOR | exactly one of `Data` / `URL` / `FileID` MUST be present |
+| `URL` | `url` | string | XOR | document URL |
+| `FileID` | `file_id` | string | XOR | provider Files-API document reference |
+
+The exactly-one-of-three rule is enforced by the schema: a document carrying none or more than one source form is invalid. Base64 validity is the producer's responsibility; consumers treat `data` as an opaque string (INV-1). Only the base64 form carries `media_type`; `URL` and `FileID` documents MUST NOT carry it. `DocumentBlock` is request-side only: Anthropic Messages responses never contain documents, and the response-side block union excludes this variant. Document-level provider metadata (`title`, `context`, `citations`) travels as `NativeAnnotation`s per [spec/15](15-native-request-options.md) §3.5.
 
 #### ToolUseBlock
 

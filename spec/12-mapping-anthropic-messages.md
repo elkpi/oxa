@@ -15,7 +15,7 @@ interpreted as described in RFC 2119 and RFC 8174 (see
 The Messages face is Anthropic's `POST /v1/messages` protocol: a
 required top-level `max_tokens`, an optional `system` (string or block
 array), and a `messages` array whose content is a string or a block
-array (`text`, `image`, `tool_use`, `tool_result`). Mid-conversation
+array (`text`, `image`, `document`, `tool_use`, `tool_result`). Mid-conversation
 system messages (`role: "system"` in `messages[]`) are supported and
 folded into the request-level `system` list with a `degraded` loss (N-AN-15).
 Conversion is near-identity for the supported subset; Anthropic-only
@@ -42,10 +42,12 @@ The wire objects in scope are:
   `tools[]`, `tool_choice`.
 - **Message**: `role` (`user` | `assistant` | mid-conversation `system`),
   `content` (string or block array).
-- **Block**: `text` (`text`), `image` (`source`), `tool_use`
+- **Block**: `text` (`text`), `image` (`source`), `document`
+  (`source`, `title`, `context`, `citations`; N-AN-16), `tool_use`
   (`id`, `name`, `input`), `tool_result` (`tool_use_id`, `content`,
   `is_error`); every block may carry a `cache_control` annotation.
-- **Source**: `base64` (`media_type`, `data`) or `url` (`url`).
+- **Source**: `base64` (`media_type`, `data`) or `url` (`url`);
+  document sources additionally `file` (`file_id`, N-AN-16).
 - **Tool**: 普通工具的 `name`、`description`、`input_schema`（JSON Schema）；带非空且非 function/custom 的 `type` 的命名原生声明按 [spec/16](16-native-tool-declarations.md) 整体保留，不要求 `input_schema`。
 - **ToolChoice**: `type` (`auto` | `any` | `tool`), `name`,
   `disable_parallel_tool_use`.
@@ -97,10 +99,14 @@ render 1:1 with their omitempty semantics.
 | `{type: "thinking", thinking, signature}` | `ThinkingBlock{Thinking, Signature}` | 1:1; signature carried verbatim (N-AN-11, since 2.0) |
 | `{type: "image", source: {type: "base64", media_type, data}}` | `ImageBlock{MediaType, Data}` | |
 | `{type: "image", source: {type: "url", url}}` | `ImageBlock{URL}` | |
+| `{type: "document", source: {type: "base64", media_type, data}}` | `DocumentBlock{MediaType, Data}` | N-AN-16 |
+| `{type: "document", source: {type: "url", url}}` | `DocumentBlock{URL}` | N-AN-16 |
+| `{type: "document", source: {type: "file", file_id}}` | `DocumentBlock{FileID}` | N-AN-16 |
 | `{type: "tool_use", id, name, input}` | `ToolUseBlock{ID, Name, Input}` | raw input, N-AN-4 |
 | `{type: "tool_result", tool_use_id, content, is_error}` | `ToolResultBlock{ToolUseID, Content, IsError}` | content is string or block array, decoded recursively by N-AN-5 |
 | other block types | — | one whole-block unsupported-semantic loss (N-AN-9) |
 | `source.type` ∉ {`base64`, `url`} | — | unsupported-semantic loss |
+| document `source.type` ∉ {`base64`, `url`, `file`} | — | one whole-block unsupported-semantic loss (N-AN-16) |
 
 **Raw tool input fidelity (N-AN-4).** `tool_use.input` is an opaque
 JSON object on the wire and a raw JSON string token in the IR
@@ -121,9 +127,12 @@ a loss and MUST NOT be recorded as one.
 
 On encode, image blocks MUST carry exactly one of data or URL; data
 requires `media_type`, and a URL image MUST NOT carry `media_type`.
-Violations are unsupported-semantic losses. Tool-result content
-renders as an array of `text`/`image` blocks; other IR block types
-inside a tool result are unsupported-semantic losses.
+Document blocks MUST carry exactly one of data, URL, or file_id; data
+requires `media_type`, and URL/file_id documents MUST NOT carry
+`media_type` (N-AN-16). Violations are unsupported-semantic losses.
+Tool-result content renders as an array of `text`/`image`/`document`
+blocks; other IR block types inside a tool result are
+unsupported-semantic losses.
 
 ## 5. Response Field Mapping
 
@@ -174,8 +183,8 @@ Each rule has a stable ID usable as a vector tag.
   canonicalized bytes; this is not a loss.
 - **N-AN-5 (block mapping).** Content blocks map per the table in §4,
   recursively for `tool_result.content`. Unknown block types and
-  unknown image source types are dropped as unsupported-semantic
-  losses (N-AN-9).
+  unknown image/document source types are dropped as
+  unsupported-semantic losses (N-AN-9).
 - **N-AN-6 (tool choice).** `tool_choice.type` `auto`, `any`, `none`
   map to the eponymous IR modes; `type: "tool"` maps to mode `tool`
   with `name` (a missing name is a structural error); unknown types
@@ -273,6 +282,42 @@ Each rule has a stable ID usable as a vector tag.
   - **Encode (IR → Messages).** `Request.System` renders in top-level `system` (N-AN-1);
     IR conversation messages retain only `user` and `assistant` roles.
 
+- **N-AN-16 (document blocks, since 2.4.8).** Anthropic `document`
+  content blocks map to `DocumentBlock` (request-side only; a
+  `document` block inside a response position is out of contract).
+  - **Sources.** `source.type` `base64` maps to `MediaType`+`Data`;
+    `url` maps to `URL`; `file` maps to `FileID`. The source
+    discriminator is implicit in the IR: the field combination IS the
+    source form. Other `source.type` values (e.g. plain-text/content
+    sources) are out of contract for this version and drop the whole
+    block as one unsupported-semantic loss (N-AN-9 matrix); they are
+    candidates for a future additive extension.
+  - **Validation.** Structural errors (conversion fails): missing
+    `source` or missing/empty `source.type`; base64 document missing `media_type` or `data`; url
+    document missing `url`; file document missing `file_id`; fields from
+    another source form mixed into the selected source; a non-string
+    source discriminator; `title`
+    or `context` not a string; `citations` present but not a JSON
+    object or carrying a non-boolean `enabled`. Malformed values are
+    never silently repaired.
+  - **Metadata (spec/15 §3.5).** `title` and `context` (strings) and
+    `citations` (object with optional boolean `enabled`, carried as
+    canonical compact JSON per spec/15 §3.5) are preserved
+    as `NativeAnnotation`s (`document_title`, `document_context`,
+    `document_citations`) on the block; decode emits no loss for them.
+    `cache_control` on a document follows the common block annotation
+    path (N-AN-1/N-AN-14).
+  - **Encode.** Restores the document block byte-faithfully for the
+    supported forms, including the metadata annotations, with zero
+    loss when the block is unchanged. An IR document carrying none or
+    more than one of data/URL/file_id, data without `media_type`, or
+    URL/file_id with `media_type` is an unsupported-semantic loss
+    (field `document`).
+  - **Cross-face.** Faces without a document contract (OpenAI Chat
+    Completions, OpenAI Responses) drop the whole block as exactly one
+    unsupported-semantic loss; annotations inside the dropped block
+    are part of it and MUST NOT add further losses (N-AN-9 symmetry).
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -285,7 +330,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `params.response_format` | unmapped-field | IR → request | Anthropic Messages has no native response_format request parameter (N-AN-12) |
 | `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation when no explicit effort is present (N-AN-11, N-AN-14) |
 | `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |
-| unknown block type or unknown image source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9 |
+| unknown block type or unknown image/document source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9/N-AN-16 |
+| unknown document `source.type` | unsupported-semantic | request → IR | one whole-block loss, N-AN-16 |
+| IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
 | `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `tool_choice.disable_parallel_tool_use` | unmapped-field | request → IR | no IR equivalent in v1 |

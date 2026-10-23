@@ -477,6 +477,7 @@ export function encodeRequest(
           `messages[${index}].content`,
           losses,
           true,
+          true,
         );
     return {
       role: message.role,
@@ -662,6 +663,7 @@ export function encodeResponse(
           "content",
           losses,
           false,
+          false,
         );
         return encoded.length === 0 ? [{ type: "text", text: "" }] : encoded;
       })(),
@@ -706,6 +708,7 @@ function decodeContent(
   for (let index = 0; index < array(value, path).length; index += 1) {
     const block = object(array(value, path)[index], `${path}[${index}]`);
     const type = string(block.type, `${path}[${index}].type`);
+    const lossesBeforeBlock = losses.length;
     const native = isRequest
       ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
       : undefined;
@@ -768,23 +771,27 @@ function decodeContent(
       if (source.type === "base64") {
         doc = {
           type: "document",
-          media_type: string(
+          media_type: nonEmptyString(
             source.media_type,
             `${path}[${index}].source.media_type`,
           ),
-          data: string(source.data, `${path}[${index}].source.data`),
+          data: nonEmptyString(source.data, `${path}[${index}].source.data`),
         };
       } else if (source.type === "url") {
         doc = {
           type: "document",
-          url: string(source.url, `${path}[${index}].source.url`),
+          url: nonEmptyString(source.url, `${path}[${index}].source.url`),
         };
       } else if (source.type === "file") {
         doc = {
           type: "document",
-          file_id: string(source.file_id, `${path}[${index}].source.file_id`),
+          file_id: nonEmptyString(
+            source.file_id,
+            `${path}[${index}].source.file_id`,
+          ),
         };
       } else {
+        losses.length = lossesBeforeBlock;
         losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
         continue;
       }
@@ -793,9 +800,7 @@ function decodeContent(
         docNative.push({
           source: NATIVE_SOURCE_ANTHROPIC,
           kind: "document_title",
-          value: JSON.stringify(
-            string(block.title, `${path}[${index}].title`),
-          ),
+          value: JSON.stringify(string(block.title, `${path}[${index}].title`)),
           omission: {
             field: "title",
             reason: "unmapped-field" as const,
@@ -969,6 +974,7 @@ function encodeContent(
   path: string,
   losses: Loss[],
   replay: boolean,
+  isRequest: boolean,
 ): JsonValue[] {
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
@@ -1002,6 +1008,10 @@ function encodeContent(
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
       else output.push({ ...image, ...(cc ? { cache_control: cc } : {}) });
     } else if (block.type === "document") {
+      if (!isRequest) {
+        losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
+        continue;
+      }
       const doc = encodeDocument(block as DocumentBlock);
       if (doc === undefined)
         losses.push(
@@ -1148,36 +1158,23 @@ function encodeImage(image: ImageBlock): JsonObject | undefined {
 
 function encodeDocument(doc: DocumentBlock): JsonObject | undefined {
   let source: JsonObject;
-  if (doc.data !== undefined) {
-    if (
-      typeof doc.data !== "string" ||
-      doc.data.length === 0 ||
-      doc.url !== undefined ||
-      doc.file_id !== undefined ||
-      typeof doc.media_type !== "string" ||
-      doc.media_type.length === 0
-    )
+  const hasData = typeof doc.data === "string" && doc.data.length > 0;
+  const hasUrl = typeof doc.url === "string" && doc.url.length > 0;
+  const hasFile = typeof doc.file_id === "string" && doc.file_id.length > 0;
+  const sourceCount = (hasData ? 1 : 0) + (hasUrl ? 1 : 0) + (hasFile ? 1 : 0);
+  if (sourceCount !== 1) return undefined;
+  if (hasData) {
+    if (typeof doc.media_type !== "string" || doc.media_type.length === 0)
       return undefined;
     source = { type: "base64", media_type: doc.media_type, data: doc.data };
-  } else if (doc.url !== undefined) {
-    if (
-      typeof doc.url !== "string" ||
-      doc.url.length === 0 ||
-      doc.file_id !== undefined ||
-      doc.media_type !== undefined
-    )
+  } else if (hasUrl) {
+    if (doc.media_type !== undefined && doc.media_type.length > 0)
       return undefined;
     source = { type: "url", url: doc.url };
-  } else if (doc.file_id !== undefined) {
-    if (
-      typeof doc.file_id !== "string" ||
-      doc.file_id.length === 0 ||
-      doc.media_type !== undefined
-    )
-      return undefined;
-    source = { type: "file", file_id: doc.file_id };
   } else {
-    return undefined;
+    if (doc.media_type !== undefined && doc.media_type.length > 0)
+      return undefined;
+    source = { type: "file", file_id: doc.file_id as string };
   }
   let out: JsonObject = { type: "document", source };
   for (const n of doc.native ?? []) {

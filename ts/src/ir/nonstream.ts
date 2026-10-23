@@ -507,6 +507,9 @@ function encodeBlock(block: Block): JsonObject {
       "ir: native annotations are forbidden in response and event content blocks (spec/15)",
     );
   }
+  if (block.type === "document") {
+    fail('ir: unknown block type "document"');
+  }
   return encodeBlockBase(block, encodeBlock);
 }
 

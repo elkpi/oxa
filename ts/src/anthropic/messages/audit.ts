@@ -7,7 +7,9 @@ const SYSTEM_BLOCK: WireAuditSpec = {
 const SOURCE: WireAuditSpec = {
   variant: (source) => {
     if (source.type === "base64")
-      return { fields: { type: undefined, media_type: undefined, data: undefined } };
+      return {
+        fields: { type: undefined, media_type: undefined, data: undefined },
+      };
     if (source.type === "url")
       return { fields: { type: undefined, url: undefined } };
     return undefined;

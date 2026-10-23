@@ -161,11 +161,11 @@
         },
         {
           "required": ["url"],
-          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["file_id"] }] }
+          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["file_id"] }, { "required": ["media_type"] }] }
         },
         {
           "required": ["file_id"],
-          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["url"] }] }
+          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["url"] }, { "required": ["media_type"] }] }
         }
       ]
     },

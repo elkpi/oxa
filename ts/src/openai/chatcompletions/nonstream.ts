@@ -788,14 +788,12 @@ function encodeUserContent(
   losses: Loss[],
 ): JsonValue {
   let text = "";
-  let textBlocks = 0;
-  let otherBlocks = 0;
+  let hasImage = false;
   const parts: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
     if (block.type === "text") {
       text += block.text;
-      textBlocks += 1;
       parts.push({ type: "text", text: block.text });
     } else if (block.type === "image") {
       const image = encodeImage(block, `${path}[${index}]`);
@@ -804,15 +802,14 @@ function encodeUserContent(
           loss(`${path}[${index}]`, "media_type", "unsupported-semantic"),
         );
       else {
-        otherBlocks += 1;
+        hasImage = true;
         parts.push({ type: "image_url", image_url: image });
       }
     } else {
-      otherBlocks += 1;
       losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
     }
   }
-  return textBlocks <= 1 && otherBlocks === 0 ? text : parts;
+  return !hasImage ? text : parts;
 }
 
 function encodeAssistant(

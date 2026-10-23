@@ -72,6 +72,14 @@ export interface ImageBlock {
   readonly url?: string;
   readonly native?: readonly NativeAnnotation[];
 }
+export interface DocumentBlock {
+  readonly type: "document";
+  readonly media_type?: string;
+  readonly data?: string;
+  readonly url?: string;
+  readonly file_id?: string;
+  readonly native?: readonly NativeAnnotation[];
+}
 export interface ToolUseBlock {
   readonly type: "tool_use";
   readonly id: string;
@@ -141,6 +149,7 @@ export type Block =
   | TextBlock
   | ThinkingBlock
   | ImageBlock
+  | DocumentBlock
   | ToolUseBlock
   | ToolResultBlock
   | CustomToolUseBlock

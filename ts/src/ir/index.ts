@@ -79,6 +79,7 @@ export {
   type CustomToolResultOutput,
   type CustomToolUseBlock,
   type CustomToolFormat,
+  type DocumentBlock,
   type ImageBlock,
   type NativeAnnotation,
   type NativeOmission,

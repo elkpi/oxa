@@ -435,6 +435,16 @@ function blockDocument(block: Block): JsonObject {
         ...(block.data === undefined ? {} : { data: block.data }),
         ...(block.url === undefined ? {} : { url: block.url }),
       };
+    case "document":
+      return {
+        type: "document",
+        ...(block.media_type === undefined
+          ? {}
+          : { media_type: block.media_type }),
+        ...(block.data === undefined ? {} : { data: block.data }),
+        ...(block.url === undefined ? {} : { url: block.url }),
+        ...(block.file_id === undefined ? {} : { file_id: block.file_id }),
+      };
     case "custom_tool_use":
       return {
         type: block.type,

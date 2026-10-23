@@ -15,6 +15,9 @@ export const NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
 export const NATIVE_KIND_CACHE_CONTROL = "cache_control";
 export const NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
 export const NATIVE_KIND_DEFER_LOADING = "defer_loading";
+export const NATIVE_KIND_DOCUMENT_TITLE = "document_title";
+export const NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
+export const NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 
 export const CACHE_CONTROL_LOSS_DETAIL =
@@ -22,6 +25,15 @@ export const CACHE_CONTROL_LOSS_DETAIL =
 
 export const DEFER_LOADING_LOSS_DETAIL =
   "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
+
+export const DOCUMENT_TITLE_LOSS_DETAIL =
+  "anthropic-native document title; the target face has no document representation";
+
+export const DOCUMENT_CONTEXT_LOSS_DETAIL =
+  "anthropic-native document context; the target face has no document representation";
+
+export const DOCUMENT_CITATIONS_LOSS_DETAIL =
+  "anthropic-native document citations; citations alter response semantics and the target face has no document representation";
 
 type HostType = "request" | "system" | "content" | "tool";
 
@@ -306,6 +318,48 @@ function validateAnnotations(
             );
           }
           break;
+        case NATIVE_KIND_DOCUMENT_TITLE:
+        case NATIVE_KIND_DOCUMENT_CONTEXT:
+          if (host !== "content") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on content blocks`,
+            );
+          }
+          if (typeof parsedJson !== "string") {
+            throw new OxaError(
+              "invalid-input",
+              `anthropic ${ann.kind} value must be a JSON string`,
+            );
+          }
+          break;
+        case NATIVE_KIND_DOCUMENT_CITATIONS:
+          if (host !== "content") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on content blocks`,
+            );
+          }
+          if (
+            typeof parsedJson !== "object" ||
+            parsedJson === null ||
+            Array.isArray(parsedJson)
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `anthropic ${ann.kind} value must be a JSON object`,
+            );
+          }
+          if (
+            parsedJson.enabled !== undefined &&
+            typeof parsedJson.enabled !== "boolean"
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `anthropic ${ann.kind} enabled must be a boolean`,
+            );
+          }
+          break;
         case NATIVE_KIND_DEFER_LOADING:
           if (host !== "tool") {
             throw new OxaError(
@@ -403,6 +457,10 @@ export function omittedNativeRequestLosses(
 }
 
 function collectBlockOmissions(losses: Loss[], blk: Block, path: string): void {
+  if (blk.type === "document") {
+    // N-AN-16: whole-block drop; annotations not reported a second time
+    return;
+  }
   blk.native?.forEach((ann, i) => {
     appendOmissionLoss(losses, ann, `${path}.native[${i}]`, false, undefined);
   });

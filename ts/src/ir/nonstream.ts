@@ -544,6 +544,16 @@ function encodeBlockBase(
         ...(block.data === undefined ? {} : { data: block.data }),
         ...(block.url === undefined ? {} : { url: block.url }),
       };
+    case "document":
+      return {
+        type: "document",
+        ...(block.media_type === undefined
+          ? {}
+          : { media_type: block.media_type }),
+        ...(block.data === undefined ? {} : { data: block.data }),
+        ...(block.url === undefined ? {} : { url: block.url }),
+        ...(block.file_id === undefined ? {} : { file_id: block.file_id }),
+      };
     case "tool_use":
       return {
         type: "tool_use",
@@ -608,6 +618,9 @@ function decodeBlock(value: JsonValue): Block {
       "ir: native annotations are forbidden in response and event content blocks (spec/15)",
     );
   }
+  if (block.type === "document") {
+    fail('ir: unknown block type "document"');
+  }
   return decodeBlockBase(value, decodeBlock);
 }
 
@@ -651,6 +664,24 @@ function decodeBlockBase(
         ...(block.url === undefined
           ? {}
           : { url: string(block.url, "block.url") }),
+      };
+    case "document":
+      return {
+        type: "document",
+        ...(block.media_type === undefined
+          ? {}
+          : {
+              media_type: string(block.media_type, "block.media_type"),
+            }),
+        ...(block.data === undefined
+          ? {}
+          : { data: string(block.data, "block.data") }),
+        ...(block.url === undefined
+          ? {}
+          : { url: string(block.url, "block.url") }),
+        ...(block.file_id === undefined
+          ? {}
+          : { file_id: string(block.file_id, "block.file_id") }),
       };
     case "tool_use":
       return {

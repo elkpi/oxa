@@ -32,6 +32,73 @@ import {
   decodeRequestJSON as decodeResponsesJSON,
 } from "../src/openai/responses/index.js";
 
+test("rejects conflicting fields on an Anthropic document source", () => {
+  const raw = JSON.stringify({
+    model: "m",
+    max_tokens: 1,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "YQ==",
+              url: "",
+            },
+          },
+        ],
+      },
+    ],
+  });
+  assert.throws(() => decodeAnthropicJSON(raw), /conflicting source fields/);
+});
+
+test("preserves empty Anthropic document metadata", () => {
+  const decoded = decodeAnthropicJSON(
+    JSON.stringify({
+      model: "m",
+      max_tokens: 1,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "file", file_id: "f" },
+              title: "",
+              context: "",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const encoded = encodeAnthropic(decoded.value);
+  const block = (encoded.value.messages as { content: Record<string, unknown>[] }[])[0]!.content[0]!;
+  assert.equal(block.title, "");
+  assert.equal(block.context, "");
+});
+
+test("rejects empty document source fields on Anthropic encode", () => {
+  const request: Request = {
+    model: "m",
+    params: { max_tokens: 1n },
+    messages: [
+      {
+        role: "user",
+        content: [{ type: "document", data: "", media_type: "application/pdf" }],
+      },
+    ],
+  };
+  const encoded = encodeAnthropic(request);
+  assert.equal(encoded.losses.length, 1);
+  assert.equal(encoded.losses[0]?.field, "document");
+  assert.equal(encoded.losses[0]?.reason, "unsupported-semantic");
+});
+
 test("native portable round trip through IR codec", () => {
   const req: Request = {
     model: "test-model",

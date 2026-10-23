@@ -5,11 +5,33 @@ const SYSTEM_BLOCK: WireAuditSpec = {
 };
 
 const SOURCE: WireAuditSpec = {
-  fields: {
-    type: undefined,
-    media_type: undefined,
-    data: undefined,
-    url: undefined,
+  variant: (source) => {
+    if (source.type === "base64")
+      return { fields: { type: undefined, media_type: undefined, data: undefined } };
+    if (source.type === "url")
+      return { fields: { type: undefined, url: undefined } };
+    return undefined;
+  },
+};
+
+const DOCUMENT_SOURCE: WireAuditSpec = {
+  variant: (source) => {
+    if (
+      source.type === "base64" ||
+      source.type === "url" ||
+      source.type === "file"
+    ) {
+      return {
+        fields: {
+          type: undefined,
+          media_type: undefined,
+          data: undefined,
+          url: undefined,
+          file_id: undefined,
+        },
+      };
+    }
+    return undefined;
   },
 };
 
@@ -36,6 +58,17 @@ const BLOCK: WireAuditSpec = {
       case "image":
         return {
           fields: { type: undefined, source: SOURCE, cache_control: undefined },
+        };
+      case "document":
+        return {
+          fields: {
+            type: undefined,
+            source: DOCUMENT_SOURCE,
+            title: undefined,
+            context: undefined,
+            citations: undefined,
+            cache_control: undefined,
+          },
         };
       case "tool_use":
         return {

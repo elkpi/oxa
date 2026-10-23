@@ -115,6 +115,23 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
         }
         return out;
     }
+    if (const auto* doc = std::get_if<DocumentBlock>(&b)) {
+        const bool has_data = doc->data.has_value() && !doc->data->empty();
+        const bool has_url = doc->url.has_value() && !doc->url->empty();
+        const bool has_file = doc->file_id.has_value() && !doc->file_id->empty();
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_DOCUMENT)));
+        if (has_data) {
+            if (doc->media_type.has_value()) {
+                out.set("media_type", json::Value::string(*doc->media_type));
+            }
+            out.set("data", json::Value::string(*doc->data));
+        } else if (has_url) {
+            out.set("url", json::Value::string(*doc->url));
+        } else if (has_file) {
+            out.set("file_id", json::Value::string(*doc->file_id));
+        }
+        return out;
+    }
     if (const auto* tu = std::get_if<ToolUseBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_USE)));
         out.set("id", json::Value::string(tu->id));
@@ -244,6 +261,40 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
         }
         return Block(std::move(img));
     }
+    if (kind == BLOCK_TYPE_DOCUMENT) {
+        DocumentBlock doc;
+        doc.native = std::move(native);
+        if (has(v, "media_type")) {
+            OXA_ASSIGN_OR_RETURN(std::string mt, require_string(v, "media_type", "document block"));
+            doc.media_type = std::move(mt);
+        }
+        if (has(v, "data")) {
+            OXA_ASSIGN_OR_RETURN(std::string dt, require_string(v, "data", "document block"));
+            doc.data = std::move(dt);
+        }
+        if (has(v, "url")) {
+            OXA_ASSIGN_OR_RETURN(std::string u, require_string(v, "url", "document block"));
+            doc.url = std::move(u);
+        }
+        if (has(v, "file_id")) {
+            OXA_ASSIGN_OR_RETURN(std::string fid, require_string(v, "file_id", "document block"));
+            doc.file_id = std::move(fid);
+        }
+        const bool has_data = doc.data.has_value() && !doc.data->empty();
+        const bool has_url = doc.url.has_value() && !doc.url->empty();
+        const bool has_file = doc.file_id.has_value() && !doc.file_id->empty();
+        const int count = (has_data ? 1 : 0) + (has_url ? 1 : 0) + (has_file ? 1 : 0);
+        if (count != 1) {
+            return invalid_argument("document block must have exactly one of data, url, or file_id");
+        }
+        if (has_data && !doc.media_type.has_value()) {
+            return invalid_argument("document block with data requires media_type");
+        }
+        if (!has_data && doc.media_type.has_value()) {
+            return invalid_argument("document block without data must not have media_type");
+        }
+        return Block(std::move(doc));
+    }
     if (kind == BLOCK_TYPE_TOOL_USE) {
         ToolUseBlock tu;
         tu.native = std::move(native);
@@ -350,6 +401,9 @@ StatusOr<Block> load_block(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("block must be an object");
     if (v.find("native") != nullptr) {
         return invalid_argument("native is only permitted on request blocks");
+    }
+    if (const auto* t = v.find("type"); t && t->is_string() && t->as_string() == BLOCK_TYPE_DOCUMENT) {
+        return invalid_argument("unknown block discriminant: document");
     }
     return load_block_impl(v, [](const json::Value& inner) { return load_block(inner); }, {});
 }

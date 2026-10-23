@@ -30,6 +30,10 @@ public:
 };
 
 int main() {
+    auto conflicting_document = oxa::anthropic::messages::decode_request(
+        R"({"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"YQ==","url":""}}]}]})");
+    CHECK(!conflicting_document.ok());
+
     AnthropicConverter conv;
     auto rep_res = oxa::vectest::run_nonstream(conv);
     CHECK_MSG(rep_res.ok(), rep_res.status().to_string());
@@ -39,7 +43,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 93);
+    CHECK(rep_res->executed == 98);
 
     // Test mid-conversation system messages
     {

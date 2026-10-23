@@ -1189,6 +1189,7 @@ pub(crate) fn encode_assistant_message(
                 ..InputItem::default()
             }),
             Block::Image { .. }
+            | Block::Document { .. }
             | Block::ToolResult { .. }
             | Block::CustomToolResult { .. }
             | Block::ApplyPatchToolResult { .. } => losses.push(loss(

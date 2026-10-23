@@ -3,7 +3,8 @@
 //! and verbatim tool-input bytes (INV-1).
 
 use oxa_anthropic::{
-    Config, Request, Response, decode_request, decode_response, encode_request, encode_response,
+    Config, Request, Response, decode_request, decode_request_json, decode_response,
+    encode_request, encode_response,
 };
 use oxa_ir::{Block, LossReason, ReasoningEffort, StopReason, Usage};
 use serde_json::Value;
@@ -764,4 +765,98 @@ fn test_mid_conversation_system_placement_and_content_errors() {
     }));
     let err = decode_request(&wire, &Config::default()).expect_err("non-text content");
     assert!(err.to_string().contains("system content must be text"));
+}
+
+#[test]
+fn document_source_rejects_explicit_conflicting_empty_field() {
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"YQ==","url":""}}]}]}"#;
+    let err = decode_request_json(raw, &Config::default()).expect_err("conflicting source field");
+    assert!(err.to_string().contains("conflicting source fields"));
+
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"file","file_id":"f"},"title":"","context":""}]}]}"#;
+    let (request, _) = decode_request_json(raw, &Config::default()).expect("empty metadata decode");
+    let (wire, _) = encode_request(&request, &Config::default()).expect("empty metadata encode");
+    let value = serde_json::to_value(wire).expect("serialize wire");
+    let block = &value["messages"][0]["content"][0];
+    assert_eq!(block["title"], "");
+    assert_eq!(block["context"], "");
+}
+
+#[test]
+fn document_ir_with_url_and_file_id_drops_with_loss() {
+    let raw = r#"{"specVersion":"0.2.0","model":"m","params":{"max_tokens":1},"messages":[{"role":"user","content":[{"type":"text","text":"keep"},{"type":"document","url":"https://example.com/a.pdf","file_id":"f"}]}]}"#;
+    let request = oxa_ir::from_json::<oxa_ir::Request>(raw).expect("valid IR");
+    let (wire, losses) = encode_request(&request, &Config::default()).expect("encode");
+    let value = serde_json::to_value(wire).expect("serialize wire");
+    let content = value["messages"][0]["content"].as_array().expect("content");
+    assert_eq!(content.len(), 1, "document block must be dropped");
+    let loss = loss_with(&losses, "messages[0].content[1]", "document");
+    assert_eq!(loss.reason, LossReason::UnsupportedSemantic);
+}
+
+#[test]
+fn document_null_citations_is_structural_error() {
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"file","file_id":"f"},"citations":null}]}]}"#;
+    let err = decode_request_json(raw, &Config::default()).expect_err("null citations");
+    assert!(err.to_string().contains("citations must be a JSON object"));
+}
+
+#[test]
+fn document_typed_wire_conflicting_source_is_error() {
+    let mut wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "m",
+        "max_tokens": 1,
+        "messages": [{ "role": "user", "content": [
+            { "type": "document", "source": { "type": "file", "file_id": "f" } }
+        ]}]
+    }))
+    .expect("typed wire");
+    if let Some(oxa_anthropic::ContentValue::Blocks(blocks)) = &mut wire.messages[0].content {
+        blocks[0].source.as_mut().unwrap().url = "https://example.com/a.pdf".into();
+    }
+    let err = decode_request(&wire, &Config::default()).expect_err("edited conflicting source");
+    assert!(err.to_string().contains("conflicting source fields"));
+}
+
+#[test]
+fn image_file_source_drops_as_whole_block_without_audit_noise() {
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"file","file_id":"f","future":1}}]}]}"#;
+    let (request, losses) = decode_request_json(raw, &Config::default()).expect("decode");
+    assert_eq!(
+        request.messages[0].content.len(),
+        0,
+        "image must be dropped"
+    );
+    assert_eq!(losses.len(), 1, "exactly the whole-block loss: {losses:?}");
+    assert_eq!(losses[0].reason, LossReason::UnsupportedSemantic);
+
+    let raw = r#"{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"image","source":{"type":"file","file_id":123}}]}]}"#;
+    let (request, losses) = decode_request_json(raw, &Config::default()).expect("decode");
+    assert_eq!(request.messages[0].content.len(), 0);
+    assert_eq!(losses.len(), 1);
+}
+
+#[test]
+fn ir_response_rejects_document_blocks() {
+    let raw = r#"{"specVersion":"0.2.0","id":"r","model":"m","content":[{"type":"document","file_id":"f"}],"stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}"#;
+    let err =
+        oxa_ir::from_json::<oxa_ir::Response>(raw).expect_err("document is request-side only");
+    assert!(err.to_string().contains("request-side only"));
+
+    let response = oxa_ir::Response {
+        id: "r".into(),
+        model: "m".into(),
+        content: vec![Block::Document {
+            media_type: None,
+            data: None,
+            url: None,
+            file_id: Some("f".into()),
+            native: Vec::new(),
+        }],
+        stop_reason: StopReason::EndTurn,
+        stop_sequence: None,
+        usage: Usage::default(),
+    };
+    let err = oxa_ir::to_json(&response).expect_err("document is request-side only");
+    assert!(err.to_string().contains("request-side only"));
 }

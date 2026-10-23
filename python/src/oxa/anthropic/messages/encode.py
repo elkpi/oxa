@@ -7,6 +7,7 @@ from decimal import Decimal
 from typing import Any
 
 from oxa.anthropic.messages.constants import (
+    BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
@@ -15,6 +16,7 @@ from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT,
     ROLE_USER,
     SOURCE_TYPE_BASE64,
+    SOURCE_TYPE_FILE,
     SOURCE_TYPE_URL,
     STOP_REASON_END_TURN,
     STOP_REASON_MAX_TOKENS,
@@ -34,7 +36,13 @@ from oxa.anthropic.messages.normalize import (
     loss,
     require_json_object,
 )
-from oxa.ir.native import validate_native_request
+from oxa.ir.native import (
+    NATIVE_KIND_DOCUMENT_CITATIONS,
+    NATIVE_KIND_DOCUMENT_CONTEXT,
+    NATIVE_KIND_DOCUMENT_TITLE,
+    NATIVE_SOURCE_ANTHROPIC,
+    validate_native_request,
+)
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -49,6 +57,7 @@ from oxa.ir import (
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
+    DocumentBlock,
     ImageBlock,
     Loss,
     Request,
@@ -331,6 +340,13 @@ def encode_request_block(
         losses.extend(img_losses)
         if not mapped:
             return None, losses, False
+    elif isinstance(block, DocumentBlock):
+        encoded, doc_losses, mapped = encode_document_block(
+            block.media_type, block.data, block.url, block.file_id, path, block.native
+        )
+        losses.extend(doc_losses)
+        if not mapped:
+            return None, losses, False
 
     elif isinstance(block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no Anthropic mapping")], False
@@ -418,6 +434,116 @@ def input_from_ir_string(input_str: str, path: str) -> dict[str, Any]:
         return data
     except json.JSONDecodeError as exc:
         raise ValueError(f"anthropic: {path}.input is not valid JSON") from exc
+
+
+def encode_document_block(
+    media_type: str | None,
+    data: str | None,
+    url: str | None,
+    file_id: str | None,
+    path: str,
+    native: tuple[Any, ...] = (),
+) -> tuple[dict[str, Any] | None, list[Loss], bool]:
+    has_data = bool(data)
+    has_url = bool(url)
+    has_file = bool(file_id)
+    if (has_data + has_url + has_file) != 1:
+        return (
+            None,
+            [
+                loss(
+                    path,
+                    "document",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "document must contain exactly one of data, url, or file_id",
+                )
+            ],
+            False,
+        )
+    if has_data:
+        if not media_type:
+            return (
+                None,
+                [
+                    loss(
+                        path,
+                        "document",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "base64 document data requires media_type",
+                    )
+                ],
+                False,
+            )
+        encoded: dict[str, Any] = {
+            "type": BLOCK_TYPE_DOCUMENT,
+            "source": {
+                "type": SOURCE_TYPE_BASE64,
+                "media_type": media_type,
+                "data": data,
+            },
+        }
+    elif has_url:
+        if media_type:
+            return (
+                None,
+                [
+                    loss(
+                        path,
+                        "document",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "url document must not carry media_type",
+                    )
+                ],
+                False,
+            )
+        encoded = {
+            "type": BLOCK_TYPE_DOCUMENT,
+            "source": {
+                "type": SOURCE_TYPE_URL,
+                "url": url,
+            },
+        }
+    else:
+        if media_type:
+            return (
+                None,
+                [
+                    loss(
+                        path,
+                        "document",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "file document must not carry media_type",
+                    )
+                ],
+                False,
+            )
+        encoded = {
+            "type": BLOCK_TYPE_DOCUMENT,
+            "source": {
+                "type": SOURCE_TYPE_FILE,
+                "file_id": file_id,
+            },
+        }
+
+    for n in native:
+        if n.source != NATIVE_SOURCE_ANTHROPIC:
+            continue
+        try:
+            val = json.loads(n.value)
+            if n.kind == NATIVE_KIND_DOCUMENT_TITLE and isinstance(val, str):
+                encoded["title"] = val
+            elif n.kind == NATIVE_KIND_DOCUMENT_CONTEXT and isinstance(val, str):
+                encoded["context"] = val
+            elif n.kind == NATIVE_KIND_DOCUMENT_CITATIONS and isinstance(val, dict):
+                encoded["citations"] = val
+        except Exception:
+            pass
+
+    cc = get_block_cache_control(native)
+    if cc is not None:
+        encoded["cache_control"] = cc
+
+    return encoded, [], True
 
 
 def encode_image_block(
@@ -520,6 +646,13 @@ def encode_tool_result_block(
             if mapped and img_wire is not None:
                 wire_content.append(img_wire)
             losses.extend(img_losses)
+        elif isinstance(inner, DocumentBlock):
+            doc_wire, doc_losses, mapped = encode_document_block(
+                inner.media_type, inner.data, inner.url, inner.file_id, content_path, inner.native
+            )
+            if mapped and doc_wire is not None:
+                wire_content.append(doc_wire)
+            losses.extend(doc_losses)
         else:
             losses.append(
                 loss(

@@ -589,11 +589,11 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     }),
                 });
             }
-            Block::Image { .. } => losses.push(loss(
+            Block::Image { .. } | Block::Document { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
                 LossReason::UnsupportedSemantic,
-                "IR image block cannot be rendered in a Chat Completions assistant message",
+                "IR block cannot be rendered in a Chat Completions assistant message",
             )),
             Block::ToolResult { .. } | Block::CustomToolResult { .. } => losses.push(loss(
                 format!("{path}[{index}]"),

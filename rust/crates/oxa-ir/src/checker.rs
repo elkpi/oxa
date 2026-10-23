@@ -301,6 +301,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::Text { .. } => "text",
         Block::Thinking { .. } => "thinking",
         Block::Image { .. } => "image",
+        Block::Document { .. } => "document",
         Block::ToolUse { .. } => "tool_use",
         Block::CustomToolUse { .. } => "custom_tool_use",
         Block::CustomToolResult { .. } => "custom_tool_result",

@@ -810,6 +810,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
+                } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR ir.DocumentBlock cannot be rendered in a Chat Completions user message"));
                 } else {
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);

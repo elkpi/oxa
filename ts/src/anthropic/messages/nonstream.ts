@@ -27,11 +27,17 @@ import {
   DEFER_LOADING_LOSS_DETAIL,
   NATIVE_KIND_DEFER_LOADING,
 } from "./native.js";
-import { NATIVE_SOURCE_ANTHROPIC } from "../../ir/native.js";
+import {
+  NATIVE_SOURCE_ANTHROPIC,
+  DOCUMENT_TITLE_LOSS_DETAIL,
+  DOCUMENT_CONTEXT_LOSS_DETAIL,
+  DOCUMENT_CITATIONS_LOSS_DETAIL,
+} from "../../ir/native.js";
 import type {
   Block,
   CustomToolResultBlock,
   CustomToolUseBlock,
+  DocumentBlock,
   ImageBlock,
   Message,
   NativeAnnotation,
@@ -471,6 +477,7 @@ export function encodeRequest(
           `messages[${index}].content`,
           losses,
           true,
+          true,
         );
     return {
       role: message.role,
@@ -656,6 +663,7 @@ export function encodeResponse(
           "content",
           losses,
           false,
+          false,
         );
         return encoded.length === 0 ? [{ type: "text", text: "" }] : encoded;
       })(),
@@ -700,6 +708,7 @@ function decodeContent(
   for (let index = 0; index < array(value, path).length; index += 1) {
     const block = object(array(value, path)[index], `${path}[${index}]`);
     const type = string(block.type, `${path}[${index}].type`);
+    const lossesBeforeBlock = losses.length;
     const native = isRequest
       ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
       : undefined;
@@ -731,6 +740,117 @@ function decodeContent(
         losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
         continue;
       }
+    } else if (type === "document") {
+      if (!isRequest) {
+        losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
+        continue;
+      }
+      const source = object(block.source, `${path}[${index}].source`);
+      const sourcePath = `${path}[${index}].source`;
+      if (source.type !== undefined && typeof source.type !== "string") {
+        fail(`${sourcePath}.type must be a string`);
+      }
+      if (source.type === undefined || source.type === "") {
+        fail(`${sourcePath}.type is required`);
+      }
+      if (
+        (source.type === "base64" &&
+          (source.url !== undefined || source.file_id !== undefined)) ||
+        (source.type === "url" &&
+          (source.media_type !== undefined ||
+            source.data !== undefined ||
+            source.file_id !== undefined)) ||
+        (source.type === "file" &&
+          (source.media_type !== undefined ||
+            source.data !== undefined ||
+            source.url !== undefined))
+      ) {
+        fail(`${sourcePath} has conflicting source fields`);
+      }
+      let doc: DocumentBlock;
+      if (source.type === "base64") {
+        doc = {
+          type: "document",
+          media_type: nonEmptyString(
+            source.media_type,
+            `${path}[${index}].source.media_type`,
+          ),
+          data: nonEmptyString(source.data, `${path}[${index}].source.data`),
+        };
+      } else if (source.type === "url") {
+        doc = {
+          type: "document",
+          url: nonEmptyString(source.url, `${path}[${index}].source.url`),
+        };
+      } else if (source.type === "file") {
+        doc = {
+          type: "document",
+          file_id: nonEmptyString(
+            source.file_id,
+            `${path}[${index}].source.file_id`,
+          ),
+        };
+      } else {
+        losses.length = lossesBeforeBlock;
+        losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
+        continue;
+      }
+      const docNative: NativeAnnotation[] = [];
+      if (block.title !== undefined) {
+        docNative.push({
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: "document_title",
+          value: JSON.stringify(string(block.title, `${path}[${index}].title`)),
+          omission: {
+            field: "title",
+            reason: "unmapped-field" as const,
+            detail: DOCUMENT_TITLE_LOSS_DETAIL,
+          },
+        });
+      }
+      if (block.context !== undefined) {
+        docNative.push({
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: "document_context",
+          value: JSON.stringify(
+            string(block.context, `${path}[${index}].context`),
+          ),
+          omission: {
+            field: "context",
+            reason: "unmapped-field" as const,
+            detail: DOCUMENT_CONTEXT_LOSS_DETAIL,
+          },
+        });
+      }
+      if (block.citations !== undefined) {
+        const citations = object(
+          block.citations,
+          `${path}[${index}].citations`,
+        );
+        if (
+          citations.enabled !== undefined &&
+          typeof citations.enabled !== "boolean"
+        ) {
+          fail(`${path}[${index}].citations.enabled must be a boolean`);
+        }
+        const canonCitations: Record<string, JsonValue> = {};
+        for (const k of Object.keys(citations).sort()) {
+          canonCitations[k] = citations[k]!;
+        }
+        docNative.push({
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: "document_citations",
+          value: stringifyJson(canonCitations),
+          omission: {
+            field: "citations",
+            reason: "unsupported-semantic" as const,
+            detail: DOCUMENT_CITATIONS_LOSS_DETAIL,
+          },
+        });
+      }
+      const mergedNative =
+        docNative.length > 0 ? [...docNative, ...(native ?? [])] : native;
+      blocks.push(mergedNative ? { ...doc, native: mergedNative } : doc);
     } else if (type === "thinking") {
       blocks.push({
         type: "thinking",
@@ -854,6 +974,7 @@ function encodeContent(
   path: string,
   losses: Loss[],
   replay: boolean,
+  isRequest: boolean,
 ): JsonValue[] {
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
@@ -886,6 +1007,17 @@ function encodeContent(
       if (image === undefined)
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
       else output.push({ ...image, ...(cc ? { cache_control: cc } : {}) });
+    } else if (block.type === "document") {
+      if (!isRequest) {
+        losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
+        continue;
+      }
+      const doc = encodeDocument(block as DocumentBlock);
+      if (doc === undefined)
+        losses.push(
+          loss(`${path}[${index}]`, "document", "unsupported-semantic"),
+        );
+      else output.push({ ...doc, ...(cc ? { cache_control: cc } : {}) });
     } else if (block.type === "tool_use") {
       const value = parseJson(block.input);
       const inputPath = `${path}[${index}].input`;
@@ -920,6 +1052,21 @@ function encodeContent(
           else
             content.push({
               ...image,
+              ...(nestedCc ? { cache_control: nestedCc } : {}),
+            });
+        } else if (nested.type === "document") {
+          const doc = encodeDocument(nested as DocumentBlock);
+          if (doc === undefined)
+            losses.push(
+              loss(
+                `${path}[${index}].content[${child}]`,
+                "document",
+                "unsupported-semantic",
+              ),
+            );
+          else
+            content.push({
+              ...doc,
               ...(nestedCc ? { cache_control: nestedCc } : {}),
             });
         } else
@@ -1007,6 +1154,50 @@ function encodeImage(image: ImageBlock): JsonObject | undefined {
       source: { type: "url", url: image.url },
     };
   return undefined;
+}
+
+function encodeDocument(doc: DocumentBlock): JsonObject | undefined {
+  let source: JsonObject;
+  const hasData = typeof doc.data === "string" && doc.data.length > 0;
+  const hasUrl = typeof doc.url === "string" && doc.url.length > 0;
+  const hasFile = typeof doc.file_id === "string" && doc.file_id.length > 0;
+  const sourceCount = (hasData ? 1 : 0) + (hasUrl ? 1 : 0) + (hasFile ? 1 : 0);
+  if (sourceCount !== 1) return undefined;
+  if (hasData) {
+    if (typeof doc.media_type !== "string" || doc.media_type.length === 0)
+      return undefined;
+    source = { type: "base64", media_type: doc.media_type, data: doc.data };
+  } else if (hasUrl) {
+    if (doc.media_type !== undefined && doc.media_type.length > 0)
+      return undefined;
+    source = { type: "url", url: doc.url };
+  } else {
+    if (doc.media_type !== undefined && doc.media_type.length > 0)
+      return undefined;
+    source = { type: "file", file_id: doc.file_id as string };
+  }
+  let out: JsonObject = { type: "document", source };
+  for (const n of doc.native ?? []) {
+    if (n.source !== NATIVE_SOURCE_ANTHROPIC) continue;
+    try {
+      const parsed = JSON.parse(n.value) as unknown;
+      if (n.kind === "document_title" && typeof parsed === "string") {
+        out = { ...out, title: parsed };
+      } else if (n.kind === "document_context" && typeof parsed === "string") {
+        out = { ...out, context: parsed };
+      } else if (
+        n.kind === "document_citations" &&
+        typeof parsed === "object" &&
+        parsed !== null &&
+        !Array.isArray(parsed)
+      ) {
+        out = { ...out, citations: parsed as JsonValue };
+      }
+    } catch {
+      // malformed annotation values are unreachable for validated IR
+    }
+  }
+  return out;
 }
 
 function decodeToolChoice(

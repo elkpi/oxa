@@ -279,7 +279,7 @@ func TestDecodeRequestUnknownBlockAndImageSourceAreLosses(t *testing.T) {
 		name  string
 		block BlockWire
 	}{
-		{name: "block", block: BlockWire{Type: "document"}},
+		{name: "block", block: BlockWire{Type: "mystery_block"}},
 		{name: "image source", block: BlockWire{Type: "image", Source: &SourceWire{Type: "file"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

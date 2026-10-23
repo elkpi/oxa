@@ -1,0 +1,153 @@
+{
+  "name": "anthropic.nonstream.documents-nested-tool-result-to-ir",
+  "description": "A document block nested inside tool_result.content between two text blocks decodes as the middle child of the IR ToolResultBlock with tool_use_id preserved (N-AN-5, N-AN-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "name": "read_file",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "read fixture.pdf"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read_file",
+            "input": {"path":"fixture.pdf"}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "PDF file read"
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "JVBERi0xLjcK"
+                },
+                "title": "fixture.pdf"
+              },
+              {
+                "type": "text",
+                "text": "end of result"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "tools": [
+      {
+        "name": "read_file",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "read fixture.pdf"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read_file",
+            "input": "{\"path\":\"fixture.pdf\"}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "PDF file read"
+              },
+              {
+                "type": "document",
+                "media_type": "application/pdf",
+                "data": "JVBERi0xLjcK",
+                "native": [
+                  {
+                    "source": "anthropic",
+                    "kind": "document_title",
+                    "value": "\"fixture.pdf\"",
+                    "omission": {
+                      "field": "title",
+                      "reason": "unmapped-field",
+                      "detail": "anthropic-native document title; the target face has no document representation"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "end of result"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "document",
+    "request",
+    "tool-result",
+    "n-an-5",
+    "n-an-16"
+  ]
+}

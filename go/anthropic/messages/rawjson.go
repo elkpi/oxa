@@ -410,6 +410,21 @@ func skipRawJSONSpace(raw []byte, position *int) {
 	}
 }
 
+func documentSourceSchema(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
+	t := reflect.TypeOf(SourceWire{})
+	schema := &rawJSONSchema{}
+	schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+		kind, _ := rawJSONStringField(node, "type")
+		switch kind {
+		case SourceTypeBase64, SourceTypeURL, SourceTypeFile:
+			return rawObjectSchema(t, []string{"type", "media_type", "data", "url", "file_id"}, nil, seen)
+		default:
+			return nil
+		}
+	}
+	return schema
+}
+
 func schemaForRawType(t reflect.Type) *rawJSONSchema {
 	return schemaForRawTypeSeen(t, make(map[reflect.Type]*rawJSONSchema))
 }
@@ -456,13 +471,32 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 						"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
 					},
 					seen)
+			case BlockTypeDocument:
+				return rawObjectSchema(t, []string{"type", "source", "title", "context", "citations", "cache_control"},
+					map[string]*rawJSONSchema{
+						"source": documentSourceSchema(seen),
+					},
+					seen)
 			default:
 				return nil
 			}
 		}
 		return schema
 	case reflect.TypeOf(SourceWire{}):
-		return rawObjectSchema(t, []string{"type", "media_type", "data", "url"}, nil, seen)
+		schema := &rawJSONSchema{}
+		seen[t] = schema
+		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			switch kind {
+			case SourceTypeBase64:
+				return rawObjectSchema(t, []string{"type", "media_type", "data"}, nil, seen)
+			case SourceTypeURL:
+				return rawObjectSchema(t, []string{"type", "url"}, nil, seen)
+			default:
+				return nil
+			}
+		}
+		return schema
 	case reflect.TypeOf(ToolWire{}):
 		return rawObjectSchema(t, []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading"}, nil, seen)
 	case reflect.TypeOf(ToolChoiceWire{}):

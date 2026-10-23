@@ -36,6 +36,9 @@ const (
 	NativeKindCacheControl      = "cache_control"
 	NativeKindContextManagement = "context_management"
 	NativeKindDeferLoading      = "defer_loading"
+	NativeKindDocumentTitle     = "document_title"
+	NativeKindDocumentContext   = "document_context"
+	NativeKindDocumentCitations = "document_citations"
 )
 
 const (
@@ -49,6 +52,21 @@ const CacheControlLossDetail = "anthropic-native cache breakpoint; the target fa
 // DeferLoadingLossDetail is the canonical spec/15 §3.4 capability-gap detail for
 // Anthropic deferred tool loading dropped when crossing to a face without deferred loading.
 const DeferLoadingLossDetail = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
+
+// DocumentTitleLossDetail is the canonical spec/15 §3.5 capability-gap detail
+// for Anthropic document titles dropped with their whole block when crossing
+// to a face without document support.
+const DocumentTitleLossDetail = "anthropic-native document title; the target face has no document representation"
+
+// DocumentContextLossDetail is the canonical spec/15 §3.5 capability-gap
+// detail for Anthropic document context dropped with their whole block when
+// crossing to a face without document support.
+const DocumentContextLossDetail = "anthropic-native document context; the target face has no document representation"
+
+// DocumentCitationsLossDetail is the canonical spec/15 §3.5 capability-gap
+// detail for Anthropic document citations dropped with their whole block when
+// crossing to a face without document support.
+const DocumentCitationsLossDetail = "anthropic-native document citations; citations alter response semantics and the target face has no document representation"
 
 type hostType int
 
@@ -230,6 +248,34 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 						return fmt.Errorf("invalid cache_control ttl %v", ttl)
 					}
 				}
+			case NativeKindDocumentTitle, NativeKindDocumentContext:
+				if host != hostContentBlock {
+					return fmt.Errorf("anthropic %s is only allowed on content blocks", ann.Kind)
+				}
+				var parsed any
+				if err := json.Unmarshal([]byte(ann.Value), &parsed); err != nil {
+					return fmt.Errorf("anthropic %s value must be a JSON string", ann.Kind)
+				}
+				if _, isString := parsed.(string); !isString {
+					return fmt.Errorf("anthropic %s value must be a JSON string", ann.Kind)
+				}
+			case NativeKindDocumentCitations:
+				if host != hostContentBlock {
+					return fmt.Errorf("anthropic %s is only allowed on content blocks", ann.Kind)
+				}
+				var parsed any
+				if err := json.Unmarshal([]byte(ann.Value), &parsed); err != nil {
+					return fmt.Errorf("anthropic %s value must be a JSON object", ann.Kind)
+				}
+				obj, isObject := parsed.(map[string]any)
+				if !isObject {
+					return fmt.Errorf("anthropic %s value must be a JSON object", ann.Kind)
+				}
+				if enabled, ok := obj["enabled"]; ok {
+					if _, isBool := enabled.(bool); !isBool {
+						return fmt.Errorf("anthropic %s enabled must be a boolean", ann.Kind)
+					}
+				}
 			case NativeKindDeferLoading:
 				if host != hostTool {
 					return fmt.Errorf("anthropic %s is only allowed on Tool", ann.Kind)
@@ -251,6 +297,8 @@ func validateBlockAnnotations(b Block, path string) error {
 	case TextBlock:
 		nat = blk.Native
 	case ImageBlock:
+		nat = blk.Native
+	case DocumentBlock:
 		nat = blk.Native
 	case ToolUseBlock:
 		nat = blk.Native

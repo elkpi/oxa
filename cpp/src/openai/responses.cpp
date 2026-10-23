@@ -1056,6 +1056,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     results.push_back(&b);
                     last_result = bi;
+                } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR ir.DocumentBlock cannot be rendered in a Responses user message item"));
+                    normal.push_back(&b);
                 } else {
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);

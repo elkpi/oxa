@@ -267,6 +267,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			}
 			otherBlocks++
 			parts = append(parts, part)
+		case ir.DocumentBlock:
+			otherBlocks++
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+				fmt.Sprintf("IR %T cannot be rendered in a Responses user message item", block),
+			))
 		default:
 			otherBlocks++
 			losses = append(losses, loss(
@@ -333,7 +339,7 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			calls = append(calls, InputItem{
 				Type: ItemTypeFunctionCall, CallID: value.ID, Name: value.Name, Arguments: arguments,
 			})
-		case ir.ImageBlock, ir.ToolResultBlock:
+		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Responses assistant input item", block),

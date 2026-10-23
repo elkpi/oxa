@@ -1,0 +1,140 @@
+{
+  "name": "anthropic.nonstream.documents-nested-tool-result-from-ir",
+  "description": "An IR ToolResultBlock whose content carries text, document, text renders as an Anthropic tool_result with the document block between the two text blocks (N-AN-5, N-AN-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "read fixture.pdf"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read_file",
+            "input": "{\"path\":\"fixture.pdf\"}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "PDF file read"
+              },
+              {
+                "type": "document",
+                "media_type": "application/pdf",
+                "data": "JVBERi0xLjcK",
+                "native": [
+                  {
+                    "source": "anthropic",
+                    "kind": "document_title",
+                    "value": "\"fixture.pdf\"",
+                    "omission": {
+                      "field": "title",
+                      "reason": "unmapped-field",
+                      "detail": "anthropic-native document title; the target face has no document representation"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "end of result"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    }
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "read fixture.pdf"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "read_file",
+            "input": {"path":"fixture.pdf"}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "text",
+                "text": "PDF file read"
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "base64",
+                  "media_type": "application/pdf",
+                  "data": "JVBERi0xLjcK"
+                },
+                "title": "fixture.pdf"
+              },
+              {
+                "type": "text",
+                "text": "end of result"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "document",
+    "request",
+    "tool-result",
+    "n-an-5",
+    "n-an-16"
+  ]
+}

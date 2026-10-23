@@ -20,6 +20,7 @@ const (
 	BlockTypeToolUse    = "tool_use"
 	BlockTypeToolResult = "tool_result"
 	BlockTypeThinking   = "thinking"
+	BlockTypeDocument   = "document"
 )
 
 // TextBlock is a run of text.
@@ -56,6 +57,20 @@ type ToolUseBlock struct {
 	Native []NativeAnnotation
 }
 
+// DocumentBlock is a document input (since 2.4.8, request-side only):
+// exactly one of Data / URL / FileID identifies the source form. Data
+// carries base64 bytes with MediaType (INV-1: never decoded or
+// transformed); URL is a document URL; FileID is a provider Files-API
+// reference. Document-level provider metadata (title, context,
+// citations) travels as NativeAnnotations per spec/15 §3.5.
+type DocumentBlock struct {
+	MediaType string
+	Data      string
+	URL       string
+	FileID    string
+	Native    []NativeAnnotation
+}
+
 // ToolResultBlock is the outcome of a tool invocation, supplied by the caller.
 type ToolResultBlock struct {
 	ToolUseID string
@@ -66,6 +81,7 @@ type ToolResultBlock struct {
 
 func (TextBlock) isBlock()       {}
 func (ImageBlock) isBlock()      {}
+func (DocumentBlock) isBlock()   {}
 func (ToolUseBlock) isBlock()    {}
 func (ToolResultBlock) isBlock() {}
 func (ThinkingBlock) isBlock()   {}

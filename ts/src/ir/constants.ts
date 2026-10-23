@@ -9,6 +9,7 @@ export const ROLE_ASSISTANT = "assistant" as const;
 // Block types (spec/01 §3.4)
 export const BLOCK_TYPE_TEXT = "text" as const;
 export const BLOCK_TYPE_IMAGE = "image" as const;
+export const BLOCK_TYPE_DOCUMENT = "document" as const;
 export const BLOCK_TYPE_TOOL_USE = "tool_use" as const;
 export const BLOCK_TYPE_TOOL_RESULT = "tool_result" as const;
 export const BLOCK_TYPE_THINKING = "thinking" as const;

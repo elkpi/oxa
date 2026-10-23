@@ -8,12 +8,14 @@ from typing import Any
 
 from oxa._wire import raw_field
 from oxa.anthropic.messages.constants import (
+    BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     SOURCE_TYPE_BASE64,
+    SOURCE_TYPE_FILE,
     SOURCE_TYPE_URL,
     TOOL_CHOICE_TYPE_ANY,
     TOOL_CHOICE_TYPE_AUTO,
@@ -35,6 +37,7 @@ from oxa.ir import (
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
+    DocumentBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -45,7 +48,13 @@ from oxa.ir import (
     ToolUseBlock,
 )
 from oxa.ir.native import (
+    DOCUMENT_CITATIONS_LOSS_DETAIL,
+    DOCUMENT_CONTEXT_LOSS_DETAIL,
+    DOCUMENT_TITLE_LOSS_DETAIL,
     NATIVE_KIND_CACHE_CONTROL,
+    NATIVE_KIND_DOCUMENT_CONTEXT,
+    NATIVE_KIND_DOCUMENT_CITATIONS,
+    NATIVE_KIND_DOCUMENT_TITLE,
     NATIVE_SOURCE_ANTHROPIC,
     NativeAnnotation,
     NativeOmission,
@@ -183,6 +192,8 @@ def decode_block(
         if not isinstance(source, dict):
             raise ValueError(f"anthropic: {path}.source is required")
         src_kind = source.get("type", "")
+        if "type" in source and not isinstance(src_kind, str):
+            raise ValueError(f"anthropic: {path}.source.type must be a string")
         if src_kind == SOURCE_TYPE_BASE64:
             media_type = source.get("media_type", "")
             data = source.get("data", "")
@@ -206,6 +217,112 @@ def decode_block(
                 )
             )
             return [], losses, False
+
+    elif kind == BLOCK_TYPE_DOCUMENT:
+        if not is_request:
+            losses.append(
+                loss(
+                    path,
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    'Anthropic block type "document" has no IR equivalent',
+                )
+            )
+            return [], losses, False
+        source = wire.get("source")
+        if not isinstance(source, dict):
+            raise ValueError(f"anthropic: {path}.source is required")
+        src_kind = source.get("type", "")
+        if "type" in source and not isinstance(src_kind, str):
+            raise ValueError(f"anthropic: {path}.source.type must be a string")
+        if not src_kind:
+            raise ValueError(f"anthropic: {path}.source.type is required")
+        if src_kind == SOURCE_TYPE_BASE64:
+            media_type = source.get("media_type", "")
+            data = source.get("data", "")
+            if not isinstance(media_type, str) or not media_type:
+                raise ValueError(f"anthropic: {path}.source.media_type is required")
+            if not isinstance(data, str) or not data:
+                raise ValueError(f"anthropic: {path}.source.data is required")
+            if "url" in source or "file_id" in source:
+                raise ValueError(f"anthropic: {path}.source has conflicting source fields")
+            block = DocumentBlock(media_type=media_type, data=data)
+        elif src_kind == SOURCE_TYPE_URL:
+            url = source.get("url", "")
+            if not isinstance(url, str) or not url:
+                raise ValueError(f"anthropic: {path}.source.url is required")
+            if "media_type" in source or "data" in source or "file_id" in source:
+                raise ValueError(f"anthropic: {path}.source has conflicting source fields")
+            block = DocumentBlock(url=url)
+        elif src_kind == SOURCE_TYPE_FILE:
+            file_id = source.get("file_id", "")
+            if not isinstance(file_id, str) or not file_id:
+                raise ValueError(f"anthropic: {path}.source.file_id is required")
+            if "media_type" in source or "data" in source or "url" in source:
+                raise ValueError(f"anthropic: {path}.source has conflicting source fields")
+            block = DocumentBlock(file_id=file_id)
+        else:
+            losses.append(
+                loss(
+                    path,
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    f"Anthropic document source type {src_kind!r} has no IR equivalent",
+                )
+            )
+            return [], losses, False
+        doc_native = []
+        if "title" in wire:
+            title = wire["title"]
+            if not isinstance(title, str):
+                raise ValueError(f"anthropic: {path}.title must be a string")
+            doc_native.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_DOCUMENT_TITLE,
+                    value=json.dumps(title),
+                    omission=NativeOmission(
+                        field="title",
+                        reason=LOSS_UNMAPPED_FIELD,
+                        detail=DOCUMENT_TITLE_LOSS_DETAIL,
+                    ),
+                )
+            )
+        if "context" in wire:
+            context = wire["context"]
+            if not isinstance(context, str):
+                raise ValueError(f"anthropic: {path}.context must be a string")
+            doc_native.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_DOCUMENT_CONTEXT,
+                    value=json.dumps(context),
+                    omission=NativeOmission(
+                        field="context",
+                        reason=LOSS_UNMAPPED_FIELD,
+                        detail=DOCUMENT_CONTEXT_LOSS_DETAIL,
+                    ),
+                )
+            )
+        if "citations" in wire:
+            citations = wire["citations"]
+            if not isinstance(citations, dict):
+                raise ValueError(f"anthropic: {path}.citations must be a JSON object")
+            if "enabled" in citations and not isinstance(citations["enabled"], bool):
+                raise ValueError(f"anthropic: {path}.citations.enabled must be a boolean")
+            doc_native.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_DOCUMENT_CITATIONS,
+                    value=json.dumps(citations, separators=(",", ":")),
+                    omission=NativeOmission(
+                        field="citations",
+                        reason=LOSS_UNSUPPORTED_SEMANTIC,
+                        detail=DOCUMENT_CITATIONS_LOSS_DETAIL,
+                    ),
+                )
+            )
+        block = dataclasses.replace(block, native=block.native + tuple(doc_native))
 
     elif kind == BLOCK_TYPE_TOOL_USE:
         tool_id = wire.get("id", "")

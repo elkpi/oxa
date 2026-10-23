@@ -20,11 +20,13 @@ inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
 inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
+inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
 
 inline constexpr std::string_view SOURCE_TYPE_BASE64 = "base64";
 inline constexpr std::string_view SOURCE_TYPE_URL = "url";
+inline constexpr std::string_view SOURCE_TYPE_FILE = "file";
 
 inline constexpr std::string_view TOOL_CHOICE_TYPE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_TYPE_ANY = "any";

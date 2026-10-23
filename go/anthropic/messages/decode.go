@@ -405,6 +405,23 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 			return nil, []ir.Loss{*imageLoss}, false, nil
 		}
 		block = image
+	case BlockTypeDocument:
+		if !isRequest {
+			return nil, []ir.Loss{{
+				Path:   path,
+				Field:  "type",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("Anthropic block type %q has no IR equivalent", w.Type),
+			}}, false, nil
+		}
+		doc, docLoss, err := decodeDocument(w, path)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		if docLoss != nil {
+			return nil, []ir.Loss{*docLoss}, false, nil
+		}
+		block = doc
 	case BlockTypeToolUse:
 		if w.ID == "" {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
@@ -503,6 +520,106 @@ func decodeImage(source *SourceWire, path string) (ir.ImageBlock, *ir.Loss, erro
 			Detail: fmt.Sprintf("Anthropic image source type %q has no IR equivalent", source.Type),
 		}, nil
 	}
+}
+
+// decodeDocument decodes an Anthropic document block into ir.DocumentBlock
+// (N-AN-16). The source form is carried by the field combination; base64
+// bytes are preserved verbatim (INV-1). title/context/citations travel as
+// native annotations with zero decode loss; block-level cache_control is
+// attached by the caller like any other block.
+func decodeDocument(w BlockWire, path string) (ir.DocumentBlock, *ir.Loss, error) {
+	if w.Source == nil {
+		return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source is required", path)
+	}
+	if w.Source.Type == "" {
+		return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source.type is required", path)
+	}
+	var doc ir.DocumentBlock
+	switch w.Source.Type {
+	case SourceTypeBase64:
+		if w.Source.MediaType == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source.media_type is required", path)
+		}
+		if w.Source.Data == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source.data is required", path)
+		}
+		if w.Source.has("url", w.Source.URL) || w.Source.has("file_id", w.Source.FileID) {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source has conflicting source fields", path)
+		}
+		doc = ir.DocumentBlock{MediaType: w.Source.MediaType, Data: w.Source.Data}
+	case SourceTypeURL:
+		if w.Source.URL == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source.url is required", path)
+		}
+		if w.Source.has("media_type", w.Source.MediaType) || w.Source.has("data", w.Source.Data) || w.Source.has("file_id", w.Source.FileID) {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source has conflicting source fields", path)
+		}
+		doc = ir.DocumentBlock{URL: w.Source.URL}
+	case SourceTypeFile:
+		if w.Source.FileID == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source.file_id is required", path)
+		}
+		if w.Source.has("media_type", w.Source.MediaType) || w.Source.has("data", w.Source.Data) || w.Source.has("url", w.Source.URL) {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.source has conflicting source fields", path)
+		}
+		doc = ir.DocumentBlock{FileID: w.Source.FileID}
+	default:
+		return ir.DocumentBlock{}, &ir.Loss{
+			Path:   path,
+			Field:  "type",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: fmt.Sprintf("Anthropic document source type %q has no IR equivalent", w.Source.Type),
+		}, nil
+	}
+	if w.hasTitle || w.Title != "" {
+		title, err := json.Marshal(w.Title)
+		if err != nil {
+			return ir.DocumentBlock{}, nil, err
+		}
+		doc.Native = append(doc.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceAnthropic,
+			Kind:     ir.NativeKindDocumentTitle,
+			Value:    string(title),
+			Omission: &ir.NativeOmission{Field: "title", Reason: ir.LossUnmappedField, Detail: ir.DocumentTitleLossDetail},
+		})
+	}
+	if w.hasContext || w.Context != "" {
+		ctx, err := json.Marshal(w.Context)
+		if err != nil {
+			return ir.DocumentBlock{}, nil, err
+		}
+		doc.Native = append(doc.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceAnthropic,
+			Kind:     ir.NativeKindDocumentContext,
+			Value:    string(ctx),
+			Omission: &ir.NativeOmission{Field: "context", Reason: ir.LossUnmappedField, Detail: ir.DocumentContextLossDetail},
+		})
+	}
+	if len(w.Citations) > 0 {
+		var obj map[string]any
+		if err := json.Unmarshal(w.Citations, &obj); err != nil {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.citations must be a JSON object", path)
+		}
+		if obj == nil {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.citations must be a JSON object", path)
+		}
+		if enabled, ok := obj["enabled"]; ok {
+			if _, isBool := enabled.(bool); !isBool {
+				return ir.DocumentBlock{}, nil, fmt.Errorf("anthropic: %s.citations.enabled must be a boolean", path)
+			}
+		}
+		canon, err := json.Marshal(obj)
+		if err != nil {
+			return ir.DocumentBlock{}, nil, err
+		}
+		doc.Native = append(doc.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceAnthropic,
+			Kind:     ir.NativeKindDocumentCitations,
+			Value:    string(canon),
+			Omission: &ir.NativeOmission{Field: "citations", Reason: ir.LossUnsupportedSemantic, Detail: ir.DocumentCitationsLossDetail},
+		})
+	}
+	return doc, nil, nil
 }
 
 func requireJSONObject(raw json.RawMessage, path string) error {

@@ -22,6 +22,7 @@ import {
   decodeRequestJSON as decodeAnthropicJSON,
   decodeResponseJSON as decodeAnthropicResponseJSON,
   encodeRequest as encodeAnthropic,
+  encodeResponse as encodeAnthropicResponse,
 } from "../src/anthropic/messages/index.js";
 import {
   encodeRequest as encodeChatCompletions,
@@ -31,6 +32,179 @@ import {
   encodeRequest as encodeResponses,
   decodeRequestJSON as decodeResponsesJSON,
 } from "../src/openai/responses/index.js";
+
+test("rejects conflicting fields on an Anthropic document source", () => {
+  const raw = JSON.stringify({
+    model: "m",
+    max_tokens: 1,
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            source: {
+              type: "base64",
+              media_type: "application/pdf",
+              data: "YQ==",
+              url: "",
+            },
+          },
+        ],
+      },
+    ],
+  });
+  assert.throws(() => decodeAnthropicJSON(raw), /conflicting source fields/);
+});
+
+test("preserves empty Anthropic document metadata", () => {
+  const decoded = decodeAnthropicJSON(
+    JSON.stringify({
+      model: "m",
+      max_tokens: 1,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "file", file_id: "f" },
+              title: "",
+              context: "",
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  const encoded = encodeAnthropic(decoded.value);
+  const block = (
+    encoded.value.messages as { content: Record<string, unknown>[] }[]
+  )[0]!.content[0]!;
+  assert.equal(block.title, "");
+  assert.equal(block.context, "");
+});
+
+test("rejects empty document source fields on Anthropic encode", () => {
+  const request: Request = {
+    model: "m",
+    params: { max_tokens: 1n },
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "document", data: "", media_type: "application/pdf" },
+        ],
+      },
+    ],
+  };
+  const encoded = encodeAnthropic(request);
+  assert.equal(encoded.losses.length, 1);
+  assert.equal(encoded.losses[0]?.field, "document");
+  assert.equal(encoded.losses[0]?.reason, "unsupported-semantic");
+});
+
+test("rejects empty required document source fields on Anthropic decode", () => {
+  for (const source of [
+    { type: "file", file_id: "" },
+    { type: "base64", media_type: "application/pdf", data: "" },
+    { type: "base64", media_type: "", data: "YQ==" },
+    { type: "url", url: "" },
+  ]) {
+    assert.throws(
+      () =>
+        decodeAnthropicJSON(
+          JSON.stringify({
+            model: "m",
+            max_tokens: 1,
+            messages: [
+              { role: "user", content: [{ type: "document", source }] },
+            ],
+          }),
+        ),
+      /must not be empty/,
+    );
+  }
+});
+
+test("reports only the whole-block loss for an unknown document source", () => {
+  const decoded = decodeAnthropicJSON(
+    JSON.stringify({
+      model: "m",
+      max_tokens: 1,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "document",
+              source: { type: "content", content: "plain text" },
+              cache_control: { type: "ephemeral", ttl: "forever" },
+            },
+          ],
+        },
+      ],
+    }),
+  );
+  assert.equal(decoded.losses.length, 1);
+  assert.equal(decoded.losses[0]?.field, "type");
+  assert.equal(decoded.losses[0]?.reason, "unsupported-semantic");
+});
+
+test("drops document blocks from Anthropic response encoding", () => {
+  const encoded = encodeAnthropicResponse({
+    id: "r",
+    model: "m",
+    content: [
+      { type: "text", text: "hi" },
+      { type: "document", file_id: "f" },
+    ],
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1n, output_tokens: 1n },
+  });
+  assert.equal(encoded.losses.length, 1);
+  assert.equal(encoded.losses[0]?.field, "type");
+  assert.equal(encoded.losses[0]?.reason, "unsupported-semantic");
+  const content = encoded.value.content as Record<string, unknown>[];
+  assert.equal(content.length, 1);
+  assert.equal(content[0]?.type, "text");
+});
+
+test("rejects document blocks in IR response encoding", () => {
+  assert.throws(
+    () =>
+      encodeResponse({
+        id: "r",
+        model: "m",
+        content: [{ type: "document", file_id: "f" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 1n, output_tokens: 1n },
+      }),
+    /document/,
+  );
+});
+
+test("reports a loss for an IR document with both url and file_id", () => {
+  const encoded = encodeAnthropic({
+    model: "m",
+    params: { max_tokens: 1n },
+    messages: [
+      {
+        role: "user",
+        content: [
+          {
+            type: "document",
+            url: "https://example.com/a.pdf",
+            file_id: "f",
+          },
+        ],
+      },
+    ],
+  });
+  assert.equal(encoded.losses.length, 1);
+  assert.equal(encoded.losses[0]?.field, "document");
+  assert.equal(encoded.losses[0]?.reason, "unsupported-semantic");
+});
 
 test("native portable round trip through IR codec", () => {
   const req: Request = {

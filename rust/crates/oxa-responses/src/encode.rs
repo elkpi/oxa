@@ -436,12 +436,14 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     ..OutputItem::default()
                 });
             }
-            Block::Image { .. } | Block::ToolResult { .. } => losses.push(loss(
-                format!("content[{index}]"),
-                "content",
-                LossReason::UnsupportedSemantic,
-                "this IR block cannot be rendered in a Responses output item",
-            )),
+            Block::Image { .. } | Block::ToolResult { .. } | Block::Document { .. } => {
+                losses.push(loss(
+                    format!("content[{index}]"),
+                    "content",
+                    LossReason::UnsupportedSemantic,
+                    "this IR block cannot be rendered in a Responses output item",
+                ))
+            }
         }
     }
     let mut output = calls;

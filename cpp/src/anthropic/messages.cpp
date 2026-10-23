@@ -99,6 +99,106 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     block_path + ".source.type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "Anthropic image source type \"" + stype + "\" has no IR equivalent"));
             }
+        } else if (kind == "document") {
+            if (!is_request) {
+                losses.push_back(make_ant_loss(
+                    block_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic block type \"document\" has no IR equivalent"));
+                continue;
+            }
+            const auto* src = item.find("source");
+            if (!src || !src->is_object()) {
+                return invalid_argument("anthropic: " + block_path + ".source is required");
+            }
+            const auto* st = src->find("type");
+            if (st && !st->is_string()) {
+                return invalid_argument("anthropic: " + block_path + ".source.type must be a string");
+            }
+            std::string stype = st ? st->as_string() : "";
+            if (stype.empty()) {
+                return invalid_argument("anthropic: " + block_path + ".source.type is required");
+            }
+            ir::DocumentBlock doc;
+            if (stype == "base64") {
+                const auto* mt = src->find("media_type");
+                if (!mt || !mt->is_string() || mt->as_string().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".source.media_type is required");
+                }
+                const auto* dt = src->find("data");
+                if (!dt || !dt->is_string() || dt->as_string().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".source.data is required");
+                }
+                if (src->find("url") || src->find("file_id")) {
+                    return invalid_argument("anthropic: " + block_path + ".source has conflicting source fields");
+                }
+                doc.media_type = mt->as_string();
+                doc.data = dt->as_string();
+            } else if (stype == "url") {
+                const auto* u = src->find("url");
+                if (!u || !u->is_string() || u->as_string().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".source.url is required");
+                }
+                if (src->find("media_type") || src->find("data") || src->find("file_id")) {
+                    return invalid_argument("anthropic: " + block_path + ".source has conflicting source fields");
+                }
+                doc.url = u->as_string();
+            } else if (stype == "file") {
+                const auto* fid = src->find("file_id");
+                if (!fid || !fid->is_string() || fid->as_string().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".source.file_id is required");
+                }
+                if (src->find("media_type") || src->find("data") || src->find("url")) {
+                    return invalid_argument("anthropic: " + block_path + ".source has conflicting source fields");
+                }
+                doc.file_id = fid->as_string();
+            } else {
+                losses.push_back(make_ant_loss(
+                    block_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic document source type \"" + stype + "\" has no IR equivalent"));
+                continue;
+            }
+            if (const auto* title = item.find("title")) {
+                if (!title->is_string()) {
+                    return invalid_argument("anthropic: " + block_path + ".title must be a string");
+                }
+                doc.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                    std::string(ir::NATIVE_KIND_DOCUMENT_TITLE),
+                    json::serialize(*title),
+                    ir::NativeOmission{"title", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(ir::DOCUMENT_TITLE_LOSS_DETAIL)},
+                    std::nullopt,
+                });
+            }
+            if (const auto* context = item.find("context")) {
+                if (!context->is_string()) {
+                    return invalid_argument("anthropic: " + block_path + ".context must be a string");
+                }
+                doc.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                    std::string(ir::NATIVE_KIND_DOCUMENT_CONTEXT),
+                    json::serialize(*context),
+                    ir::NativeOmission{"context", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(ir::DOCUMENT_CONTEXT_LOSS_DETAIL)},
+                    std::nullopt,
+                });
+            }
+            if (const auto* citations = item.find("citations")) {
+                if (!citations->is_object()) {
+                    return invalid_argument("anthropic: " + block_path + ".citations must be a JSON object");
+                }
+                if (const auto* en = citations->find("enabled")) {
+                    if (!en->is_bool()) {
+                        return invalid_argument("anthropic: " + block_path + ".citations.enabled must be a boolean");
+                    }
+                }
+                doc.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                    std::string(ir::NATIVE_KIND_DOCUMENT_CITATIONS),
+                    json::serialize(*citations),
+                    ir::NativeOmission{"citations", std::string(ir::LOSS_UNSUPPORTED_SEMANTIC), std::string(ir::DOCUMENT_CITATIONS_LOSS_DETAIL)},
+                    std::nullopt,
+                });
+            }
+            blocks.push_back(std::move(doc));
         } else if (kind == "tool_use") {
             const auto* id_val = item.find("id");
             if (!id_val || !id_val->is_string() || id_val->as_string().empty()) {
@@ -763,6 +863,52 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
+                } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&b)) {
+                    const bool has_data = doc->data.has_value() && !doc->data->empty();
+                    const bool has_url = doc->url.has_value() && !doc->url->empty();
+                    const bool has_file = doc->file_id.has_value() && !doc->file_id->empty();
+                    const int source_count = (has_data ? 1 : 0) + (has_url ? 1 : 0) + (has_file ? 1 : 0);
+                    const bool invalid_source = source_count != 1 ||
+                        (has_data ? (!doc->media_type.has_value() || doc->media_type->empty())
+                                  : (doc->media_type.has_value() && !doc->media_type->empty()));
+                    if (invalid_source) {
+                        losses.push_back(make_ant_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "document", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "document must have exactly one non-empty source; base64 requires media_type"));
+                        continue;
+                    }
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("document"));
+                    json::Value src = json::Value::object();
+                    if (doc->data.has_value() && !doc->data->empty()) {
+                        src.set("type", json::Value::string("base64"));
+                        src.set("media_type", json::Value::string(doc->media_type.value_or("application/pdf")));
+                        src.set("data", json::Value::string(*doc->data));
+                    } else if (has_url) {
+                        src.set("type", json::Value::string("url"));
+                        src.set("url", json::Value::string(*doc->url));
+                    } else {
+                        src.set("type", json::Value::string("file"));
+                        src.set("file_id", json::Value::string(*doc->file_id));
+                    }
+                    bw.set("source", std::move(src));
+                    for (const auto& n : doc->native) {
+                        if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) continue;
+                        auto parsed = json::parse(n.value);
+                        if (!parsed.ok()) continue;
+                        if (n.kind == ir::NATIVE_KIND_DOCUMENT_TITLE && parsed->is_string()) {
+                            bw.set("title", std::move(*parsed));
+                        } else if (n.kind == ir::NATIVE_KIND_DOCUMENT_CONTEXT && parsed->is_string()) {
+                            bw.set("context", std::move(*parsed));
+                        } else if (n.kind == ir::NATIVE_KIND_DOCUMENT_CITATIONS && parsed->is_object()) {
+                            bw.set("citations", std::move(*parsed));
+                        }
+                    }
+                    if (auto cc = get_block_cache_control(doc->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
+                    content_arr.push_back(std::move(bw));
                 } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("tool_use"));
@@ -845,7 +991,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     bw.set("tool_use_id", json::Value::string(tr->tool_use_id));
                     if (tr->is_error) bw.set("is_error", json::Value::boolean(true));
                     json::Value inner_arr = json::Value::array();
-                    for (const auto& inner : tr->content) {
+                    for (std::size_t ci = 0; ci < tr->content.size(); ++ci) {
+                        const auto& inner = tr->content[ci];
                         if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
                             json::Value ibw = json::Value::object();
                             ibw.set("type", json::Value::string("text"));
@@ -868,6 +1015,52 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             }
                             ibw.set("source", std::move(src));
                             if (auto cc = get_block_cache_control(img->native)) {
+                                ibw.set("cache_control", std::move(*cc));
+                            }
+                            inner_arr.push_back(std::move(ibw));
+                        } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&inner.block)) {
+                            const bool has_data = doc->data.has_value() && !doc->data->empty();
+                            const bool has_url = doc->url.has_value() && !doc->url->empty();
+                            const bool has_file = doc->file_id.has_value() && !doc->file_id->empty();
+                            const int source_count = (has_data ? 1 : 0) + (has_url ? 1 : 0) + (has_file ? 1 : 0);
+                            const bool invalid_source = source_count != 1 ||
+                                (has_data ? (!doc->media_type.has_value() || doc->media_type->empty())
+                                          : (doc->media_type.has_value() && !doc->media_type->empty()));
+                            if (invalid_source) {
+                                losses.push_back(make_ant_loss(
+                                    "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "]",
+                                    "document", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                    "document must have exactly one non-empty source; base64 requires media_type"));
+                                continue;
+                            }
+                            json::Value ibw = json::Value::object();
+                            ibw.set("type", json::Value::string("document"));
+                            json::Value src = json::Value::object();
+                            if (doc->data.has_value() && !doc->data->empty()) {
+                                src.set("type", json::Value::string("base64"));
+                                src.set("media_type", json::Value::string(doc->media_type.value_or("application/pdf")));
+                                src.set("data", json::Value::string(*doc->data));
+                            } else if (has_url) {
+                                src.set("type", json::Value::string("url"));
+                                src.set("url", json::Value::string(*doc->url));
+                            } else {
+                                src.set("type", json::Value::string("file"));
+                                src.set("file_id", json::Value::string(*doc->file_id));
+                            }
+                            ibw.set("source", std::move(src));
+                            for (const auto& n : doc->native) {
+                                if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) continue;
+                                auto parsed = json::parse(n.value);
+                                if (!parsed.ok()) continue;
+                                if (n.kind == ir::NATIVE_KIND_DOCUMENT_TITLE && parsed->is_string()) {
+                                    ibw.set("title", std::move(*parsed));
+                                } else if (n.kind == ir::NATIVE_KIND_DOCUMENT_CONTEXT && parsed->is_string()) {
+                                    ibw.set("context", std::move(*parsed));
+                                } else if (n.kind == ir::NATIVE_KIND_DOCUMENT_CITATIONS && parsed->is_object()) {
+                                    ibw.set("citations", std::move(*parsed));
+                                }
+                            }
+                            if (auto cc = get_block_cache_control(doc->native)) {
                                 ibw.set("cache_control", std::move(*cc));
                             }
                             inner_arr.push_back(std::move(ibw));
@@ -1033,6 +1226,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
+        } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Anthropic block type \"document\" has no IR equivalent"));
         }
     }
     out.set("content", std::move(content_arr));

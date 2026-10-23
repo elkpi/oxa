@@ -1,0 +1,58 @@
+{
+  "name": "anthropic.nonstream.documents-to-ir",
+  "description": "Anthropic document blocks with base64, url, and file sources map to flat IR DocumentBlocks; title, context, citations, and cache_control travel as native annotations with zero decode loss (N-AN-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Summarize the documents." },
+          {
+            "type": "document",
+            "source": { "type": "base64", "media_type": "application/pdf", "data": "JVBERi0xLjcK" },
+            "title": "Q3 Report",
+            "context": "financial filing",
+            "citations": { "enabled": true },
+            "cache_control": { "type": "ephemeral" }
+          },
+          { "type": "document", "source": { "type": "url", "url": "https://example.com/spec.pdf" } },
+          { "type": "document", "source": { "type": "file", "file_id": "file_abc123" } }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Summarize the documents." },
+          {
+            "type": "document",
+            "media_type": "application/pdf",
+            "data": "JVBERi0xLjcK",
+            "native": [
+              { "source": "anthropic", "kind": "document_title", "value": "\"Q3 Report\"", "omission": { "field": "title", "reason": "unmapped-field", "detail": "anthropic-native document title; the target face has no document representation" } },
+              { "source": "anthropic", "kind": "document_context", "value": "\"financial filing\"", "omission": { "field": "context", "reason": "unmapped-field", "detail": "anthropic-native document context; the target face has no document representation" } },
+              { "source": "anthropic", "kind": "document_citations", "value": "{\"enabled\":true}", "omission": { "field": "citations", "reason": "unsupported-semantic", "detail": "anthropic-native document citations; citations alter response semantics and the target face has no document representation" } },
+              { "source": "anthropic", "kind": "cache_control", "value": "{\"type\":\"ephemeral\"}", "omission": { "field": "cache_control", "reason": "unmapped-field", "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation" } }
+            ]
+          },
+          { "type": "document", "url": "https://example.com/spec.pdf" },
+          { "type": "document", "file_id": "file_abc123" }
+        ]
+      }
+    ],
+    "params": { "max_tokens": 1024 }
+  },
+  "expected_losses": [],
+  "tags": ["document", "request", "n-an-16", "native"]
+}

@@ -400,6 +400,9 @@ func attachCacheControlToBlock(blk *ir.Block, canon string) {
 	case ir.ImageBlock:
 		b.Native = append(b.Native, ann)
 		*blk = b
+	case ir.DocumentBlock:
+		b.Native = append(b.Native, ann)
+		*blk = b
 	case ir.ToolUseBlock:
 		b.Native = append(b.Native, ann)
 		*blk = b
@@ -593,6 +596,8 @@ func getBlockCacheControl(item any) json.RawMessage {
 	case ir.ThinkingBlock:
 		nat = b.Native
 	case ir.ImageBlock:
+		nat = b.Native
+	case ir.DocumentBlock:
 		nat = b.Native
 	case ir.ToolUseBlock:
 		nat = b.Native

@@ -332,6 +332,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
                 "tool_use" => shape("tool_use", object),
                 "tool_result" => shape("tool_result", object),
                 "image" => shape("image", object),
+                "document" => shape("document", object),
                 _ => None,
             },
             None => None,
@@ -358,6 +359,27 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("cache_control", ""),
         ]),
         "image" => Some(&[("type", ""), ("source", "source"), ("cache_control", "")]),
+        "document" => Some(&[
+            ("type", ""),
+            ("source", "document_source"),
+            ("title", ""),
+            ("context", ""),
+            ("citations", ""),
+            ("cache_control", ""),
+        ]),
+        "document_source" => match tag(object, "type") {
+            Some(value) if ["base64", "url", "file"].contains(&value.as_str()) => {
+                shape("document_source_fields", object)
+            }
+            _ => None,
+        },
+        "document_source_fields" => Some(&[
+            ("type", ""),
+            ("media_type", ""),
+            ("data", ""),
+            ("url", ""),
+            ("file_id", ""),
+        ]),
         "source" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "base64" => shape("base64", object),

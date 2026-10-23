@@ -40,6 +40,9 @@ inline constexpr std::string_view NATIVE_KIND_OUTPUT_EFFORT = "output_effort";
 inline constexpr std::string_view NATIVE_KIND_CACHE_CONTROL = "cache_control";
 inline constexpr std::string_view NATIVE_KIND_CONTEXT_MANAGEMENT = "context_management";
 inline constexpr std::string_view NATIVE_KIND_DEFER_LOADING = "defer_loading";
+inline constexpr std::string_view NATIVE_KIND_DOCUMENT_TITLE = "document_title";
+inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
+inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
@@ -47,12 +50,20 @@ inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
 inline constexpr std::string_view DEFER_LOADING_LOSS_DETAIL =
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
+inline constexpr std::string_view DOCUMENT_TITLE_LOSS_DETAIL =
+    "anthropic-native document title; the target face has no document representation";
+inline constexpr std::string_view DOCUMENT_CONTEXT_LOSS_DETAIL =
+    "anthropic-native document context; the target face has no document representation";
+inline constexpr std::string_view DOCUMENT_CITATIONS_LOSS_DETAIL =
+    "anthropic-native document citations; citations alter response semantics and the target face has no document representation";
+
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
 inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
+inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use";
@@ -155,6 +166,18 @@ struct ImageBlock {
         : media_type(std::move(mt)), data(std::move(dt)), url(std::move(u)), native(std::move(nat)) {}
 };
 
+struct DocumentBlock {
+    std::optional<std::string> media_type;
+    std::optional<std::string> data;
+    std::optional<std::string> url;
+    std::optional<std::string> file_id;
+    std::vector<NativeAnnotation> native;
+
+    DocumentBlock() = default;
+    DocumentBlock(std::optional<std::string> mt, std::optional<std::string> dt, std::optional<std::string> u, std::optional<std::string> fid = std::nullopt, std::vector<NativeAnnotation> nat = {})
+        : media_type(std::move(mt)), data(std::move(dt)), url(std::move(u)), file_id(std::move(fid)), native(std::move(nat)) {}
+};
+
 // ToolUseBlock input is raw JSON text carried opaquely: converters MUST NOT
 // parse or re-serialize it on any conversion path (INV-1).
 struct ToolUseBlock {
@@ -236,7 +259,7 @@ struct ApplyPatchToolResultBlock {
         : tool_use_id(std::move(tid)), status(std::move(st)), output(std::move(out)), native(std::move(nat)) {}
 };
 
-using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, ToolUseBlock, ToolResultBlock,
+using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, DocumentBlock, ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
                            ApplyPatchToolUseBlock, ApplyPatchToolResultBlock>;
 

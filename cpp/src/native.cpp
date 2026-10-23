@@ -99,6 +99,25 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 if (!parsed->is_bool() || !parsed->as_bool()) {
                     return invalid_argument("invalid defer_loading " + ann.value);
                 }
+            } else if (ann.kind == NATIVE_KIND_DOCUMENT_TITLE || ann.kind == NATIVE_KIND_DOCUMENT_CONTEXT) {
+                if (host != HostType::Content) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on content blocks");
+                }
+                if (!parsed->is_string()) {
+                    return invalid_argument("anthropic " + ann.kind + " value must be a JSON string");
+                }
+            } else if (ann.kind == NATIVE_KIND_DOCUMENT_CITATIONS) {
+                if (host != HostType::Content) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on content blocks");
+                }
+                if (!parsed->is_object()) {
+                    return invalid_argument("anthropic " + ann.kind + " value must be a JSON object");
+                }
+                if (const auto* enabled = parsed->find("enabled")) {
+                    if (!enabled->is_bool()) {
+                        return invalid_argument("anthropic " + ann.kind + " enabled must be a boolean");
+                    }
+                }
             }
         }
     }
@@ -118,6 +137,9 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ImageBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const DocumentBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ToolUseBlock& b) const {
@@ -307,6 +329,11 @@ struct BlockOmissionCollector {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
         }
+    }
+    void operator()(const DocumentBlock& /*b*/) const {
+        // N-AN-16: a document block crossing to a face without document
+        // support is dropped as one whole-block loss; its annotations are
+        // part of it and are not reported a second time.
     }
     void operator()(const ToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {

@@ -397,7 +397,7 @@ func TestFilteredCacheAttachment(t *testing.T) {
 			{
 				"role": "user",
 				"content": [
-					{"type": "document"},
+					{"type": "mystery_block"},
 					{"type": "text", "text": "keep", "cache_control": {"type": "ephemeral", "ttl": "1h"}}
 				]
 			}

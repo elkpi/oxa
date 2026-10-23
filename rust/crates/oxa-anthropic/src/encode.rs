@@ -11,11 +11,11 @@ use crate::normalize::{
     require_json_object, unsupported_block_loss,
 };
 use crate::types::{
-    BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT,
-    BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, Message, ROLE_ASSISTANT, ROLE_USER, Request,
-    Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS,
-    STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE,
-    ToolWire, UsageWire,
+    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, Message, ROLE_ASSISTANT,
+    ROLE_USER, Request, Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_FILE, SOURCE_TYPE_URL,
+    STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE,
+    STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE, ToolWire, UsageWire,
 };
 
 /// Applied when an IR request carries no `params.max_tokens` and the
@@ -308,6 +308,7 @@ fn encode_request_blocks(
                 Block::Text { native, .. }
                 | Block::Thinking { native, .. }
                 | Block::Image { native, .. }
+                | Block::Document { native, .. }
                 | Block::ToolUse { native, .. }
                 | Block::CustomToolUse { native, .. }
                 | Block::ApplyPatchToolUse { native, .. }
@@ -374,6 +375,26 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             url,
             ..
         } => encode_image_block(media_type.as_deref(), data.as_deref(), url.as_deref(), path),
+        Block::Document {
+            media_type,
+            data,
+            url,
+            file_id,
+            native,
+        } => {
+            let (mut wire, doc_losses, mapped) = encode_document_block(
+                media_type.as_deref(),
+                data.as_deref(),
+                url.as_deref(),
+                file_id.as_deref(),
+                native,
+                path,
+            )?;
+            if mapped && let Some(cc) = crate::native::get_block_cache_control(native) {
+                wire.cache_control = Some(cc);
+            }
+            Ok((wire, doc_losses, mapped))
+        }
         Block::ToolUse {
             id, name, input, ..
         } => {
@@ -484,6 +505,115 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
 
 /// Returns (wire block, losses, mapped). The IR image must carry exactly one
 /// of data or url; violations are dropped with a loss.
+/// Encodes an IR document block to the Anthropic document wire shape
+/// (N-AN-16): exactly one of data/url/file_id, base64 requiring media_type,
+/// with document-level metadata restored from native annotations.
+#[allow(clippy::too_many_arguments)]
+fn encode_document_block(
+    media_type: Option<&str>,
+    data: Option<&str>,
+    url: Option<&str>,
+    file_id: Option<&str>,
+    native: &[oxa_ir::NativeAnnotation],
+    path: &str,
+) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
+    let has_data = data.is_some_and(|value| !value.is_empty());
+    let has_url = url.is_some_and(|value| !value.is_empty());
+    let has_file = file_id.is_some_and(|value| !value.is_empty());
+    let source_count = (has_data as i32) + (has_url as i32) + (has_file as i32);
+    let invalid = |detail: &str| {
+        Ok((
+            BlockWire::default(),
+            vec![Loss {
+                path: path.to_string(),
+                field: "document".into(),
+                reason: LossReason::UnsupportedSemantic,
+                detail: detail.to_string(),
+            }],
+            false,
+        ))
+    };
+    let source = if source_count != 1 {
+        return invalid("document must contain exactly one of data, url, or file_id");
+    } else if has_data {
+        let Some(media_type) = media_type.filter(|value| !value.is_empty()) else {
+            return invalid("base64 document data requires media_type");
+        };
+        SourceWire {
+            kind: SOURCE_TYPE_BASE64.to_string(),
+            media_type: media_type.to_string(),
+            data: data.unwrap_or_default().to_string(),
+            url: String::new(),
+            file_id: String::new(),
+            has_media_type: false,
+            has_data: false,
+            has_url: false,
+            has_file_id: false,
+        }
+    } else if has_url {
+        if media_type.is_some_and(|value| !value.is_empty()) {
+            return invalid("url document must not carry media_type");
+        }
+        SourceWire {
+            kind: SOURCE_TYPE_URL.to_string(),
+            media_type: String::new(),
+            data: String::new(),
+            url: url.unwrap_or_default().to_string(),
+            file_id: String::new(),
+            has_media_type: false,
+            has_data: false,
+            has_url: false,
+            has_file_id: false,
+        }
+    } else {
+        if media_type.is_some_and(|value| !value.is_empty()) {
+            return invalid("file document must not carry media_type");
+        }
+        SourceWire {
+            kind: SOURCE_TYPE_FILE.to_string(),
+            media_type: String::new(),
+            data: String::new(),
+            url: String::new(),
+            file_id: file_id.unwrap_or_default().to_string(),
+            has_media_type: false,
+            has_data: false,
+            has_url: false,
+            has_file_id: false,
+        }
+    };
+    let mut wire = BlockWire {
+        kind: BLOCK_TYPE_DOCUMENT.to_string(),
+        source: Some(source),
+        ..BlockWire::default()
+    };
+    for n in native {
+        if n.source != oxa_ir::NATIVE_SOURCE_ANTHROPIC {
+            continue;
+        }
+        let parsed: serde_json::Value = match serde_json::from_str(&n.value) {
+            Ok(value) => value,
+            Err(_) => continue,
+        };
+        match n.kind.as_str() {
+            oxa_ir::NATIVE_KIND_DOCUMENT_TITLE => {
+                if let Some(title) = parsed.as_str() {
+                    wire.title = Some(title.to_string());
+                }
+            }
+            oxa_ir::NATIVE_KIND_DOCUMENT_CONTEXT => {
+                if let Some(context) = parsed.as_str() {
+                    wire.context = Some(context.to_string());
+                }
+            }
+            oxa_ir::NATIVE_KIND_DOCUMENT_CITATIONS if parsed.is_object() => {
+                wire.citations = Some(parsed);
+            }
+            _ => {}
+        }
+    }
+    Ok((wire, Vec::new(), true))
+}
+
 fn encode_image_block(
     media_type: Option<&str>,
     data: Option<&str>,
@@ -521,6 +651,11 @@ fn encode_image_block(
                     media_type: media_type.to_string(),
                     data: data.unwrap_or_default().to_string(),
                     url: String::new(),
+                    file_id: String::new(),
+                    has_media_type: false,
+                    has_data: false,
+                    has_url: false,
+                    has_file_id: false,
                 }),
                 ..BlockWire::default()
             },
@@ -603,6 +738,29 @@ fn encode_tool_result_block(
                     wire_content.push(image);
                 }
                 losses.extend(image_losses);
+            }
+            Block::Document {
+                media_type,
+                data,
+                url,
+                file_id,
+                native,
+            } => {
+                let (mut doc, doc_losses, mapped) = encode_document_block(
+                    media_type.as_deref(),
+                    data.as_deref(),
+                    url.as_deref(),
+                    file_id.as_deref(),
+                    native,
+                    &content_path,
+                )?;
+                if mapped {
+                    if let Some(cc) = crate::native::get_block_cache_control(native) {
+                        doc.cache_control = Some(cc);
+                    }
+                    wire_content.push(doc);
+                }
+                losses.extend(doc_losses);
             }
             _ => losses.push(unsupported_block_loss(
                 &content_path,

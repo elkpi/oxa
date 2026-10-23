@@ -14,6 +14,7 @@ Role = Literal["user", "assistant"]
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
+BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
 BLOCK_TYPE_CUSTOM_TOOL_USE: Final = "custom_tool_use"
@@ -113,6 +114,7 @@ __all__ = [
     "BLOCK_TYPE_TEXT",
     "BLOCK_TYPE_THINKING",
     "BLOCK_TYPE_IMAGE",
+    "BLOCK_TYPE_DOCUMENT",
     "BLOCK_TYPE_TOOL_USE",
     "BLOCK_TYPE_TOOL_RESULT",
     "BLOCK_TYPE_CUSTOM_TOOL_USE",

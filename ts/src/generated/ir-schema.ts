@@ -28,7 +28,7 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
@@ -41,6 +41,15 @@ export interface IrSchemaRequestImageBlock {
   readonly media_type?: string;
   readonly data?: string;
   readonly url?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
+export interface IrSchemaRequestDocumentBlock {
+  readonly type: "document";
+  readonly media_type?: string;
+  readonly data?: string;
+  readonly url?: string;
+  readonly file_id?: string;
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 

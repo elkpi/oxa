@@ -9,11 +9,13 @@ ROLE_SYSTEM: Final = "system"
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
+BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
 
 SOURCE_TYPE_BASE64: Final = "base64"
 SOURCE_TYPE_URL: Final = "url"
+SOURCE_TYPE_FILE: Final = "file"
 
 TOOL_CHOICE_TYPE_AUTO: Final = "auto"
 TOOL_CHOICE_TYPE_ANY: Final = "any"
@@ -45,11 +47,13 @@ __all__ = [
     "ROLE_ASSISTANT",
     "BLOCK_TYPE_TEXT",
     "BLOCK_TYPE_THINKING",
+    "BLOCK_TYPE_DOCUMENT",
     "BLOCK_TYPE_IMAGE",
     "BLOCK_TYPE_TOOL_USE",
     "BLOCK_TYPE_TOOL_RESULT",
     "SOURCE_TYPE_BASE64",
     "SOURCE_TYPE_URL",
+    "SOURCE_TYPE_FILE",
     "TOOL_CHOICE_TYPE_AUTO",
     "TOOL_CHOICE_TYPE_ANY",
     "TOOL_CHOICE_TYPE_NONE",

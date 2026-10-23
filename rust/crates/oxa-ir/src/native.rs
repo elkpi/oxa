@@ -11,12 +11,23 @@ pub const NATIVE_KIND_OUTPUT_EFFORT: &str = "output_effort";
 pub const NATIVE_KIND_CACHE_CONTROL: &str = "cache_control";
 pub const NATIVE_KIND_CONTEXT_MANAGEMENT: &str = "context_management";
 pub const NATIVE_KIND_DEFER_LOADING: &str = "defer_loading";
+pub const NATIVE_KIND_DOCUMENT_TITLE: &str = "document_title";
+pub const NATIVE_KIND_DOCUMENT_CONTEXT: &str = "document_context";
+pub const NATIVE_KIND_DOCUMENT_CITATIONS: &str = "document_citations";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 
 pub const CACHE_CONTROL_LOSS_DETAIL: &str =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
 
 pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
+
+pub const DOCUMENT_TITLE_LOSS_DETAIL: &str =
+    "anthropic-native document title; the target face has no document representation";
+
+pub const DOCUMENT_CONTEXT_LOSS_DETAIL: &str =
+    "anthropic-native document context; the target face has no document representation";
+
+pub const DOCUMENT_CITATIONS_LOSS_DETAIL: &str = "anthropic-native document citations; citations alter response semantics and the target face has no document representation";
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum HostType {
@@ -234,6 +245,42 @@ fn validate_annotations(
                         }
                     }
                 }
+                NATIVE_KIND_DOCUMENT_TITLE | NATIVE_KIND_DOCUMENT_CONTEXT => {
+                    if host != HostType::Content {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on content blocks",
+                            ann.kind
+                        )));
+                    }
+                    if parsed_json.as_str().is_none() {
+                        return Err(Error::Custom(format!(
+                            "anthropic {} value must be a JSON string",
+                            ann.kind
+                        )));
+                    }
+                }
+                NATIVE_KIND_DOCUMENT_CITATIONS => {
+                    if host != HostType::Content {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on content blocks",
+                            ann.kind
+                        )));
+                    }
+                    let Some(obj) = parsed_json.as_object() else {
+                        return Err(Error::Custom(format!(
+                            "anthropic {} value must be a JSON object",
+                            ann.kind
+                        )));
+                    };
+                    if let Some(enabled) = obj.get("enabled")
+                        && !enabled.is_boolean()
+                    {
+                        return Err(Error::Custom(format!(
+                            "anthropic {} enabled must be a boolean",
+                            ann.kind
+                        )));
+                    }
+                }
                 NATIVE_KIND_DEFER_LOADING => {
                     if host != HostType::Tool {
                         return Err(Error::Custom(format!(
@@ -259,6 +306,7 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
         Block::Text { native, .. }
         | Block::Thinking { native, .. }
         | Block::Image { native, .. }
+        | Block::Document { native, .. }
         | Block::ToolUse { native, .. }
         | Block::CustomToolUse { native, .. }
         | Block::ApplyPatchToolUse { native, .. }
@@ -362,6 +410,13 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str) {
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),
+        Block::Document { .. } => {
+            // N-AN-16: a document block crossing to a face without document
+            // support is dropped as one whole-block loss; its annotations are
+            // part of it and are not reported a second time.
+            static EMPTY: Vec<NativeAnnotation> = Vec::new();
+            (&EMPTY, None)
+        }
         Block::CustomToolResult { native, output, .. } => {
             let ch = match output {
                 crate::request::CustomToolOutput::Content(c) => Some(c.as_slice()),

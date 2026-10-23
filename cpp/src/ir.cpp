@@ -201,6 +201,9 @@ json::Value dump_block(const Block& b) {
     if (block_has_native(b)) {
         throw std::invalid_argument("native is only permitted on request blocks");
     }
+    if (std::holds_alternative<DocumentBlock>(b)) {
+        throw std::invalid_argument("document block is request-side only and forbidden in response content");
+    }
 #endif
     return dump_block_impl(b, [](const Block& inner) { return dump_block(inner); });
 }

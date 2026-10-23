@@ -885,10 +885,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         src.set("type", json::Value::string("base64"));
                         src.set("media_type", json::Value::string(doc->media_type.value_or("application/pdf")));
                         src.set("data", json::Value::string(*doc->data));
-                    } else if (doc->url.has_value()) {
+                    } else if (has_url) {
                         src.set("type", json::Value::string("url"));
                         src.set("url", json::Value::string(*doc->url));
-                    } else if (doc->file_id.has_value()) {
+                    } else {
                         src.set("type", json::Value::string("file"));
                         src.set("file_id", json::Value::string(*doc->file_id));
                     }
@@ -1040,10 +1040,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 src.set("type", json::Value::string("base64"));
                                 src.set("media_type", json::Value::string(doc->media_type.value_or("application/pdf")));
                                 src.set("data", json::Value::string(*doc->data));
-                            } else if (doc->url.has_value()) {
+                            } else if (has_url) {
                                 src.set("type", json::Value::string("url"));
                                 src.set("url", json::Value::string(*doc->url));
-                            } else if (doc->file_id.has_value()) {
+                            } else {
                                 src.set("type", json::Value::string("file"));
                                 src.set("file_id", json::Value::string(*doc->file_id));
                             }
@@ -1226,6 +1226,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
+        } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Anthropic block type \"document\" has no IR equivalent"));
         }
     }
     out.set("content", std::move(content_arr));

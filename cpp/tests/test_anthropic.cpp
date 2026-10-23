@@ -1,3 +1,5 @@
+#include <stdexcept>
+
 #include "oxa/anthropic/messages.hpp"
 #include "oxa/vectest.hpp"
 #include "test_util.hpp"
@@ -33,6 +35,54 @@ int main() {
     auto conflicting_document = oxa::anthropic::messages::decode_request(
         R"({"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"YQ==","url":""}}]}]})");
     CHECK(!conflicting_document.ok());
+
+    {
+        // An IR document with an empty url alongside file_id renders the file source.
+        auto wire_res = oxa::json::parse(
+            R"({"specVersion":"0.2.0","model":"m","params":{"max_tokens":1},"messages":[{"role":"user","content":[{"type":"text","text":"keep"},{"type":"document","file_id":"f","url":""}]}]})");
+        CHECK(wire_res.ok());
+        auto doc_req_res = oxa::ir::load_request(*wire_res);
+        CHECK(doc_req_res.ok());
+        auto encoded = oxa::anthropic::messages::encode_request(*doc_req_res);
+        CHECK(encoded.ok());
+        CHECK(encoded->losses.empty());
+        const auto* content = encoded->value.find("messages");
+        CHECK(content != nullptr && content->as_array().size() == 1);
+        const auto& blocks = content->as_array()[0].find("content")->as_array();
+        const auto* source = blocks[1].find("source");
+        CHECK(source != nullptr);
+        CHECK(source->find("type")->as_string() == "file");
+        CHECK(source->find("file_id")->as_string() == "f");
+    }
+    {
+        // A document block in a response position is dropped with exactly one loss.
+        oxa::ir::Response resp;
+        resp.id = "r";
+        resp.model = "m";
+        resp.stop_reason = std::string(oxa::ir::STOP_END_TURN);
+        oxa::ir::DocumentBlock doc;
+        doc.file_id = "f";
+        resp.content.push_back(doc);
+        auto encoded = oxa::anthropic::messages::encode_response(resp);
+        CHECK(encoded.ok());
+        CHECK(encoded->losses.size() == 1);
+        CHECK(encoded->losses[0].reason == oxa::ir::LOSS_UNSUPPORTED_SEMANTIC);
+        CHECK(encoded->value.find("content")->as_array().empty());
+    }
+#if defined(__EXCEPTIONS) || defined(__cpp_exceptions)
+    {
+        // dump_block (response side) refuses document blocks.
+        oxa::ir::DocumentBlock doc;
+        doc.file_id = "f";
+        bool threw = false;
+        try {
+            static_cast<void>(oxa::ir::dump_block(oxa::ir::Block(doc)));
+        } catch (const std::invalid_argument&) {
+            threw = true;
+        }
+        CHECK(threw);
+    }
+#endif
 
     AnthropicConverter conv;
     auto rep_res = oxa::vectest::run_nonstream(conv);

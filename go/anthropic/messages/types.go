@@ -22,9 +22,11 @@ const (
 	BlockTypeToolUse    = "tool_use"
 	BlockTypeToolResult = "tool_result"
 	BlockTypeThinking   = "thinking"
+	BlockTypeDocument   = "document"
 
 	SourceTypeBase64 = "base64"
 	SourceTypeURL    = "url"
+	SourceTypeFile   = "file"
 
 	ToolChoiceTypeAuto = "auto"
 	ToolChoiceTypeAny  = "any"
@@ -231,15 +233,102 @@ type BlockWire struct {
 	IsError   bool   `json:"is_error,omitempty"`
 	// image
 	Source *SourceWire `json:"source,omitempty"`
+	// document
+	Title      string          `json:"title,omitempty"`
+	Context    string          `json:"context,omitempty"`
+	Citations  json.RawMessage `json:"citations,omitempty"`
+	hasTitle   bool
+	hasContext bool
+}
+
+func (w *BlockWire) UnmarshalJSON(data []byte) error {
+	type blockAlias BlockWire
+	var decoded blockAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if decoded.Type == BlockTypeDocument {
+		for _, key := range []string{"title", "context"} {
+			if raw, ok := fields[key]; ok {
+				if string(raw) == "null" {
+					return fmt.Errorf("anthropic: document %s must be a string", key)
+				}
+				var value string
+				if err := json.Unmarshal(raw, &value); err != nil {
+					return fmt.Errorf("anthropic: document %s must be a string", key)
+				}
+			}
+		}
+	}
+	*w = BlockWire(decoded)
+	_, w.hasTitle = fields["title"]
+	_, w.hasContext = fields["context"]
+	return nil
+}
+
+func (w BlockWire) MarshalJSON() ([]byte, error) {
+	type blockAlias BlockWire
+	data, err := json.Marshal(blockAlias(w))
+	if err != nil || (!w.hasTitle && !w.hasContext) {
+		return data, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return nil, err
+	}
+	if w.hasTitle {
+		if _, ok := fields["title"]; !ok {
+			fields["title"] = json.RawMessage(`""`)
+		}
+	}
+	if w.hasContext {
+		if _, ok := fields["context"]; !ok {
+			fields["context"] = json.RawMessage(`""`)
+		}
+	}
+	return json.Marshal(fields)
 }
 
 // SourceWire is the source object of an image block: a base64 payload
 // (media_type + data) or a URL.
 type SourceWire struct {
-	Type      string `json:"type"` // base64 | url
+	Type      string `json:"type"` // base64 | url | file
 	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`
 	URL       string `json:"url,omitempty"`
+	FileID    string `json:"file_id,omitempty"`
+	hasFields map[string]bool
+}
+
+func (s *SourceWire) UnmarshalJSON(data []byte) error {
+	type sourceAlias SourceWire
+	var decoded sourceAlias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for _, key := range []string{"type", "media_type", "data", "url", "file_id"} {
+		if raw, ok := fields[key]; ok && string(raw) == "null" {
+			return fmt.Errorf("anthropic: source.%s must be a string", key)
+		}
+	}
+	*s = SourceWire(decoded)
+	s.hasFields = make(map[string]bool, len(fields))
+	for key := range fields {
+		s.hasFields[key] = true
+	}
+	return nil
+}
+
+func (s SourceWire) has(key string, value string) bool {
+	return s.hasFields[key] || value != ""
 }
 
 // Response is the Anthropic Messages wire response object.

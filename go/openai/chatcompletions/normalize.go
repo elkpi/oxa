@@ -374,6 +374,11 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			}
 			hasImage = true
 			parts = append(parts, part)
+		case ir.DocumentBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions user message", block),
+			))
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
@@ -432,7 +437,7 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),
 			))
-		case ir.ImageBlock, ir.ToolResultBlock:
+		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),

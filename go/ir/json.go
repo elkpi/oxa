@@ -54,6 +54,8 @@ func hasNative(b Block) bool {
 		return len(v.Native) > 0
 	case ImageBlock:
 		return len(v.Native) > 0
+	case DocumentBlock:
+		return len(v.Native) > 0
 	case ToolUseBlock:
 		return len(v.Native) > 0
 	case ToolResultBlock:
@@ -365,6 +367,15 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			URL       string             `json:"url,omitempty"`
 			Native    []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeImage, v.MediaType, v.Data, v.URL, v.Native})
+	case DocumentBlock:
+		return json.Marshal(struct {
+			Type      string             `json:"type"`
+			MediaType string             `json:"media_type,omitempty"`
+			Data      string             `json:"data,omitempty"`
+			URL       string             `json:"url,omitempty"`
+			FileID    string             `json:"file_id,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeDocument, v.MediaType, v.Data, v.URL, v.FileID, v.Native})
 	case ToolUseBlock:
 		if len(v.Input) == 0 {
 			return nil, fmt.Errorf("ir: tool_use input is required (INV-1)")
@@ -507,6 +518,18 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return ImageBlock{MediaType: w.MediaType, Data: w.Data, URL: w.URL, Native: w.Native}, nil
+	case BlockTypeDocument:
+		var w struct {
+			MediaType string             `json:"media_type,omitempty"`
+			Data      string             `json:"data,omitempty"`
+			URL       string             `json:"url,omitempty"`
+			FileID    string             `json:"file_id,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return DocumentBlock{MediaType: w.MediaType, Data: w.Data, URL: w.URL, FileID: w.FileID, Native: w.Native}, nil
 	case BlockTypeToolUse:
 		var w struct {
 			ID     string             `json:"id"`

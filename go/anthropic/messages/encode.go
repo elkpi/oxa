@@ -286,6 +286,8 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 		}, blockLosses, true, nil
 	case ir.ImageBlock:
 		return encodeImageBlock(b, path)
+	case ir.DocumentBlock:
+		return encodeDocumentBlock(b, path)
 	case ir.ToolUseBlock:
 		if b.ID == "" {
 			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.id is required", path)
@@ -380,6 +382,80 @@ func encodeImageBlock(image ir.ImageBlock, path string) (BlockWire, []ir.Loss, b
 	return BlockWire{Type: BlockTypeImage, Source: &SourceWire{Type: SourceTypeURL, URL: image.URL}}, nil, true, nil
 }
 
+// encodeDocumentBlock renders an IR DocumentBlock as an Anthropic document
+// block (N-AN-16): exactly one of data/url/file_id, base64 requiring
+// media_type, with document metadata restored from native annotations.
+func encodeDocumentBlock(doc ir.DocumentBlock, path string) (BlockWire, []ir.Loss, bool, error) {
+	hasData := doc.Data != ""
+	hasURL := doc.URL != ""
+	hasFile := doc.FileID != ""
+	if !hasData && !hasURL && !hasFile {
+		return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "document must contain exactly one of data, url, or file_id")}, false, nil
+	}
+	if hasData && (hasURL || hasFile) {
+		return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "document must contain exactly one of data, url, or file_id")}, false, nil
+	}
+	var wire BlockWire
+	switch {
+	case hasData:
+		if doc.MediaType == "" {
+			return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "base64 document data requires media_type")}, false, nil
+		}
+		wire = BlockWire{Type: BlockTypeDocument, Source: &SourceWire{Type: SourceTypeBase64, MediaType: doc.MediaType, Data: doc.Data}}
+	case hasURL:
+		if doc.MediaType != "" {
+			return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "url document must not carry media_type")}, false, nil
+		}
+		wire = BlockWire{Type: BlockTypeDocument, Source: &SourceWire{Type: SourceTypeURL, URL: doc.URL}}
+	default:
+		if doc.MediaType != "" {
+			return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "file document must not carry media_type")}, false, nil
+		}
+		wire = BlockWire{Type: BlockTypeDocument, Source: &SourceWire{Type: SourceTypeFile, FileID: doc.FileID}}
+	}
+	return docWireWithMetadata(wire, doc), nil, true, nil
+}
+
+// docWireWithMetadata restores document-level title/context/citations from
+// the block native annotations (spec/15 section 3.5). Malformed values are
+// unreachable for IR that passed ValidateNativeRequest; they are skipped.
+func docWireWithMetadata(wire BlockWire, doc ir.DocumentBlock) BlockWire {
+	for _, n := range doc.Native {
+		if n.Source != ir.NativeSourceAnthropic {
+			continue
+		}
+		switch n.Kind {
+		case ir.NativeKindDocumentTitle:
+			var title string
+			if err := json.Unmarshal([]byte(n.Value), &title); err == nil {
+				wire.Title = title
+				wire.hasTitle = true
+			}
+		case ir.NativeKindDocumentContext:
+			var ctx string
+			if err := json.Unmarshal([]byte(n.Value), &ctx); err == nil {
+				wire.Context = ctx
+				wire.hasContext = true
+			}
+		case ir.NativeKindDocumentCitations:
+			var v json.RawMessage
+			if err := json.Unmarshal([]byte(n.Value), &v); err == nil {
+				wire.Citations = v
+			}
+		}
+	}
+	return wire
+}
+
+func invalidDocumentLoss(path, detail string) ir.Loss {
+	return ir.Loss{
+		Path:   path,
+		Field:  "document",
+		Reason: ir.LossUnsupportedSemantic,
+		Detail: detail,
+	}
+}
+
 func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, []ir.Loss, bool, error) {
 	if result.ToolUseID == "" {
 		return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.tool_use_id is required", path)
@@ -407,6 +483,18 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 				content = append(content, image)
 			}
 			losses = append(losses, imageLosses...)
+		case ir.DocumentBlock:
+			doc, docLosses, docOK, err := encodeDocumentBlock(b, contentPath)
+			if err != nil {
+				return BlockWire{}, nil, false, err
+			}
+			if docOK {
+				if cc := getBlockCacheControl(b); len(cc) > 0 {
+					doc.CacheControl = cc
+				}
+				content = append(content, doc)
+			}
+			losses = append(losses, docLosses...)
 		default:
 			losses = append(losses, unsupportedBlockLoss(contentPath, block))
 		}

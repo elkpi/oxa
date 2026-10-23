@@ -80,6 +80,52 @@
       "sha256": "00ded273aea9a0e77ec696b8f1e3c741562743a68519d3a2e8dda3790b5904d5"
     },
     {
+      "name": "anthropic.nonstream.documents-from-ir",
+      "file": "anthropic/nonstream/documents-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "n-an-16",
+        "native"
+      ],
+      "sha256": "d8b0db78f359a292d7077ed0c203012b10c8fee6a96ccc5de314b98f60b868be"
+    },
+    {
+      "name": "anthropic.nonstream.documents-nested-tool-result-from-ir",
+      "file": "anthropic/nonstream/documents-nested-tool-result-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "tool-result",
+        "n-an-5",
+        "n-an-16"
+      ],
+      "sha256": "1428746dbdf841f4e01d04309f29173d93857ecaebe6339c64ea3bb17d9009ce"
+    },
+    {
+      "name": "anthropic.nonstream.documents-nested-tool-result-to-ir",
+      "file": "anthropic/nonstream/documents-nested-tool-result-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "tool-result",
+        "n-an-5",
+        "n-an-16"
+      ],
+      "sha256": "f62abc2cdbd1a8b514dc009ea7fad65171011cdc047f1e898790b2a79df04398"
+    },
+    {
+      "name": "anthropic.nonstream.documents-to-ir",
+      "file": "anthropic/nonstream/documents-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "n-an-16",
+        "native"
+      ],
+      "sha256": "e93fef0be34190d2ad56287cbc9895baafca0fb85d4895a91a03932a832d42db"
+    },
+    {
       "name": "anthropic.nonstream.images-from-ir",
       "file": "anthropic/nonstream/images-from-ir.json",
       "tags": [
@@ -118,7 +164,19 @@
         "request",
         "n-an-9"
       ],
-      "sha256": "07a17c2a2a3d797f526efa654cc82d0a8f4f51c745ac1f20e0f611bbab471b24"
+      "sha256": "4f8fe6ca337102deb9685974b8ef579babf8eb8d122c4a228c303fae17c587e3"
+    },
+    {
+      "name": "anthropic.nonstream.loss-unknown-document-source-to-ir",
+      "file": "anthropic/nonstream/loss-unknown-document-source-to-ir.json",
+      "tags": [
+        "loss",
+        "document",
+        "request",
+        "n-an-9",
+        "n-an-16"
+      ],
+      "sha256": "fb4cef8001c7d62ecaef14b7eae636329692b1937af04cd471f41da8bc9f70e3"
     },
     {
       "name": "anthropic.nonstream.mid-conversation-system-blocks-to-ir",
@@ -1815,6 +1873,17 @@
       "sha256": "8f94343114d6d0f16354b9db4ca3f7cc2333550b53593d042ab9cb009ee38d0f"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-document-request",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-an-16"
+      ],
+      "sha256": "526a578301b16c699b4cf93f5b025b0bcee16abdd73ea611db8aee981c9f0255"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-native-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-native-request.json",
       "tags": [
@@ -1912,6 +1981,17 @@
         "loss"
       ],
       "sha256": "6710252ec89ed565321e86b64c709aed40519f26f8bb451ceff49849743eaa15"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-document-request",
+      "file": "cross/nonstream/anthropic-to-responses-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-an-16"
+      ],
+      "sha256": "a41cdad53b61bf39e687ef4d1c3c64a6730a770a693c3daa983317c1311f0f02"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-native-request",

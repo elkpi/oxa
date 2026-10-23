@@ -44,6 +44,52 @@ func TestDocumentSourceValidation(t *testing.T) {
 	})
 }
 
+func TestDocumentSourceConflictLoss(t *testing.T) {
+	req := &ir.Request{
+		Model: "m", Params: ir.Params{MaxTokens: int64p(1)},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{
+			ir.TextBlock{Text: "keep"},
+			ir.DocumentBlock{URL: "https://example.com/a.pdf", FileID: "f"},
+		}}},
+	}
+	_, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	if len(losses) != 1 || losses[0].Field != "document" || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Fatalf("want one whole-block document loss, got %+v", losses)
+	}
+}
+
+func TestNativeDocumentValueTypeValidation(t *testing.T) {
+	for _, tc := range []struct {
+		kind  string
+		value string
+	}{
+		{"document_title", `null`},
+		{"document_title", `123`},
+		{"document_context", `null`},
+		{"document_citations", `null`},
+		{"document_citations", `[]`},
+	} {
+		req := &ir.Request{
+			Model: "m", Params: ir.Params{MaxTokens: int64p(1)},
+			Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{
+				ir.DocumentBlock{
+					FileID: "f",
+					Native: []ir.NativeAnnotation{{Source: "anthropic", Kind: tc.kind, Value: tc.value}},
+				},
+			}}},
+		}
+		_, _, err := EncodeRequest(req)
+		if err == nil {
+			t.Fatalf("%s value %s: want validation error", tc.kind, tc.value)
+		}
+	}
+}
+
+func int64p(v int64) *int64 { return &v }
+
 func TestEmptyDocumentMetadataRoundTrip(t *testing.T) {
 	raw := []byte(`{"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"file","file_id":"f"},"title":"","context":""}]}]}`)
 	req, _, err := DecodeRequestJSON(raw)

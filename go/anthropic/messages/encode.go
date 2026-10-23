@@ -389,10 +389,13 @@ func encodeDocumentBlock(doc ir.DocumentBlock, path string) (BlockWire, []ir.Los
 	hasData := doc.Data != ""
 	hasURL := doc.URL != ""
 	hasFile := doc.FileID != ""
-	if !hasData && !hasURL && !hasFile {
-		return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "document must contain exactly one of data, url, or file_id")}, false, nil
+	sourceCount := 0
+	for _, present := range []bool{hasData, hasURL, hasFile} {
+		if present {
+			sourceCount++
+		}
 	}
-	if hasData && (hasURL || hasFile) {
+	if sourceCount != 1 {
 		return BlockWire{}, []ir.Loss{invalidDocumentLoss(path, "document must contain exactly one of data, url, or file_id")}, false, nil
 	}
 	var wire BlockWire

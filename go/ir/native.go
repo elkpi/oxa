@@ -252,16 +252,23 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if host != hostContentBlock {
 					return fmt.Errorf("anthropic %s is only allowed on content blocks", ann.Kind)
 				}
-				var str string
-				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
+				var parsed any
+				if err := json.Unmarshal([]byte(ann.Value), &parsed); err != nil {
+					return fmt.Errorf("anthropic %s value must be a JSON string", ann.Kind)
+				}
+				if _, isString := parsed.(string); !isString {
 					return fmt.Errorf("anthropic %s value must be a JSON string", ann.Kind)
 				}
 			case NativeKindDocumentCitations:
 				if host != hostContentBlock {
 					return fmt.Errorf("anthropic %s is only allowed on content blocks", ann.Kind)
 				}
-				var obj map[string]any
-				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+				var parsed any
+				if err := json.Unmarshal([]byte(ann.Value), &parsed); err != nil {
+					return fmt.Errorf("anthropic %s value must be a JSON object", ann.Kind)
+				}
+				obj, isObject := parsed.(map[string]any)
+				if !isObject {
 					return fmt.Errorf("anthropic %s value must be a JSON object", ann.Kind)
 				}
 				if enabled, ok := obj["enabled"]; ok {

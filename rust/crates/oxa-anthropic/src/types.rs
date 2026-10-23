@@ -371,6 +371,15 @@ where
     String::deserialize(deserializer).map(Some)
 }
 
+/// Deserializes an optional JSON value while distinguishing an explicit
+/// `null` from an absent field: `null` becomes `Some(Value::Null)`.
+fn deserialize_optional_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// One content block: text, image, tool_use, or tool_result. `input` is a raw
 /// JSON object captured byte-exactly; decoders and encoders MUST copy it
 /// without parsing or re-serializing it (INV-1).
@@ -419,7 +428,12 @@ pub struct BlockWire {
         skip_serializing_if = "Option::is_none"
     )]
     pub context: Option<String>,
-    #[serde(rename = "citations", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "citations",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub citations: Option<Value>,
 }
 

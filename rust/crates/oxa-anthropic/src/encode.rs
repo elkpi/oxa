@@ -522,6 +522,7 @@ fn encode_document_block(
     let has_data = data.is_some_and(|value| !value.is_empty());
     let has_url = url.is_some_and(|value| !value.is_empty());
     let has_file = file_id.is_some_and(|value| !value.is_empty());
+    let source_count = (has_data as i32) + (has_url as i32) + (has_file as i32);
     let invalid = |detail: &str| {
         Ok((
             BlockWire::default(),
@@ -534,7 +535,7 @@ fn encode_document_block(
             false,
         ))
     };
-    let source = if has_data && (has_url || has_file) || !has_data && !has_url && !has_file {
+    let source = if source_count != 1 {
         return invalid("document must contain exactly one of data, url, or file_id");
     } else if has_data {
         let Some(media_type) = media_type.filter(|value| !value.is_empty()) else {

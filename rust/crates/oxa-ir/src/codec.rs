@@ -22,6 +22,8 @@ pub enum Error {
     Custom(String),
     /// Native annotations are forbidden in response and event content blocks.
     NativeForbidden(String),
+    /// Document blocks are request-side only and forbidden in response content.
+    DocumentForbidden(String),
 }
 
 impl std::fmt::Display for Error {
@@ -35,6 +37,7 @@ impl std::fmt::Display for Error {
             ),
             Error::Custom(msg) => write!(f, "{msg}"),
             Error::NativeForbidden(msg) => write!(f, "{msg}"),
+            Error::DocumentForbidden(msg) => write!(f, "{msg}"),
         }
     }
 }
@@ -72,6 +75,25 @@ fn check_no_native(val: &Value) -> Result<(), Error> {
     Ok(())
 }
 
+/// Rejects `document` blocks in response content: `DocumentBlock` is
+/// request-side only (spec/01 §3.4). Only `Response` documents carry a
+/// top-level `content` array.
+fn check_no_document(val: &Value) -> Result<(), Error> {
+    if let Value::Object(map) = val
+        && let Some(Value::Array(content)) = map.get("content")
+    {
+        for block in content {
+            if block.get("type").and_then(Value::as_str) == Some("document") {
+                return Err(Error::DocumentForbidden(
+                    "ir: document blocks are request-side only and forbidden in response content (spec/01)"
+                        .into(),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Serializes one IR document (`Request`, `Response`, or `EventStream`) to
 /// its JSON form, inserting the `specVersion` property.
 pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
@@ -79,6 +101,7 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
     if document.get("content").is_some() || document.get("events").is_some() {
         check_no_native(&document)?;
     }
+    check_no_document(&document)?;
     let object = document.as_object_mut().ok_or(Error::MissingSpecVersion)?;
     object.insert(
         "specVersion".to_string(),
@@ -94,6 +117,7 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     if document.get("content").is_some() || document.get("events").is_some() {
         check_no_native(&document)?;
     }
+    check_no_document(&document)?;
     match document.get("specVersion") {
         None => Err(Error::MissingSpecVersion),
         Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(T::deserialize(&document)?),

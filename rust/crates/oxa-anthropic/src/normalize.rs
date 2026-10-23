@@ -272,7 +272,9 @@ pub(crate) fn decode_block(
                 return Err(Error::new(format!("anthropic: {path}.source is required")));
             };
             if source.kind.is_empty() {
-                return Err(Error::new(format!("anthropic: {path}.source.type is required")));
+                return Err(Error::new(format!(
+                    "anthropic: {path}.source.type is required"
+                )));
             }
             let mut doc = match source.kind.as_str() {
                 SOURCE_TYPE_BASE64 => {
@@ -286,7 +288,11 @@ pub(crate) fn decode_block(
                             "anthropic: {path}.source.data is required"
                         )));
                     }
-                    if source.has_url || source.has_file_id {
+                    if source.has_url
+                        || !source.url.is_empty()
+                        || source.has_file_id
+                        || !source.file_id.is_empty()
+                    {
                         return Err(Error::new(format!(
                             "anthropic: {path}.source has conflicting source fields"
                         )));
@@ -305,7 +311,13 @@ pub(crate) fn decode_block(
                             "anthropic: {path}.source.url is required"
                         )));
                     }
-                    if source.has_media_type || source.has_data || source.has_file_id {
+                    if source.has_media_type
+                        || !source.media_type.is_empty()
+                        || source.has_data
+                        || !source.data.is_empty()
+                        || source.has_file_id
+                        || !source.file_id.is_empty()
+                    {
                         return Err(Error::new(format!(
                             "anthropic: {path}.source has conflicting source fields"
                         )));
@@ -324,7 +336,13 @@ pub(crate) fn decode_block(
                             "anthropic: {path}.source.file_id is required"
                         )));
                     }
-                    if source.has_media_type || source.has_data || source.has_url {
+                    if source.has_media_type
+                        || !source.media_type.is_empty()
+                        || source.has_data
+                        || !source.data.is_empty()
+                        || source.has_url
+                        || !source.url.is_empty()
+                    {
                         return Err(Error::new(format!(
                             "anthropic: {path}.source has conflicting source fields"
                         )));

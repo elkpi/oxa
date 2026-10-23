@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.8] - 2026-10-23
+
+### Added
+
+- Anthropic Messages `document` 内容块的 typed IR 支持（spec/01、spec/12 N-AN-16、spec/15 §3.5）：
+  - 新增请求侧 sealed `DocumentBlock`，以扁平 `media_type` + `data`、`url` 或 `file_id` 三选一建模 `base64`、`url`、`file` source；base64 payload 始终作为不透明文本保留，不解码、不重写。
+  - Anthropic Messages 解码/编码支持三种 source 的无损回转，并支持嵌套于 `tool_result.content[]`；缺 source、缺必填字段、非法 citations/title/context 类型均为结构错误，未知 document source 整块产生 `unsupported-semantic` 损失。
+  - `title`、`context`、`citations` 作为 document 级 `NativeAnnotation` 保留，`cache_control` 继续走块级原生注解；OpenAI Chat Completions 与 Responses 无 document 语义时整块省略并产生一条 `unsupported-semantic` 损失，不额外重复报告块内注解。
+  - Go、TypeScript、Python、Rust、C++ 五种实现同步支持 canonical IR codec、native 校验、原始 JSON 审计、同面回转及跨面损失。
+- 新增 7 条共享黄金向量（352 → 359），覆盖三种 document source 的双向映射、嵌套 tool result、未知 source 和两条跨面降级；原 `loss-unknown-block-to-ir` 向量改用真正未知的 `mystery_block`。
+
+### Changed
+
+- Spec 版本、五种实现版本和状态矩阵更新至 `2.4.8`；IR contract 保持 `0.2.0`。
+- C++ CMake package version 从此前遗漏更新的 `2.4.5` 对齐至 `2.4.8`。
+
 ## [v2.4.7] - 2026-10-22
 
 ### Fixed

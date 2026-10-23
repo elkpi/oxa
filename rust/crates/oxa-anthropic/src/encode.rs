@@ -390,10 +390,8 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 native,
                 path,
             )?;
-            if mapped {
-                if let Some(cc) = crate::native::get_block_cache_control(native) {
-                    wire.cache_control = Some(cc);
-                }
+            if mapped && let Some(cc) = crate::native::get_block_cache_control(native) {
+                wire.cache_control = Some(cc);
             }
             Ok((wire, doc_losses, mapped))
         }
@@ -607,10 +605,8 @@ fn encode_document_block(
                     wire.context = Some(context.to_string());
                 }
             }
-            oxa_ir::NATIVE_KIND_DOCUMENT_CITATIONS => {
-                if parsed.is_object() {
-                    wire.citations = Some(parsed);
-                }
+            oxa_ir::NATIVE_KIND_DOCUMENT_CITATIONS if parsed.is_object() => {
+                wire.citations = Some(parsed);
             }
             _ => {}
         }

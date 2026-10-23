@@ -15,7 +15,7 @@ Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14
 one golden suite of **359 vectors**, covering reasoning, usage granularity,
 structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, and Native Tool Declarations.
 Implementation release **v2.4.8 is prepared**; the latest published
-coordinated release is **v2.4.3**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+coordinated release is **v2.4.7**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 

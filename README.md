@@ -6,7 +6,7 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.4.3 (v2.4.8 prepared).** Implements Spec 2.4.8 across Go,
+**Latest coordinated release: v2.4.7 (v2.4.8 prepared).** Implements Spec 2.4.8 across Go,
 TypeScript, Rust, Python, and C++, and validates all 359 shared golden vectors.
 
 ## What is oxa?
@@ -54,11 +54,11 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.4.8  | 2.4.3            |
-| TypeScript | `ts/`     | 2.4.8  | 2.4.3            |
-| Rust       | `rust/`   | 2.4.8  | 2.4.3            |
-| Python     | `python/` | 2.4.8  | 2.4.3            |
-| C++        | `cpp/`    | 2.4.8  | 2.4.3            |
+| Go         | `go/`     | 2.4.8  | 2.4.7            |
+| TypeScript | `ts/`     | 2.4.8  | 2.4.7            |
+| Rust       | `rust/`   | 2.4.8  | 2.4.7            |
+| Python     | `python/` | 2.4.8  | 2.4.7            |
+| C++        | `cpp/`    | 2.4.8  | 2.4.7            |
 
 ## Directory overview
 

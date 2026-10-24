@@ -192,7 +192,8 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 		}
 		seen[key] = true
 
-		if ann.Source == NativeSourceAnthropic {
+		switch ann.Source {
+		case NativeSourceAnthropic:
 			switch ann.Kind {
 			case NativeKindThinkingMode:
 				if host != hostRequest {
@@ -288,7 +289,7 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				}
 			default:
 			}
-		} else if ann.Source == NativeSourceOpenAI {
+		case NativeSourceOpenAI:
 			switch ann.Kind {
 			case NativeKindContainer:
 				if host != hostTool {

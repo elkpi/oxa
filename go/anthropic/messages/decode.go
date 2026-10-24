@@ -94,6 +94,24 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				})
 			}
 		}
+		if tool.EagerInputStreaming != nil {
+			val := "false"
+			var om *ir.NativeOmission
+			if *tool.EagerInputStreaming {
+				val = "true"
+				om = &ir.NativeOmission{
+					Field:  "eager_input_streaming",
+					Reason: ir.LossDegraded,
+					Detail: ir.EagerInputStreamingLossDetail,
+				}
+			}
+			nat = append(nat, ir.NativeAnnotation{
+				Source:   ir.NativeSourceAnthropic,
+				Kind:     ir.NativeKindEagerInputStreaming,
+				Value:    val,
+				Omission: om,
+			})
+		}
 		if isCustomToolInputSchema(tool.InputSchema) {
 			customTools[tool.Name] = true
 			req.Tools = append(req.Tools, ir.Tool{

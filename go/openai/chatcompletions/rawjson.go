@@ -418,6 +418,15 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 					},
 					seen)
 			}}
+			schema.fields["stream_options"] = &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
+				if node == nil || node.kind != '{' {
+					return nil
+				}
+				return rawObjectSchema(reflect.TypeOf(StreamOptionsWire{}),
+					[]string{"include_usage", "include_obfuscation"},
+					nil,
+					seen)
+			}}
 			delete(schema.fields, "metadata")
 			delete(schema.fields, "logprobs")
 			delete(schema.fields, "top_logprobs")

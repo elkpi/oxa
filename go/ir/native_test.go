@@ -300,3 +300,88 @@ func TestNativeRequestOnly(t *testing.T) {
 		t.Fatalf("MarshalEvent(event_with_native_block) expected error, got nil")
 	}
 }
+
+func TestFingerprintLosses(t *testing.T) {
+	losses := []Loss{
+		{Path: "tools[0]", Field: "eager_input_streaming", Reason: LossDegraded, Detail: "sensitive prompt details"},
+		{Path: "native[1]", Field: "store", Reason: LossUnsupportedSemantic, Detail: "sensitive user key"},
+		{Path: "stream_options", Field: "extra", Reason: LossUnmappedField, Detail: "extra payload"},
+	}
+
+	// Limit <= 0 returns all
+	fpsAll := FingerprintLosses(losses, 0)
+	if len(fpsAll) != 3 {
+		t.Fatalf("expected 3 fingerprints, got %d", len(fpsAll))
+	}
+	if fpsAll[0].Path != "tools[0]" || fpsAll[0].Field != "eager_input_streaming" || fpsAll[0].Reason != LossDegraded {
+		t.Fatalf("unexpected fingerprint values: %+v", fpsAll[0])
+	}
+
+	// Limit > 0 truncates
+	fpsTrunc := FingerprintLosses(losses, 2)
+	if len(fpsTrunc) != 2 {
+		t.Fatalf("expected 2 fingerprints, got %d", len(fpsTrunc))
+	}
+	if fpsTrunc[1].Field != "store" {
+		t.Fatalf("unexpected truncated second element: %+v", fpsTrunc[1])
+	}
+}
+
+func TestValidateNativeRequestNewKinds(t *testing.T) {
+	// eager_input_streaming on tool
+	req := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Tools: []Tool{
+			{
+				Name:        "t1",
+				InputSchema: []byte(`{"type":"object"}`),
+				Native: []NativeAnnotation{
+					{Source: NativeSourceAnthropic, Kind: NativeKindEagerInputStreaming, Value: "true"},
+				},
+			},
+		},
+	}
+	if err := ValidateNativeRequest(req); err != nil {
+		t.Fatalf("ValidateNativeRequest failed for eager_input_streaming true: %v", err)
+	}
+
+	// eager_input_streaming non-boolean fails
+	reqInvalid := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Tools: []Tool{
+			{
+				Name:        "t1",
+				InputSchema: []byte(`{"type":"object"}`),
+				Native: []NativeAnnotation{
+					{Source: NativeSourceAnthropic, Kind: NativeKindEagerInputStreaming, Value: `"not-bool"`},
+				},
+			},
+		},
+	}
+	if err := ValidateNativeRequest(reqInvalid); err == nil {
+		t.Fatalf("expected ValidateNativeRequest to fail for non-boolean eager_input_streaming")
+	}
+
+	// OpenAI request controls on Request
+	reqOpenAI := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Native: []NativeAnnotation{
+			{Source: NativeSourceOpenAI, Kind: NativeKindMaxCompletionTokens, Value: "true"},
+			{Source: NativeSourceOpenAI, Kind: NativeKindStore, Value: "false"},
+			{Source: NativeSourceOpenAI, Kind: NativeKindStream, Value: "true"},
+			{Source: NativeSourceOpenAI, Kind: NativeKindStreamOptions, Value: `{"include_usage":true}`},
+		},
+	}
+	if err := ValidateNativeRequest(reqOpenAI); err != nil {
+		t.Fatalf("ValidateNativeRequest failed for OpenAI request controls: %v", err)
+	}
+}

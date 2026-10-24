@@ -14,15 +14,19 @@ import (
 // Request is the Chat Completions wire request for the supported non-streaming
 // subset.
 type Request struct {
-	Model           string     `json:"model"`
-	Messages        []Message  `json:"messages"`
-	Temperature     *float64   `json:"temperature,omitempty"`
-	TopP            *float64   `json:"top_p,omitempty"`
-	MaxTokens       *int64     `json:"max_tokens,omitempty"`
-	Stop            []string   `json:"stop,omitempty"`
-	ReasoningEffort string     `json:"reasoning_effort,omitempty"`
-	Tools           []ToolWire `json:"tools,omitempty"`
-	ToolChoice      any        `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
+	Model               string             `json:"model"`
+	Messages            []Message          `json:"messages"`
+	Temperature         *float64           `json:"temperature,omitempty"`
+	TopP                *float64           `json:"top_p,omitempty"`
+	MaxTokens           *int64             `json:"max_tokens,omitempty"`
+	MaxCompletionTokens *int64             `json:"max_completion_tokens,omitempty"`
+	Store               *bool              `json:"store,omitempty"`
+	Stream              *bool              `json:"stream,omitempty"`
+	StreamOptions       *StreamOptionsWire `json:"stream_options,omitempty"`
+	Stop                []string           `json:"stop,omitempty"`
+	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
+	Tools               []ToolWire         `json:"tools,omitempty"`
+	ToolChoice          any                `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-CC-9).
@@ -43,6 +47,12 @@ type Request struct {
 	// Metadata has no Chat Completions request equivalent in v1; presence is
 	// dropped with an unmapped-field loss (vectors/README.md bucket 3).
 	Metadata any `json:"metadata,omitempty"`
+}
+
+// StreamOptionsWire is the wire shape for stream_options.
+type StreamOptionsWire struct {
+	IncludeUsage       *bool `json:"include_usage,omitempty"`
+	IncludeObfuscation *bool `json:"include_obfuscation,omitempty"`
 }
 
 // ResponseFormatWire is the wire shape for Chat Completions response_format.

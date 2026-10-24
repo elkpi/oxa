@@ -154,11 +154,60 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	if len(req.Messages) == 0 {
 		return nil, nil, fmt.Errorf("chatcompletions: request carries no conversation messages")
 	}
+	if wire.MaxTokens != nil && wire.MaxCompletionTokens != nil {
+		return nil, nil, fmt.Errorf("chatcompletions: cannot specify both max_tokens and max_completion_tokens")
+	}
 	req.Params = ir.Params{
 		Temperature:   wire.Temperature,
 		TopP:          wire.TopP,
 		MaxTokens:     wire.MaxTokens,
 		StopSequences: wire.Stop,
+	}
+	if wire.MaxCompletionTokens != nil {
+		req.Params.MaxTokens = wire.MaxCompletionTokens
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindMaxCompletionTokens,
+			Value:  "true",
+		})
+	}
+	if wire.Store != nil {
+		val := "false"
+		if *wire.Store {
+			val = "true"
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStore,
+			Value:  val,
+		})
+	}
+	if wire.Stream != nil {
+		val := "false"
+		if *wire.Stream {
+			val = "true"
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStream,
+			Value:  val,
+		})
+	}
+	if wire.StreamOptions != nil {
+		b, err := json.Marshal(wire.StreamOptions)
+		if err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: stream_options: %w", err)
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStreamOptions,
+			Value:  string(b),
+			Omission: &ir.NativeOmission{
+				Field:  "stream_options",
+				Reason: ir.LossDegraded,
+				Detail: ir.StreamOptionsLossDetail,
+			},
+		})
 	}
 	switch wire.ReasoningEffort {
 	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:

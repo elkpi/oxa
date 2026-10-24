@@ -29,23 +29,61 @@ type NativeProjection struct {
 
 // Known native annotation kinds and sources.
 const (
-	NativeKindThinkingMode      = "thinking_mode"
-	NativeKindThinkingBudget    = "thinking_budget"
-	NativeKindThinkingDisplay   = "thinking_display"
-	NativeKindOutputEffort      = "output_effort"
-	NativeKindCacheControl      = "cache_control"
-	NativeKindContextManagement = "context_management"
-	NativeKindDeferLoading      = "defer_loading"
-	NativeKindDocumentTitle     = "document_title"
-	NativeKindDocumentContext   = "document_context"
-	NativeKindDocumentCitations = "document_citations"
-	NativeKindContainer         = "container"
+	NativeKindThinkingMode        = "thinking_mode"
+	NativeKindThinkingBudget      = "thinking_budget"
+	NativeKindThinkingDisplay     = "thinking_display"
+	NativeKindOutputEffort        = "output_effort"
+	NativeKindCacheControl        = "cache_control"
+	NativeKindContextManagement   = "context_management"
+	NativeKindDeferLoading        = "defer_loading"
+	NativeKindDocumentTitle       = "document_title"
+	NativeKindDocumentContext     = "document_context"
+	NativeKindDocumentCitations   = "document_citations"
+	NativeKindContainer           = "container"
+	NativeKindEagerInputStreaming = "eager_input_streaming"
+	NativeKindStore               = "store"
+	NativeKindStream              = "stream"
+	NativeKindStreamOptions       = "stream_options"
+	NativeKindMaxCompletionTokens = "max_completion_tokens"
 )
 
 const (
 	NativeSourceAnthropic = "anthropic"
 	NativeSourceOpenAI    = "openai"
 )
+
+// LossFingerprint is a value-free, PII-safe structural identification of an ir.Loss.
+type LossFingerprint struct {
+	Path   string     `json:"path"`
+	Field  string     `json:"field"`
+	Reason LossReason `json:"reason"`
+}
+
+// FingerprintLosses returns value-free loss fingerprints up to limit.
+// If limit <= 0 or limit >= len(losses), all fingerprints are returned.
+func FingerprintLosses(losses []Loss, limit int) []LossFingerprint {
+	n := len(losses)
+	if limit > 0 && limit < n {
+		n = limit
+	}
+	out := make([]LossFingerprint, n)
+	for i := 0; i < n; i++ {
+		out[i] = LossFingerprint{
+			Path:   losses[i].Path,
+			Field:  losses[i].Field,
+			Reason: losses[i].Reason,
+		}
+	}
+	return out
+}
+
+// EagerInputStreamingLossDetail is the canonical spec/15 §3.6 capability-gap detail
+// for tool eager input streaming dropped when crossing to a face without eager input streaming.
+const EagerInputStreamingLossDetail = "target does not preserve eager tool input streaming semantics"
+
+// StreamOptionsLossDetail is the canonical spec/15 §3.7 capability-gap detail
+// for request stream options dropped when crossing to a face without final usage chunk support.
+const StreamOptionsLossDetail = "target does not emit the requested final usage chunk"
 
 // CacheControlLossDetail is the canonical spec/15 §3.2 capability-gap detail for
 // Anthropic cache breakpoints dropped when crossing to a face without cache_control.
@@ -287,10 +325,46 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil || !b {
 					return fmt.Errorf("invalid defer_loading %s", ann.Value)
 				}
+			case NativeKindEagerInputStreaming:
+				if host != hostTool {
+					return fmt.Errorf("anthropic %s is only allowed on Tool", ann.Kind)
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+					return fmt.Errorf("invalid eager_input_streaming %s", ann.Value)
+				}
 			default:
 			}
 		case NativeSourceOpenAI:
 			switch ann.Kind {
+			case NativeKindMaxCompletionTokens:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+			case NativeKindStore:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+					return fmt.Errorf("invalid store %s", ann.Value)
+				}
+			case NativeKindStream:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+					return fmt.Errorf("invalid stream %s", ann.Value)
+				}
+			case NativeKindStreamOptions:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj == nil {
+					return fmt.Errorf("invalid stream_options %s", ann.Value)
+				}
 			case NativeKindContainer:
 				if host != hostTool {
 					return fmt.Errorf("openai container is only allowed on Tool")
@@ -459,18 +533,75 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 
 func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasActiveBudgetProj bool, currentEffort string, target string) []Loss {
 	if ann.Source == NativeSourceOpenAI {
-		if target == "responses" {
+		switch ann.Kind {
+		case NativeKindMaxCompletionTokens, NativeKindStream:
 			return losses
-		}
-		if ann.Omission != nil {
+		case NativeKindStore:
+			if target == "chatcompletions" || target == "responses" {
+				return losses
+			}
+			var b bool
+			if err := json.Unmarshal([]byte(ann.Value), &b); err == nil && b {
+				field := "store"
+				reason := LossUnsupportedSemantic
+				detail := "target does not support output retention"
+				if ann.Omission != nil {
+					if ann.Omission.Field != "" {
+						field = ann.Omission.Field
+					}
+					if ann.Omission.Reason != "" {
+						reason = ann.Omission.Reason
+					}
+					if ann.Omission.Detail != "" {
+						detail = ann.Omission.Detail
+					}
+				}
+				return append(losses, Loss{
+					Path:   path,
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
+			}
+			return losses
+		case NativeKindStreamOptions:
+			if target == "chatcompletions" {
+				return losses
+			}
+			field := "stream_options"
+			reason := LossDegraded
+			detail := StreamOptionsLossDetail
+			if ann.Omission != nil {
+				if ann.Omission.Field != "" {
+					field = ann.Omission.Field
+				}
+				if ann.Omission.Reason != "" {
+					reason = ann.Omission.Reason
+				}
+				if ann.Omission.Detail != "" {
+					detail = ann.Omission.Detail
+				}
+			}
 			return append(losses, Loss{
 				Path:   path,
-				Field:  ann.Omission.Field,
-				Reason: ann.Omission.Reason,
-				Detail: ann.Omission.Detail,
+				Field:  field,
+				Reason: reason,
+				Detail: detail,
 			})
+		default:
+			if target == "responses" {
+				return losses
+			}
+			if ann.Omission != nil {
+				return append(losses, Loss{
+					Path:   path,
+					Field:  ann.Omission.Field,
+					Reason: ann.Omission.Reason,
+					Detail: ann.Omission.Detail,
+				})
+			}
+			return losses
 		}
-		return losses
 	}
 	if ann.Source != NativeSourceAnthropic {
 		// Unknown source
@@ -578,6 +709,35 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 			Reason: reason,
 			Detail: detail,
 		})
+
+	case NativeKindEagerInputStreaming:
+		if target == "anthropic" {
+			return losses
+		}
+		var b bool
+		if err := json.Unmarshal([]byte(ann.Value), &b); err == nil && b {
+			field := "eager_input_streaming"
+			reason := LossDegraded
+			detail := EagerInputStreamingLossDetail
+			if ann.Omission != nil {
+				if ann.Omission.Field != "" {
+					field = ann.Omission.Field
+				}
+				if ann.Omission.Reason != "" {
+					reason = ann.Omission.Reason
+				}
+				if ann.Omission.Detail != "" {
+					detail = ann.Omission.Detail
+				}
+			}
+			return append(losses, Loss{
+				Path:   path,
+				Field:  field,
+				Reason: reason,
+				Detail: detail,
+			})
+		}
+		return losses
 
 	case NativeKindThinkingDisplay, NativeKindContextManagement:
 		if ann.Omission != nil {

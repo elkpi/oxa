@@ -2,6 +2,7 @@ package chatcompletions
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -815,5 +816,54 @@ func TestEncodeResponsePreservesExplicitZeroUsageDetail(t *testing.T) {
 	details := usage["prompt_tokens_details"].(map[string]any)
 	if got, ok := details["cached_tokens"].(float64); !ok || got != 0 {
 		t.Fatalf("cached_tokens = %#v, want explicit 0", details["cached_tokens"])
+	}
+}
+
+func TestChatCompletionsRequestControls(t *testing.T) {
+	// 1. Conflict between max_tokens and max_completion_tokens returns error
+	rawConflict := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"max_tokens": 100,
+		"max_completion_tokens": 200
+	}`)
+	if _, _, err := DecodeRequestJSON(rawConflict); err == nil || !strings.Contains(err.Error(), "cannot specify both max_tokens and max_completion_tokens") {
+		t.Fatalf("expected conflict error between max_tokens and max_completion_tokens, got: %v", err)
+	}
+
+	// 2. stream_options with unknown field reports unmapped-field loss at stream_options.<field>
+	rawUnknownChild := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"stream": true,
+		"stream_options": {
+			"include_usage": true,
+			"future_option": "extra"
+		}
+	}`)
+	_, lossesUnknown, err := DecodeRequestJSON(rawUnknownChild)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON failed: %v", err)
+	}
+	foundUnknown := false
+	for _, l := range lossesUnknown {
+		if l.Path == "stream_options.future_option" && l.Field == "future_option" && l.Reason == ir.LossUnmappedField {
+			foundUnknown = true
+		}
+	}
+	if !foundUnknown {
+		t.Fatalf("expected stream_options.future_option unmapped-field loss, got: %+v", lossesUnknown)
+	}
+
+	// 3. stream_options non-boolean include_usage returns structural error
+	rawInvalidChild := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"stream_options": {
+			"include_usage": "not-bool"
+		}
+	}`)
+	if _, _, err := DecodeRequestJSON(rawInvalidChild); err == nil {
+		t.Fatalf("expected error for non-boolean include_usage")
 	}
 }

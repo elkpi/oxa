@@ -626,7 +626,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 						if hasType && typeField != "" && typeField != ir.ToolTypeFunction && typeField != ir.ToolTypeCustom {
 							return &rawJSONSchema{}
 						}
-						return rawObjectSchema(reflect.TypeOf(ToolWire{}), []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading"}, nil, seen)
+						return rawObjectSchema(reflect.TypeOf(ToolWire{}), []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
 					},
 				},
 			}

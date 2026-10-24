@@ -99,23 +99,25 @@ type ThinkingWire struct {
 // re-marshal from their exported fields so caller-side edits are honored
 // (spec/16 N-NT-2).
 type ToolWire struct {
-	Type         string          `json:"type,omitempty"`
-	Name         string          `json:"name"`
-	Description  string          `json:"description,omitempty"`
-	InputSchema  json.RawMessage `json:"input_schema,omitempty"`
-	CacheControl json.RawMessage `json:"cache_control,omitempty"`
-	DeferLoading *bool           `json:"defer_loading,omitempty"`
-	Raw          json.RawMessage `json:"-"`
+	Type                string          `json:"type,omitempty"`
+	Name                string          `json:"name"`
+	Description         string          `json:"description,omitempty"`
+	InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+	CacheControl        json.RawMessage `json:"cache_control,omitempty"`
+	DeferLoading        *bool           `json:"defer_loading,omitempty"`
+	EagerInputStreaming *bool           `json:"eager_input_streaming,omitempty"`
+	Raw                 json.RawMessage `json:"-"`
 }
 
 func (t *ToolWire) UnmarshalJSON(data []byte) error {
 	type shadow struct {
-		Type         json.RawMessage `json:"type"`
-		Name         json.RawMessage `json:"name"`
-		Description  string          `json:"description,omitempty"`
-		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
-		CacheControl json.RawMessage `json:"cache_control,omitempty"`
-		DeferLoading json.RawMessage `json:"defer_loading,omitempty"`
+		Type                json.RawMessage `json:"type"`
+		Name                json.RawMessage `json:"name"`
+		Description         string          `json:"description,omitempty"`
+		InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+		CacheControl        json.RawMessage `json:"cache_control,omitempty"`
+		DeferLoading        json.RawMessage `json:"defer_loading,omitempty"`
+		EagerInputStreaming json.RawMessage `json:"eager_input_streaming,omitempty"`
 	}
 	var s shadow
 	if err := json.Unmarshal(data, &s); err != nil {
@@ -155,6 +157,16 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 			}
 			t.DeferLoading = &b
 		}
+		if len(s.EagerInputStreaming) > 0 {
+			if string(s.EagerInputStreaming) == "null" {
+				return fmt.Errorf("anthropic: tool eager_input_streaming must be a boolean")
+			}
+			var b bool
+			if err := json.Unmarshal(s.EagerInputStreaming, &b); err != nil {
+				return fmt.Errorf("anthropic: tool eager_input_streaming must be a boolean")
+			}
+			t.EagerInputStreaming = &b
+		}
 	}
 	return nil
 }
@@ -171,20 +183,22 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 		return t.Raw, nil
 	}
 	type shadow struct {
-		Type         string          `json:"type,omitempty"`
-		Name         string          `json:"name"`
-		Description  string          `json:"description,omitempty"`
-		InputSchema  json.RawMessage `json:"input_schema,omitempty"`
-		CacheControl json.RawMessage `json:"cache_control,omitempty"`
-		DeferLoading *bool           `json:"defer_loading,omitempty"`
+		Type                string          `json:"type,omitempty"`
+		Name                string          `json:"name"`
+		Description         string          `json:"description,omitempty"`
+		InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+		CacheControl        json.RawMessage `json:"cache_control,omitempty"`
+		DeferLoading        *bool           `json:"defer_loading,omitempty"`
+		EagerInputStreaming *bool           `json:"eager_input_streaming,omitempty"`
 	}
 	s := shadow{
-		Type:         t.Type,
-		Name:         t.Name,
-		Description:  t.Description,
-		InputSchema:  t.InputSchema,
-		CacheControl: t.CacheControl,
-		DeferLoading: t.DeferLoading,
+		Type:                t.Type,
+		Name:                t.Name,
+		Description:         t.Description,
+		InputSchema:         t.InputSchema,
+		CacheControl:        t.CacheControl,
+		DeferLoading:        t.DeferLoading,
+		EagerInputStreaming: t.EagerInputStreaming,
 	}
 	return json.Marshal(s)
 }

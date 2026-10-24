@@ -436,7 +436,69 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 	var nativeEffortProj *ir.NativeProjection
 
 	for i, n := range req.Native {
-		if n.Source != ir.NativeSourceAnthropic {
+		if n.Source == ir.NativeSourceOpenAI {
+			switch n.Kind {
+			case ir.NativeKindMaxCompletionTokens, ir.NativeKindStream:
+				continue
+			case ir.NativeKindStore:
+				var b bool
+				if err := json.Unmarshal([]byte(n.Value), &b); err == nil && b {
+					field := "store"
+					reason := ir.LossUnsupportedSemantic
+					detail := "target does not support output retention"
+					if n.Omission != nil {
+						if n.Omission.Field != "" {
+							field = n.Omission.Field
+						}
+						if n.Omission.Reason != "" {
+							reason = n.Omission.Reason
+						}
+						if n.Omission.Detail != "" {
+							detail = n.Omission.Detail
+						}
+					}
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("native[%d]", i),
+						Field:  field,
+						Reason: reason,
+						Detail: detail,
+					})
+				}
+				continue
+			case ir.NativeKindStreamOptions:
+				field := "stream_options"
+				reason := ir.LossDegraded
+				detail := ir.StreamOptionsLossDetail
+				if n.Omission != nil {
+					if n.Omission.Field != "" {
+						field = n.Omission.Field
+					}
+					if n.Omission.Reason != "" {
+						reason = n.Omission.Reason
+					}
+					if n.Omission.Detail != "" {
+						detail = n.Omission.Detail
+					}
+				}
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("native[%d]", i),
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
+				continue
+			default:
+				if n.Omission != nil {
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("native[%d]", i),
+						Field:  n.Omission.Field,
+						Reason: n.Omission.Reason,
+						Detail: n.Omission.Detail,
+					})
+					continue
+				}
+			}
+		} else if n.Source != ir.NativeSourceAnthropic {
 			losses = append(losses, ir.Loss{
 				Path:   fmt.Sprintf("native[%d]", i),
 				Field:  "source",
@@ -627,6 +689,18 @@ func getToolDeferLoading(tool ir.Tool) *bool {
 			if err := json.Unmarshal([]byte(n.Value), &b); err == nil && b {
 				val := true
 				return &val
+			}
+		}
+	}
+	return nil
+}
+
+func getToolEagerInputStreaming(tool ir.Tool) *bool {
+	for _, n := range tool.Native {
+		if n.Kind == ir.NativeKindEagerInputStreaming {
+			var b bool
+			if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
+				return &b
 			}
 		}
 	}

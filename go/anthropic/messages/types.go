@@ -153,10 +153,11 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 		if len(s.DeferLoading) > 0 {
 			t.rawDeferLoading = s.DeferLoading
 			trimmed := strings.TrimSpace(string(s.DeferLoading))
-			if trimmed == "true" {
+			switch trimmed {
+			case "true":
 				b := true
 				t.DeferLoading = &b
-			} else if trimmed == "false" {
+			case "false":
 				b := false
 				t.DeferLoading = &b
 			}
@@ -164,10 +165,11 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 		if len(s.EagerInputStreaming) > 0 {
 			t.rawEager = s.EagerInputStreaming
 			trimmed := strings.TrimSpace(string(s.EagerInputStreaming))
-			if trimmed == "true" {
+			switch trimmed {
+			case "true":
 				b := true
 				t.EagerInputStreaming = &b
-			} else if trimmed == "false" {
+			case "false":
 				b := false
 				t.EagerInputStreaming = &b
 			}

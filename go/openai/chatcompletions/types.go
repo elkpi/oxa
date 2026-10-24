@@ -110,10 +110,11 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		if trimmed != "true" && trimmed != "false" && trimmed != "null" {
 			return fmt.Errorf("chatcompletions: store must be a boolean or null")
 		}
-		if trimmed == "true" {
+		switch trimmed {
+		case "true":
 			b := true
 			r.Store = &b
-		} else if trimmed == "false" {
+		case "false":
 			b := false
 			r.Store = &b
 		}
@@ -125,10 +126,11 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		if trimmed != "true" && trimmed != "false" && trimmed != "null" {
 			return fmt.Errorf("chatcompletions: stream must be a boolean or null")
 		}
-		if trimmed == "true" {
+		switch trimmed {
+		case "true":
 			b := true
 			r.Stream = &b
-		} else if trimmed == "false" {
+		case "false":
 			b := false
 			r.Stream = &b
 		}

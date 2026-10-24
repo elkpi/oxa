@@ -900,7 +900,8 @@ def load_request(data: dict[str, Any] | str) -> Request:
                     raise CodecError("native tool definition must be a valid JSON object") from e
                 if not isinstance(def_parsed, dict) or not isinstance(def_parsed.get("type"), str) or not def_parsed["type"] or def_parsed["type"] in ("function", "custom"):
                     raise CodecError("native tool definition requires a native type")
-                if def_parsed.get("name") != name:
+                expected_name = def_parsed.get("name") if isinstance(def_parsed.get("name"), str) and def_parsed.get("name") else def_parsed.get("type")
+                if expected_name != name:
                     raise CodecError("native tool definition name must match tool name")
                 tools.append(Tool(type="native", name=name, source=source, definition=definition))
             elif tool_type == "custom":

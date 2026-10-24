@@ -410,13 +410,19 @@ def decode_assistant_run(
                 continue
             raise ValueError(f"responses: input[{index}]: unpaired apply_patch_call (INV-3)")
         if kind == ITEM_TYPE_FUNCTION_CALL:
-            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
+            raw_name = item.get("name", "")
+            ns = item.get("namespace", "")
+            final_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=final_name, input=item.get("arguments", "")))
             index += 1
             continue
         if kind == ITEM_TYPE_CUSTOM_TOOL_CALL:
             if "input" not in item:
                 raise ValueError(f"responses: input[{index}].input is missing")
-            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item["input"]))
+            raw_name = item.get("name", "")
+            ns = item.get("namespace", "")
+            final_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=final_name, input=item["input"]))
             index += 1
             continue
 
@@ -516,6 +522,9 @@ def decode_tool_choice(value: Any) -> tuple[ToolChoice | None, list[Loss]]:
     if isinstance(value, dict):
         kind = value.get("type", "")
         name = value.get("name", "")
+        ns = value.get("namespace", "")
+        if ns and not name.startswith(ns + "."):
+            name = f"{ns}.{name}"
         if kind == "apply_patch":
             return ToolChoice(mode=TOOL_CHOICE_TOOL, tool_type="apply_patch"), []
         if kind in (TOOL_TYPE_FUNCTION, TOOL_TYPE_CUSTOM) and name:
@@ -544,7 +553,15 @@ def encode_tool_choice(choice: ToolChoice | None) -> tuple[Any | None, Loss | No
         if choice.tool_type == "apply_patch":
             return {"type": "apply_patch"}, None
         if choice.name:
-            return {"type": TOOL_TYPE_CUSTOM if choice.tool_type == "custom" else TOOL_TYPE_FUNCTION, "name": choice.name}, None
+            kind = TOOL_TYPE_CUSTOM if choice.tool_type == "custom" else TOOL_TYPE_FUNCTION
+            dot_idx = choice.name.find(".")
+            if dot_idx > 0:
+                return {
+                    "type": kind,
+                    "namespace": choice.name[:dot_idx],
+                    "name": choice.name[dot_idx + 1:],
+                }, None
+            return {"type": kind, "name": choice.name}, None
         return None, loss(
             "tool_choice",
             "tool_choice",
@@ -779,9 +796,23 @@ def encode_assistant_message(
                 "operation": encode_apply_patch_operation(block.operation),
             })
         elif isinstance(block, ToolUseBlock):
-            calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "call_id": block.id, "name": block.name, "arguments": block.input})
+            dot_idx = block.name.find(".")
+            call_dict = {"type": ITEM_TYPE_FUNCTION_CALL, "call_id": block.id, "arguments": block.input}
+            if dot_idx > 0:
+                call_dict["namespace"] = block.name[:dot_idx]
+                call_dict["name"] = block.name[dot_idx + 1:]
+            else:
+                call_dict["name"] = block.name
+            calls.append(call_dict)
         elif isinstance(block, CustomToolUseBlock):
-            calls.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": block.id, "name": block.name, "input": block.input})
+            dot_idx = block.name.find(".")
+            call_dict = {"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": block.id, "input": block.input}
+            if dot_idx > 0:
+                call_dict["namespace"] = block.name[:dot_idx]
+                call_dict["name"] = block.name[dot_idx + 1:]
+            else:
+                call_dict["name"] = block.name
+            calls.append(call_dict)
         else:
             losses.append(
                 loss(

@@ -52,8 +52,10 @@ from oxa.ir import (
 from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
     NATIVE_KIND_DEFER_LOADING,
+    NATIVE_KIND_EAGER_INPUT_STREAMING,
     NATIVE_SOURCE_ANTHROPIC,
     DEFER_LOADING_LOSS_DETAIL,
+    EAGER_INPUT_STREAMING_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
 )
@@ -148,29 +150,46 @@ def decode_request(
                     raise ValueError(f"anthropic: tools[{index}].defer_loading must be a boolean")
                 if dl is True and "cache_control" in tool:
                     raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
-            native: tuple[NativeAnnotation, ...] = ()
+            native_list: list[NativeAnnotation] = []
             if tool.get("defer_loading") is True:
-                native = (
+                native_list.append(
                     NativeAnnotation(
                         source=NATIVE_SOURCE_ANTHROPIC,
                         kind=NATIVE_KIND_DEFER_LOADING,
                         value="true",
                         omission=NativeOmission(field="defer_loading", reason=LOSS_DEGRADED, detail=DEFER_LOADING_LOSS_DETAIL),
-                    ),
+                    )
                 )
             elif "cache_control" in tool:
                 canon, l = parse_cache_control(tool["cache_control"], f"tools[{index}].cache_control")
                 if l is not None:
                     losses.append(l)
                 if canon is not None:
-                    native = (
+                    native_list.append(
                         NativeAnnotation(
                             source=NATIVE_SOURCE_ANTHROPIC,
                             kind=NATIVE_KIND_CACHE_CONTROL,
                             value=canon,
                             omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL),
-                        ),
+                        )
                     )
+            if "eager_input_streaming" in tool:
+                es = tool["eager_input_streaming"]
+                if not isinstance(es, bool):
+                    raise ValueError(f"anthropic: tools[{index}].eager_input_streaming must be a boolean")
+                native_list.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_ANTHROPIC,
+                        kind=NATIVE_KIND_EAGER_INPUT_STREAMING,
+                        value="true" if es else "false",
+                        omission=NativeOmission(
+                            field="eager_input_streaming",
+                            reason=LOSS_DEGRADED,
+                            detail=EAGER_INPUT_STREAMING_LOSS_DETAIL,
+                        ) if es else None,
+                    )
+                )
+            native = tuple(native_list)
             if is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(

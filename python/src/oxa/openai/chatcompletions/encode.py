@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from oxa.ir import (
@@ -217,6 +218,31 @@ def encode_request(
             out["reasoning_effort"] = req.params.reasoning_effort
         if req.params.response_format is not None:
             out["response_format"] = encode_response_format(req.params.response_format)
+
+    if req.native:
+        has_max_completion_tokens = any(
+            n.source == "openai" and n.kind == "max_completion_tokens"
+            for n in req.native
+        )
+        if has_max_completion_tokens and "max_tokens" in out:
+            out["max_completion_tokens"] = out.pop("max_tokens")
+        for n in req.native:
+            if n.source == "openai":
+                if n.kind == "store":
+                    try:
+                        out["store"] = json.loads(n.value) is True
+                    except Exception:
+                        pass
+                elif n.kind == "stream":
+                    try:
+                        out["stream"] = json.loads(n.value) is True
+                    except Exception:
+                        pass
+                elif n.kind == "stream_options":
+                    try:
+                        out["stream_options"] = json.loads(n.value)
+                    except Exception:
+                        pass
 
     losses.extend(omitted_native_request_losses(req, "chatcompletions"))
 

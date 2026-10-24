@@ -19,6 +19,7 @@ from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
     NATIVE_KIND_CONTEXT_MANAGEMENT,
     NATIVE_KIND_DEFER_LOADING,
+    NATIVE_KIND_EAGER_INPUT_STREAMING,
     NATIVE_KIND_OUTPUT_EFFORT,
     NATIVE_KIND_THINKING_BUDGET,
     NATIVE_KIND_THINKING_DISPLAY,
@@ -26,6 +27,7 @@ from oxa.ir.native import (
     NATIVE_SOURCE_ANTHROPIC,
     CACHE_CONTROL_LOSS_DETAIL,
     DEFER_LOADING_LOSS_DETAIL,
+    STREAM_OPTIONS_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     NativeProjection,
@@ -369,6 +371,20 @@ def get_tool_defer_loading(native: tuple[NativeAnnotation, ...] | list[NativeAnn
     return False
 
 
+def get_tool_eager_input_streaming(native: tuple[NativeAnnotation, ...] | list[NativeAnnotation] | None) -> bool | None:
+    if not native:
+        return None
+    for n in native:
+        if n.kind == NATIVE_KIND_EAGER_INPUT_STREAMING:
+            try:
+                parsed = json.loads(n.value)
+                if isinstance(parsed, bool):
+                    return parsed
+            except Exception:
+                pass
+    return None
+
+
 def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
     losses: list[Loss] = []
 
@@ -380,7 +396,29 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
     native_effort_proj: NativeProjection | None = None
 
     for i, n in enumerate(req.native):
-        if n.source != NATIVE_SOURCE_ANTHROPIC:
+        if n.source == "openai":
+            if n.kind in ("max_completion_tokens", "stream"):
+                continue
+            if n.kind == "store":
+                try:
+                    if json.loads(n.value) is True:
+                        field = n.omission.field if n.omission and n.omission.field else "store"
+                        reason = n.omission.reason if n.omission and n.omission.reason else LOSS_UNSUPPORTED_SEMANTIC
+                        detail = n.omission.detail if n.omission and n.omission.detail else "target does not support output retention"
+                        losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
+                except Exception:
+                    pass
+                continue
+            if n.kind == "stream_options":
+                field = n.omission.field if n.omission and n.omission.field else "stream_options"
+                reason = n.omission.reason if n.omission and n.omission.reason else LOSS_DEGRADED
+                detail = n.omission.detail if n.omission and n.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
+                losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
+                continue
+            if n.omission:
+                losses.append(Loss(path=f"native[{i}]", field=n.omission.field, reason=n.omission.reason, detail=n.omission.detail or ""))
+                continue
+        elif n.source != NATIVE_SOURCE_ANTHROPIC:
             losses.append(
                 Loss(
                     path=f"native[{i}]",

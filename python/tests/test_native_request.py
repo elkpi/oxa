@@ -9,6 +9,9 @@ from oxa.anthropic.messages import (
     decode_response as an_decode_response,
     encode_request as an_encode_request,
 )
+from oxa.openai.chatcompletions import (
+    decode_request as cc_decode_request,
+)
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -28,6 +31,9 @@ from oxa.ir import (
     dump_request,
     dump_response,
     load_request,
+    fingerprint_losses,
+    NATIVE_KIND_EAGER_INPUT_STREAMING,
+    EAGER_INPUT_STREAMING_LOSS_DETAIL,
 )
 from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
@@ -649,6 +655,75 @@ class NativeRequestTest(unittest.TestCase):
         with self.assertRaises(ValueError) as cm:
             an_decode_request(wire_null_cache)
         self.assertIn("cannot specify both defer_loading and cache_control", str(cm.exception))
+
+    def test_fingerprint_losses(self) -> None:
+        losses = [
+            Loss(path="tools[0]", field="eager_input_streaming", reason=LOSS_DEGRADED, detail="sensitive1"),
+            Loss(path="native[1]", field="store", reason=LOSS_UNSUPPORTED_SEMANTIC, detail="sensitive2"),
+            Loss(path="stream_options", field="extra", reason=LOSS_UNMAPPED_FIELD, detail="sensitive3"),
+        ]
+        fps_all = fingerprint_losses(losses, 0)
+        self.assertEqual(len(fps_all), 3)
+        self.assertEqual(fps_all[0].path, "tools[0]")
+        self.assertEqual(fps_all[0].field, "eager_input_streaming")
+        self.assertEqual(fps_all[0].reason, LOSS_DEGRADED)
+        self.assertFalse(hasattr(fps_all[0], "detail"))
+
+        fps_trunc = fingerprint_losses(losses, 2)
+        self.assertEqual(len(fps_trunc), 2)
+        self.assertEqual(fps_trunc[1].field, "store")
+
+    def test_eager_input_streaming_32_tools_and_validation(self) -> None:
+        # 1. 32 tools carrying eager_input_streaming: true produce 0 decode losses
+        tools = [
+            {"name": f"tool_{i}", "input_schema": {"type": "object"}, "eager_input_streaming": True}
+            for i in range(32)
+        ]
+        wire32 = {
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "hi"}],
+            "tools": tools,
+        }
+        req32, losses32 = an_decode_request(wire32)
+        self.assertEqual(len(losses32), 0)
+        self.assertEqual(len(req32.tools or ()), 32)
+        self.assertEqual(req32.tools[0].native[0].kind, NATIVE_KIND_EAGER_INPUT_STREAMING)
+
+        # 2. Non-boolean fails
+        for bad in ["true", 1, {"a": "b"}]:
+            wire_bad = {
+                "model": "claude-opus-5-5",
+                "max_tokens": 1024,
+                "messages": [{"role": "user", "content": "hi"}],
+                "tools": [{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": bad}],
+            }
+            with self.assertRaises(ValueError) as cm:
+                an_decode_request(wire_bad)
+            self.assertIn("tools[0].eager_input_streaming must be a boolean", str(cm.exception))
+
+        # 3. Round-trip
+        encoded, _ = an_encode_request(req32)
+        self.assertEqual(encoded["tools"][0]["eager_input_streaming"], True)
+
+    def test_chatcompletions_controls_conflict_and_audit(self) -> None:
+        wire_conflict = {
+            "model": "gpt-5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 100,
+            "max_completion_tokens": 200,
+        }
+        with self.assertRaises(ValueError) as cm:
+            cc_decode_request(wire_conflict)
+        self.assertIn("cannot specify both max_tokens and max_completion_tokens", str(cm.exception))
+
+        wire_unknown_so = {
+            "model": "gpt-5",
+            "messages": [{"role": "user", "content": "hi"}],
+            "stream_options": {"include_usage": True, "extra_prop": "val"},
+        }
+        _, losses = cc_decode_request(wire_unknown_so)
+        self.assertTrue(any(l.path == "stream_options.extra_prop" and l.reason == LOSS_UNMAPPED_FIELD for l in losses))
 
 
 if __name__ == "__main__":

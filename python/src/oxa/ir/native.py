@@ -28,10 +28,17 @@ NATIVE_KIND_DOCUMENT_TITLE = "document_title"
 NATIVE_KIND_DOCUMENT_CONTEXT = "document_context"
 NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations"
 NATIVE_KIND_CONTAINER = "container"
+NATIVE_KIND_EAGER_INPUT_STREAMING = "eager_input_streaming"
+NATIVE_KIND_STORE = "store"
+NATIVE_KIND_STREAM = "stream"
+NATIVE_KIND_STREAM_OPTIONS = "stream_options"
+NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens"
 
 DEFER_LOADING_LOSS_DETAIL = (
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
 )
+EAGER_INPUT_STREAMING_LOSS_DETAIL = "target does not preserve eager tool input streaming semantics"
+STREAM_OPTIONS_LOSS_DETAIL = "target does not emit the requested final usage chunk"
 
 CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
 DOCUMENT_TITLE_LOSS_DETAIL = (
@@ -43,6 +50,21 @@ DOCUMENT_CONTEXT_LOSS_DETAIL = (
 DOCUMENT_CITATIONS_LOSS_DETAIL = (
     "anthropic-native document citations; citations alter response semantics and the target face has no document representation"
 )
+
+
+@dataclass(frozen=True)
+class LossFingerprint:
+    path: str
+    field: str
+    reason: str
+
+
+def fingerprint_losses(losses: Sequence[Loss], limit: int = 0) -> list[LossFingerprint]:
+    n = limit if 0 < limit < len(losses) else len(losses)
+    return [
+        LossFingerprint(path=l.path, field=l.field, reason=l.reason)
+        for l in losses[:n]
+    ]
 
 
 class CodecError(ValueError):
@@ -196,6 +218,11 @@ def validate_annotations(
                     raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Tool")
                 if parsed_json is not True:
                     raise CodecError(f"invalid defer_loading {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_EAGER_INPUT_STREAMING:
+                if host != HostType.TOOL:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Tool")
+                if not isinstance(parsed_json, bool):
+                    raise CodecError(f"invalid eager_input_streaming {parsed_json!r}")
             elif ann.kind in (NATIVE_KIND_DOCUMENT_TITLE, NATIVE_KIND_DOCUMENT_CONTEXT):
                 if host != HostType.CONTENT:
                     raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on content blocks")
@@ -209,7 +236,25 @@ def validate_annotations(
                 if "enabled" in parsed_json and not isinstance(parsed_json["enabled"], bool):
                     raise CodecError(f"anthropic {ann.kind} enabled must be a boolean")
         elif ann.source == NATIVE_SOURCE_OPENAI:
-            if ann.kind == NATIVE_KIND_CONTAINER:
+            if ann.kind == NATIVE_KIND_MAX_COMPLETION_TOKENS:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+            elif ann.kind == NATIVE_KIND_STORE:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, bool):
+                    raise CodecError(f"invalid store {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_STREAM:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, bool):
+                    raise CodecError(f"invalid stream {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_STREAM_OPTIONS:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, dict):
+                    raise CodecError(f"invalid stream_options {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_CONTAINER:
                 if host != HostType.TOOL:
                     raise CodecError(f"{path}: openai container is only allowed on Tool")
                 if not isinstance(parsed_json, (dict, str)):
@@ -325,6 +370,30 @@ def _append_omission_loss(
     target: str,
 ) -> None:
     if ann.source == NATIVE_SOURCE_OPENAI:
+        if ann.kind in (NATIVE_KIND_MAX_COMPLETION_TOKENS, NATIVE_KIND_STREAM):
+            return
+        if ann.kind == NATIVE_KIND_STREAM_OPTIONS:
+            if target == "chatcompletions":
+                return
+            field = ann.omission.field if ann.omission and ann.omission.field else "stream_options"
+            reason = ann.omission.reason if ann.omission and ann.omission.reason else "degraded"
+            detail = ann.omission.detail if ann.omission and ann.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
+            losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+            return
+        if ann.kind == NATIVE_KIND_STORE:
+            if target in ("chatcompletions", "responses"):
+                return
+            is_true = False
+            try:
+                is_true = json.loads(ann.value) is True
+            except Exception:
+                pass
+            if is_true:
+                field = ann.omission.field if ann.omission and ann.omission.field else "store"
+                reason = ann.omission.reason if ann.omission and ann.omission.reason else "unsupported-semantic"
+                detail = ann.omission.detail if ann.omission and ann.omission.detail else "target does not support output retention"
+                losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+            return
         if target == "responses":
             return
         if target == "anthropic" and ann.kind == NATIVE_KIND_DEFER_LOADING:
@@ -440,6 +509,35 @@ def _append_omission_loss(
                 detail=detail,
             )
         )
+        return
+
+    if ann.kind == NATIVE_KIND_EAGER_INPUT_STREAMING:
+        if target == "anthropic":
+            return
+        is_true = False
+        try:
+            is_true = json.loads(ann.value) is True
+        except Exception:
+            pass
+        if is_true:
+            field = "eager_input_streaming"
+            reason = LOSS_DEGRADED
+            detail = EAGER_INPUT_STREAMING_LOSS_DETAIL
+            if ann.omission is not None:
+                if ann.omission.field:
+                    field = ann.omission.field
+                if ann.omission.reason:
+                    reason = ann.omission.reason
+                if ann.omission.detail:
+                    detail = ann.omission.detail
+            losses.append(
+                Loss(
+                    path=path,
+                    field=field,
+                    reason=reason,
+                    detail=detail,
+                )
+            )
         return
 
     if ann.kind in (

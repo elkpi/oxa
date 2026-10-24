@@ -66,91 +66,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.instructions = Some(instructions);
     }
     if let Some(tools) = &req.tools {
-        for (index, tool) in tools.iter().enumerate() {
-            if tool.tool_type == Some(ToolType::Native) {
-                let source = tool.source.as_deref().unwrap_or_default();
-                losses.push(loss(
-                    format!("tools[{index}]"),
-                    "type",
-                    LossReason::UnsupportedSemantic,
-                    format!("native tool \"{}\" from \"{source}\" cannot be represented by the target protocol", tool.name),
-                ));
-                continue;
-            }
-            if tool.tool_type == Some(ToolType::ApplyPatch) {
-                out.tools.push(ToolDef {
-                    kind: "apply_patch".to_string(),
-                    ..ToolDef::default()
-                });
-                continue;
-            }
-            if tool.tool_type == Some(ToolType::Custom) {
-                if tool.name.is_empty() {
-                    return Err(Error::new(format!(
-                        "responses: tools[{index}].name is required for custom tool"
-                    )));
-                }
-                let format_value = match &tool.format {
-                    None => None,
-                    Some(format)
-                        if format.format_type == "text"
-                            && format.syntax.is_none()
-                            && format.definition.is_none() =>
-                    {
-                        Some(serde_json::json!({"type":"text"}))
-                    }
-                    Some(format)
-                        if format.format_type == "grammar"
-                            && matches!(format.syntax.as_deref(), Some("lark" | "regex"))
-                            && format.definition.is_some() =>
-                    {
-                        Some(serde_json::to_value(format).unwrap_or(serde_json::Value::Null))
-                    }
-                    Some(_) => {
-                        losses.push(loss(
-                            format!("tools[{index}].format"),
-                            "format",
-                            LossReason::UnsupportedSemantic,
-                            "custom tool format is not supported",
-                        ));
-                        None
-                    }
-                };
-                out.tools.push(ToolDef {
-                    kind: TOOL_TYPE_CUSTOM.to_string(),
-                    name: tool.name.clone(),
-                    description: tool.description.clone().unwrap_or_default(),
-                    parameters: None,
-                    format: format_value,
-                    strict: None,
-                });
-                if tool.input_schema.is_some() {
-                    losses.push(loss(
-                        format!("tools[{index}].input_schema"),
-                        "input_schema",
-                        LossReason::UnmappedField,
-                        "custom tools do not carry input_schema",
-                    ));
-                }
-            } else {
-                out.tools.push(ToolDef {
-                    kind: TOOL_TYPE_FUNCTION.to_string(),
-                    name: tool.name.clone(),
-                    description: tool.description.clone().unwrap_or_default(),
-                    parameters: Some(tool.input_schema.clone().unwrap_or(serde_json::Value::Null)),
-                    format: None,
-                    strict: None,
-                });
-                if tool.format.is_some() {
-                    losses.push(loss(
-                        format!("tools[{index}].format"),
-                        "format",
-                        LossReason::UnsupportedSemantic,
-                        "function tool format has no Responses function equivalent",
-                    ));
-                }
-            }
-        }
+        out.tools = encode_responses_grouped_tools(tools, &mut losses)?;
     }
     let native_named_choice_dropped = req
         .tool_choice
@@ -161,12 +77,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     t.tool_type == Some(oxa_ir::ToolType::Native)
                         && Some(&t.name) == c.name.as_ref()
                 });
-            let name_retained = c
-                .name
-                .as_ref()
-                .map(|n| out.tools.iter().any(|t| &t.name == n))
-                .unwrap_or(false);
-            is_native && !name_retained
+            let is_openai_native = req.tools.as_deref().unwrap_or(&[]).iter().any(|t| {
+                t.tool_type == Some(oxa_ir::ToolType::Native)
+                    && Some(&t.name) == c.name.as_ref()
+                    && t.source.as_deref() == Some("openai")
+            });
+            is_native && !is_openai_native
         })
         .unwrap_or(false);
 
@@ -389,15 +305,24 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             }
             Block::ToolUse {
                 id, name, input, ..
-            } => calls.push(OutputItem {
-                kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
-                id: "fc_abc123".to_string(),
-                status: STATUS_COMPLETED.to_string(),
-                call_id: id.clone(),
-                name: name.clone(),
-                arguments: input.clone(),
-                ..OutputItem::default()
-            }),
+            } => {
+                let dot_idx = name.find('.');
+                let (ns, nm) = if let Some(idx) = dot_idx {
+                    (Some(name[..idx].to_string()), name[idx + 1..].to_string())
+                } else {
+                    (None, name.clone())
+                };
+                calls.push(OutputItem {
+                    kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
+                    id: "fc_abc123".to_string(),
+                    status: STATUS_COMPLETED.to_string(),
+                    call_id: id.clone(),
+                    name: nm,
+                    namespace: ns,
+                    arguments: input.clone(),
+                    ..OutputItem::default()
+                });
+            }
             Block::CustomToolUse {
                 id, name, input, ..
             } => {
@@ -406,11 +331,18 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         "responses: content[{index}] custom_tool_use requires id and name"
                     )));
                 }
+                let dot_idx = name.find('.');
+                let (ns, nm) = if let Some(idx) = dot_idx {
+                    (Some(name[..idx].to_string()), name[idx + 1..].to_string())
+                } else {
+                    (None, name.clone())
+                };
                 calls.push(OutputItem {
                     kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
                     id: "ctc_abc123".to_string(),
                     call_id: id.clone(),
-                    name: name.clone(),
+                    name: nm,
+                    namespace: ns,
                     input: Some(input.clone()),
                     ..OutputItem::default()
                 });
@@ -534,6 +466,145 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         },
         losses,
     ))
+}
+
+fn encode_responses_grouped_tools(
+    tools: &[oxa_ir::Tool],
+    losses: &mut Vec<Loss>,
+) -> Result<Vec<ToolDef>, Error> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < tools.len() {
+        let tool = &tools[i];
+        if tool.tool_type == Some(ToolType::Native) {
+            if tool.source.as_deref() == Some("openai") {
+                let val: serde_json::Value = serde_json::from_str(tool.definition.as_deref().unwrap_or("{}"))
+                    .map_err(|e| Error::new(e.to_string()))?;
+                out.push(ToolDef {
+                    kind: tool.name.clone(),
+                    raw: Some(val),
+                    ..ToolDef::default()
+                });
+            } else {
+                let source = tool.source.as_deref().unwrap_or_default();
+                losses.push(loss(
+                    format!("tools[{i}]"),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    format!("native tool \"{}\" from \"{source}\" cannot be represented by the target protocol", tool.name),
+                ));
+            }
+            i += 1;
+            continue;
+        }
+
+        if tool.tool_type == Some(ToolType::ApplyPatch) {
+            out.push(ToolDef {
+                kind: "apply_patch".to_string(),
+                ..ToolDef::default()
+            });
+            i += 1;
+            continue;
+        }
+
+        let mut container_kind = String::new();
+        for ann in &tool.native {
+            if ann.source == "openai" && ann.kind == "container" {
+                let raw_val = &ann.value;
+                if let Ok(s) = serde_json::from_str::<String>(raw_val) {
+                    container_kind = s;
+                } else {
+                    container_kind = raw_val.trim_matches('"').to_string();
+                }
+                break;
+            }
+        }
+
+        let dot_idx = tool.name.find('.');
+        if let Some(idx) = dot_idx {
+            let prefix = &tool.name[..idx];
+            if container_kind.is_empty() {
+                container_kind = "namespace".to_string();
+            }
+            let mut child_tools = Vec::new();
+            let mut j = i;
+            while j < tools.len() && tools[j].name.starts_with(&format!("{prefix}.")) {
+                let sub_tool = &tools[j];
+                let stripped_name = &sub_tool.name[prefix.len() + 1..];
+                let has_defer = sub_tool.native.iter().any(|ann| ann.kind == "defer_loading" && ann.value == "true");
+
+                if sub_tool.tool_type == Some(ToolType::Custom) {
+                    let fmt_val = match &sub_tool.format {
+                        Some(f) => serde_json::to_value(f).ok(),
+                        None => None,
+                    };
+                    let mut m = serde_json::Map::new();
+                    m.insert("type".into(), serde_json::Value::String(TOOL_TYPE_CUSTOM.into()));
+                    m.insert("name".into(), serde_json::Value::String(stripped_name.into()));
+                    if let Some(ref d) = sub_tool.description {
+                        m.insert("description".into(), serde_json::Value::String(d.clone()));
+                    }
+                    if let Some(f) = fmt_val {
+                        m.insert("format".into(), f);
+                    }
+                    if has_defer {
+                        m.insert("defer_loading".into(), serde_json::Value::Bool(true));
+                    }
+                    child_tools.push(serde_json::Value::Object(m));
+                } else {
+                    let mut m = serde_json::Map::new();
+                    m.insert("type".into(), serde_json::Value::String(TOOL_TYPE_FUNCTION.into()));
+                    m.insert("name".into(), serde_json::Value::String(stripped_name.into()));
+                    if let Some(ref d) = sub_tool.description {
+                        m.insert("description".into(), serde_json::Value::String(d.clone()));
+                    }
+                    if let Some(ref p) = sub_tool.input_schema {
+                        m.insert("parameters".into(), p.clone());
+                    }
+                    if has_defer {
+                        m.insert("defer_loading".into(), serde_json::Value::Bool(true));
+                    }
+                    child_tools.push(serde_json::Value::Object(m));
+                }
+                j += 1;
+            }
+            out.push(ToolDef {
+                kind: container_kind,
+                name: prefix.to_string(),
+                tools: Some(child_tools),
+                ..ToolDef::default()
+            });
+            i = j;
+            continue;
+        }
+
+        let has_defer = tool.native.iter().any(|ann| ann.kind == "defer_loading" && ann.value == "true");
+        if tool.tool_type == Some(ToolType::Custom) {
+            let fmt_val = match &tool.format {
+                Some(f) => serde_json::to_value(f).ok(),
+                None => None,
+            };
+            out.push(ToolDef {
+                kind: TOOL_TYPE_CUSTOM.to_string(),
+                name: tool.name.clone(),
+                description: tool.description.clone().unwrap_or_default(),
+                format: fmt_val,
+                defer_loading: if has_defer { Some(true) } else { None },
+                ..ToolDef::default()
+            });
+        } else {
+            out.push(ToolDef {
+                kind: TOOL_TYPE_FUNCTION.to_string(),
+                name: tool.name.clone(),
+                description: tool.description.clone().unwrap_or_default(),
+                parameters: tool.input_schema.clone(),
+                defer_loading: if has_defer { Some(true) } else { None },
+                ..ToolDef::default()
+            });
+        }
+        i += 1;
+    }
+    Ok(out)
 }
 
 fn encode_custom_output(

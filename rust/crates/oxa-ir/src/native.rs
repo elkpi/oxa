@@ -14,7 +14,9 @@ pub const NATIVE_KIND_DEFER_LOADING: &str = "defer_loading";
 pub const NATIVE_KIND_DOCUMENT_TITLE: &str = "document_title";
 pub const NATIVE_KIND_DOCUMENT_CONTEXT: &str = "document_context";
 pub const NATIVE_KIND_DOCUMENT_CITATIONS: &str = "document_citations";
+pub const NATIVE_KIND_CONTAINER: &str = "container";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
+pub const NATIVE_SOURCE_OPENAI: &str = "openai";
 
 pub const CACHE_CONTROL_LOSS_DETAIL: &str =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
@@ -296,6 +298,29 @@ fn validate_annotations(
                 }
                 _ => {}
             }
+        } else if ann.source == NATIVE_SOURCE_OPENAI {
+            match ann.kind.as_str() {
+                NATIVE_KIND_CONTAINER => {
+                    if host != HostType::Tool {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai container is only allowed on Tool"
+                        )));
+                    }
+                }
+                NATIVE_KIND_DEFER_LOADING => {
+                    if host != HostType::Tool {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai defer_loading is only allowed on Tool"
+                        )));
+                    }
+                    if parsed_json.as_bool() != Some(true) {
+                        return Err(Error::Custom(format!(
+                            "invalid defer_loading {parsed_json:?}"
+                        )));
+                    }
+                }
+                _ => {}
+            }
         }
     }
     Ok(())
@@ -333,7 +358,7 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
     Ok(())
 }
 
-pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result<Vec<Loss>, Error> {
+pub fn omitted_native_request_losses(request: &Request, target: &str) -> Result<Vec<Loss>, Error> {
     validate_native_request(request)?;
 
     let mut losses = Vec::new();
@@ -355,6 +380,7 @@ pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result
             &format!("native[{i}]"),
             has_active_budget_proj,
             current_effort,
+            target,
         );
     }
 
@@ -367,6 +393,7 @@ pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result
                 &format!("system[{s_idx}].native[{i}]"),
                 false,
                 None,
+                target,
             );
         }
     }
@@ -377,6 +404,7 @@ pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result
                 &mut losses,
                 blk,
                 &format!("messages[{m_idx}].content[{c_idx}]"),
+                target,
             );
         }
     }
@@ -390,6 +418,7 @@ pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result
                     &format!("tools[{t_idx}].native[{i}]"),
                     false,
                     None,
+                    target,
                 );
             }
         }
@@ -398,7 +427,7 @@ pub fn omitted_native_request_losses(request: &Request, _target: &str) -> Result
     Ok(losses)
 }
 
-fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str) {
+fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, target: &str) {
     let (native, children) = match blk {
         Block::Text { native, .. }
         | Block::Thinking { native, .. }
@@ -427,12 +456,12 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str) {
     };
 
     for (i, ann) in native.iter().enumerate() {
-        append_omission_loss(losses, ann, &format!("{path}.native[{i}]"), false, None);
+        append_omission_loss(losses, ann, &format!("{path}.native[{i}]"), false, None, target);
     }
 
     if let Some(ch) = children {
         for (k, child) in ch.iter().enumerate() {
-            collect_block_omissions(losses, child, &format!("{path}.content[{k}]"));
+            collect_block_omissions(losses, child, &format!("{path}.content[{k}]"), target);
         }
     }
 }
@@ -443,7 +472,22 @@ fn append_omission_loss(
     path: &str,
     has_active_budget_proj: bool,
     current_effort: Option<crate::request::ReasoningEffort>,
+    target: &str,
 ) {
+    if ann.source == NATIVE_SOURCE_OPENAI {
+        if target == "responses" {
+            return;
+        }
+        if let Some(ref om) = ann.omission {
+            losses.push(Loss {
+                path: path.into(),
+                field: om.field.clone(),
+                reason: om.reason,
+                detail: om.detail.clone().unwrap_or_default(),
+            });
+        }
+        return;
+    }
     if ann.source != NATIVE_SOURCE_ANTHROPIC {
         losses.push(Loss {
             path: path.into(),
@@ -529,6 +573,9 @@ fn append_omission_loss(
             });
         }
         NATIVE_KIND_DEFER_LOADING => {
+            if target == "responses" || target == "anthropic" {
+                return;
+            }
             let (field, reason, detail) = if let Some(ref om) = ann.omission {
                 let f = if om.field.is_empty() {
                     "defer_loading".to_string()

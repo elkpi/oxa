@@ -557,9 +557,15 @@ pub(crate) fn decode_assistant_run(
             continue;
         }
         if item.kind == ITEM_TYPE_FUNCTION_CALL {
+            let ns = item.namespace.as_deref().unwrap_or_default();
+            let final_name = if !ns.is_empty() && !item.name.starts_with(&format!("{ns}.")) {
+                format!("{ns}.{}", item.name)
+            } else {
+                item.name.clone()
+            };
             calls.push(Block::ToolUse {
                 id: item.call_id.clone(),
-                name: item.name.clone(),
+                name: final_name,
                 input: item.arguments.clone(),
                 native: Vec::new(),
             });
@@ -577,9 +583,15 @@ pub(crate) fn decode_assistant_run(
                     "responses: input[{index}] custom_tool_call requires call_id and name"
                 )));
             }
+            let ns = item.namespace.as_deref().unwrap_or_default();
+            let final_name = if !ns.is_empty() && !item.name.starts_with(&format!("{ns}.")) {
+                format!("{ns}.{}", item.name)
+            } else {
+                item.name.clone()
+            };
             calls.push(Block::CustomToolUse {
                 id: item.call_id.clone(),
-                name: item.name.clone(),
+                name: final_name,
                 input: input.clone(),
                 native: Vec::new(),
             });
@@ -791,15 +803,24 @@ pub(crate) fn decode_tool_choice(value: Option<&Value>) -> (Option<ToolChoice>, 
                     Vec::new(),
                 );
             }
-            let name = choice
+            let raw_name = choice
                 .get("name")
                 .and_then(Value::as_str)
                 .unwrap_or_default();
+            let ns = choice
+                .get("namespace")
+                .and_then(Value::as_str)
+                .unwrap_or_default();
+            let name = if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                format!("{ns}.{raw_name}")
+            } else {
+                raw_name.to_string()
+            };
             if (kind == TOOL_TYPE_FUNCTION || kind == TOOL_TYPE_CUSTOM) && !name.is_empty() {
                 (
                     Some(ToolChoice {
                         mode: ToolChoiceMode::Tool,
-                        name: Some(name.to_string()),
+                        name: Some(name),
                         tool_type: if kind == TOOL_TYPE_CUSTOM {
                             Some(ToolType::Custom)
                         } else {
@@ -846,12 +867,24 @@ pub(crate) fn encode_tool_choice(choice: Option<&ToolChoice>) -> (Option<Value>,
                 return (Some(json!({ "type": "apply_patch" })), None);
             }
             match choice.name.as_deref() {
-                Some(name) if !name.is_empty() => (
-                    Some(
-                        json!({ "type": if choice.tool_type==Some(ToolType::Custom){TOOL_TYPE_CUSTOM}else{TOOL_TYPE_FUNCTION}, "name":name }),
-                    ),
-                    None,
-                ),
+                Some(name) if !name.is_empty() => {
+                    let kind = if choice.tool_type == Some(ToolType::Custom) {
+                        TOOL_TYPE_CUSTOM
+                    } else {
+                        TOOL_TYPE_FUNCTION
+                    };
+                    let dot_idx = name.find('.');
+                    let val = if let Some(idx) = dot_idx {
+                        json!({
+                            "type": kind,
+                            "namespace": &name[..idx],
+                            "name": &name[idx + 1..]
+                        })
+                    } else {
+                        json!({ "type": kind, "name": name })
+                    };
+                    (Some(val), None)
+                }
                 _ => (
                     None,
                     Some(loss(
@@ -1172,22 +1205,40 @@ pub(crate) fn encode_assistant_message(
             }
             Block::ToolUse {
                 id, name, input, ..
-            } => calls.push(InputItem {
-                kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
-                call_id: id.clone(),
-                name: name.clone(),
-                arguments: input.clone(),
-                ..InputItem::default()
-            }),
+            } => {
+                let dot_idx = name.find('.');
+                let (ns, nm) = if let Some(idx) = dot_idx {
+                    (Some(name[..idx].to_string()), name[idx + 1..].to_string())
+                } else {
+                    (None, name.clone())
+                };
+                calls.push(InputItem {
+                    kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
+                    call_id: id.clone(),
+                    name: nm,
+                    namespace: ns,
+                    arguments: input.clone(),
+                    ..InputItem::default()
+                });
+            }
             Block::CustomToolUse {
                 id, name, input, ..
-            } => calls.push(InputItem {
-                kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
-                call_id: id.clone(),
-                name: name.clone(),
-                input: Some(input.clone()),
-                ..InputItem::default()
-            }),
+            } => {
+                let dot_idx = name.find('.');
+                let (ns, nm) = if let Some(idx) = dot_idx {
+                    (Some(name[..idx].to_string()), name[idx + 1..].to_string())
+                } else {
+                    (None, name.clone())
+                };
+                calls.push(InputItem {
+                    kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
+                    call_id: id.clone(),
+                    name: nm,
+                    namespace: ns,
+                    input: Some(input.clone()),
+                    ..InputItem::default()
+                });
+            }
             Block::Image { .. }
             | Block::Document { .. }
             | Block::ToolResult { .. }

@@ -165,6 +165,8 @@ pub struct InputItem {
     pub call_id: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    #[serde(rename = "namespace", default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     #[serde(
         rename = "arguments",
         default,
@@ -177,6 +179,8 @@ pub struct InputItem {
     pub output: Option<OutputValue>,
     #[serde(rename = "operation", default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<ApplyPatchOperationWire>,
+    #[serde(rename = "tools", default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Value>>,
 }
 
 /// Responses message content, either text shorthand or a part array.
@@ -206,9 +210,21 @@ pub struct ContentPart {
     pub file_id: Option<String>,
 }
 
-/// A Responses function-tool definition.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct ToolDef {
+    pub kind: String,
+    pub name: String,
+    pub description: String,
+    pub parameters: Option<Value>,
+    pub format: Option<Value>,
+    pub strict: Option<bool>,
+    pub defer_loading: Option<bool>,
+    pub tools: Option<Vec<Value>>,
+    pub raw: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+struct ToolDefWire {
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
@@ -229,6 +245,53 @@ pub struct ToolDef {
     pub format: Option<Value>,
     #[serde(rename = "strict", default, skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
+    #[serde(rename = "defer_loading", default, skip_serializing_if = "Option::is_none")]
+    pub defer_loading: Option<bool>,
+    #[serde(rename = "tools", default, skip_serializing_if = "Option::is_none")]
+    pub tools: Option<Vec<Value>>,
+}
+
+impl Serialize for ToolDef {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(ref raw) = self.raw {
+            return raw.serialize(serializer);
+        }
+        let wire = ToolDefWire {
+            kind: self.kind.clone(),
+            name: self.name.clone(),
+            description: self.description.clone(),
+            parameters: self.parameters.clone(),
+            format: self.format.clone(),
+            strict: self.strict,
+            defer_loading: self.defer_loading,
+            tools: self.tools.clone(),
+        };
+        wire.serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for ToolDef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let val = Value::deserialize(deserializer)?;
+        let wire: ToolDefWire = serde_json::from_value(val.clone()).map_err(serde::de::Error::custom)?;
+        Ok(ToolDef {
+            kind: wire.kind,
+            name: wire.name,
+            description: wire.description,
+            parameters: wire.parameters,
+            format: wire.format,
+            strict: wire.strict,
+            defer_loading: wire.defer_loading,
+            tools: wire.tools,
+            raw: Some(val),
+        })
+    }
 }
 
 /// Responses text-output configuration that has no v1 IR equivalent.
@@ -295,6 +358,8 @@ pub struct OutputItem {
     pub call_id: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
+    #[serde(rename = "namespace", default, skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     #[serde(
         rename = "arguments",
         default,

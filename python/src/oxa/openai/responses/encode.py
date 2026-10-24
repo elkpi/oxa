@@ -75,6 +75,85 @@ from oxa.ir.native import (
 )
 
 
+def parse_container_path(tool: Tool) -> list[dict[str, Any]] | None:
+    for ann in tool.native or ():
+        if ann.source == NATIVE_SOURCE_OPENAI and ann.kind == NATIVE_KIND_CONTAINER:
+            try:
+                parsed = json.loads(ann.value)
+                if isinstance(parsed, dict) and isinstance(parsed.get("path"), list) and parsed["path"]:
+                    return parsed["path"]
+            except Exception:
+                pass
+            single = ann.value.strip('"')
+            if single:
+                raw_name = tool.name or ""
+                dot_idx = raw_name.find(".")
+                name = raw_name[:dot_idx] if dot_idx > 0 else raw_name
+                return [{"type": single, "name": name}]
+    return None
+
+
+def build_nested_container(path_stack: list[dict[str, Any]], tools: list[Tool]) -> dict[str, Any]:
+    curr = path_stack[0]
+    if len(path_stack) == 1:
+        child_tools: list[dict[str, Any]] = []
+        for sub_tool in tools:
+            raw_name = sub_tool.name or ""
+            last_dot = raw_name.rfind(".")
+            stripped_name = raw_name[last_dot + 1:] if last_dot >= 0 else raw_name
+            has_defer = any(ann.kind == NATIVE_KIND_DEFER_LOADING and ann.value == "true" for ann in (sub_tool.native or ()))
+            if sub_tool.type == "custom":
+                c_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": stripped_name}
+                if sub_tool.description is not None:
+                    c_dict["description"] = sub_tool.description
+                if sub_tool.format is not None:
+                    c_dict["format"] = encode_custom_tool_format(sub_tool.format)
+                if has_defer:
+                    c_dict["defer_loading"] = True
+                child_tools.append(c_dict)
+            else:
+                c_dict = {"type": TOOL_TYPE_FUNCTION, "name": stripped_name, "parameters": sub_tool.input_schema}
+                if sub_tool.description is not None:
+                    c_dict["description"] = sub_tool.description
+                if has_defer:
+                    c_dict["defer_loading"] = True
+                child_tools.append(c_dict)
+        res = {
+            "type": curr["type"],
+            "name": curr["name"],
+            "tools": child_tools,
+        }
+        if "description" in curr and curr["description"] is not None:
+            res["description"] = curr["description"]
+        return res
+
+    # Multi-level
+    child_tools = []
+    k = 0
+    while k < len(tools):
+        sub_path = parse_container_path(tools[k])
+        if not sub_path or len(sub_path) < 2:
+            k += 1
+            continue
+        next_name = sub_path[1]["name"]
+        m = k
+        while m < len(tools):
+            p = parse_container_path(tools[m])
+            if not p or len(p) < 2 or p[1]["name"] != next_name:
+                break
+            m += 1
+        child_tools.append(build_nested_container(path_stack[1:], tools[k:m]))
+        k = m
+    res = {
+        "type": curr["type"],
+        "name": curr["name"],
+        "tools": child_tools,
+    }
+    if "description" in curr and curr["description"] is not None:
+        res["description"] = curr["description"]
+    return res
+
+
 def encode_responses_grouped_tools(tools: Sequence[Tool], losses: list[Loss]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     i = 0
@@ -100,50 +179,33 @@ def encode_responses_grouped_tools(tools: Sequence[Tool], losses: list[Loss]) ->
             i += 1
             continue
 
-        container_kind = ""
-        for ann in tool.native or ():
-            if ann.source == NATIVE_SOURCE_OPENAI and ann.kind == NATIVE_KIND_CONTAINER:
-                try:
-                    container_kind = json.loads(ann.value)
-                except Exception:
-                    container_kind = ann.value.strip('"')
-                break
-
+        container_path = parse_container_path(tool)
         dot_idx = tool.name.find(".") if tool.name else -1
-        if dot_idx > 0 and tool.name:
-            prefix = tool.name[:dot_idx]
-            if not container_kind:
-                container_kind = "namespace"
-            child_tools: list[dict[str, Any]] = []
+        if container_path:
+            top_name = container_path[0]["name"]
             j = i
             while j < len(tools):
                 next_tool = tools[j]
+                if next_tool.type in ("native", "apply_patch"):
+                    break
+                next_path = parse_container_path(next_tool)
+                if not next_path or next_path[0]["name"] != top_name:
+                    break
+                j += 1
+            out.append(build_nested_container(container_path, list(tools[i:j])))
+            i = j
+            continue
+        elif dot_idx > 0 and tool.name:
+            prefix = tool.name[:dot_idx]
+            j = i
+            while j < len(tools):
+                next_tool = tools[j]
+                if next_tool.type in ("native", "apply_patch"):
+                    break
                 if not next_tool.name or not next_tool.name.startswith(prefix + "."):
                     break
-                stripped_name = next_tool.name[len(prefix) + 1:]
-                has_defer = any(ann.kind == NATIVE_KIND_DEFER_LOADING and ann.value == "true" for ann in (next_tool.native or ()))
-                if next_tool.type == "custom":
-                    c_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": stripped_name}
-                    if next_tool.description is not None:
-                        c_dict["description"] = next_tool.description
-                    if next_tool.format is not None:
-                        c_dict["format"] = encode_custom_tool_format(next_tool.format)
-                    if has_defer:
-                        c_dict["defer_loading"] = True
-                    child_tools.append(c_dict)
-                else:
-                    c_dict = {"type": TOOL_TYPE_FUNCTION, "name": stripped_name, "parameters": next_tool.input_schema}
-                    if next_tool.description:
-                        c_dict["description"] = next_tool.description
-                    if has_defer:
-                        c_dict["defer_loading"] = True
-                    child_tools.append(c_dict)
                 j += 1
-            out.append({
-                "type": container_kind,
-                "name": prefix,
-                "tools": child_tools,
-            })
+            out.append(build_nested_container([{"type": "namespace", "name": prefix}], list(tools[i:j])))
             i = j
             continue
 

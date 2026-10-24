@@ -327,6 +327,8 @@ def _append_omission_loss(
     if ann.source == NATIVE_SOURCE_OPENAI:
         if target == "responses":
             return
+        if target == "anthropic" and ann.kind == NATIVE_KIND_DEFER_LOADING:
+            return
         if ann.omission is not None:
             losses.append(
                 Loss(

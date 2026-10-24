@@ -122,6 +122,26 @@ def encode_request(
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
         for index, tool in enumerate(req.tools):
+            for t_ann_idx, ann in enumerate(tool.native or ()):
+                if ann.source != "anthropic" and ann.kind != "defer_loading":
+                    if ann.omission:
+                        losses.append(
+                            Loss(
+                                path=f"tools[{index}].native[{t_ann_idx}]",
+                                field=ann.omission.field,
+                                reason=ann.omission.reason,
+                                detail=ann.omission.detail or "",
+                            )
+                        )
+                    else:
+                        losses.append(
+                            Loss(
+                                path=f"tools[{index}].native[{t_ann_idx}]",
+                                field="source",
+                                reason=LOSS_UNSUPPORTED_SEMANTIC,
+                                detail=f'unsupported native option source "{ann.source}"',
+                            )
+                        )
             if tool.type == "native":
                 if tool.source != "anthropic":
                     losses.append(

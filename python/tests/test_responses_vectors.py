@@ -23,7 +23,7 @@ class ResponsesVectorsTest(unittest.TestCase):
             return
 
         vectors = load_vectors(root, "responses", "nonstream")
-        self.assertEqual(len(vectors), 142, "expected 142 nonstream responses vectors")
+        self.assertEqual(len(vectors), 148, "expected 148 nonstream responses vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

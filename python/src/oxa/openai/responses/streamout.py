@@ -81,6 +81,7 @@ class _StreamOutputItem:
     next_content_index: int = 0
     call_id: str = ""
     name: str = ""
+    namespace: str = ""
 
 
 @dataclass(slots=True)
@@ -494,10 +495,16 @@ class StreamEncoder:
         self._next_custom_item += 1
         output_index = self._next_output_index
         self._next_output_index += 1
-        item = _StreamOutputItem(kind="custom_tool_call", id=item_id, output_index=output_index, call_id=call_id, name=name)
+        dot_idx = name.find(".")
+        raw_name = name[dot_idx + 1:] if dot_idx > 0 else name
+        namespace = name[:dot_idx] if dot_idx > 0 else ""
+        item = _StreamOutputItem(kind="custom_tool_call", id=item_id, output_index=output_index, call_id=call_id, name=raw_name, namespace=namespace)
         self._active_item = item
         self._active_block = _StreamEncodeBlock(index=index, kind="custom_tool_call", content_index=0, tool_input=input_text)
-        out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, "output_index": output_index, "item": {"id": item_id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": call_id, "name": name, "input": ""}})
+        added_item: dict[str, Any] = {"id": item_id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": call_id, "name": raw_name, "input": ""}
+        if namespace:
+            added_item["namespace"] = namespace
+        out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED, "output_index": output_index, "item": added_item})
         return out, []
 
     def _stop_custom_tool_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
@@ -513,7 +520,9 @@ class StreamEncoder:
         out: list[dict[str, Any]] = []
         if synthetic:
             out.extend({"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DELTA, "item_id": self._active_item.id, "output_index": self._active_item.output_index, "delta": part} for part in fragments)
-        item = {"id": self._active_item.id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": self._active_item.call_id, "name": self._active_item.name, "input": block.tool_input}
+        item: dict[str, Any] = {"id": self._active_item.id, "type": ITEM_TYPE_CUSTOM_TOOL_CALL, "call_id": self._active_item.call_id, "name": self._active_item.name, "input": block.tool_input}
+        if self._active_item.namespace:
+            item["namespace"] = self._active_item.namespace
         out.append({"type": EVENT_TYPE_RESPONSE_CUSTOM_TOOL_CALL_INPUT_DONE, "item_id": self._active_item.id, "output_index": self._active_item.output_index, "input": block.tool_input})
         out.append({"type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE, "output_index": self._active_item.output_index, "item": item})
         self._completed.append(item)
@@ -652,6 +661,8 @@ class StreamEncoder:
             "name": self._active_item.name,
             "arguments": arguments,
         }
+        if self._active_item.namespace:
+            completed["namespace"] = self._active_item.namespace
         out.append(
             {
                 "type": EVENT_TYPE_RESPONSE_FUNCTION_CALL_ARGS_DONE,
@@ -702,23 +713,30 @@ class StreamEncoder:
         self._next_function_item += 1
         output_index = self._next_output_index
         self._next_output_index += 1
+        dot_idx = name.find(".")
+        raw_name = name[dot_idx + 1:] if dot_idx > 0 else name
+        namespace = name[:dot_idx] if dot_idx > 0 else ""
         item = _StreamOutputItem(
             kind="function_call",
             id=item_id,
             output_index=output_index,
             call_id=call_id,
-            name=name,
+            name=raw_name,
+            namespace=namespace,
         )
+        added_item: dict[str, Any] = {
+            "id": item_id,
+            "type": ITEM_TYPE_FUNCTION_CALL,
+            "status": STATUS_IN_PROGRESS,
+            "call_id": call_id,
+            "name": raw_name,
+        }
+        if namespace:
+            added_item["namespace"] = namespace
         event = {
             "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
             "output_index": output_index,
-            "item": {
-                "id": item_id,
-                "type": ITEM_TYPE_FUNCTION_CALL,
-                "status": STATUS_IN_PROGRESS,
-                "call_id": call_id,
-                "name": name,
-            },
+            "item": added_item,
         }
         return item, event
 

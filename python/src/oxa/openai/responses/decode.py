@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from oxa._wire import RawDocument, audit_decode
+from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -139,7 +139,7 @@ def decode_request(
     seen_names: set[str] = set()
     tools: list[Tool] = []
     for index, tool in enumerate(wire.get("tools", [])):
-        tools.extend(decode_responses_tool_item(tool, "", "", f"tools[{index}]", seen_names, losses))
+        tools.extend(decode_responses_tool_item(tool, [], f"tools[{index}]", seen_names, losses, raw_text))
 
     tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
     losses.extend(tc_losses)
@@ -208,7 +208,7 @@ def decode_request(
                 if not isinstance(item_tools, list) or not item_tools:
                     raise ValueError(f"responses: input[{index}]: additional_tools requires non-empty tools array")
                 for t_idx, t_entry in enumerate(item_tools):
-                    tools.extend(decode_responses_tool_item(t_entry, "", "", f"input[{index}].tools[{t_idx}]", seen_names, losses))
+                    tools.extend(decode_responses_tool_item(t_entry, [], f"input[{index}].tools[{t_idx}]", seen_names, losses, raw_text))
                 index += 1
             else:
                 losses.append(
@@ -624,13 +624,55 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
     ]
 
 
+def is_known_openai_native_type(kind: str) -> bool:
+    if kind in (
+        "web_search",
+        "file_search",
+        "code_interpreter",
+        "computer",
+        "computer_use_preview",
+        "mcp",
+        "tool_search",
+        "image_generation",
+        "local_shell",
+        "shell",
+        "programmatic_tool_calling",
+    ):
+        return True
+    if kind.startswith("web_search_") or kind.startswith("file_search_") or kind.startswith("computer_"):
+        return True
+    return False
+
+
+def compact_json(raw: str) -> str:
+    out: list[str] = []
+    in_string = False
+    escape = False
+    for ch in raw:
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+                out.append(ch)
+            elif ch not in (" ", "\t", "\n", "\r"):
+                out.append(ch)
+    return "".join(out)
+
+
 def decode_responses_tool_item(
     tool: dict[str, Any],
-    prefix: str,
-    container_type: str,
+    path_stack: list[dict[str, Any]],
     path: str,
     seen_names: set[str],
     losses: list[Loss],
+    raw_text: str = "",
 ) -> list[Tool]:
     kind = tool.get("type", "")
 
@@ -641,11 +683,17 @@ def decode_responses_tool_item(
         child_tools = tool.get("tools")
         if not isinstance(child_tools, list) or not child_tools:
             raise ValueError(f"responses: {path}: {kind} requires non-empty tools array")
-        current_prefix = f"{prefix}.{name}" if prefix else name
+        desc = tool.get("description")
+        entry: dict[str, Any] = {"type": kind, "name": name}
+        if desc is not None:
+            entry["description"] = desc
+        new_stack = path_stack + [entry]
         res: list[Tool] = []
         for idx, child in enumerate(child_tools):
-            res.extend(decode_responses_tool_item(child, current_prefix, kind, f"{path}.tools[{idx}]", seen_names, losses))
+            res.extend(decode_responses_tool_item(child, new_stack, f"{path}.tools[{idx}]", seen_names, losses, raw_text))
         return res
+
+    prefix = ".".join(e["name"] for e in path_stack)
 
     if kind == "apply_patch":
         return [Tool(type="apply_patch")]
@@ -664,12 +712,12 @@ def decode_responses_tool_item(
             return []
 
         native_ann: list[NativeAnnotation] = []
-        if container_type:
+        if path_stack:
             native_ann.append(
                 NativeAnnotation(
                     source=NATIVE_SOURCE_OPENAI,
                     kind=NATIVE_KIND_CONTAINER,
-                    value=json.dumps(container_type),
+                    value=json.dumps({"path": path_stack}, separators=(",", ":")),
                     omission=NativeOmission(
                         field="type",
                         reason="degraded",
@@ -677,19 +725,22 @@ def decode_responses_tool_item(
                     ),
                 )
             )
-        if tool.get("defer_loading") is True:
-            native_ann.append(
-                NativeAnnotation(
-                    source=NATIVE_SOURCE_OPENAI,
-                    kind=NATIVE_KIND_DEFER_LOADING,
-                    value="true",
-                    omission=NativeOmission(
-                        field="defer_loading",
-                        reason="degraded",
-                        detail=DEFER_LOADING_LOSS_DETAIL,
-                    ),
+        if "defer_loading" in tool:
+            if not isinstance(tool["defer_loading"], bool):
+                raise ValueError(f"responses: {path}.defer_loading must be a boolean")
+            if tool["defer_loading"] is True:
+                native_ann.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_OPENAI,
+                        kind=NATIVE_KIND_DEFER_LOADING,
+                        value="true",
+                        omission=NativeOmission(
+                            field="defer_loading",
+                            reason="degraded",
+                            detail=DEFER_LOADING_LOSS_DETAIL,
+                        ),
+                    )
                 )
-            )
 
         return [
             Tool(
@@ -721,12 +772,12 @@ def decode_responses_tool_item(
             )
 
         native_ann = []
-        if container_type:
+        if path_stack:
             native_ann.append(
                 NativeAnnotation(
                     source=NATIVE_SOURCE_OPENAI,
                     kind=NATIVE_KIND_CONTAINER,
-                    value=json.dumps(container_type),
+                    value=json.dumps({"path": path_stack}, separators=(",", ":")),
                     omission=NativeOmission(
                         field="type",
                         reason="degraded",
@@ -734,19 +785,22 @@ def decode_responses_tool_item(
                     ),
                 )
             )
-        if tool.get("defer_loading") is True:
-            native_ann.append(
-                NativeAnnotation(
-                    source=NATIVE_SOURCE_OPENAI,
-                    kind=NATIVE_KIND_DEFER_LOADING,
-                    value="true",
-                    omission=NativeOmission(
-                        field="defer_loading",
-                        reason="degraded",
-                        detail=DEFER_LOADING_LOSS_DETAIL,
-                    ),
+        if "defer_loading" in tool:
+            if not isinstance(tool["defer_loading"], bool):
+                raise ValueError(f"responses: {path}.defer_loading must be a boolean")
+            if tool["defer_loading"] is True:
+                native_ann.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_OPENAI,
+                        kind=NATIVE_KIND_DEFER_LOADING,
+                        value="true",
+                        omission=NativeOmission(
+                            field="defer_loading",
+                            reason="degraded",
+                            detail=DEFER_LOADING_LOSS_DETAIL,
+                        ),
+                    )
                 )
-            )
 
         desc = tool.get("description")
         return [
@@ -759,17 +813,37 @@ def decode_responses_tool_item(
         ]
 
     # Native tool declaration
-    tool_name = tool.get("name") or kind
+    has_name = bool(tool.get("name"))
+    has_server_label = bool(tool.get("server_label"))
+    is_native = has_name or has_server_label or is_known_openai_native_type(kind)
+    if not is_native:
+        losses.append(
+            loss(
+                path,
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f"Responses tool type {kind!r} has no IR equivalent",
+            )
+        )
+        return []
+
+    tool_name = tool.get("name") or tool.get("server_label") or kind
     if tool_name in seen_names:
         raise ValueError(f"responses: duplicate tool name {tool_name!r}")
     seen_names.add(tool_name)
+
+    raw_slice = raw_field(raw_text, path) if raw_text else None
+    if raw_slice:
+        definition = compact_json(raw_slice)
+    else:
+        definition = json.dumps(tool, separators=(",", ":"))
 
     return [
         Tool(
             type="native",
             name=tool_name,
             source="openai",
-            definition=json.dumps(tool, separators=(",", ":")),
+            definition=definition,
         )
     ]
 

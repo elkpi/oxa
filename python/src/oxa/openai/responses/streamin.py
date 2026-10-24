@@ -247,10 +247,12 @@ class StreamDecoder:
                 return []
             if item_type == ITEM_TYPE_FUNCTION_CALL:
                 call_id = item.get("call_id", "")
-                name = item.get("name", "")
+                raw_name = item.get("name", "")
                 item_id = item.get("id", "")
-                if not item_id or not call_id or not name:
+                if not item_id or not call_id or not raw_name:
                     raise ValueError("responses: function_call item requires id, call_id, and name")
+                ns = item.get("namespace", "")
+                name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
                 self._function_call = _StreamFunctionCall(
                     call_id=call_id,
                     name=name,
@@ -258,11 +260,13 @@ class StreamDecoder:
                 )
                 return []
             if item_type == ITEM_TYPE_CUSTOM_TOOL_CALL:
-                call_id, name = item.get("call_id", ""), item.get("name", "")
-                if not self._item_id or not call_id or not name:
+                call_id, raw_name = item.get("call_id", ""), item.get("name", "")
+                if not self._item_id or not call_id or not raw_name:
                     raise ValueError("responses: custom_tool_call item requires id, call_id, and name")
                 if not isinstance(item.get("input"), str) or item["input"] != "":
                     raise ValueError("responses: custom_tool_call added item requires input as an empty string")
+                ns = item.get("namespace", "")
+                name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
                 self._custom_tool_call = _StreamCustomToolCall(call_id=call_id, name=name)
                 return []
 
@@ -338,9 +342,12 @@ class StreamDecoder:
             if fc.arguments_done:
                 raise ValueError("responses: duplicate response.function_call_arguments.done")
             call_id = ev.get("call_id", "")
-            name = ev.get("name", "")
+            raw_name = ev.get("name", "")
+            ns = ev.get("namespace", "")
+            full_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+            name_matches = ev.get("name") == fc.name or full_name == fc.name or fc.name.endswith("." + raw_name)
             arguments = ev.get("arguments", "")
-            if call_id != fc.call_id or name != fc.name or arguments != "".join(fc.fragments):
+            if call_id != fc.call_id or not name_matches or arguments != "".join(fc.fragments):
                 raise ValueError(
                     "responses: response.function_call_arguments.done does not match the active function call"
                 )
@@ -606,9 +613,13 @@ class StreamDecoder:
                 fc = self._function_call
                 self._function_call = None
                 joined = "".join(fc.fragments)
+                raw_name = item.get("name", "")
+                ns = item.get("namespace", "")
+                full_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+                name_matches = item.get("name") == fc.name or full_name == fc.name or fc.name.endswith("." + raw_name)
                 if (
                     item.get("call_id") != fc.call_id
-                    or item.get("name") != fc.name
+                    or not name_matches
                     or item.get("arguments") != joined
                 ):
                     raise ValueError(
@@ -638,7 +649,11 @@ class StreamDecoder:
 
             if self._custom_tool_call is not None:
                 cc = self._custom_tool_call
-                if item.get("call_id") != cc.call_id or item.get("name") != cc.name:
+                raw_name = item.get("name", "")
+                ns = item.get("namespace", "")
+                full_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+                name_matches = item.get("name") == cc.name or full_name == cc.name or cc.name.endswith("." + raw_name)
+                if item.get("call_id") != cc.call_id or not name_matches:
                     raise ValueError("responses: output_item.done does not match the active custom_tool_call")
                 final_input = item.get("input")
                 if not isinstance(final_input, str):

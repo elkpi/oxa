@@ -466,7 +466,12 @@ export function omittedNativeRequestLosses(
 
   request.messages.forEach((msg, mIdx) => {
     msg.content.forEach((blk, cIdx) => {
-      collectBlockOmissions(losses, blk, `messages[${mIdx}].content[${cIdx}]`, target);
+      collectBlockOmissions(
+        losses,
+        blk,
+        `messages[${mIdx}].content[${cIdx}]`,
+        target,
+      );
     });
   });
 
@@ -486,13 +491,25 @@ export function omittedNativeRequestLosses(
   return losses;
 }
 
-function collectBlockOmissions(losses: Loss[], blk: Block, path: string, target: string): void {
+function collectBlockOmissions(
+  losses: Loss[],
+  blk: Block,
+  path: string,
+  target: string,
+): void {
   if (blk.type === "document") {
     // N-AN-16: whole-block drop; annotations not reported a second time
     return;
   }
   blk.native?.forEach((ann, i) => {
-    appendOmissionLoss(losses, ann, `${path}.native[${i}]`, false, undefined, target);
+    appendOmissionLoss(
+      losses,
+      ann,
+      `${path}.native[${i}]`,
+      false,
+      undefined,
+      target,
+    );
   });
   if (blk.type === "tool_result") {
     (blk as ToolResultBlock).content.forEach((child, k) => {
@@ -502,7 +519,12 @@ function collectBlockOmissions(losses: Loss[], blk: Block, path: string, target:
     const out = (blk as CustomToolResultBlock).output;
     if (Array.isArray(out)) {
       out.forEach((child, k) => {
-        collectBlockOmissions(losses, child, `${path}.output.content[${k}]`, target);
+        collectBlockOmissions(
+          losses,
+          child,
+          `${path}.output.content[${k}]`,
+          target,
+        );
       });
     }
   }

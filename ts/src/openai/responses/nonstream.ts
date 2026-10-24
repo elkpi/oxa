@@ -198,9 +198,16 @@ function decodeRequestObject(
             fail(`input[${index}]: unpaired apply_patch_call (INV-3)`);
           }
           if (currentType === "function_call") {
-            const rawName = nonEmptyString(current.name, `input[${index}].name`);
-            const ns = typeof current.namespace === "string" ? current.namespace : "";
-            const finalName = ns !== "" && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
+            const rawName = nonEmptyString(
+              current.name,
+              `input[${index}].name`,
+            );
+            const ns =
+              typeof current.namespace === "string" ? current.namespace : "";
+            const finalName =
+              ns !== "" && !rawName.startsWith(ns + ".")
+                ? `${ns}.${rawName}`
+                : rawName;
             calls.push({
               type: "tool_use",
               id: nonEmptyString(current.call_id, `input[${index}].call_id`),
@@ -213,9 +220,16 @@ function decodeRequestObject(
             continue;
           }
           if (currentType === "custom_tool_call") {
-            const rawName = nonEmptyString(current.name, `input[${index}].name`);
-            const ns = typeof current.namespace === "string" ? current.namespace : "";
-            const finalName = ns !== "" && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
+            const rawName = nonEmptyString(
+              current.name,
+              `input[${index}].name`,
+            );
+            const ns =
+              typeof current.namespace === "string" ? current.namespace : "";
+            const finalName =
+              ns !== "" && !rawName.startsWith(ns + ".")
+                ? `${ns}.${rawName}`
+                : rawName;
             calls.push({
               type: "custom_tool_use",
               id: nonEmptyString(current.call_id, `input[${index}].call_id`),
@@ -347,7 +361,9 @@ function decodeRequestObject(
       if (type === "additional_tools") {
         const itemTools = array(item.tools, `input[${index}].tools`);
         if (itemTools.length === 0) {
-          fail(`input[${index}]: additional_tools requires non-empty tools array`);
+          fail(
+            `input[${index}]: additional_tools requires non-empty tools array`,
+          );
         }
         for (const [tIdx, tEntry] of itemTools.entries()) {
           const decoded = decodeResponsesToolItem(
@@ -1064,7 +1080,8 @@ export function encodeRequest(
         (t) => t.type === "native" && t.name === choiceName,
       )) &&
     !request.tools?.some(
-      (t) => t.type === "native" && t.name === choiceName && t.source === "openai",
+      (t) =>
+        t.type === "native" && t.name === choiceName && t.source === "openai",
     );
   const toolChoice =
     request.tool_choice?.mode === "any" && allToolsDropped
@@ -1596,10 +1613,7 @@ function decodeToolChoice(
     if (ns !== "" && !name.startsWith(ns + ".")) {
       name = `${ns}.${name}`;
     }
-    if (
-      (value.type === "function" || value.type === "custom") &&
-      name !== ""
-    )
+    if ((value.type === "function" || value.type === "custom") && name !== "")
       return {
         mode: "tool",
         name,
@@ -1652,7 +1666,12 @@ function decodeResponsesToolItem(
 
   if (type === "namespace" || type === "toolbox") {
     const name = string(tool.name, `${path}.name`);
-    if (!name || name.startsWith(".") || name.endsWith(".") || name.includes("..")) {
+    if (
+      !name ||
+      name.startsWith(".") ||
+      name.endsWith(".") ||
+      name.includes("..")
+    ) {
       fail(`${path}: invalid ${type} name "${name}"`);
     }
     const tools = array(tool.tools, `${path}.tools`);
@@ -1678,7 +1697,10 @@ function decodeResponsesToolItem(
 
   if (type === "custom") {
     const rawName = nonEmptyString(tool.name, `${path}.name`);
-    const finalName = prefix && !rawName.startsWith(prefix + ".") ? `${prefix}.${rawName}` : rawName;
+    const finalName =
+      prefix && !rawName.startsWith(prefix + ".")
+        ? `${prefix}.${rawName}`
+        : rawName;
     if (seenNames.has(finalName)) {
       fail(`responses: duplicate tool name "${finalName}"`);
     }
@@ -1694,7 +1716,8 @@ function decodeResponsesToolItem(
         : decodeCustomToolFormat(tool.format, losses, `${path}.format`);
     if (tool.format !== undefined && format === undefined) return [];
 
-    const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] = [];
+    const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] =
+      [];
     if (containerType !== "") {
       nativeAnnotations.push({
         source: "openai",
@@ -1703,7 +1726,8 @@ function decodeResponsesToolItem(
         omission: {
           field: "type",
           reason: "degraded",
-          detail: "tool container grouping was flattened into dotted tool names",
+          detail:
+            "tool container grouping was flattened into dotted tool names",
         },
       });
     }
@@ -1733,7 +1757,10 @@ function decodeResponsesToolItem(
 
   if (type === "function" || type === "") {
     const rawName = nonEmptyString(tool.name, `${path}.name`);
-    const finalName = prefix && !rawName.startsWith(prefix + ".") ? `${prefix}.${rawName}` : rawName;
+    const finalName =
+      prefix && !rawName.startsWith(prefix + ".")
+        ? `${prefix}.${rawName}`
+        : rawName;
     if (seenNames.has(finalName)) {
       fail(`responses: duplicate tool name "${finalName}"`);
     }
@@ -1747,7 +1774,8 @@ function decodeResponsesToolItem(
       losses.push(loss(`${path}.strict`, "strict", "unmapped-field"));
     }
 
-    const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] = [];
+    const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] =
+      [];
     if (containerType !== "") {
       nativeAnnotations.push({
         source: "openai",
@@ -1756,7 +1784,8 @@ function decodeResponsesToolItem(
         omission: {
           field: "type",
           reason: "degraded",
-          detail: "tool container grouping was flattened into dotted tool names",
+          detail:
+            "tool container grouping was flattened into dotted tool names",
         },
       });
     }
@@ -1784,7 +1813,8 @@ function decodeResponsesToolItem(
   }
 
   // Native tool declaration
-  const toolName = typeof tool.name === "string" && tool.name ? tool.name : type;
+  const toolName =
+    typeof tool.name === "string" && tool.name ? tool.name : type;
   if (seenNames.has(toolName)) {
     fail(`responses: duplicate tool name "${toolName}"`);
   }
@@ -1800,7 +1830,10 @@ function decodeResponsesToolItem(
   ];
 }
 
-function encodeResponsesGroupedTools(tools: readonly Tool[], losses: Loss[]): JsonValue[] {
+function encodeResponsesGroupedTools(
+  tools: readonly Tool[],
+  losses: Loss[],
+): JsonValue[] {
   const out: JsonValue[] = [];
   let i = 0;
   while (i < tools.length) {
@@ -1850,7 +1883,11 @@ function encodeResponsesGroupedTools(tools: readonly Tool[], losses: Loss[]): Js
       let j = i;
       while (j < tools.length) {
         const nextTool = tools[j];
-        if (!nextTool || !nextTool.name || !nextTool.name.startsWith(prefix + ".")) {
+        if (
+          !nextTool ||
+          !nextTool.name ||
+          !nextTool.name.startsWith(prefix + ".")
+        ) {
           break;
         }
         const strippedName = nextTool.name.slice(prefix.length + 1);
@@ -1861,15 +1898,21 @@ function encodeResponsesGroupedTools(tools: readonly Tool[], losses: Loss[]): Js
           childTools.push({
             type: "custom",
             name: strippedName,
-            ...(nextTool.description !== undefined ? { description: nextTool.description } : {}),
-            ...(nextTool.format !== undefined ? { format: encodeCustomToolFormat(nextTool.format) } : {}),
+            ...(nextTool.description !== undefined
+              ? { description: nextTool.description }
+              : {}),
+            ...(nextTool.format !== undefined
+              ? { format: encodeCustomToolFormat(nextTool.format) }
+              : {}),
             ...(hasDefer ? { defer_loading: true } : {}),
           });
         } else {
           childTools.push({
             type: "function",
             name: strippedName,
-            ...(nextTool.description !== undefined ? { description: nextTool.description } : {}),
+            ...(nextTool.description !== undefined
+              ? { description: nextTool.description }
+              : {}),
             parameters: (nextTool as any).input_schema as JsonObject,
             ...(hasDefer ? { defer_loading: true } : {}),
           });
@@ -1892,15 +1935,21 @@ function encodeResponsesGroupedTools(tools: readonly Tool[], losses: Loss[]): Js
       out.push({
         type: "custom",
         name: tool.name,
-        ...(tool.description !== undefined ? { description: tool.description } : {}),
-        ...(tool.format !== undefined ? { format: encodeCustomToolFormat(tool.format) } : {}),
+        ...(tool.description !== undefined
+          ? { description: tool.description }
+          : {}),
+        ...(tool.format !== undefined
+          ? { format: encodeCustomToolFormat(tool.format) }
+          : {}),
         ...(hasDefer ? { defer_loading: true } : {}),
       });
     } else {
       out.push({
         type: "function",
         name: tool.name,
-        ...(tool.description !== undefined ? { description: tool.description } : {}),
+        ...(tool.description !== undefined
+          ? { description: tool.description }
+          : {}),
         parameters: (tool as any).input_schema as JsonObject,
         ...(hasDefer ? { defer_loading: true } : {}),
       });

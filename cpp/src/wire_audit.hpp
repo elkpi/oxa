@@ -63,7 +63,9 @@ inline std::vector<ir::Loss> audit_wire(const json::Value& root, std::string_vie
         if (name == "tool") {
             const auto* type_val = node.find("type");
             if (type_val != nullptr && type_val->is_string() && !type_val->as_string().empty() &&
-                type_val->as_string() != "function" && type_val->as_string() != "custom") {
+                type_val->as_string() != "function" && type_val->as_string() != "custom" &&
+                type_val->as_string() != "apply_patch" && type_val->as_string() != "namespace" &&
+                type_val->as_string() != "toolbox") {
                 for (const auto& [key, value] : node.as_object()) {
                     positions[audit_join(path, key)] = position(value);
                 }

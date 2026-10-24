@@ -33,6 +33,7 @@ inline constexpr std::string_view REASONING_EFFORT_XHIGH = "xhigh";
 inline constexpr std::string_view REASONING_EFFORT_MAX = "max";
 
 inline constexpr std::string_view NATIVE_SOURCE_ANTHROPIC = "anthropic";
+inline constexpr std::string_view NATIVE_SOURCE_OPENAI = "openai";
 inline constexpr std::string_view NATIVE_KIND_THINKING_MODE = "thinking_mode";
 inline constexpr std::string_view NATIVE_KIND_THINKING_BUDGET = "thinking_budget";
 inline constexpr std::string_view NATIVE_KIND_THINKING_DISPLAY = "thinking_display";
@@ -43,6 +44,7 @@ inline constexpr std::string_view NATIVE_KIND_DEFER_LOADING = "defer_loading";
 inline constexpr std::string_view NATIVE_KIND_DOCUMENT_TITLE = "document_title";
 inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
 inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
+inline constexpr std::string_view NATIVE_KIND_CONTAINER = "container";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";

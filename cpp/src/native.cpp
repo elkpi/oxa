@@ -119,6 +119,19 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                     }
                 }
             }
+        } else if (ann.source == NATIVE_SOURCE_OPENAI) {
+            if (ann.kind == NATIVE_KIND_CONTAINER) {
+                if (host != HostType::Tool) {
+                    return invalid_argument(std::string(path) + ": openai container is only allowed on Tool");
+                }
+            } else if (ann.kind == NATIVE_KIND_DEFER_LOADING) {
+                if (host != HostType::Tool) {
+                    return invalid_argument(std::string(path) + ": openai defer_loading is only allowed on Tool");
+                }
+                if (!parsed->is_bool() || !parsed->as_bool()) {
+                    return invalid_argument("invalid defer_loading " + ann.value);
+                }
+            }
         }
     }
     return ok_status();
@@ -186,7 +199,22 @@ void append_omission_loss(std::vector<Loss>& losses,
                           const NativeAnnotation& ann,
                           std::string_view path,
                           bool has_active_budget_proj,
-                          const std::optional<std::string>& current_effort) {
+                          const std::optional<std::string>& current_effort,
+                          std::string_view target) {
+    if (ann.source == NATIVE_SOURCE_OPENAI) {
+        if (target == "responses") {
+            return;
+        }
+        if (ann.omission.has_value()) {
+            losses.push_back(Loss{
+                std::string(path),
+                ann.omission->field,
+                ann.omission->reason,
+                ann.omission->detail.value_or(""),
+            });
+        }
+        return;
+    }
     if (ann.source != NATIVE_SOURCE_ANTHROPIC) {
         losses.push_back(Loss{
             std::string(path),
@@ -267,6 +295,9 @@ void append_omission_loss(std::vector<Loss>& losses,
     }
 
     if (ann.kind == NATIVE_KIND_DEFER_LOADING) {
+        if (target == "responses" || target == "anthropic") {
+            return;
+        }
         std::string field = "defer_loading";
         std::string reason = std::string(LOSS_DEGRADED);
         std::string detail = std::string(DEFER_LOADING_LOSS_DETAIL);
@@ -309,25 +340,27 @@ void append_omission_loss(std::vector<Loss>& losses,
 
 void collect_block_omissions(std::vector<Loss>& losses,
                              const Block& blk,
-                             std::string_view path);
+                             std::string_view path,
+                             std::string_view target);
 
 struct BlockOmissionCollector {
     std::vector<Loss>& losses;
     std::string_view path;
+    std::string_view target;
 
     void operator()(const TextBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const ThinkingBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const ImageBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const DocumentBlock& /*b*/) const {
@@ -337,39 +370,39 @@ struct BlockOmissionCollector {
     }
     void operator()(const ToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const CustomToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const ApplyPatchToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const ApplyPatchToolResultBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
     void operator()(const ToolResultBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
         for (std::size_t k = 0; k < b.content.size(); ++k) {
-            collect_block_omissions(losses, b.content[k].block, std::string(path) + ".content[" + std::to_string(k) + "]");
+            collect_block_omissions(losses, b.content[k].block, std::string(path) + ".content[" + std::to_string(k) + "]", target);
         }
     }
     void operator()(const CustomToolResultBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
-            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
         if (const auto* vec = std::get_if<std::vector<BlockHolder>>(&b.output)) {
             for (std::size_t k = 0; k < vec->size(); ++k) {
-                collect_block_omissions(losses, (*vec)[k].block, std::string(path) + ".output.content[" + std::to_string(k) + "]");
+                collect_block_omissions(losses, (*vec)[k].block, std::string(path) + ".output.content[" + std::to_string(k) + "]", target);
             }
         }
     }
@@ -377,8 +410,9 @@ struct BlockOmissionCollector {
 
 void collect_block_omissions(std::vector<Loss>& losses,
                              const Block& blk,
-                             std::string_view path) {
-    std::visit(BlockOmissionCollector{losses, path}, blk);
+                             std::string_view path,
+                             std::string_view target) {
+    std::visit(BlockOmissionCollector{losses, path, target}, blk);
 }
 
 }  // namespace
@@ -541,7 +575,7 @@ Status validate_native_request(const Request& req) {
     return ok_status();
 }
 
-StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view /*target*/) {
+StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target) {
     auto st = validate_native_request(req);
     if (!st.ok()) return st;
 
@@ -559,12 +593,12 @@ StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, st
     }
 
     for (std::size_t i = 0; i < req.native.size(); ++i) {
-        append_omission_loss(losses, req.native[i], "native[" + std::to_string(i) + "]", has_active_budget_proj, current_effort);
+        append_omission_loss(losses, req.native[i], "native[" + std::to_string(i) + "]", has_active_budget_proj, current_effort, target);
     }
 
     for (std::size_t s_idx = 0; s_idx < req.system.size(); ++s_idx) {
         for (std::size_t i = 0; i < req.system[s_idx].native.size(); ++i) {
-            append_omission_loss(losses, req.system[s_idx].native[i], "system[" + std::to_string(s_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt);
+            append_omission_loss(losses, req.system[s_idx].native[i], "system[" + std::to_string(s_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
 
@@ -572,14 +606,14 @@ StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, st
         const auto& msg = req.messages[m_idx];
         for (std::size_t c_idx = 0; c_idx < msg.content.size(); ++c_idx) {
             std::string content_path = "messages[" + std::to_string(m_idx) + "].content[" + std::to_string(c_idx) + "]";
-            collect_block_omissions(losses, msg.content[c_idx], content_path);
+            collect_block_omissions(losses, msg.content[c_idx], content_path, target);
         }
     }
 
     if (req.tools.has_value()) {
         for (std::size_t t_idx = 0; t_idx < req.tools->size(); ++t_idx) {
             for (std::size_t i = 0; i < (*req.tools)[t_idx].native.size(); ++i) {
-                append_omission_loss(losses, (*req.tools)[t_idx].native[i], "tools[" + std::to_string(t_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt);
+                append_omission_loss(losses, (*req.tools)[t_idx].native[i], "tools[" + std::to_string(t_idx) + "].native[" + std::to_string(i) + "]", false, std::nullopt, target);
             }
         }
     }

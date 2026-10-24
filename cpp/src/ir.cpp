@@ -633,7 +633,10 @@ StatusOr<Request> load_request(const json::Value& v) {
                     return invalid_argument("native tool definition requires a native type");
                 }
                 const auto* def_name = def_json.value().find("name");
-                if (def_name == nullptr || !def_name->is_string() || def_name->as_string() != t.name) {
+                std::string expected_name = (def_name != nullptr && def_name->is_string() && !def_name->as_string().empty())
+                    ? def_name->as_string()
+                    : def_type->as_string();
+                if (expected_name != t.name) {
                     return invalid_argument("native tool definition name must match tool name");
                 }
                 t.definition = std::move(def);

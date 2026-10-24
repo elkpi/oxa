@@ -30,12 +30,14 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 
 | 宿主对象 | 允许的已知 kind | 来源 wire 对应位置 |
 |---|---|---|
-| `Request` | `thinking_mode` | `thinking.type`（`adaptive` / `enabled` / `disabled`） |
+| `Request` | `thinking_mode` | `thinking.type`（`adaptive` / `enabled` / `disabled` / `between_tools`） |
 | `Request` | `thinking_budget` | `thinking.budget_tokens`（正整数） |
 | `Request` | `thinking_display` | `thinking.display`（`summarized` / `omitted` / `updates`） |
 | `Request` | `output_effort` | `output_config.effort`（`low` / `medium` / `high` / `xhigh` / `max`） |
 | `Request` | `cache_control` | 顶层 `cache_control` |
 | `Request` | `context_management` | 顶层 `context_management.edits` |
+| `Request` | `top_k` | 顶层 `top_k`（非负安全整数，2.4.11） |
+| `Request` | `disable_parallel_tool_use` | `tool_choice.disable_parallel_tool_use`（`true` / `false`，2.4.11） |
 | `SystemBlock` | `cache_control` | `system[i].cache_control` |
 | `TextBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control` |
 | `ImageBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control` |
@@ -53,6 +55,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `DocumentBlock`（仅限 Request） | `document_title` | `messages[i].content[j].title`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_citations` | `messages[i].content[j].citations`（2.4.8） |
+| `RedactedThinkingBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.11） |
 
 任何已知 kind 出现在上述合法宿主之外（例如在 `Message` 或 `Params` 上，或在 `ToolChoice` 上），均属于结构错误。
 
@@ -61,11 +64,12 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 本版对 Anthropic 请求中识别的配置及其合法参数定义如下：
 
 ### 3.1 Thinking 与 Effort
-- `thinking.type` 必须为 `"adaptive"`、`"enabled"` 或 `"disabled"` 之一。未知值产生针对 leaf 的 `unmapped-value` loss，不生成 `thinking_mode` 附加项。
+- `thinking.type` 必须为 `"adaptive"`、`"enabled"`、`"disabled"` 或 `"between_tools"` 之一。未知值产生针对 leaf 的 `unmapped-value` loss，不生成 `thinking_mode` 附加项。
+- `between_tools` 独立存在，不得与 `budget_tokens` 或 `display` 联用，否则作为结构错误拒绝。不映射至 `Params.ReasoningEffort`。
 - `thinking.budget_tokens` 必须为正整数。
 - `thinking.display` 必须为 `"summarized"`、`"omitted"` 或 `"updates"` 之一。未知值产生针对 leaf 的 `unmapped-value` loss，不生成 `thinking_display` 附加项。
 - `output_config.effort` 必须为 `"low"`、`"medium"`、`"high"`、`"xhigh"`、`"max"` 之一。
-- 映射关系：显式 `output_config.effort` 映射至 `Params.ReasoningEffort`；当且仅当无显式 effort 时，`enabled` 的 `budget_tokens` 依预算表近似映射至 `Params.ReasoningEffort`（`≤2048→low`，`≤8192→medium`，其余→`high`），并携带 `origin: "budget"` 投影。`adaptive` 单独存在时，`Params.ReasoningEffort` 保持为空，不合成默认 effort。
+- 映射关系：显式 `output_config.effort` 映射至 `Params.ReasoningEffort`；当且仅当无显式 effort 时，`enabled` 的 `budget_tokens` 依预算表近似映射至 `Params.ReasoningEffort`（`≤2048→low`，`≤8192→medium`，其余→`high`），并携带 `origin: "budget"` 投影。`adaptive` 与 `between_tools` 单独存在时，`Params.ReasoningEffort` 保持为空，不合成默认 effort。
 
 ### 3.2 Cache Control
 - `type` 必须为 `"ephemeral"`。
@@ -119,6 +123,21 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
   - 缺失：作为 API 默认行为，不生成 `NativeAnnotation`，不产生任何损失。
   - 显式非布尔类型（如 `null`、数字、字符串、对象等）：属于结构类型错误（type violation），返回结构解析错误（error）。
 - 互斥约束：`eager_input_streaming` 与 `cache_control` 及 `defer_loading` 正交，同一个工具声明上可合法共存。
+
+### 3.7 Top K（规范 2.4.11）
+- `top_k` 为非负安全整数（范围 `0..9007199254740991`）。显式 `0` 正常保留为 `NativeAnnotation{Kind: "top_k", Value: "0"}`。
+- 缺失不生成注解；显式 `null` 作为未设置处理；负数、非整数、布尔、超出安全整数范围属于结构类型错误（error）。
+- 跨面遗漏：转至 OpenAI 目标面时记录 `unmapped-field` 损失，`omission.field: "top_k"`。
+- 原生回转：编码回 Anthropic 时在顶层还原该数值，零损保真。
+
+### 3.8 Disable Parallel Tool Use（规范 2.4.11）
+- `disable_parallel_tool_use` 为布尔类型（`true` 或 `false`）。
+- 取值规则：
+  - 显式 `true` 或 `false` 均保留为 `NativeAnnotation{Kind: "disable_parallel_tool_use", Value: "true"|"false"}`。
+  - 缺失不生成注解。显式 `null` 或非布尔属于结构类型错误（error）。
+- 宿主与约束：仅允许当请求存在合法 `tool_choice`（`auto`、`any`、`tool`）时设置；当 `tool_choice` 为 `none` 或缺失时携带该字段为结构错误（error）。
+- 跨面遗漏：转至 OpenAI 目标面时记录 `unmapped-field` 损失，`omission.field: "disable_parallel_tool_use"`。
+- 原生回转：编码回 Anthropic 时在 `tool_choice` wire 对象上还原布尔字段。
 - 跨面遗漏与损失：当编码至不支持细粒度入参流式控制的目标面（OpenAI Chat Completions / Responses）时：
   - 若 `value` 解析为 `true`，产生一条 `degraded` 损失，detail 采用上述规范文本；
   - 若 `value` 解析为 `false`，由于目标面默认即为标准缓冲流式（与 `false` 语义等价），不产生任何报损（0 loss）。

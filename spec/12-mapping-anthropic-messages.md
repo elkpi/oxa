@@ -38,12 +38,13 @@ Reference snapshot (retrieved 2026-08-28):
 The wire objects in scope are:
 
 - **Request**: `model`, `system`, `messages[]`, `max_tokens`
-  (required), `temperature`, `top_p`, `stop_sequences`, `metadata`,
+  (required), `temperature`, `top_p`, `top_k`, `stop_sequences`, `metadata`,
   `tools[]`, `tool_choice`.
 - **Message**: `role` (`user` | `assistant` | mid-conversation `system`),
   `content` (string or block array).
-- **Block**: `text` (`text`), `image` (`source`), `document`
-  (`source`, `title`, `context`, `citations`; N-AN-16), `tool_use`
+- **Block**: `text` (`text`, `citations`), `image` (`source`), `document`
+  (`source`, `title`, `context`, `citations`; N-AN-16), `thinking`
+  (`thinking`, `signature`), `redacted_thinking` (`data`; N-AN-17), `tool_use`
   (`id`, `name`, `input`), `tool_result` (`tool_use_id`, `content`,
   `is_error`); every block may carry a `cache_control` annotation.
 - **Source**: `base64` (`media_type`, `data`) or `url` (`url`);
@@ -67,9 +68,11 @@ The wire objects in scope are:
 | `max_tokens` | `Params.MaxTokens` | required and MUST be positive on decode; defaulted on encode (N-AN-2) |
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
+| `top_k` | `Request.Native` (`kind: "top_k"`) | N-AN-19; non-negative safe integer; preserved as native option in IR (spec/15) |
 | `stop_sequences` | `Params.StopSequences` | 1:1 (N-AN-7) |
 | `thinking` (`type: "enabled"`, `budget_tokens`) | `Params.ReasoningEffort` + `NativeAnnotation` | mapped via budget table when no explicit effort; preserved as native options in IR (N-AN-11, N-AN-14) |
 | `thinking` (`type: "adaptive"` / `"disabled"`) | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-14) |
+| `thinking` (`type: "between_tools"`) | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-19, spec/15) |
 | `thinking.display` | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-14) |
 | `output_config.effort` | `Params.ReasoningEffort` + `NativeAnnotation` | 1:1 effort mapping (xhigh/max supported); preserved as native option in IR (N-AN-14) |
 | `cache_control` (top-level, system, content, tools, tool_result) | `NativeAnnotation` | retained on respective IR host; no loss on decode (N-AN-14) |
@@ -79,8 +82,8 @@ The wire objects in scope are:
 | `tools[].eager_input_streaming` | `Tools[].Native` (`kind: "eager_input_streaming"`) | true/false 保留为 NativeAnnotation，无 decode loss；跨面 true 降级为 degraded 损失，false 零损（N-NAT-2/3，规范 2.4.10） |
 | `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
+| `tool_choice.disable_parallel_tool_use` | `Request.Native` (`kind: "disable_parallel_tool_use"`) | N-AN-19; boolean; preserved as native option in IR (spec/15) |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
-| `tool_choice.disable_parallel_tool_use` | — | unmapped-field loss |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
 
 原生声明及其 named tool_choice 的保留和跨面省略遵守 [spec/16](16-native-tool-declarations.md)。本扩展不增加 Advisor 响应/流式/历史块支持。
@@ -96,8 +99,9 @@ render 1:1 with their omitempty semantics.
 
 | AN block | IR block | Notes |
 |---|---|---|
-| `{type: "text", text}` | `TextBlock` | |
+| `{type: "text", text, citations}` | `TextBlock{Text, Citations}` | N-AN-18 (citations since 2.4.11) |
 | `{type: "thinking", thinking, signature}` | `ThinkingBlock{Thinking, Signature}` | 1:1; signature carried verbatim (N-AN-11, since 2.0) |
+| `{type: "redacted_thinking", data}` | `RedactedThinkingBlock{Data}` | 1:1; data carried verbatim (N-AN-17, since 2.4.11) |
 | `{type: "image", source: {type: "base64", media_type, data}}` | `ImageBlock{MediaType, Data}` | |
 | `{type: "image", source: {type: "url", url}}` | `ImageBlock{URL}` | |
 | `{type: "document", source: {type: "base64", media_type, data}}` | `DocumentBlock{MediaType, Data}` | N-AN-16 |
@@ -319,6 +323,47 @@ Each rule has a stable ID usable as a vector tag.
     unsupported-semantic loss; annotations inside the dropped block
     are part of it and MUST NOT add further losses (N-AN-9 symmetry).
 
+- **N-AN-17 (redacted thinking blocks, since 2.4.11).** Anthropic assistant-history and
+  response blocks of type `redacted_thinking` map 1:1 to `RedactedThinkingBlock{Data}`.
+  - **Payload preservation.** `data` is opaque provider encrypted thinking replay state (INV-1).
+    Decoders and encoders MUST copy it without parsing, decoding, normalizing, logging, or
+    inspecting its contents. Empty string is preserved as an explicit string.
+  - **Validation.** Missing `data`, null, or non-string `data` is a structural error.
+    In request history, `redacted_thinking` is permitted ONLY directly under assistant messages;
+    placement in `user` messages or `tool_result.content` is a structural error.
+  - **Cross-face.** Target faces without an encrypted reasoning replay representation
+    (OpenAI Chat Completions, OpenAI Responses) omit the block and emit exactly one
+    `unsupported-semantic` loss with detail `anthropic encrypted thinking replay state; the target face cannot preserve this block`.
+    The opaque payload MUST NOT be disclosed in loss details or mapped to text.
+
+- **N-AN-18 (text citations, since 2.4.11).** Anthropic text content blocks in responses and
+  assistant request history carry an optional `citations` array mapping to `TextBlock.Citations`.
+  - **Location variants.** Five location types are supported: `char_location`, `page_location`,
+    `content_block_location`, `web_search_result_location`, and `search_result_location`.
+    Each valid citation is audited and retained in `TextCitation{Source: "anthropic", Value: "<compact JSON>"}`.
+  - **Validation.** Missing, null, or empty citations are normalized to an empty citation list (omitted in canonical IR).
+    In user messages or tool results, a non-empty citations array is a structural error.
+    An unknown citation type in wire input drops that citation with an `unsupported-semantic` loss at its index;
+    unknown properties on a known citation type produce an `unmapped-field` loss.
+    In canonical IR or typed IR inputs, an unknown citation source or malformed citation value is a structural error.
+  - **History replay.** When response IR carrying `file_id` is replayed as assistant history,
+    request encode strips `file_id`; a non-null `file_id` records an `unmapped-field` loss.
+  - **Cross-face.** Target faces without citation replay representation omit the citation list,
+    preserve the text, and emit exactly one `unsupported-semantic` loss per text block with detail
+    `anthropic text citations; the target face cannot preserve source locations and replay metadata`.
+
+- **N-AN-19 (thinking between_tools, top_k, and tool choice parallel control, since 2.4.11).**
+  - **between_tools.** `thinking.type = "between_tools"` is preserved as `NativeAnnotation`
+    (`kind: "thinking_mode"`, `value: "\"between_tools\""`). It carries no budget or display.
+    Specifying `budget_tokens` or `display` alongside `between_tools` is a structural error.
+  - **top_k.** Top-level `top_k` is preserved as `NativeAnnotation` (`kind: "top_k"`).
+    It MUST be a non-negative safe integer (`0` is preserved). Negative, non-integer, or out-of-range values are structural errors.
+  - **disable_parallel_tool_use.** On `tool_choice` (`auto`, `any`, `tool`), `disable_parallel_tool_use` is
+    preserved as `NativeAnnotation` (`kind: "disable_parallel_tool_use"`, `value: "true"` or `"false"`).
+    Presence on `tool_choice: "none"` is a structural error.
+  - **Cross-face.** These native request options are omitted at OpenAI faces and report `unmapped-field` losses
+    per spec/15 §5.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -336,7 +381,10 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
 | `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
 | `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
-| `tool_choice.disable_parallel_tool_use` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `redacted_thinking` block (cross-face) | unsupported-semantic | IR → target face | anthropic encrypted thinking replay state; the target face cannot preserve this block (N-AN-17) |
+| `text.citations` (cross-face) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
+| `text.citations[k].file_id` (request encode replay) | unmapped-field | IR → request | response citation file_id has no request-side representation (N-AN-18) |
+| `unknown citation type` | unsupported-semantic | request/response → IR | unsupported citation type; dropped at leaf index (N-AN-18) |
 | `max_tokens` default on encode | degraded | IR → request | N-AN-2: default 4096 applied when IR lacks `Params.MaxTokens` |
 | IR image with both/neither of data and URL, data without `media_type`, URL with `media_type` | unsupported-semantic | IR → request | §4 |
 | IR block type with no Messages equivalent in its position | unsupported-semantic | IR → request | N-AN-5 |

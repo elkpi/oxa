@@ -100,18 +100,27 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `ToolUseBlock` | `tool_use` | a tool invocation produced by the model |
 | `ToolResultBlock` | `tool_result` | the outcome of a tool invocation, supplied by the caller |
 | `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
+| `RedactedThinkingBlock` | `redacted_thinking` | Anthropic encrypted thinking replay content block (since 2.4.11) |
 | `CustomToolUseBlock` | `custom_tool_use` | 任意文本输入的自定义工具调用（2.2，见 spec/13） |
 | `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
 | `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
 | `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
 
-Adding `DocumentBlock` (2.4.8) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variant; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers.
+Adding `DocumentBlock` (2.4.8) and `RedactedThinkingBlock` (2.4.11) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers.
 
 #### TextBlock
 
-| Go field | JSON property | Type | Required |
-|----------|---------------|------|----------|
-| `Text` | `text` | string | yes |
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `Text` | `text` | string | yes | text content |
+| `Citations` | `citations` | `[]TextCitation` | no | optional text citations (since 2.4.11); omitted when empty |
+
+#### TextCitation
+
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `Source` | `source` | string, enum `"anthropic"` | yes | citation provider dialect identifier |
+| `Value` | `value` | string — raw JSON text | yes | audited JSON representation of provider citation location |
 
 #### ThinkingBlock
 
@@ -119,6 +128,12 @@ Adding `DocumentBlock` (2.4.8) extends the sealed variant set. Consumers that ex
 |----------|---------------|------|----------|-------|
 | `Thinking` | `thinking` | string | yes | the model's reasoning text; non-empty in nonstream responses, empty in streaming block start |
 | `Signature` | `signature` | string | no, non-empty | optional opaque provider signature; carried verbatim (INV-1) |
+
+#### RedactedThinkingBlock
+
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `Data` | `data` | string | yes | opaque provider encrypted thinking replay state (INV-1); never decoded or inspected |
 
 #### ImageBlock
 
@@ -298,17 +313,19 @@ The delta payload of `ContentBlockDelta`. Sealed; discriminated on the JSON `typ
 | `ThinkingDelta` | `thinking_delta` | `Text` |
 | `SignatureDelta` | `signature_delta` | `Signature` |
 | `CustomToolInputDelta` | `custom_tool_input_delta` | `Text`（JSON text 字段，任意字符串；仅 CustomToolUseBlock 接受） |
+| `CitationDelta` | `citation_delta` | `Citation`（TextCitation 对象，自 2.4.11 起） |
 
 | Go field | JSON property | Type | Notes |
 |----------|---------------|------|-------|
 | `Text` | `text` | string | a text fragment (for `TextDelta` and `ThinkingDelta`) |
 | `PartialJSON` | `partial_json` | string — raw JSON text | a fragment of the tool-argument string; MAY be empty; concatenation of all fragments of a block is the block's `input` |
 | `Signature` | `signature` | string | provider signature token; at most one per block (for `SignatureDelta`) |
+| `Citation` | `citation` | `TextCitation` | provider citation reference item (for `CitationDelta`) |
 
-Delta/block correspondence is fixed: a `TextBlock` admits only
-`TextDelta`; a `ToolUseBlock` admits only `InputJSONDelta`; a `ThinkingBlock`
+Delta/block correspondence is fixed: a `TextBlock` admits zero or more
+`TextDelta` and `CitationDelta` in order of encounter; a `ToolUseBlock` admits only `InputJSONDelta`; a `ThinkingBlock`
 admits `thinking_delta*` followed by at most one `signature_delta`; an
-`ImageBlock` admits no deltas (INV-5)。自 2.2 起，`CustomToolUseBlock` 仅接受 `CustomToolInputDelta`，
+`ImageBlock`, `DocumentBlock`, and `RedactedThinkingBlock` admit no deltas (INV-5)。自 2.2 起，`CustomToolUseBlock` 仅接受 `CustomToolInputDelta`，
 其 `text` 片段拼接 MUST 等于该块完整 `input`；不得复用 InputJSONDelta。
 
 ### 5.3 EventStream

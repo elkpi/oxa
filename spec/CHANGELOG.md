@@ -5,6 +5,29 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.11 - 2026-10-25
+
+### Added
+
+- [01 — Intermediate Representation](01-intermediate-representation.md)：
+  - §3.4 扩展块联合体，新增 `RedactedThinkingBlock`（`redacted_thinking`，包含必填不透明 `data`）。
+  - §3.4 扩展 `TextBlock`，新增可选 `citations`（`TextCitation[]`），定义 `TextCitation{source, value}`。
+  - §5.2 扩展 Delta 联合体，新增 `CitationDelta`（`citation_delta`，包含 `citation`）。
+- [12 — Mapping Anthropic Messages](12-mapping-anthropic-messages.md)：
+  - 新增 N-AN-17 规则：支持 `redacted_thinking` 在 assistant 历史、响应与流式中的 1:1 双向映射；跨面转 OpenAI 时省略并报单次 `unsupported-semantic` 损失，不暴露载荷。
+  - 新增 N-AN-18 规则：支持五类文本 `citations`（`char_location`、`page_location`、`content_block_location`、`web_search_result_location`、`search_result_location`）解析、审计与回转；流式支持 `citations_delta`；跨面转 OpenAI 时省略引文并报单次 `unsupported-semantic` 损失；响应引文复用为 assistant 历史时对非空 `file_id` 报 `unmapped-field` 损失。
+  - 新增 N-AN-19 规则：支持 `thinking.type = "between_tools"` 独立原生模式，禁止与 `budget_tokens`/`display` 冲突联用；支持顶层显式非负安全整数 `top_k`（含 `0`）原生注解保真；支持 `tool_choice` 的 `disable_parallel_tool_use` 布尔原生注解保真。
+- [15 — Native Request Options](15-native-request-options.md)：
+  - §2 宿主表在 `Request` 上增加 `top_k`、`disable_parallel_tool_use`，并在 `thinking_mode` 增加 `between_tools`。
+  - §3.1 增加 `between_tools` 模式与互斥约束。
+  - §3.7 规范定义 `top_k` 非负安全整数校验与跨面遗漏规则。
+  - §3.8 规范定义 `disable_parallel_tool_use` 布尔校验、宿主约束与跨面遗漏规则。
+- [20 — Streaming Semantics](20-streaming-semantics.md)：
+  - §11.3 规范定义 `RedactedThinkingBlock` 流式 start/stop 生命周期（不接受任何 delta）与 OpenAI 跨面单次报损。
+  - §11.4 规范定义 `CitationDelta` 在打开的 `TextBlock` 中的增量聚合规则与 OpenAI 跨面单次报损。
+- [schema/ir.schema.json](schema/ir.schema.json)：
+  - 增加 `redactedThinkingBlock`、`requestRedactedThinkingBlock`、`textCitation`、`citationDelta` 定义，并在联合体中闭合。
+
 ## 2.4.10 - 2026-10-24
 
 ### Added

@@ -8,7 +8,7 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.4.10**。IR contract 保持 **0.2.0**。
+Current spec version: **2.4.11**。IR contract 保持 **0.2.0**。
 Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)，原生请求配置保真见 [15](15-native-request-options.md)，原生工具声明保真见 [16](16-native-tool-declarations.md)。
 
 上一冻结规范版本为 **2.3.1**。Go, TypeScript, Rust, Python, and C++ share

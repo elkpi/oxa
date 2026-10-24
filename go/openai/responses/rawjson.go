@@ -291,7 +291,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			}
 			switch kind {
 			case ItemTypeCustomToolCall:
-				return rawObjectSchema(t, []string{"type", "call_id", "name", "input", "id"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "call_id", "name", "namespace", "input", "id"}, nil, seen)
 			case ItemTypeCustomToolCallOutput:
 				return rawObjectSchema(t, []string{"type", "call_id", "output", "id"}, map[string]*rawJSONSchema{"output": rawCustomOutputSchema(seen)}, seen)
 			case ItemTypeApplyPatchCall:
@@ -301,11 +301,15 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeApplyPatchCallOutput:
 				return rawObjectSchema(t, []string{"type", "id", "call_id", "status", "output"}, nil, seen)
 			case ItemTypeFunctionCall:
-				return rawObjectSchema(t, []string{"type", "call_id", "name", "arguments"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "call_id", "name", "namespace", "arguments"}, nil, seen)
 			case ItemTypeFunctionCallOutput:
 				return rawObjectSchema(t, []string{"type", "call_id", "output"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "summary"}, nil, seen)
+			case ItemTypeAdditionalTools:
+				return rawObjectSchema(t, []string{"type", "role", "tools"}, map[string]*rawJSONSchema{
+					"tools": {items: schemaForRawTypeSeen(reflect.TypeOf(ToolDef{}), seen)},
+				}, seen)
 			default:
 				return nil
 			}
@@ -333,12 +337,21 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type"}, nil, seen)
 			}
 			if kind == ToolTypeCustom {
-				return rawObjectSchema(t, []string{"type", "name", "description", "format"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "name", "description", "format", "defer_loading"}, nil, seen)
 			}
-			if kind != ToolTypeFunction {
+			if kind == ToolTypeNamespace || kind == ToolTypeToolbox {
+				return rawObjectSchema(t, []string{"type", "name", "description", "tools"}, map[string]*rawJSONSchema{
+					"tools": {items: schemaForRawTypeSeen(t, seen)},
+				}, seen)
+			}
+			if kind == ToolTypeFunction {
+				return rawObjectSchema(t, []string{"type", "name", "description", "parameters", "defer_loading"}, nil, seen)
+			}
+			if kind != "" {
+				// Native tool declaration: all fields preserved opaquely per spec/16
 				return nil
 			}
-			return rawObjectSchema(t, []string{"type", "name", "description", "parameters"}, nil, seen)
+			return nil
 		}
 		return schema
 	case reflect.TypeOf(CustomToolFormatWire{}):
@@ -370,9 +383,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeMessage:
 				return rawObjectSchema(t, []string{"type", "id", "status", "role", "content"}, nil, seen)
 			case ItemTypeCustomToolCall:
-				return rawObjectSchema(t, []string{"type", "id", "call_id", "name", "input"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "call_id", "name", "namespace", "input"}, nil, seen)
 			case ItemTypeFunctionCall:
-				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "arguments"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "namespace", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "id", "status", "summary"}, nil, seen)
 			default:
@@ -457,7 +470,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				if kind == ToolTypeApplyPatch {
 					return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type"}, nil, seen)
 				}
-				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type", "name"}, nil, seen)
+				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type", "name", "namespace"}, nil, seen)
 			}}
 			schema.fields["reasoning"] = &rawJSONSchema{fields: map[string]*rawJSONSchema{"effort": nil, "summary": nil}}
 			delete(schema.fields, "metadata")

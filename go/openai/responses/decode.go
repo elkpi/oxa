@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -73,44 +74,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		req.System = append(req.System, ir.SystemBlock{Text: *wire.Instructions})
 	}
 
+	seenNames := make(map[string]bool)
 	for i, tool := range wire.Tools {
-		if tool.Type == ToolTypeApplyPatch {
-			req.Tools = append(req.Tools, ir.Tool{Type: ir.ToolTypeApplyPatch})
-			continue
+		raw, err := json.Marshal(tool)
+		if err != nil {
+			return nil, nil, err
 		}
-		if tool.Type == ToolTypeCustom {
-			if tool.Name == "" {
-				return nil, nil, fmt.Errorf("responses: custom tool name is required")
-			}
-			format, formatLosses, err := decodeCustomFormat(tool.Format, fmt.Sprintf("tools[%d].format", i))
-			if err != nil {
-				return nil, nil, err
-			}
-			losses = append(losses, formatLosses...)
-			if len(formatLosses) > 0 {
-				continue
-			}
-			req.Tools = append(req.Tools, ir.Tool{Type: ir.ToolTypeCustom, Name: tool.Name, Description: tool.Description, Format: format})
-			continue
+		decodedTools, toolLosses, err := decodeToolItem(raw, "", "", fmt.Sprintf("tools[%d]", i), seenNames)
+		if err != nil {
+			return nil, nil, err
 		}
-		if tool.Type != ToolTypeFunction {
-			losses = append(losses, loss(
-				fmt.Sprintf("tools[%d]", i), "type", ir.LossUnsupportedSemantic,
-				fmt.Sprintf("Responses tool type %q has no IR equivalent", tool.Type),
-			))
-			continue
-		}
-		req.Tools = append(req.Tools, ir.Tool{
-			Name:        tool.Name,
-			Description: tool.Description,
-			InputSchema: tool.Parameters,
-		})
-		if tool.Strict != nil {
-			losses = append(losses, loss(
-				fmt.Sprintf("tools[%d].strict", i), "strict", ir.LossUnmappedField,
-				"Responses function tool strict mode has no IR equivalent in v1.",
-			))
-		}
+		losses = append(losses, toolLosses...)
+		req.Tools = append(req.Tools, decodedTools...)
 	}
 	choice, choiceLosses := decodeToolChoice(wire.ToolChoice)
 	req.ToolChoice = choice
@@ -200,6 +175,20 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			losses = append(losses, runLosses...)
 			i = next
+		case ItemTypeAdditionalTools:
+			if len(item.Tools) == 0 {
+				return nil, nil, fmt.Errorf("responses: input[%d]: additional_tools requires non-empty tools array", i)
+			}
+			for idx, rawTool := range item.Tools {
+				toolPath := fmt.Sprintf("input[%d].tools[%d]", i, idx)
+				decodedTools, toolLosses, err := decodeToolItem(rawTool, "", "", toolPath, seenNames)
+				if err != nil {
+					return nil, nil, err
+				}
+				losses = append(losses, toolLosses...)
+				req.Tools = append(req.Tools, decodedTools...)
+			}
+			i++
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("input[%d]", i), "type", ir.LossUnsupportedSemantic,
@@ -513,7 +502,11 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			return nil, 0, nil, fmt.Errorf("responses: input[%d]: unpaired apply_patch_call (INV-3)", i)
 		}
 		if item.Type == ItemTypeCustomToolCall {
-			call, err := decodeCustomCall(item.CallID, item.Name, item.Input)
+			finalName := item.Name
+			if item.Namespace != "" && !strings.HasPrefix(finalName, item.Namespace+".") {
+				finalName = item.Namespace + "." + finalName
+			}
+			call, err := decodeCustomCall(item.CallID, finalName, item.Input)
 			if err != nil {
 				return nil, 0, nil, err
 			}
@@ -525,7 +518,11 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			if err != nil {
 				return nil, 0, nil, fmt.Errorf("responses: input[%d].arguments: %w", i, err)
 			}
-			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			finalName := item.Name
+			if item.Namespace != "" && !strings.HasPrefix(finalName, item.Namespace+".") {
+				finalName = item.Namespace + "." + finalName
+			}
+			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: finalName, Input: input})
 			continue
 		}
 		if item.Type == ItemTypeReasoning {
@@ -619,21 +616,25 @@ func decodeToolChoice(value any) (*ir.ToolChoice, []ir.Loss) {
 				fmt.Sprintf("Responses tool_choice %q has no IR equivalent", choice))}
 		}
 	}
-	var kind, name string
+	var kind, name, namespace string
 	switch choice := value.(type) {
 	case ToolChoiceWire:
-		kind, name = choice.Type, choice.Name
+		kind, name, namespace = choice.Type, choice.Name, choice.Namespace
 	case *ToolChoiceWire:
 		if choice == nil {
 			return nil, nil
 		}
-		kind, name = choice.Type, choice.Name
+		kind, name, namespace = choice.Type, choice.Name, choice.Namespace
 	case map[string]any:
 		kind, _ = choice["type"].(string)
 		name, _ = choice["name"].(string)
+		namespace, _ = choice["namespace"].(string)
 	default:
 		return nil, []ir.Loss{loss("tool_choice", "tool_choice", ir.LossUnsupportedSemantic,
 			"Responses tool_choice has no IR equivalent")}
+	}
+	if namespace != "" && !strings.HasPrefix(name, namespace+".") {
+		name = namespace + "." + name
 	}
 	if kind == ToolTypeApplyPatch {
 		return &ir.ToolChoice{Mode: ir.ToolChoiceTool, ToolType: ir.ToolTypeApplyPatch}, nil
@@ -670,6 +671,14 @@ func encodeToolChoice(choice *ir.ToolChoice) (any, *ir.Loss) {
 		kind := ToolTypeFunction
 		if choice.ToolType == ir.ToolTypeCustom {
 			kind = ToolTypeCustom
+		}
+		dotIdx := strings.Index(choice.Name, ".")
+		if dotIdx > 0 {
+			return ToolChoiceWire{
+				Type:      kind,
+				Namespace: choice.Name[:dotIdx],
+				Name:      choice.Name[dotIdx+1:],
+			}, nil
 		}
 		return ToolChoiceWire{Type: kind, Name: choice.Name}, nil
 	default:
@@ -746,7 +755,11 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 				Output:    outputStr,
 			})
 		case ItemTypeCustomToolCall:
-			call, err := decodeCustomCall(item.CallID, item.Name, item.Input)
+			finalName := item.Name
+			if item.Namespace != "" && !strings.HasPrefix(finalName, item.Namespace+".") {
+				finalName = item.Namespace + "." + finalName
+			}
+			call, err := decodeCustomCall(item.CallID, finalName, item.Input)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -791,7 +804,11 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			if err != nil {
 				return nil, nil, fmt.Errorf("responses: output[%d].arguments: %w", i, err)
 			}
-			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: item.Name, Input: input})
+			finalName := item.Name
+			if item.Namespace != "" && !strings.HasPrefix(finalName, item.Namespace+".") {
+				finalName = item.Namespace + "." + finalName
+			}
+			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: finalName, Input: input})
 			hasToolUse = true
 		default:
 			losses = append(losses, loss(

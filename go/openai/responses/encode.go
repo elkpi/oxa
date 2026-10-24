@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -35,39 +36,31 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Instructions = &text
 	}
 	if len(req.Tools) > 0 {
-		out.Tools = make([]ToolDef, 0, len(req.Tools))
-		for i, tool := range req.Tools {
-			if tool.Type == ir.ToolTypeNative {
-				losses = append(losses, ir.NativeToolLoss(tool, fmt.Sprintf("tools[%d]", i)))
-				continue
-			}
-			if tool.Type == ir.ToolTypeApplyPatch {
-				out.Tools = append(out.Tools, ToolDef{Type: ToolTypeApplyPatch})
-				continue
-			}
-			if tool.Type == ir.ToolTypeCustom {
-				if len(tool.InputSchema) > 0 {
-					return nil, nil, fmt.Errorf("responses: custom tool cannot carry input_schema")
-				}
-				if tool.Format != nil {
-					if _, err := json.Marshal(tool.Format); err != nil {
-						return nil, nil, err
-					}
-				}
-				out.Tools = append(out.Tools, ToolDef{Type: ToolTypeCustom, Name: tool.Name, Description: tool.Description, Format: encodeCustomFormat(tool.Format)})
-				continue
-			}
-			out.Tools = append(out.Tools, ToolDef{
-				Type:        ToolTypeFunction,
-				Name:        tool.Name,
-				Description: tool.Description,
-				Parameters:  tool.InputSchema,
-			})
+		groupedTools, toolLosses, err := encodeGroupedTools(req.Tools)
+		if err != nil {
+			return nil, nil, err
 		}
+		out.Tools = groupedTools
+		losses = append(losses, toolLosses...)
 	}
 	if req.ToolChoice != nil && req.ToolChoice.Mode == ir.ToolChoiceTool && ir.IsNativeToolChoice(req) {
-		out.ToolChoice = nil
-		losses = append(losses, ir.NativeToolChoiceLoss(req.ToolChoice))
+		nativeFoundAndRepresented := false
+		for _, tool := range req.Tools {
+			if tool.Type == ir.ToolTypeNative && tool.Name == req.ToolChoice.Name && tool.Source == ir.NativeSourceOpenAI {
+				nativeFoundAndRepresented = true
+				break
+			}
+		}
+		if !nativeFoundAndRepresented {
+			out.ToolChoice = nil
+			losses = append(losses, ir.NativeToolChoiceLoss(req.ToolChoice))
+		} else {
+			choice, choiceLoss := encodeToolChoice(req.ToolChoice)
+			out.ToolChoice = choice
+			if choiceLoss != nil {
+				losses = append(losses, *choiceLoss)
+			}
+		}
 	} else {
 		choice, choiceLoss := encodeToolChoice(req.ToolChoice)
 		out.ToolChoice = choice
@@ -330,14 +323,24 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			if err != nil {
 				return nil, err
 			}
-			calls = append(calls, InputItem{Type: ItemTypeCustomToolCall, CallID: value.ID, Name: value.Name, Input: &input})
+			ns, nm := "", value.Name
+			if dotIdx := strings.Index(value.Name, "."); dotIdx > 0 {
+				ns = value.Name[:dotIdx]
+				nm = value.Name[dotIdx+1:]
+			}
+			calls = append(calls, InputItem{Type: ItemTypeCustomToolCall, CallID: value.ID, Name: nm, Namespace: ns, Input: &input})
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {
 				return nil, fmt.Errorf("responses: %s[%d].input: %w", path, i, err)
 			}
+			ns, nm := "", value.Name
+			if dotIdx := strings.Index(value.Name, "."); dotIdx > 0 {
+				ns = value.Name[:dotIdx]
+				nm = value.Name[dotIdx+1:]
+			}
 			calls = append(calls, InputItem{
-				Type: ItemTypeFunctionCall, CallID: value.ID, Name: value.Name, Arguments: arguments,
+				Type: ItemTypeFunctionCall, CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
 		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
@@ -423,15 +426,25 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			if err != nil {
 				return nil, nil, err
 			}
-			output = append(output, OutputItem{Type: ItemTypeCustomToolCall, ID: "ctc_abc123", CallID: value.ID, Name: value.Name, Input: &input})
+			ns, nm := "", value.Name
+			if dotIdx := strings.Index(value.Name, "."); dotIdx > 0 {
+				ns = value.Name[:dotIdx]
+				nm = value.Name[dotIdx+1:]
+			}
+			output = append(output, OutputItem{Type: ItemTypeCustomToolCall, ID: "ctc_abc123", CallID: value.ID, Name: nm, Namespace: ns, Input: &input})
 		case ir.ToolUseBlock:
 			arguments, err := unwrapToolArguments(value.Input)
 			if err != nil {
 				return nil, nil, fmt.Errorf("responses: content[%d].input: %w", i, err)
 			}
+			ns, nm := "", value.Name
+			if dotIdx := strings.Index(value.Name, "."); dotIdx > 0 {
+				ns = value.Name[:dotIdx]
+				nm = value.Name[dotIdx+1:]
+			}
 			output = append(output, OutputItem{
 				Type: ItemTypeFunctionCall, ID: "fc_abc123", Status: StatusCompleted,
-				CallID: value.ID, Name: value.Name, Arguments: arguments,
+				CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
 		default:
 			losses = append(losses, loss(

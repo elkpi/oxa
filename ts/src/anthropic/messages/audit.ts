@@ -37,6 +37,73 @@ const DOCUMENT_SOURCE: WireAuditSpec = {
   },
 };
 
+const CITATION: WireAuditSpec = {
+  variant: (c) => {
+    switch (c.type) {
+      case "char_location":
+        return {
+          fields: {
+            type: undefined,
+            cited_text: undefined,
+            document_index: undefined,
+            document_title: undefined,
+            start_char_index: undefined,
+            end_char_index: undefined,
+            file_id: undefined,
+          },
+        };
+      case "page_location":
+        return {
+          fields: {
+            type: undefined,
+            cited_text: undefined,
+            document_index: undefined,
+            document_title: undefined,
+            start_page_number: undefined,
+            end_page_number: undefined,
+            file_id: undefined,
+          },
+        };
+      case "content_block_location":
+        return {
+          fields: {
+            type: undefined,
+            cited_text: undefined,
+            document_index: undefined,
+            document_title: undefined,
+            start_block_index: undefined,
+            end_block_index: undefined,
+            file_id: undefined,
+          },
+        };
+      case "web_search_result_location":
+        return {
+          fields: {
+            type: undefined,
+            cited_text: undefined,
+            encrypted_index: undefined,
+            title: undefined,
+            url: undefined,
+          },
+        };
+      case "search_result_location":
+        return {
+          fields: {
+            type: undefined,
+            cited_text: undefined,
+            search_result_index: undefined,
+            source: undefined,
+            title: undefined,
+            start_block_index: undefined,
+            end_block_index: undefined,
+          },
+        };
+      default:
+        return undefined;
+    }
+  },
+};
+
 const BLOCK: WireAuditSpec = {
   variant: (block) => {
     switch (block.type) {
@@ -45,6 +112,15 @@ const BLOCK: WireAuditSpec = {
           fields: {
             type: undefined,
             text: undefined,
+            citations: { items: CITATION },
+            cache_control: undefined,
+          },
+        };
+      case "redacted_thinking":
+        return {
+          fields: {
+            type: undefined,
+            data: undefined,
             cache_control: undefined,
           },
         };
@@ -126,6 +202,7 @@ const TOOL_CHOICE: WireAuditSpec = {
   fields: {
     type: undefined,
     name: undefined,
+    disable_parallel_tool_use: undefined,
   },
 };
 
@@ -161,7 +238,15 @@ const RESPONSE_BLOCK: WireAuditSpec = {
   variant: (block) => {
     switch (block.type) {
       case "text":
-        return { fields: { type: undefined, text: undefined } };
+        return {
+          fields: {
+            type: undefined,
+            text: undefined,
+            citations: { items: CITATION },
+          },
+        };
+      case "redacted_thinking":
+        return { fields: { type: undefined, data: undefined } };
       case "thinking":
         return {
           fields: {
@@ -217,6 +302,7 @@ export const ANTHROPIC_REQUEST: WireAuditSpec = {
     max_tokens: undefined,
     temperature: undefined,
     top_p: undefined,
+    top_k: undefined,
     stop_sequences: { items: undefined },
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
@@ -240,6 +326,8 @@ const STREAM_DELTA: WireAuditSpec = {
         return { fields: { type: undefined, thinking: undefined } };
       case "signature_delta":
         return { fields: { type: undefined, signature: undefined } };
+      case "citations_delta":
+        return { fields: { type: undefined, citation: CITATION } };
       default:
         return undefined;
     }

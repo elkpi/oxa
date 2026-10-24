@@ -1271,6 +1271,11 @@ type EncoderBlock =
       readonly index: number;
       readonly contentIndex: number;
       text: string;
+      citationLossSeen?: boolean;
+    }
+  | {
+      readonly kind: "redacted_thinking";
+      readonly index: number;
     }
   | {
       readonly kind: "thinking";
@@ -1320,6 +1325,7 @@ export class ResponsesStreamEncoder {
   #activeItem: EncoderItem | undefined;
   #activeBlock: EncoderBlock | undefined;
   readonly #completed: ResponsesOutputItem[] = [];
+  #eventOrdinal = 0;
 
   constructor(options: ResponsesStreamEncoderOptions = {}) {
     this.#modelMapper = options.modelMapper;
@@ -1328,6 +1334,7 @@ export class ResponsesStreamEncoder {
   Apply(event: Event): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (this.#done || (this.#terminal && event.type !== "message_done"))
       this.#lifecycle("event applied after stream termination");
+    const ordinal = this.#eventOrdinal++;
     switch (event.type) {
       case "message_start":
         if (this.#started) this.#lifecycle("duplicate message_start");
@@ -1338,9 +1345,9 @@ export class ResponsesStreamEncoder {
           { type: "response.created", response: this.#response("in_progress") },
         ]);
       case "content_block_start":
-        return this.#startBlock(event);
+        return this.#startBlock(event, ordinal);
       case "content_block_delta":
-        return this.#delta(event);
+        return this.#delta(event, ordinal);
       case "content_block_stop":
         return this.#stopBlock(event.index);
       case "message_delta":
@@ -1355,6 +1362,7 @@ export class ResponsesStreamEncoder {
 
   #startBlock(
     event: Extract<Event, { type: "content_block_start" }>,
+    ordinal: number,
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (!this.#started || this.#terminal || this.#activeBlock !== undefined)
       this.#lifecycle("content_block_start out of grammar order");
@@ -1364,7 +1372,30 @@ export class ResponsesStreamEncoder {
       );
     this.#nextBlockIndex += 1;
     if (event.block.type === "text")
-      return this.#startText(event.index, event.block.text);
+      return this.#startText(
+        event.index,
+        event.block.text,
+        ordinal,
+        (event.block as any).citations,
+      );
+    if (event.block.type === "redacted_thinking") {
+      this.#activeBlock = {
+        kind: "redacted_thinking",
+        index: event.index,
+      };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${ordinal}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail:
+              "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+          },
+        ],
+      };
+    }
     if (event.block.type === "thinking")
       return this.#startThinking(event.index, event.block);
     if (event.block.type === "apply_patch_tool_use")
@@ -1448,6 +1479,8 @@ export class ResponsesStreamEncoder {
   #startText(
     index: number,
     initial: string,
+    ordinal: number,
+    citations?: readonly unknown[],
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
     const events: ResponsesStreamEvent[] = [];
     if (this.#activeItem === undefined) {
@@ -1476,7 +1509,13 @@ export class ResponsesStreamEncoder {
       annotations: [],
     };
     this.#activeItem.content.push(part);
-    this.#activeBlock = { kind: "text", index, contentIndex, text: initial };
+    this.#activeBlock = {
+      kind: "text",
+      index,
+      contentIndex,
+      text: initial,
+      citationLossSeen: false,
+    };
     events.push({
       type: "response.content_part.added",
       item_id: this.#activeItem.id,
@@ -1484,7 +1523,18 @@ export class ResponsesStreamEncoder {
       content_index: contentIndex,
       part,
     });
-    return this.#result(events);
+    const losses: Loss[] = [];
+    if (citations && citations.length > 0) {
+      this.#activeBlock.citationLossSeen = true;
+      losses.push({
+        path: `events[${ordinal}].block.citations`,
+        field: "citations",
+        reason: "unsupported-semantic",
+        detail:
+          "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+      });
+    }
+    return { value: events, losses };
   }
 
   #startTool(
@@ -1642,15 +1692,37 @@ export class ResponsesStreamEncoder {
 
   #delta(
     event: Extract<Event, { type: "content_block_delta" }>,
+    ordinal: number,
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (
       this.#activeBlock === undefined ||
       event.index !== this.#activeBlock.index
     )
       this.#lifecycle("content_block_delta out of grammar order");
+    if (this.#activeBlock.kind === "redacted_thinking") {
+      this.#lifecycle("redacted_thinking block received unexpected delta");
+    }
     if (this.#activeItem === undefined)
       this.#lifecycle("content block has no active item");
     if (this.#activeBlock.kind === "text") {
+      if (event.delta.type === "citation_delta") {
+        if (!this.#activeBlock.citationLossSeen) {
+          this.#activeBlock.citationLossSeen = true;
+          return {
+            value: [],
+            losses: [
+              {
+                path: `events[${ordinal}].delta.citation`,
+                field: "citations",
+                reason: "unsupported-semantic",
+                detail:
+                  "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+              },
+            ],
+          };
+        }
+        return this.#result([]);
+      }
       if (event.delta.type !== "text_delta")
         this.#lifecycle("text block received non-text delta");
       if (this.#activeItem.kind !== "message")
@@ -1747,6 +1819,10 @@ export class ResponsesStreamEncoder {
   #stopBlock(index: number): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (this.#activeBlock === undefined || index !== this.#activeBlock.index)
       this.#lifecycle("content_block_stop out of grammar order");
+    if (this.#activeBlock.kind === "redacted_thinking") {
+      this.#activeBlock = undefined;
+      return this.#result([]);
+    }
     if (this.#activeItem === undefined)
       this.#lifecycle("content block has no active item");
     if (this.#activeBlock.kind === "text") return this.#stopText();

@@ -24,6 +24,7 @@ import {
   parseWireEvent,
 } from "../../json/wire-audit.js";
 import { ANTHROPIC_STREAM_EVENT } from "./audit.js";
+import { decodeAnthropicTextCitations } from "./nonstream.js";
 import type { AnthropicStreamEvent } from "./types.js";
 
 export interface AnthropicStreamDecoderOptions {
@@ -41,7 +42,13 @@ export class AnthropicStreamDecoder {
   #nextIrIndex = 0;
   #openNativeIndex: number | undefined;
   #openIrIndex = 0;
-  #openKind: "text" | "thinking" | "tool" | "skipped" | undefined;
+  #openKind:
+    | "text"
+    | "thinking"
+    | "redacted_thinking"
+    | "tool"
+    | "skipped"
+    | undefined;
   #thinkingStartSignature: string | undefined;
   #thinkingSignatureDeltaSeen = false;
   #toolId = "";
@@ -176,6 +183,20 @@ export class AnthropicStreamDecoder {
         },
       ];
     }
+    if (block.type === "redacted_thinking") {
+      this.#openKind = "redacted_thinking";
+      this.#openIrIndex = this.#nextIrIndex++;
+      return [
+        {
+          type: "content_block_start",
+          index: this.#openIrIndex,
+          block: {
+            type: "redacted_thinking",
+            data: block.data ?? "",
+          },
+        },
+      ];
+    }
     if (block.type !== "text") {
       this.#openKind = "skipped";
       this.#losses.push({
@@ -207,6 +228,9 @@ export class AnthropicStreamDecoder {
         `content_block_delta index ${nativeIndex} does not match the open block`,
       );
     if (this.#openKind === "skipped") return [];
+    if (this.#openKind === "redacted_thinking") {
+      this.#lifecycle("content_block_delta on redacted_thinking block");
+    }
     if (this.#openKind === "thinking") {
       if (event.delta.type === "thinking_delta") {
         if (this.#thinkingSignatureDeltaSeen)
@@ -267,6 +291,30 @@ export class AnthropicStreamDecoder {
         },
       ];
     }
+    if (event.delta.type === "citations_delta") {
+      if (event.delta.citation === undefined) {
+        this.#lifecycle("citations_delta without citation");
+      }
+      const rawCites = decodeAnthropicTextCitations(
+        [event.delta.citation as JsonValue],
+        `content_block_delta[${nativeIndex}].delta.citation`,
+        this.#losses,
+        false,
+      );
+      if (rawCites && rawCites.length > 0) {
+        return [
+          {
+            type: "content_block_delta",
+            index: this.#openIrIndex,
+            delta: {
+              type: "citation_delta",
+              citation: rawCites[0]!,
+            },
+          },
+        ];
+      }
+      return [];
+    }
     this.#unknownDelta(nativeIndex, event.delta.type);
     return [];
   }
@@ -282,7 +330,10 @@ export class AnthropicStreamDecoder {
       this.#clearBlock();
       return [];
     }
-    if (this.#openKind === "thinking") {
+    if (
+      this.#openKind === "thinking" ||
+      this.#openKind === "redacted_thinking"
+    ) {
       const index = this.#openIrIndex;
       this.#clearBlock();
       return [{ type: "content_block_stop", index }];
@@ -508,6 +559,11 @@ export interface AnthropicStreamEncoderOptions {
 type EncoderBlock =
   | { readonly kind: "text"; readonly index: number; readonly irIndex: number }
   | {
+      readonly kind: "redacted_thinking";
+      readonly index: number;
+      readonly irIndex: number;
+    }
+  | {
       readonly kind: "custom";
       readonly index: number;
       readonly irIndex: number;
@@ -641,6 +697,23 @@ export class AnthropicStreamEncoder {
         },
       ]);
     }
+    if (event.block.type === "redacted_thinking") {
+      this.#openBlock = {
+        kind: "redacted_thinking",
+        index: nativeIndex,
+        irIndex: event.index,
+      };
+      return this.#result([
+        {
+          type: "content_block_start",
+          index: nativeIndex,
+          content_block: {
+            type: "redacted_thinking",
+            data: event.block.data,
+          },
+        },
+      ]);
+    }
     if (event.block.type === "tool_use") {
       if (event.block.id === "" || event.block.name === "")
         this.#lifecycle("tool_use requires nonempty id and name");
@@ -733,6 +806,9 @@ export class AnthropicStreamEncoder {
     if (this.#openBlock.kind === "custom") {
       this.#lifecycle("delta does not match skipped custom block");
     }
+    if (this.#openBlock.kind === "redacted_thinking") {
+      this.#lifecycle("redacted_thinking block received unexpected delta");
+    }
     if (this.#openBlock.kind === "custom_tool") {
       if (event.delta.type !== "custom_tool_input_delta")
         this.#lifecycle("custom tool block received non-custom-input delta");
@@ -740,15 +816,26 @@ export class AnthropicStreamEncoder {
       return this.#result([]);
     }
     if (this.#openBlock.kind === "text") {
-      if (event.delta.type !== "text_delta")
-        this.#lifecycle("text block received non-text delta");
-      return this.#result([
-        {
-          type: "content_block_delta",
-          index: this.#openBlock.index,
-          delta: { type: "text_delta", text: event.delta.text },
-        },
-      ]);
+      if (event.delta.type === "text_delta") {
+        return this.#result([
+          {
+            type: "content_block_delta",
+            index: this.#openBlock.index,
+            delta: { type: "text_delta", text: event.delta.text },
+          },
+        ]);
+      }
+      if (event.delta.type === "citation_delta") {
+        const citeObj = JSON.parse(event.delta.citation.value);
+        return this.#result([
+          {
+            type: "content_block_delta",
+            index: this.#openBlock.index,
+            delta: { type: "citations_delta", citation: citeObj },
+          },
+        ]);
+      }
+      this.#lifecycle("text block received non-text delta");
     }
     if (this.#openBlock.kind === "thinking") {
       if (event.delta.type === "thinking_delta") {
@@ -801,6 +888,10 @@ export class AnthropicStreamEncoder {
     if (block.kind === "custom") {
       this.#openBlock = undefined;
       return this.#result([]);
+    }
+    if (block.kind === "redacted_thinking") {
+      this.#openBlock = undefined;
+      return this.#result([{ type: "content_block_stop", index: block.index }]);
     }
     if (block.kind === "custom_tool") {
       const events: AnthropicStreamEvent[] = [];

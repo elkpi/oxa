@@ -11,10 +11,13 @@ export interface AnthropicUsage {
 export interface AnthropicContentBlock {
   readonly type: string;
   readonly text?: string;
+  readonly citations?: readonly unknown[];
   /** Model reasoning text for thinking blocks (N-AN-11). */
   readonly thinking?: string;
   /** Opaque provider integrity token; carried verbatim. */
   readonly signature?: string;
+  /** Opaque encrypted thinking replay state (N-AN-17). */
+  readonly data?: string;
   readonly id?: string;
   readonly name?: string;
   readonly input?: JsonText | JsonObject;
@@ -39,6 +42,7 @@ export interface AnthropicStreamDelta {
   readonly thinking?: string;
   /** Opaque provider integrity token for signature_delta. */
   readonly signature?: string;
+  readonly citation?: unknown;
   readonly partial_json?: string;
   readonly stop_reason?: string;
   readonly stop_sequence?: string | null;

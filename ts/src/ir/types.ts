@@ -54,15 +54,25 @@ export interface Usage {
   readonly input_tokens_details?: InputTokensDetails;
   readonly output_tokens_details?: OutputTokensDetails;
 }
+export interface TextCitation {
+  readonly source: "anthropic";
+  readonly value: string;
+}
 export interface TextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly citations?: readonly TextCitation[];
   readonly native?: readonly NativeAnnotation[];
 }
 export interface ThinkingBlock {
   readonly type: "thinking";
   readonly thinking: string;
   readonly signature?: string;
+  readonly native?: readonly NativeAnnotation[];
+}
+export interface RedactedThinkingBlock {
+  readonly type: "redacted_thinking";
+  readonly data: string;
   readonly native?: readonly NativeAnnotation[];
 }
 export interface ImageBlock {
@@ -148,6 +158,7 @@ export interface ApplyPatchToolResultBlock {
 export type Block =
   | TextBlock
   | ThinkingBlock
+  | RedactedThinkingBlock
   | ImageBlock
   | DocumentBlock
   | ToolUseBlock
@@ -176,12 +187,17 @@ export interface CustomToolInputDelta {
   readonly type: "custom_tool_input_delta";
   readonly text: string;
 }
+export interface CitationDelta {
+  readonly type: "citation_delta";
+  readonly citation: TextCitation;
+}
 export type Delta =
   | TextDelta
   | ThinkingDelta
   | SignatureDelta
   | InputJsonDelta
-  | CustomToolInputDelta;
+  | CustomToolInputDelta
+  | CitationDelta;
 export interface MessageStart {
   readonly type: "message_start";
   readonly id: string;

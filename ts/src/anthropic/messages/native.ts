@@ -21,6 +21,7 @@ export {
   NATIVE_KIND_EAGER_INPUT_STREAMING,
   EAGER_INPUT_STREAMING_LOSS_DETAIL,
 } from "../../ir/native.js";
+import { OxaError } from "../../error.js";
 import {
   CACHE_CONTROL_LOSS_DETAIL,
   DEFER_LOADING_LOSS_DETAIL,
@@ -30,6 +31,8 @@ import {
   NATIVE_KIND_STREAM,
   NATIVE_KIND_STREAM_OPTIONS,
   NATIVE_KIND_MAX_COMPLETION_TOKENS,
+  NATIVE_KIND_TOP_K,
+  NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
   NATIVE_SOURCE_OPENAI,
   STREAM_OPTIONS_LOSS_DETAIL,
 } from "../../ir/native.js";
@@ -450,7 +453,26 @@ export function decodeRequestNative(
   ) {
     const thinking = wire.thinking as Record<string, JsonValue>;
     const tType = thinking.type;
-    if (tType === "adaptive" || tType === "disabled") {
+    if (tType === "between_tools") {
+      if (
+        (thinking.budget_tokens !== undefined &&
+          thinking.budget_tokens !== null) ||
+        (thinking.display !== undefined &&
+          thinking.display !== null &&
+          thinking.display !== "")
+      ) {
+        throw new OxaError(
+          "invalid-input",
+          "anthropic: cannot specify budget_tokens or display with thinking.type between_tools",
+        );
+      }
+      reqNative.push({
+        source: NATIVE_SOURCE_ANTHROPIC,
+        kind: NATIVE_KIND_THINKING_MODE,
+        value: '"between_tools"',
+        omission: { field: "type", reason: "unmapped-field" as const },
+      });
+    } else if (tType === "adaptive" || tType === "disabled") {
       reqNative.push({
         source: NATIVE_SOURCE_ANTHROPIC,
         kind: NATIVE_KIND_THINKING_MODE,
@@ -621,6 +643,57 @@ export function decodeRequestNative(
     }
   }
 
+  // 5. top_k
+  if (wire.top_k !== undefined && wire.top_k !== null) {
+    let kVal: number | undefined;
+    if (typeof wire.top_k === "number") {
+      kVal = wire.top_k;
+    } else if (isJsonNumber(wire.top_k)) {
+      kVal = Number(wire.top_k.token);
+    }
+    if (
+      kVal === undefined ||
+      !Number.isInteger(kVal) ||
+      kVal < 0 ||
+      kVal > Number.MAX_SAFE_INTEGER
+    ) {
+      throw new OxaError(
+        "invalid-input",
+        "anthropic: top_k must be a non-negative safe integer",
+      );
+    }
+    reqNative.push({
+      source: NATIVE_SOURCE_ANTHROPIC,
+      kind: NATIVE_KIND_TOP_K,
+      value: String(kVal),
+      omission: { field: "top_k", reason: "unmapped-field" as const },
+    });
+  }
+
+  // 6. disable_parallel_tool_use
+  if (
+    wire.tool_choice &&
+    typeof wire.tool_choice === "object" &&
+    !Array.isArray(wire.tool_choice)
+  ) {
+    const tc = wire.tool_choice as Record<string, JsonValue>;
+    if (
+      tc.disable_parallel_tool_use !== undefined &&
+      tc.disable_parallel_tool_use !== null
+    ) {
+      const flag = tc.disable_parallel_tool_use === true;
+      reqNative.push({
+        source: NATIVE_SOURCE_ANTHROPIC,
+        kind: NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
+        value: String(flag),
+        omission: {
+          field: "disable_parallel_tool_use",
+          reason: "unmapped-field" as const,
+        },
+      });
+    }
+  }
+
   return {
     ...request,
     ...(reqNative.length > 0 ? { native: reqNative } : {}),
@@ -752,6 +825,25 @@ export function encodeRequestNative(
       case NATIVE_KIND_CONTEXT_MANAGEMENT:
         wire.context_management = parseJson(n.value) as JsonObject;
         break;
+      case NATIVE_KIND_TOP_K:
+        wire.top_k = integer(BigInt(JSON.parse(n.value)));
+        break;
+      case NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE: {
+        const flag = Boolean(JSON.parse(n.value));
+        if (
+          wire.tool_choice &&
+          typeof wire.tool_choice === "object" &&
+          !Array.isArray(wire.tool_choice)
+        ) {
+          (wire.tool_choice as any).disable_parallel_tool_use = flag;
+        } else {
+          throw new OxaError(
+            "invalid-input",
+            "anthropic: disable_parallel_tool_use requires tool_choice",
+          );
+        }
+        break;
+      }
       default:
         losses.push({
           path: `native[${i}]`,
@@ -770,7 +862,12 @@ export function encodeRequestNative(
     nativeEffort !== undefined ||
     currentEffort !== undefined
   ) {
-    if (nativeMode === "disabled") {
+    if (nativeMode === "between_tools") {
+      wire.thinking = { type: "between_tools" };
+      if (currentEffort !== undefined) {
+        wire.output_config = { effort: currentEffort };
+      }
+    } else if (nativeMode === "disabled") {
       wire.thinking = { type: "disabled" };
       if (nativeEffort !== undefined || nativeEffortProj !== undefined) {
         if (currentEffort !== undefined) {

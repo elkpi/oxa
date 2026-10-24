@@ -2,6 +2,8 @@ import {
   assertEventSequence,
   type ApplyPatchOperation,
   type Block,
+  type RedactedThinkingBlock,
+  type TextCitation,
   type EventStream,
   type MessageDelta,
   type Usage,
@@ -10,11 +12,16 @@ import {
 interface NormalizedTextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly citations?: readonly TextCitation[];
 }
 interface NormalizedThinkingBlock {
   readonly type: "thinking";
   readonly thinking: string;
   readonly signature?: string;
+}
+interface NormalizedRedactedThinkingBlock {
+  readonly type: "redacted_thinking";
+  readonly data: string;
 }
 interface NormalizedToolUseBlock {
   readonly type: "tool_use";
@@ -43,6 +50,7 @@ interface NormalizedApplyPatchToolResultBlock {
 type NormalizedBlock =
   | NormalizedTextBlock
   | NormalizedThinkingBlock
+  | NormalizedRedactedThinkingBlock
   | NormalizedToolUseBlock
   | NormalizedCustomToolUseBlock
   | NormalizedApplyPatchToolUseBlock
@@ -107,6 +115,7 @@ function normalize(stream: EventStream): NormalizedStream {
     | {
         block: Block;
         text: string;
+        citations: TextCitation[];
         thinking: string;
         signature: string | undefined;
       }
@@ -117,6 +126,10 @@ function normalize(stream: EventStream): NormalizedStream {
       open = {
         block: event.block,
         text: event.block.type === "text" ? event.block.text : "",
+        citations:
+          event.block.type === "text" && event.block.citations
+            ? [...event.block.citations]
+            : [],
         thinking: event.block.type === "thinking" ? event.block.thinking : "",
         signature:
           event.block.type === "thinking" ? event.block.signature : undefined,
@@ -125,6 +138,8 @@ function normalize(stream: EventStream): NormalizedStream {
     }
     if (event.type === "content_block_delta") {
       if (event.delta.type === "text_delta") open!.text += event.delta.text;
+      else if (event.delta.type === "citation_delta")
+        open!.citations.push(event.delta.citation);
       else if (event.delta.type === "thinking_delta")
         open!.thinking += event.delta.text;
       else if (event.delta.type === "signature_delta")
@@ -133,8 +148,17 @@ function normalize(stream: EventStream): NormalizedStream {
     }
     if (event.type === "content_block_stop") {
       if (open!.block.type === "text")
-        blocks.push({ type: "text", text: open!.text });
-      else if (open!.block.type === "thinking") {
+        blocks.push({
+          type: "text",
+          text: open!.text,
+          ...(open!.citations.length > 0 ? { citations: open!.citations } : {}),
+        });
+      else if (open!.block.type === "redacted_thinking") {
+        blocks.push({
+          type: "redacted_thinking",
+          data: open!.block.data,
+        });
+      } else if (open!.block.type === "thinking") {
         blocks.push({
           type: "thinking",
           thinking: open!.thinking,
@@ -190,8 +214,40 @@ function compareBlock(
   actual: NormalizedBlock,
 ): string | undefined {
   if (expected.type !== actual.type) return "type differs";
-  if (expected.type === "text" && actual.type === "text")
-    return expected.text === actual.text ? undefined : "text differs";
+  if (expected.type === "text" && actual.type === "text") {
+    if (expected.text !== actual.text) return "text differs";
+    const expCites = expected.citations ?? [];
+    const actCites = actual.citations ?? [];
+    if (expCites.length !== actCites.length) return "citations count differs";
+    for (let i = 0; i < expCites.length; i++) {
+      if (expCites[i]?.source !== actCites[i]?.source) {
+        return `citation ${i} source differs`;
+      }
+      try {
+        const expObj = JSON.parse(expCites[i]!.value);
+        const actObj = JSON.parse(actCites[i]!.value);
+        const expKeys = Object.keys(expObj).sort();
+        const actKeys = Object.keys(actObj).sort();
+        if (expKeys.length !== actKeys.length) return `citation ${i} differs`;
+        for (const k of expKeys) {
+          if (expObj[k] !== actObj[k]) return `citation ${i} differs on ${k}`;
+        }
+      } catch {
+        if (expCites[i]?.value !== actCites[i]?.value) {
+          return `citation ${i} differs`;
+        }
+      }
+    }
+    return undefined;
+  }
+  if (
+    expected.type === "redacted_thinking" &&
+    actual.type === "redacted_thinking"
+  ) {
+    return expected.data === actual.data
+      ? undefined
+      : "redacted_thinking data differs";
+  }
   if (expected.type === "thinking" && actual.type === "thinking") {
     if (expected.thinking !== actual.thinking) return "thinking differs";
     return expected.signature === actual.signature

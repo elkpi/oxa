@@ -28,11 +28,12 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly citations?: readonly (IrSchemaTextCitation)[];
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
@@ -76,6 +77,12 @@ export interface IrSchemaRequestThinkingBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
+export interface IrSchemaRequestRedactedThinkingBlock {
+  readonly type: "redacted_thinking";
+  readonly data: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
 export interface IrSchemaRequestCustomToolUseBlock {
   readonly type: "custom_tool_use";
   readonly id: string;
@@ -107,7 +114,7 @@ export interface IrSchemaRequestApplyPatchToolResultBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock;
 
 export type IrSchemaApplyPatchOperation = { readonly type: "create_file"; readonly path: string; readonly diff: string; } | { readonly type: "delete_file"; readonly path: string; } | { readonly type: "update_file"; readonly path: string; readonly diff: string; };
 
@@ -148,12 +155,23 @@ export type IrSchemaCustomToolFormat = { readonly type: "text"; } | { readonly t
 export interface IrSchemaTextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly citations?: readonly (IrSchemaTextCitation)[];
+}
+
+export interface IrSchemaTextCitation {
+  readonly source: "anthropic";
+  readonly value: string;
 }
 
 export interface IrSchemaThinkingBlock {
   readonly type: "thinking";
   readonly thinking: string;
   readonly signature?: string;
+}
+
+export interface IrSchemaRedactedThinkingBlock {
+  readonly type: "redacted_thinking";
+  readonly data: string;
 }
 
 export interface IrSchemaImageBlock {
@@ -257,7 +275,12 @@ export interface IrSchemaMessageDone {
   readonly type: "message_done";
 }
 
-export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta | IrSchemaThinkingDelta | IrSchemaSignatureDelta | IrSchemaCustomToolInputDelta;
+export type IrSchemaDelta = IrSchemaTextDelta | IrSchemaInputJSONDelta | IrSchemaThinkingDelta | IrSchemaSignatureDelta | IrSchemaCustomToolInputDelta | IrSchemaCitationDelta;
+
+export interface IrSchemaCitationDelta {
+  readonly type: "citation_delta";
+  readonly citation: IrSchemaTextCitation;
+}
 
 export interface IrSchemaTextDelta {
   readonly type: "text_delta";

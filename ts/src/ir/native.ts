@@ -24,6 +24,9 @@ export const NATIVE_KIND_STORE = "store";
 export const NATIVE_KIND_STREAM = "stream";
 export const NATIVE_KIND_STREAM_OPTIONS = "stream_options";
 export const NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
+export const NATIVE_KIND_TOP_K = "top_k";
+export const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE =
+  "disable_parallel_tool_use";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 export const NATIVE_SOURCE_OPENAI = "openai";
 
@@ -249,11 +252,45 @@ function validateAnnotations(
             typeof parsedJson !== "string" ||
             (parsedJson !== "adaptive" &&
               parsedJson !== "enabled" &&
-              parsedJson !== "disabled")
+              parsedJson !== "disabled" &&
+              parsedJson !== "between_tools")
           ) {
             throw new OxaError(
               "invalid-input",
               `invalid thinking_mode ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+        case NATIVE_KIND_TOP_K:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            typeof parsedJson !== "number" ||
+            !Number.isInteger(parsedJson) ||
+            parsedJson < 0 ||
+            parsedJson > Number.MAX_SAFE_INTEGER
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid top_k ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+        case NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (typeof parsedJson !== "boolean") {
+            throw new OxaError(
+              "invalid-input",
+              `invalid disable_parallel_tool_use ${JSON.stringify(parsedJson)}`,
             );
           }
           break;
@@ -628,8 +665,8 @@ function collectBlockOmissions(
   path: string,
   target: string,
 ): void {
-  if (blk.type === "document") {
-    // N-AN-16: whole-block drop; annotations not reported a second time
+  if (blk.type === "document" || blk.type === "redacted_thinking") {
+    // whole-block drop; annotations not reported a second time
     return;
   }
   blk.native?.forEach((ann, i) => {
@@ -848,6 +885,8 @@ function appendOmissionLoss(
     }
     case NATIVE_KIND_THINKING_DISPLAY:
     case NATIVE_KIND_CONTEXT_MANAGEMENT:
+    case NATIVE_KIND_TOP_K:
+    case NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
       if (ann.omission) {
         losses.push({
           path,

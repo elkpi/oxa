@@ -8,10 +8,12 @@ import {
   type JsonValue,
 } from "../json/index.js";
 import { assertEventSequence } from "./checker.js";
+import { validateCitationValue } from "./nonstream.js";
 import {
   specVersion,
   type ApplyPatchOperation,
   type Block,
+  type TextCitation,
   type Delta,
   type Event,
   type EventStream,
@@ -133,12 +135,29 @@ function encodeBlock(block: Block): JsonObject {
       name: block.name,
       input: block.input,
     };
-  if (block.type === "text") return { type: "text", text: block.text };
+  if (block.type === "text")
+    return {
+      type: "text",
+      text: block.text,
+      ...(block.citations && block.citations.length > 0
+        ? {
+            citations: block.citations.map((c) => ({
+              source: c.source,
+              value: c.value,
+            })),
+          }
+        : {}),
+    };
   if (block.type === "thinking")
     return {
       type: "thinking",
       thinking: block.thinking,
       ...(block.signature === undefined ? {} : { signature: block.signature }),
+    };
+  if (block.type === "redacted_thinking")
+    return {
+      type: "redacted_thinking",
+      data: block.data,
     };
   if (block.type === "tool_use")
     return {
@@ -190,8 +209,25 @@ function decodeBlock(value: JsonValue | undefined): Block {
       name: nonEmptyString(block.name, "block.name"),
       input: string(block.input, "block.input"),
     };
-  if (block.type === "text")
-    return { type: "text", text: string(block.text, "block.text") };
+  if (block.type === "text") {
+    let cites: TextCitation[] | undefined;
+    if (block.citations !== undefined) {
+      if (!Array.isArray(block.citations)) fail("citations must be an array");
+      cites = block.citations.map((c) => {
+        const obj = object(c, "citation");
+        const source = string(obj.source, "citation.source");
+        if (source !== "anthropic") fail(`unknown citation source: ${source}`);
+        const val = string(obj.value, "citation.value");
+        validateCitationValue(val);
+        return { source: "anthropic" as const, value: val };
+      });
+    }
+    return {
+      type: "text",
+      text: string(block.text, "block.text"),
+      ...(cites && cites.length > 0 ? { citations: cites } : {}),
+    };
+  }
   if (block.type === "thinking")
     return {
       type: "thinking",
@@ -199,6 +235,11 @@ function decodeBlock(value: JsonValue | undefined): Block {
       ...(block.signature === undefined
         ? {}
         : { signature: nonEmptyString(block.signature, "block.signature") }),
+    };
+  if (block.type === "redacted_thinking")
+    return {
+      type: "redacted_thinking",
+      data: string(block.data, "block.data"),
     };
   if (block.type === "tool_use")
     return {
@@ -271,6 +312,11 @@ function encodeDelta(delta: Delta): JsonObject {
     return { type: "signature_delta", signature: delta.signature };
   if (delta.type === "input_json_delta")
     return { type: "input_json_delta", partial_json: delta.partial_json };
+  if (delta.type === "citation_delta")
+    return {
+      type: "citation_delta",
+      citation: { source: delta.citation.source, value: delta.citation.value },
+    };
   throw new OxaError("ir-invariant", "codec does not yet encode delta");
 }
 
@@ -298,6 +344,17 @@ function decodeDelta(value: JsonValue | undefined): Delta {
         "delta.partial_json",
       ) as JsonText,
     };
+  if (delta.type === "citation_delta") {
+    const c = object(delta.citation, "delta.citation");
+    const source = string(c.source, "delta.citation.source");
+    if (source !== "anthropic") fail(`unknown citation source: ${source}`);
+    const val = string(c.value, "delta.citation.value");
+    validateCitationValue(val);
+    return {
+      type: "citation_delta",
+      citation: { source: "anthropic" as const, value: val },
+    };
+  }
   fail("unsupported delta type");
 }
 function encodeUsage(usage: Usage): JsonObject {

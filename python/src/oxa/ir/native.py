@@ -239,21 +239,27 @@ def validate_annotations(
             if ann.kind == NATIVE_KIND_MAX_COMPLETION_TOKENS:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+                if parsed_json is not True:
+                    raise CodecError(f"invalid max_completion_tokens {parsed_json!r}")
             elif ann.kind == NATIVE_KIND_STORE:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
-                if not isinstance(parsed_json, bool):
+                if not isinstance(parsed_json, bool) and parsed_json is not None:
                     raise CodecError(f"invalid store {parsed_json!r}")
             elif ann.kind == NATIVE_KIND_STREAM:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
-                if not isinstance(parsed_json, bool):
+                if not isinstance(parsed_json, bool) and parsed_json is not None:
                     raise CodecError(f"invalid stream {parsed_json!r}")
             elif ann.kind == NATIVE_KIND_STREAM_OPTIONS:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
-                if not isinstance(parsed_json, dict):
-                    raise CodecError(f"invalid stream_options {parsed_json!r}")
+                if parsed_json is not None:
+                    if not isinstance(parsed_json, dict):
+                        raise CodecError(f"invalid stream_options {parsed_json!r}")
+                    for k, v in parsed_json.items():
+                        if k in ("include_usage", "include_obfuscation") and not isinstance(v, bool):
+                            raise CodecError(f"invalid stream_options {parsed_json!r}: {k} must be a boolean")
             elif ann.kind == NATIVE_KIND_CONTAINER:
                 if host != HostType.TOOL:
                     raise CodecError(f"{path}: openai container is only allowed on Tool")
@@ -375,10 +381,18 @@ def _append_omission_loss(
         if ann.kind == NATIVE_KIND_STREAM_OPTIONS:
             if target == "chatcompletions":
                 return
-            field = ann.omission.field if ann.omission and ann.omission.field else "stream_options"
-            reason = ann.omission.reason if ann.omission and ann.omission.reason else "degraded"
-            detail = ann.omission.detail if ann.omission and ann.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
-            losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+            has_usage_true = False
+            try:
+                so = json.loads(ann.value)
+                if isinstance(so, dict) and so.get("include_usage") is True:
+                    has_usage_true = True
+            except Exception:
+                pass
+            if has_usage_true:
+                field = ann.omission.field if ann.omission and ann.omission.field else "stream_options"
+                reason = ann.omission.reason if ann.omission and ann.omission.reason else "degraded"
+                detail = ann.omission.detail if ann.omission and ann.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
+                losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
             return
         if ann.kind == NATIVE_KIND_STORE:
             if target in ("chatcompletions", "responses"):

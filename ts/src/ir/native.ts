@@ -434,6 +434,12 @@ function validateAnnotations(
               `${path}: openai ${ann.kind} is only allowed on Request`,
             );
           }
+          if (parsedJson !== true) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid max_completion_tokens ${JSON.stringify(parsedJson)}`,
+            );
+          }
           break;
         case NATIVE_KIND_STORE:
           if (host !== "request") {
@@ -442,7 +448,7 @@ function validateAnnotations(
               `${path}: openai ${ann.kind} is only allowed on Request`,
             );
           }
-          if (typeof parsedJson !== "boolean") {
+          if (typeof parsedJson !== "boolean" && parsedJson !== null) {
             throw new OxaError(
               "invalid-input",
               `invalid store ${JSON.stringify(parsedJson)}`,
@@ -456,7 +462,7 @@ function validateAnnotations(
               `${path}: openai ${ann.kind} is only allowed on Request`,
             );
           }
-          if (typeof parsedJson !== "boolean") {
+          if (typeof parsedJson !== "boolean" && parsedJson !== null) {
             throw new OxaError(
               "invalid-input",
               `invalid stream ${JSON.stringify(parsedJson)}`,
@@ -470,15 +476,28 @@ function validateAnnotations(
               `${path}: openai ${ann.kind} is only allowed on Request`,
             );
           }
-          if (
+          if (parsedJson === null) {
+            // explicit null is allowed
+          } else if (
             typeof parsedJson !== "object" ||
-            parsedJson === null ||
             Array.isArray(parsedJson)
           ) {
             throw new OxaError(
               "invalid-input",
               `invalid stream_options ${JSON.stringify(parsedJson)}`,
             );
+          } else {
+            const so = parsedJson as Record<string, unknown>;
+            for (const [k, v] of Object.entries(so)) {
+              if (k === "include_usage" || k === "include_obfuscation") {
+                if (typeof v !== "boolean") {
+                  throw new OxaError(
+                    "invalid-input",
+                    `invalid stream_options ${JSON.stringify(parsedJson)}: ${k} must be a boolean`,
+                  );
+                }
+              }
+            }
           }
           break;
         case NATIVE_KIND_CONTAINER:
@@ -659,15 +678,28 @@ function appendOmissionLoss(
         if (target === "chatcompletions") {
           return;
         }
-        const field = ann.omission?.field || "stream_options";
-        const reason = ann.omission?.reason || "degraded";
-        const detail = ann.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL;
-        losses.push({
-          path,
-          field,
-          reason,
-          ...(detail ? { detail } : {}),
-        });
+        let hasUsageTrue = false;
+        try {
+          const parsed = JSON.parse(ann.value);
+          if (
+            parsed &&
+            typeof parsed === "object" &&
+            parsed.include_usage === true
+          ) {
+            hasUsageTrue = true;
+          }
+        } catch {}
+        if (hasUsageTrue) {
+          const field = ann.omission?.field || "stream_options";
+          const reason = ann.omission?.reason || "degraded";
+          const detail = ann.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL;
+          losses.push({
+            path,
+            field,
+            reason,
+            ...(detail ? { detail } : {}),
+          });
+        }
         return;
       }
       case NATIVE_KIND_STORE: {

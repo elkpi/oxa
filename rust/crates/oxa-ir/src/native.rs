@@ -31,8 +31,7 @@ pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider
 pub const EAGER_INPUT_STREAMING_LOSS_DETAIL: &str =
     "target does not preserve eager tool input streaming semantics";
 
-pub const STREAM_OPTIONS_LOSS_DETAIL: &str =
-    "target does not emit the requested final usage chunk";
+pub const STREAM_OPTIONS_LOSS_DETAIL: &str = "target does not emit the requested final usage chunk";
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct LossFingerprint {
@@ -354,6 +353,11 @@ fn validate_annotations(
                             ann.kind
                         )));
                     }
+                    if parsed_json.as_bool() != Some(true) {
+                        return Err(Error::Custom(format!(
+                            "invalid max_completion_tokens {parsed_json:?}"
+                        )));
+                    }
                 }
                 NATIVE_KIND_STORE => {
                     if host != HostType::Request {
@@ -362,10 +366,8 @@ fn validate_annotations(
                             ann.kind
                         )));
                     }
-                    if !parsed_json.is_boolean() {
-                        return Err(Error::Custom(format!(
-                            "invalid store {parsed_json:?}"
-                        )));
+                    if !parsed_json.is_boolean() && !parsed_json.is_null() {
+                        return Err(Error::Custom(format!("invalid store {parsed_json:?}")));
                     }
                 }
                 NATIVE_KIND_STREAM => {
@@ -375,10 +377,8 @@ fn validate_annotations(
                             ann.kind
                         )));
                     }
-                    if !parsed_json.is_boolean() {
-                        return Err(Error::Custom(format!(
-                            "invalid stream {parsed_json:?}"
-                        )));
+                    if !parsed_json.is_boolean() && !parsed_json.is_null() {
+                        return Err(Error::Custom(format!("invalid stream {parsed_json:?}")));
                     }
                 }
                 NATIVE_KIND_STREAM_OPTIONS => {
@@ -388,10 +388,22 @@ fn validate_annotations(
                             ann.kind
                         )));
                     }
-                    if !parsed_json.is_object() {
-                        return Err(Error::Custom(format!(
-                            "invalid stream_options {parsed_json:?}"
-                        )));
+                    if !parsed_json.is_null() {
+                        if let Some(map) = parsed_json.as_object() {
+                            for (k, v) in map {
+                                if (k == "include_usage" || k == "include_obfuscation")
+                                    && !v.is_boolean()
+                                {
+                                    return Err(Error::Custom(format!(
+                                        "invalid stream_options {parsed_json:?}: {k} must be a boolean"
+                                    )));
+                                }
+                            }
+                        } else {
+                            return Err(Error::Custom(format!(
+                                "invalid stream_options {parsed_json:?}"
+                            )));
+                        }
                     }
                 }
                 NATIVE_KIND_CONTAINER => {
@@ -587,31 +599,40 @@ fn append_omission_loss(
                 if target == "chatcompletions" {
                     return;
                 }
-                let (field, reason, detail) = if let Some(ref om) = ann.omission {
-                    let f = if om.field.is_empty() {
-                        "stream_options".to_string()
+                #[derive(serde::Deserialize)]
+                struct SoCheck {
+                    include_usage: Option<bool>,
+                }
+                let has_usage_true = serde_json::from_str::<SoCheck>(&ann.value)
+                    .map(|so| so.include_usage == Some(true))
+                    .unwrap_or(false);
+                if has_usage_true {
+                    let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                        let f = if om.field.is_empty() {
+                            "stream_options".to_string()
+                        } else {
+                            om.field.clone()
+                        };
+                        let r = om.reason;
+                        let d = match om.detail.as_deref() {
+                            Some(s) if !s.is_empty() => s.to_string(),
+                            _ => STREAM_OPTIONS_LOSS_DETAIL.to_string(),
+                        };
+                        (f, r, d)
                     } else {
-                        om.field.clone()
+                        (
+                            "stream_options".to_string(),
+                            LossReason::Degraded,
+                            STREAM_OPTIONS_LOSS_DETAIL.to_string(),
+                        )
                     };
-                    let r = om.reason;
-                    let d = match om.detail.as_deref() {
-                        Some(s) if !s.is_empty() => s.to_string(),
-                        _ => STREAM_OPTIONS_LOSS_DETAIL.to_string(),
-                    };
-                    (f, r, d)
-                } else {
-                    (
-                        "stream_options".to_string(),
-                        LossReason::Degraded,
-                        STREAM_OPTIONS_LOSS_DETAIL.to_string(),
-                    )
-                };
-                losses.push(Loss {
-                    path: path.into(),
-                    field,
-                    reason,
-                    detail,
-                });
+                    losses.push(Loss {
+                        path: path.into(),
+                        field,
+                        reason,
+                        detail,
+                    });
+                }
                 return;
             }
             NATIVE_KIND_STORE => {

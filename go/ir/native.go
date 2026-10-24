@@ -3,6 +3,7 @@ package ir
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // NativeAnnotation represents a dialect-specific request option preserved across IR (spec/15).
@@ -329,8 +330,8 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if host != hostTool {
 					return fmt.Errorf("anthropic %s is only allowed on Tool", ann.Kind)
 				}
-				var b bool
-				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed != "true" && trimmed != "false" {
 					return fmt.Errorf("invalid eager_input_streaming %s", ann.Value)
 				}
 			default:
@@ -341,29 +342,45 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if host != hostRequest {
 					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
 				}
+				if strings.TrimSpace(ann.Value) != "true" {
+					return fmt.Errorf("invalid max_completion_tokens %s", ann.Value)
+				}
 			case NativeKindStore:
 				if host != hostRequest {
 					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
 				}
-				var b bool
-				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed != "true" && trimmed != "false" && trimmed != "null" {
 					return fmt.Errorf("invalid store %s", ann.Value)
 				}
 			case NativeKindStream:
 				if host != hostRequest {
 					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
 				}
-				var b bool
-				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed != "true" && trimmed != "false" && trimmed != "null" {
 					return fmt.Errorf("invalid stream %s", ann.Value)
 				}
 			case NativeKindStreamOptions:
 				if host != hostRequest {
 					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
 				}
-				var obj map[string]any
-				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj == nil {
-					return fmt.Errorf("invalid stream_options %s", ann.Value)
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed == "null" {
+					// explicit null is allowed
+				} else {
+					var obj map[string]json.RawMessage
+					if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj == nil {
+						return fmt.Errorf("invalid stream_options %s", ann.Value)
+					}
+					for k, v := range obj {
+						vTrimmed := strings.TrimSpace(string(v))
+						if k == "include_usage" || k == "include_obfuscation" {
+							if vTrimmed != "true" && vTrimmed != "false" {
+								return fmt.Errorf("invalid stream_options %s: %s must be a boolean", ann.Value, k)
+							}
+						}
+					}
 				}
 			case NativeKindContainer:
 				if host != hostTool {
@@ -568,26 +585,32 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 			if target == "chatcompletions" {
 				return losses
 			}
-			field := "stream_options"
-			reason := LossDegraded
-			detail := StreamOptionsLossDetail
-			if ann.Omission != nil {
-				if ann.Omission.Field != "" {
-					field = ann.Omission.Field
-				}
-				if ann.Omission.Reason != "" {
-					reason = ann.Omission.Reason
-				}
-				if ann.Omission.Detail != "" {
-					detail = ann.Omission.Detail
-				}
+			var so struct {
+				IncludeUsage *bool `json:"include_usage"`
 			}
-			return append(losses, Loss{
-				Path:   path,
-				Field:  field,
-				Reason: reason,
-				Detail: detail,
-			})
+			if err := json.Unmarshal([]byte(ann.Value), &so); err == nil && so.IncludeUsage != nil && *so.IncludeUsage {
+				field := "stream_options"
+				reason := LossDegraded
+				detail := StreamOptionsLossDetail
+				if ann.Omission != nil {
+					if ann.Omission.Field != "" {
+						field = ann.Omission.Field
+					}
+					if ann.Omission.Reason != "" {
+						reason = ann.Omission.Reason
+					}
+					if ann.Omission.Detail != "" {
+						detail = ann.Omission.Detail
+					}
+				}
+				return append(losses, Loss{
+					Path:   path,
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
+			}
+			return losses
 		default:
 			if target == "responses" {
 				return losses

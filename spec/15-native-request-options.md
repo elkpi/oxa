@@ -209,7 +209,6 @@ type LossFingerprint struct {
 func FingerprintLosses(losses []Loss, limit int) []LossFingerprint
 ```
 
-- **语义保证**：仅保留 `Path`、`Field`、`Reason`，严格排除可能包含用户敏感数据、Prompt 文本或参数的 `Detail`。
+- **语义保证**：仅保留 `Path`、`Field`、`Reason`，排除往往包含未脱敏取值与上下文文本的 `Detail`。若请求中包含携带敏感信息的未知字段名，调用方在持久化前可进一步对 Path/Field 执行字段脱敏。
 - **截断规则**：当 `limit <= 0` 时返回全量指纹；当 `limit > 0` 且 `len(losses) > limit` 时截断至前 `limit` 条。
 - **多语言对齐**：Go、TypeScript、Python、Rust、C++ 全部 5 种语言在 IR 命名空间导出该函数。
-

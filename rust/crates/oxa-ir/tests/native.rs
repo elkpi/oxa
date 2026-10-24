@@ -327,4 +327,12 @@ fn test_validate_native_request_new_kinds() {
     let mut invalid = req.clone();
     invalid.tools.as_mut().unwrap()[0].native[0].value = r#""not_bool""#.into();
     assert!(validate_native_request(&invalid).is_err());
+
+    let mut invalid_null = req.clone();
+    invalid_null.tools.as_mut().unwrap()[0].native[0].value = "null".into();
+    assert!(validate_native_request(&invalid_null).is_err());
+
+    let mut invalid_so = req.clone();
+    invalid_so.native[3].value = r#"{"include_usage":"yes"}"#.into();
+    assert!(validate_native_request(&invalid_so).is_err());
 }

@@ -212,6 +212,8 @@ def validate_annotations(
             if ann.kind == NATIVE_KIND_CONTAINER:
                 if host != HostType.TOOL:
                     raise CodecError(f"{path}: openai container is only allowed on Tool")
+                if not isinstance(parsed_json, (dict, str)):
+                    raise CodecError(f"{path}: openai container must be an object with path array or string")
             elif ann.kind == NATIVE_KIND_DEFER_LOADING:
                 if host != HostType.TOOL:
                     raise CodecError(f"{path}: openai defer_loading is only allowed on Tool")

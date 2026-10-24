@@ -295,6 +295,19 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if host != hostTool {
 					return fmt.Errorf("openai container is only allowed on Tool")
 				}
+				var obj struct {
+					Path []struct {
+						Type        string `json:"type"`
+						Name        string `json:"name"`
+						Description string `json:"description,omitempty"`
+					} `json:"path"`
+				}
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+					var str string
+					if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
+						return fmt.Errorf("openai container value must be valid JSON: %w", err)
+					}
+				}
 			case NativeKindDeferLoading:
 				if host != hostTool {
 					return fmt.Errorf("openai defer_loading is only allowed on Tool")

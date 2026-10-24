@@ -386,6 +386,16 @@ function validateAnnotations(
               `${path}: openai container is only allowed on Tool`,
             );
           }
+          if (
+            typeof parsedJson !== "object" ||
+            parsedJson === null ||
+            (!("path" in parsedJson) && typeof parsedJson !== "string")
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai container must be an object with path array or string`,
+            );
+          }
           break;
         case NATIVE_KIND_DEFER_LOADING:
           if (host !== "tool") {

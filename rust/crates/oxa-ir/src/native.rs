@@ -306,6 +306,11 @@ fn validate_annotations(
                             "{path}: openai container is only allowed on Tool"
                         )));
                     }
+                    if !parsed_json.is_object() && !parsed_json.is_string() {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai container must be an object with path array or string"
+                        )));
+                    }
                 }
                 NATIVE_KIND_DEFER_LOADING => {
                     if host != HostType::Tool {

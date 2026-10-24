@@ -291,7 +291,9 @@ export function decodeRequest(document: JsonValue): Request {
               const expectedName =
                 typeof defParsed.name === "string" && defParsed.name
                   ? defParsed.name
-                  : defParsed.type;
+                  : typeof defParsed.server_label === "string" && defParsed.server_label
+                    ? defParsed.server_label
+                    : defParsed.type;
               if (expectedName !== name) {
                 fail("native tool definition name must match tool name");
               }

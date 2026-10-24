@@ -124,6 +124,9 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 if (host != HostType::Tool) {
                     return invalid_argument(std::string(path) + ": openai container is only allowed on Tool");
                 }
+                if (!parsed->is_object() && !parsed->is_string()) {
+                    return invalid_argument(std::string(path) + ": openai container must be an object with path array or string");
+                }
             } else if (ann.kind == NATIVE_KIND_DEFER_LOADING) {
                 if (host != HostType::Tool) {
                     return invalid_argument(std::string(path) + ": openai defer_loading is only allowed on Tool");

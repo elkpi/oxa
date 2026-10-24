@@ -21,13 +21,17 @@ func ValidateNativeTool(tool Tool) error {
 		return fmt.Errorf("ir: native tool definition must be a JSON object")
 	}
 	var header struct {
-		Type string `json:"type"`
-		Name string `json:"name"`
+		Type        string `json:"type"`
+		Name        string `json:"name"`
+		ServerLabel string `json:"server_label"`
 	}
 	if err := json.Unmarshal(raw, &header); err != nil {
 		return fmt.Errorf("ir: native tool definition: %w", err)
 	}
 	expectedName := header.Name
+	if expectedName == "" {
+		expectedName = header.ServerLabel
+	}
 	if expectedName == "" {
 		expectedName = header.Type
 	}

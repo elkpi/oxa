@@ -27,7 +27,11 @@ func ValidateNativeTool(tool Tool) error {
 	if err := json.Unmarshal(raw, &header); err != nil {
 		return fmt.Errorf("ir: native tool definition: %w", err)
 	}
-	if header.Type == "" || header.Type == ToolTypeFunction || header.Type == ToolTypeCustom || header.Name != tool.Name {
+	expectedName := header.Name
+	if expectedName == "" {
+		expectedName = header.Type
+	}
+	if header.Type == "" || header.Type == ToolTypeFunction || header.Type == ToolTypeCustom || expectedName != tool.Name {
 		return fmt.Errorf("ir: native tool definition requires a native type and matching name")
 	}
 	return nil

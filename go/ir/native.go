@@ -39,10 +39,12 @@ const (
 	NativeKindDocumentTitle     = "document_title"
 	NativeKindDocumentContext   = "document_context"
 	NativeKindDocumentCitations = "document_citations"
+	NativeKindContainer         = "container"
 )
 
 const (
 	NativeSourceAnthropic = "anthropic"
+	NativeSourceOpenAI    = "openai"
 )
 
 // CacheControlLossDetail is the canonical spec/15 §3.2 capability-gap detail for
@@ -286,6 +288,22 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				}
 			default:
 			}
+		} else if ann.Source == NativeSourceOpenAI {
+			switch ann.Kind {
+			case NativeKindContainer:
+				if host != hostTool {
+					return fmt.Errorf("openai container is only allowed on Tool")
+				}
+			case NativeKindDeferLoading:
+				if host != hostTool {
+					return fmt.Errorf("openai defer_loading is only allowed on Tool")
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil || !b {
+					return fmt.Errorf("invalid defer_loading %s", ann.Value)
+				}
+			default:
+			}
 		}
 	}
 	return nil
@@ -426,6 +444,17 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string) []Loss {
 }
 
 func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasActiveBudgetProj bool, currentEffort string) []Loss {
+	if ann.Source == NativeSourceOpenAI {
+		if ann.Omission != nil {
+			return append(losses, Loss{
+				Path:   path,
+				Field:  ann.Omission.Field,
+				Reason: ann.Omission.Reason,
+				Detail: ann.Omission.Detail,
+			})
+		}
+		return losses
+	}
 	if ann.Source != NativeSourceAnthropic {
 		// Unknown source
 		return append(losses, Loss{

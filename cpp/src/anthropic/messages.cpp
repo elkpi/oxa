@@ -434,6 +434,22 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     });
                 }
             }
+            if (const auto* es = t.find("eager_input_streaming")) {
+                if (!es->is_bool()) {
+                    return invalid_argument("anthropic: " + tool_path + ".eager_input_streaming must be a boolean");
+                }
+                std::optional<ir::NativeOmission> omission;
+                if (es->as_bool()) {
+                    omission = ir::NativeOmission{"eager_input_streaming", std::string(ir::LOSS_DEGRADED), std::string(ir::EAGER_INPUT_STREAMING_LOSS_DETAIL)};
+                }
+                tool.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                    std::string(ir::NATIVE_KIND_EAGER_INPUT_STREAMING),
+                    es->as_bool() ? "true" : "false",
+                    std::move(omission),
+                    std::nullopt,
+                });
+            }
             if (is_custom_tool_input_schema(*t.find("input_schema"))) {
                 tool.type = "custom";
                 custom_tools.insert(tool.name);
@@ -714,6 +730,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 if (get_tool_defer_loading(t.native)) {
                     tw.set("defer_loading", json::Value::boolean(true));
                 }
+                if (auto es = get_tool_eager_input_streaming(t.native)) {
+                    tw.set("eager_input_streaming", json::Value::boolean(*es));
+                }
                 if (tw.find("cache_control") && tw.find("defer_loading")) {
                     return invalid_argument("anthropic: tools[" + std::to_string(ti) + "]: cannot specify both defer_loading and cache_control");
                 }
@@ -760,6 +779,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             }
             if (get_tool_defer_loading(t.native)) {
                 tw.set("defer_loading", json::Value::boolean(true));
+            }
+            if (auto es = get_tool_eager_input_streaming(t.native)) {
+                tw.set("eager_input_streaming", json::Value::boolean(*es));
             }
             if (tw.find("cache_control") && tw.find("defer_loading")) {
                 return invalid_argument("anthropic: tools[" + std::to_string(ti) + "]: cannot specify both defer_loading and cache_control");

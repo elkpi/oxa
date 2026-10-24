@@ -333,6 +333,19 @@ inline bool get_tool_defer_loading(
     return false;
 }
 
+inline std::optional<bool> get_tool_eager_input_streaming(
+    const std::vector<ir::NativeAnnotation>& native) {
+    for (const auto& n : native) {
+        if (n.kind == ir::NATIVE_KIND_EAGER_INPUT_STREAMING) {
+            auto parsed = json::parse(n.value);
+            if (parsed.ok() && parsed->is_bool()) {
+                return parsed->as_bool();
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 inline void decode_request_native(
     const json::Value& wire,
     ir::Request& req,
@@ -489,7 +502,37 @@ inline void encode_request_native(
 
     for (std::size_t i = 0; i < req.native.size(); ++i) {
         const auto& n = req.native[i];
-        if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) {
+        if (n.source == "openai") {
+            if (n.kind == ir::NATIVE_KIND_MAX_COMPLETION_TOKENS || n.kind == ir::NATIVE_KIND_STREAM) {
+                continue;
+            }
+            if (n.kind == ir::NATIVE_KIND_STORE) {
+                auto parsed = json::parse(n.value);
+                if (parsed.ok() && parsed->is_bool() && parsed->as_bool()) {
+                    std::string field = n.omission.has_value() && !n.omission->field.empty() ? n.omission->field : "store";
+                    std::string reason = n.omission.has_value() && !n.omission->reason.empty() ? n.omission->reason : std::string(ir::LOSS_UNSUPPORTED_SEMANTIC);
+                    std::string detail = n.omission.has_value() && n.omission->detail.has_value() ? *n.omission->detail : "target does not support output retention";
+                    losses.push_back(ir::Loss{"native[" + std::to_string(i) + "]", std::move(field), std::move(reason), std::move(detail)});
+                }
+                continue;
+            }
+            if (n.kind == ir::NATIVE_KIND_STREAM_OPTIONS) {
+                std::string field = n.omission.has_value() && !n.omission->field.empty() ? n.omission->field : "stream_options";
+                std::string reason = n.omission.has_value() && !n.omission->reason.empty() ? n.omission->reason : std::string(ir::LOSS_DEGRADED);
+                std::string detail = n.omission.has_value() && n.omission->detail.has_value() ? *n.omission->detail : std::string(ir::STREAM_OPTIONS_LOSS_DETAIL);
+                losses.push_back(ir::Loss{"native[" + std::to_string(i) + "]", std::move(field), std::move(reason), std::move(detail)});
+                continue;
+            }
+            if (n.omission.has_value()) {
+                losses.push_back(ir::Loss{
+                    "native[" + std::to_string(i) + "]",
+                    n.omission->field,
+                    n.omission->reason,
+                    n.omission->detail.value_or(""),
+                });
+                continue;
+            }
+        } else if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) {
             losses.push_back(ir::Loss{
                 "native[" + std::to_string(i) + "]",
                 "source",

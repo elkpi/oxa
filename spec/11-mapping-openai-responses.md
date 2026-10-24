@@ -306,33 +306,38 @@ Each rule has a stable ID usable as a vector tag.
        - `tools` MUST be a non-empty array of tool declarations. Missing, non-array, or empty `tools` is a structural error.
        - Child declarations are recursively flattened into `req.Tools`.
        - For each child declaration, if its name $C$ does not already begin with `<name>.`, its flattened name becomes `<name>.<C>`.
-       - Flattening MUST NOT produce duplicate tool names across the request. Duplicate tool names are structural errors.
-       - Each flattened child tool records a `NativeAnnotation{Source: "openai", Kind: "container", Value: "<container_type>"}` and `NativeAnnotation{Source: "openai", Kind: "namespace", Value: "\"<name>\""}`.
-       - A child tool with `defer_loading: true` retains `NativeAnnotation{Kind: "defer_loading", Value: "true"}` (per spec/15).
+       - Flattening MUST NOT produce duplicate tool names across callable tools in the request. Duplicate tool names are structural errors.
+       - Each flattened child tool records a `NativeAnnotation{Source: "openai", Kind: "container", Value: "{\"path\":[...]}"}` capturing the full ordered container path from outermost to innermost container. Each entry in `path` is an object `{"type": "<container_type>", "name": "<container_name>", "description": "<description>"}` with `description` present iff non-empty.
+       - A child tool with `defer_loading: true` retains `NativeAnnotation{Source: "openai", Kind: "defer_loading", Value: "true"}` (per spec/15). Non-boolean `defer_loading` values are structural errors.
      - When `input[]` contains an item with `type: "additional_tools"`:
        - `tools` MUST be a non-empty array. Missing, non-array, or empty `tools` is a structural error.
        - The child tools are recursively flattened and hoisted to `req.Tools` at request level.
 
   2. Calling and choice mapping:
-     - An `input` or `output` item with `type: "function_call"` or `type: "custom_tool_call"` may carry an optional `namespace` string.
+     - An `input` or `output` item with `type: "function_call"` or `type: "custom_tool_call"`, as well as streaming function call items, may carry an optional `namespace` string.
      - On decode, if `namespace` is present and non-empty, and `name` does not start with `<namespace>.`, the IR tool use block name is normalized to `<namespace>.<name>`.
      - In `tool_choice`, a named choice `{type: "function"|"custom", name, namespace?}` or dotted `name` maps to `ToolChoice{Mode: "tool", Name: "<namespace>.<name>", ToolType: ...}`.
 
   3. OpenAI Native Tools:
-     - Any `tools[]` declaration with a recognized or provider-defined native tool type (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.) that is not `function`, `custom`, `apply_patch`, `namespace`, or `toolbox` decodes to `Tool{Type: "native", Name: tool.Type, Source: "openai", Definition: <raw JSON object text>}` per spec/16. If the wire object contains `name`, outer `name` matches that `name`; otherwise outer `name` defaults to wire `type`.
+     - Any declaration in `tools[]` whose `type` is not `function`, `custom`, `apply_patch`, `namespace`, or `toolbox`:
+       - If it contains `name`, or `server_label`, or its `type` is a recognized OpenAI native tool (`web_search` and versioned/preview variants, `file_search`, `code_interpreter`, `computer` and preview variants, `mcp`, `tool_search`, `image_generation`, `local_shell`, `shell`, `programmatic_tool_calling`), it decodes to `Tool{Type: "native", Name: <identity>, Source: "openai", Definition: <raw JSON object text>}` per spec/16.
+       - The in-memory identity `<identity>` is `name` if present and non-empty; else `server_label` if present and non-empty; else wire `type`.
+       - Multiple native tool declarations sharing the same `type` but distinct identities (e.g. multiple MCP declarations with distinct `server_label`s) MUST NOT be rejected as duplicate tool names.
+       - Unrecognized tool types lacking `name` or `server_label` (e.g. `{"type": "unsupported_tool"}`) record an `unsupported-semantic` loss: `Responses tool type <type> has no IR equivalent`.
 
   4. Encoding (IR → RE):
      - All tools in `req.Tools` render in the request top-level `tools[]`.
-     - Tools with `Source == "openai"` and `Type == "native"` are restored verbatim from their `definition` text.
+     - Native tools (`Type == "native"`) are restored verbatim from their `definition` text onto top-level `tools[]`. Native tools MUST NOT be swallowed into reconstructed containers even if their names share a prefix with a container.
      - Ordinary and custom tools:
-       - If consecutive tools share a container `NativeAnnotation` or a dotted prefix `<prefix>.<subname>`, they are grouped into a container object `{"type": "<container_type>", "name": "<prefix>", "tools": [...]}` where child names are stripped of the prefix. If no container annotation is present, dotted names default to `type: "namespace"`.
+       - Consecutive tools sharing a container `NativeAnnotation` path or dotted prefix `<prefix>.<subname>` are grouped into container objects reconstructing their path hierarchy and descriptions. If no container annotation is present, dotted names default to `type: "namespace"`.
        - Standalone tools without container prefix render as flat tool declarations.
        - Tools with `defer_loading: true` annotation render `"defer_loading": true`.
-     - For `function_call` and `custom_tool_call` items, if the tool name contains a dot (`<ns>.<subname>`) and corresponds to a grouped container or dotted declaration, the encoder renders `namespace: "<ns>"` and `name: "<subname>"`.
+     - For `function_call` and `custom_tool_call` items, if the tool name contains a dot (`<ns>.<subname>`), the encoder renders `namespace: "<ns>"` and `name: "<subname>"`.
      - `tool_choice` with a dotted name splits into `namespace` and `name` on encode when appropriate.
 
   5. Cross-face degradation:
      - When an IR request containing container tools is encoded to a face that does not support tool containers (such as Chat Completions or Anthropic Messages), the flattened tools remain available and callable under their flattened names; the dropped container hierarchy records a `degraded` loss per container (Path: `tools[i]`, Field: `type`, Reason: `degraded`, Detail: `tool container grouping was flattened into dotted tool names`).
+     - Tool `defer_loading: true` is natively supported by both Responses and Anthropic Messages, round-tripping losslessly between them; encoding to Chat Completions records a `degraded` loss per spec/15.
      - Native tools with `source: "openai"` sent to other faces record an `unsupported-semantic` loss and are omitted per spec/16.
 
 ## 8. Loss Catalog

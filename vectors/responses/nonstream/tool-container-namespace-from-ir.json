@@ -33,7 +33,7 @@
           {
             "source": "openai",
             "kind": "container",
-            "value": "\"namespace\"",
+            "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
             "omission": {
               "field": "type",
               "reason": "degraded",
@@ -51,6 +51,7 @@
       {
         "type": "namespace",
         "name": "editor",
+        "description": "Code editing tools",
         "tools": [
           {
             "type": "function",

@@ -1,0 +1,45 @@
+{
+  "name": "responses.nonstream.native-tool-numbers-from-ir",
+  "description": "IR native tool restores numeric parameters verbatim on Responses wire output.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search files."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "file_search",
+        "source": "openai",
+        "definition": "{\"type\":\"file_search\",\"vector_store_ids\":[\"vs_1\"],\"max_num_results\":2}"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "input": "Search files.",
+    "tools": [
+      {
+        "type": "file_search",
+        "vector_store_ids": ["vs_1"],
+        "max_num_results": 2
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "native", "numbers", "N-R-15", "n-nt-1", "n-nt-5"]
+}

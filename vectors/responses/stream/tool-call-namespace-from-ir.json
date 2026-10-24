@@ -1,0 +1,32 @@
+{
+  "name": "responses.stream.tool-call-namespace-from-ir",
+  "description": "IR tool_use block with dotted name encodes to streaming function_call item splitting namespace and name.",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "resp_ns2", "model": "gpt-5.5" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "tool_use", "id": "call_ns2", "name": "repo.read", "input": "{\"path\": \"file.txt\"}" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"path\": \"file.txt\"}" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 10, "output_tokens": 6 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_ns2", "object": "response", "status": "in_progress", "model": "gpt-5.5", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "function_call", "id": "fc_abc123", "call_id": "call_ns2", "name": "read", "namespace": "repo", "status": "in_progress" } },
+      { "type": "response.function_call_arguments.delta", "item_id": "fc_abc123", "output_index": 0, "delta": "{\"path\": \"file.txt\"}" },
+      { "type": "response.function_call_arguments.done", "item_id": "fc_abc123", "output_index": 0, "call_id": "call_ns2", "name": "read", "arguments": "{\"path\": \"file.txt\"}" },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "function_call", "id": "fc_abc123", "call_id": "call_ns2", "name": "read", "namespace": "repo", "status": "completed", "arguments": "{\"path\": \"file.txt\"}" } },
+      { "type": "response.completed", "response": { "id": "resp_ns2", "object": "response", "status": "completed", "model": "gpt-5.5", "output": [ { "type": "function_call", "id": "fc_abc123", "call_id": "call_ns2", "name": "read", "namespace": "repo", "status": "completed", "arguments": "{\"path\": \"file.txt\"}" } ], "usage": { "input_tokens": 10, "output_tokens": 6, "total_tokens": 16 } } }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "namespace", "N-R-15"]
+}

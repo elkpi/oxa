@@ -22,7 +22,7 @@
           {
             "source": "openai",
             "kind": "container",
-            "value": "\"toolbox\"",
+            "value": "{\"path\":[{\"type\":\"toolbox\",\"name\":\"repo\"}]}",
             "omission": {
               "field": "type",
               "reason": "degraded",

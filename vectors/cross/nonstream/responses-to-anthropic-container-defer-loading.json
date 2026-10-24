@@ -1,0 +1,67 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-container-defer-loading",
+  "description": "Responses request with container and defer_loading converts to Anthropic with degraded container loss and preserved defer_loading.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": "Call CRM tool.",
+    "max_output_tokens": 4096,
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "crm",
+        "description": "CRM tools",
+        "tools": [
+          {
+            "type": "function",
+            "name": "lookup",
+            "description": "Lookup entity",
+            "parameters": {
+              "type": "object"
+            },
+            "defer_loading": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Call CRM tool."
+      }
+    ],
+    "tools": [
+      {
+        "name": "crm.lookup",
+        "description": "Lookup entity",
+        "input_schema": {
+          "type": "object"
+        },
+        "defer_loading": true
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tools[0].native[0]",
+      "field": "type",
+      "reason": "degraded",
+      "detail": "tool container grouping was flattened into dotted tool names"
+    }
+  ],
+  "tags": [
+    "cross",
+    "request",
+    "container",
+    "defer_loading",
+    "N-R-15"
+  ]
+}

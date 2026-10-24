@@ -1,0 +1,120 @@
+{
+  "name": "anthropic.nonstream.native-tool-eager-input-streaming-to-ir",
+  "description": "Tool eager_input_streaming true and false are preserved distinctly as native annotations without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Run tools."
+      }
+    ],
+    "tools": [
+      {
+        "name": "make_file",
+        "description": "Create a file",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string" }
+          },
+          "required": ["content"]
+        },
+        "eager_input_streaming": true
+      },
+      {
+        "name": "buffered_tool",
+        "description": "Standard buffered tool",
+        "input_schema": {
+          "type": "object"
+        },
+        "eager_input_streaming": false
+      },
+      {
+        "name": "default_tool",
+        "description": "Omitted field tool",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Run tools."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "make_file",
+        "description": "Create a file",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string" }
+          },
+          "required": ["content"]
+        },
+        "native": [
+          {
+            "source": "anthropic",
+            "kind": "eager_input_streaming",
+            "value": "true",
+            "omission": {
+              "field": "eager_input_streaming",
+              "reason": "degraded",
+              "detail": "target does not preserve eager tool input streaming semantics"
+            }
+          }
+        ]
+      },
+      {
+        "name": "buffered_tool",
+        "description": "Standard buffered tool",
+        "input_schema": {
+          "type": "object"
+        },
+        "native": [
+          {
+            "source": "anthropic",
+            "kind": "eager_input_streaming",
+            "value": "false"
+          }
+        ]
+      },
+      {
+        "name": "default_tool",
+        "description": "Omitted field tool",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "tools",
+    "eager-streaming",
+    "native"
+  ]
+}

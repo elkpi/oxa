@@ -1,0 +1,52 @@
+{
+  "name": "chatcompletions.nonstream.max-completion-tokens-to-ir",
+  "description": "max_completion_tokens maps to IR params.max_tokens and preserves spelling annotation without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "max_completion_tokens": 1024
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    },
+    "native": [
+      {
+        "source": "openai",
+        "kind": "max_completion_tokens",
+        "value": "true"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "params",
+    "request",
+    "chatcompletions",
+    "native"
+  ]
+}

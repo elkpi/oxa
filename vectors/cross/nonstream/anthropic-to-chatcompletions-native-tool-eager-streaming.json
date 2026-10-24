@@ -1,0 +1,114 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-native-tool-eager-streaming",
+  "description": "Cross encoding to Chat Completions reports degraded loss for eager_input_streaming true, zero loss for false and omitted.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Run tools."
+      }
+    ],
+    "tools": [
+      {
+        "name": "make_file",
+        "description": "Create a file",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "content": { "type": "string" }
+          },
+          "required": ["content"]
+        },
+        "eager_input_streaming": true
+      },
+      {
+        "name": "buffered_tool",
+        "description": "Standard buffered tool",
+        "input_schema": {
+          "type": "object"
+        },
+        "eager_input_streaming": false
+      },
+      {
+        "name": "default_tool",
+        "description": "Omitted field tool",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Run tools."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "make_file",
+          "description": "Create a file",
+          "parameters": {
+            "type": "object",
+            "properties": {
+              "content": { "type": "string" }
+            },
+            "required": ["content"]
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "buffered_tool",
+          "description": "Standard buffered tool",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "default_tool",
+          "description": "Omitted field tool",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tools[0].native[0]",
+      "field": "eager_input_streaming",
+      "reason": "degraded",
+      "detail": "target does not preserve eager tool input streaming semantics"
+    }
+  ],
+  "tags": [
+    "cross",
+    "request",
+    "tools",
+    "eager-streaming",
+    "native",
+    "loss"
+  ]
+}

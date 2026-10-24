@@ -2200,6 +2200,19 @@
       "sha256": "f5367e0ce54d925add9afb635f5532195bc22dfe7079f7965cf54b7d2331b4e1"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-native-tool",
+      "file": "cross/nonstream/responses-to-anthropic-native-tool.json",
+      "tags": [
+        "cross",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-3",
+        "n-nt-5"
+      ],
+      "sha256": "d4665a6ee90d64be655d65bd753be5abd55e403fabaa6879a35e513be9b63aea"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-request",
       "file": "cross/nonstream/responses-to-anthropic-request.json",
       "tags": [
@@ -2268,6 +2281,18 @@
         "usage"
       ],
       "sha256": "efab1e18a40333def1296fc9d0bbac4d36fa91fc3c2426819919c8c5e303ab98"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-tool-container",
+      "file": "cross/nonstream/responses-to-chatcompletions-tool-container.json",
+      "tags": [
+        "cross",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "2acfa4711b43cf37e6d1afb1a66073716c9951582247e7ac678aad71c3b3962c"
     },
     {
       "name": "responses.nonstream.annotations-loss-response-to-ir",
@@ -3348,6 +3373,32 @@
       "sha256": "15f53a8c601e840eac4d2d1ae04acbb9d9a32ee7f8341e3364665fab635c3612"
     },
     {
+      "name": "responses.nonstream.native-tool-web-search-from-ir",
+      "file": "responses/nonstream/native-tool-web-search-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "035ab650784cfcbf65f0bd26f8fa2b21d804effa5a3a301f2ecfa915521f1a02"
+    },
+    {
+      "name": "responses.nonstream.native-tool-web-search-to-ir",
+      "file": "responses/nonstream/native-tool-web-search-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "108033bd4df5590bd7b4b2b7c0104e1ed7ad2814c2a6ebe95a01db5224d4ce58"
+    },
+    {
       "name": "responses.nonstream.params-request-from-ir",
       "file": "responses/nonstream/params-request-from-ir.json",
       "tags": [
@@ -3618,6 +3669,17 @@
       "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "9aa458271263a424d1b5d83b2c717f2a2041e291c02cf09800d67da054cfe1a3"
+    },
+    {
       "name": "responses.nonstream.tool-choice-auto-from-ir",
       "file": "responses/nonstream/tool-choice-auto-from-ir.json",
       "tags": [
@@ -3678,6 +3740,78 @@
       "sha256": "39c159642d11eba5e1bc4b170c510c8b0813883b56893e27c7cc2fb233b64b5a"
     },
     {
+      "name": "responses.nonstream.tool-container-call-from-ir",
+      "file": "responses/nonstream/tool-container-call-from-ir.json",
+      "tags": [
+        "tools",
+        "conversation",
+        "function_call",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "0e00bfa2f53c9f3284137d0af97dccdbd67dc271c77ccf96ed8196500e2c3622"
+    },
+    {
+      "name": "responses.nonstream.tool-container-call-to-ir",
+      "file": "responses/nonstream/tool-container-call-to-ir.json",
+      "tags": [
+        "tools",
+        "conversation",
+        "function_call",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "b922cd3df481ccd051c09832a7adf2f7f3753a56cc27d74e9597b89177d202be"
+    },
+    {
+      "name": "responses.nonstream.tool-container-namespace-from-ir",
+      "file": "responses/nonstream/tool-container-namespace-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "61309dec57dc91406f9bbed728e7423e7ef34c0ea97934c9a2b9f40c3ebc5c6e"
+    },
+    {
+      "name": "responses.nonstream.tool-container-namespace-to-ir",
+      "file": "responses/nonstream/tool-container-namespace-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "3369a90853bae9127b3fabcafe431b36742e8185f1942056a62a43c97279c835"
+    },
+    {
+      "name": "responses.nonstream.tool-container-toolbox-from-ir",
+      "file": "responses/nonstream/tool-container-toolbox-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "toolbox",
+        "N-R-15"
+      ],
+      "sha256": "c7c89f076512c705eef89374ffb40067f89ad1722be55d12251be68579765227"
+    },
+    {
+      "name": "responses.nonstream.tool-container-toolbox-to-ir",
+      "file": "responses/nonstream/tool-container-toolbox-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "toolbox",
+        "N-R-15"
+      ],
+      "sha256": "9e565e975892268ee3f8f0b4d4e77a2d039acd548c1e1ac5b80d153232da26e9"
+    },
+    {
       "name": "responses.nonstream.tool-conversation-from-ir",
       "file": "responses/nonstream/tool-conversation-from-ir.json",
       "tags": [
@@ -3700,6 +3834,30 @@
         "N-R-6"
       ],
       "sha256": "224a9fdd7acb68bc952a2c468105c7ef8a303eb6808aed605ebb89aa582efccb"
+    },
+    {
+      "name": "responses.nonstream.tool-defer-loading-from-ir",
+      "file": "responses/nonstream/tool-defer-loading-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "defer_loading",
+        "N-R-15"
+      ],
+      "sha256": "226d5af2debdb6662d751d21d002ecc3fa66541cea4e72f235c0a5c571e4159c"
+    },
+    {
+      "name": "responses.nonstream.tool-defer-loading-to-ir",
+      "file": "responses/nonstream/tool-defer-loading-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "defer_loading",
+        "N-R-15"
+      ],
+      "sha256": "e1b45a742e2b28cd5e4b6f2165e742b8b679c8e8561596d0d959f5d6ee613a37"
     },
     {
       "name": "responses.nonstream.tool-response-from-ir",

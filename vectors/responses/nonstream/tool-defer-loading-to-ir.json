@@ -1,0 +1,61 @@
+{
+  "name": "responses.nonstream.tool-defer-loading-to-ir",
+  "description": "Responses tool defer_loading is preserved as native tool option without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": "Search data.",
+    "tools": [
+      {
+        "type": "function",
+        "name": "lookup",
+        "description": "Lookup entity",
+        "parameters": {
+          "type": "object"
+        },
+        "defer_loading": true
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search data."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "Lookup entity",
+        "input_schema": {
+          "type": "object"
+        },
+        "native": [
+          {
+            "source": "openai",
+            "kind": "defer_loading",
+            "value": "true",
+            "omission": {
+              "field": "defer_loading",
+              "reason": "degraded",
+              "detail": "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "native", "defer_loading", "N-R-15"]
+}

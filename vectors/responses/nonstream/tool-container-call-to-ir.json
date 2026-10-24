@@ -1,0 +1,75 @@
+{
+  "name": "responses.nonstream.tool-container-call-to-ir",
+  "description": "Responses function_call with namespace is normalized to dotted tool name in IR ToolUseBlock.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Read file."
+      },
+      {
+        "type": "function_call",
+        "id": "fc_001",
+        "call_id": "call_123",
+        "name": "read",
+        "namespace": "repo",
+        "arguments": "{\"path\":\"a.txt\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_123",
+        "output": "file content"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Read file."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_123",
+            "name": "repo.read",
+            "input": "{\"path\":\"a.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_123",
+            "content": [
+              {
+                "type": "text",
+                "text": "file content"
+              }
+            ],
+            "is_error": false
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "conversation", "function_call", "namespace", "N-R-15"]
+}

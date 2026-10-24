@@ -1,0 +1,43 @@
+{
+  "name": "responses.nonstream.native-tool-web-search-from-ir",
+  "description": "IR native tool with source openai restores verbatim definition to Responses wire tools.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Search web."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "web_search",
+        "source": "openai",
+        "definition": "{\"type\":\"web_search\"}"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "input": "Search web.",
+    "tools": [
+      {
+        "type": "web_search"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "native", "N-R-15", "n-nt-1", "n-nt-5"]
+}

@@ -473,10 +473,9 @@ fn parse_container_path(tool: &oxa_ir::Tool) -> Option<Vec<crate::decode::Contai
         if ann.source == "openai" && ann.kind == "container" {
             if let Ok(payload) =
                 serde_json::from_str::<crate::decode::ContainerPathPayload>(&ann.value)
+                && !payload.path.is_empty()
             {
-                if !payload.path.is_empty() {
-                    return Some(payload.path);
-                }
+                return Some(payload.path);
             }
             let single = ann.value.trim_matches('"');
             if !single.is_empty() {
@@ -593,7 +592,7 @@ fn build_nested_container(
     let mut k = 0;
     while k < tools.len() {
         let sub_path = parse_container_path(&tools[k]);
-        if sub_path.as_ref().map_or(0, |p| p.len()) < 2 {
+        if sub_path.as_ref().is_none_or(|p| p.len() < 2) {
             k += 1;
             continue;
         }
@@ -693,7 +692,7 @@ fn encode_responses_grouped_tools(
                 let next_path = parse_container_path(next_tool);
                 if next_path
                     .as_ref()
-                    .map_or(true, |p| p.is_empty() || &p[0].name != top_name)
+                    .is_none_or(|p| p.is_empty() || &p[0].name != top_name)
                 {
                     break;
                 }

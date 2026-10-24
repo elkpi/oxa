@@ -71,7 +71,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         losses.push(loss(
                             format!("tools[{index}].native[{t_ann_idx}]"),
                             &omission.field,
-                            omission.reason.clone(),
+                            omission.reason,
                             omission.detail.clone().unwrap_or_default(),
                         ));
                     } else {

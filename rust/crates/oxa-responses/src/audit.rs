@@ -167,19 +167,17 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
-    if name == "tool" {
-        if let Some(tool_type) = tag(&object, "type") {
-            if !tool_type.is_empty()
-                && tool_type != "function"
-                && tool_type != "custom"
-                && tool_type != "apply_patch"
-                && tool_type != "namespace"
-                && tool_type != "toolbox"
-                && is_responses_native_tool(&tool_type, &object)
-            {
-                return Ok(raw.get().to_string());
-            }
-        }
+    if name == "tool"
+        && let Some(tool_type) = tag(&object, "type")
+        && !tool_type.is_empty()
+        && tool_type != "function"
+        && tool_type != "custom"
+        && tool_type != "apply_patch"
+        && tool_type != "namespace"
+        && tool_type != "toolbox"
+        && is_responses_native_tool(&tool_type, &object)
+    {
+        return Ok(raw.get().to_string());
     }
     let Some(fields) = shape(name, &object) else {
         let mut out = String::from("{");

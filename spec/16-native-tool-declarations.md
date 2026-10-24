@@ -4,14 +4,9 @@
 
 ## 1. 范围
 
-Anthropic 的 Advisor、web search 等服务端工具和 bash、text editor 等协议内置客户端工具使用带 `type` 的声明，不要求用户提供 function `input_schema`。版本化 discriminator 不表示执行位置。OXA MUST 将支持范围内的此类声明表示为来源限定的原生工具，而不是伪装成 function 或令整个合法请求失败。
+Anthropic 的 Advisor、web search 等服务端工具和 bash、text editor 等协议内置客户端工具，以及 OpenAI Responses 的 web_search、file_search、code_interpreter、computer、mcp、tool_search 等平台原生/内置工具使用带 `type` 的声明，不要求用户提供 function `input_schema`。版本化 discriminator 不表示执行位置。OXA MUST 将支持范围内的此类声明表示为来源限定的原生工具，而不是伪装成 function 或令整个合法请求失败。
 
 本扩展仅覆盖请求的命名 `tools[]` 声明。它不新增 `server_tool_use`、`advisor_tool_result`、响应、流式或历史消息的映射，不处理 HTTP `anthropic-beta`，不执行工具、不校验模型支持。无 `name` 的 toolset 声明不在本版支持范围。
-
-参考：
-
-- <https://platform.claude.com/docs/en/agents-and-tools/tool-use/advisor-tool>
-- <https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-reference>
 
 ## 2. IR 变体 — N-NT-1
 
@@ -22,8 +17,8 @@ Anthropic 的 Advisor、web search 等服务端工具和 bash、text editor 等�
 ```
 
 - `type` MUST 为 `native`。
-- `name` 和 `source` MUST 为非空字符串。当前可恢复的来源为 `anthropic`；未知非空 source 可进入 IR，但编码时不得借用其他协议的同名工具。
-- `definition` MUST 为字符串，其文本 MUST 是合法 JSON 对象；其中 `type` MUST 为非空字符串且不是 `function` 或 `custom`，`name` MUST 为非空字符串且等于外层 `name`。空 discriminator、空 name、错误 JSON 类型、名称不一致均为结构错误。
+- `name` 和 `source` MUST 为非空字符串。当前可恢复的来源为 `anthropic` 与 `openai`（自 2.4.9 起）；未知非空 source 可进入 IR，但编码时不得借用其他协议的同名工具。
+- `definition` MUST 为字符串，其文本 MUST 是合法 JSON 对象；其中 `type` MUST 为非空字符串且不是 `function`、`custom` 或容器类型（如 `namespace`/`toolbox`）；若 payload 包含 `name`，外层 `name` MUST 等于该字段；若 payload 无 `name`（如 OpenAI 内置服务工具），外层 `name` 缺省等于 wire `type`。空 discriminator、空 name、错误 JSON 类型、名称不一致均为结构错误。
 - 此变体 MUST NOT 带 `description`、`input_schema`、`format` 或 `native`。原生声明的这些字段若存在于 provider payload，均只保存在 `definition` 内。
 - `source` 和 `definition` MUST NOT 出现在其他 Tool 变体上。
 - 此新增 union 变体不改变已有 function/custom/apply_patch 语义。消费方的穷尽匹配 MUST 增加 native 分支。
@@ -41,9 +36,15 @@ Anthropic 的 Advisor、web search 等服务端工具和 bash、text editor 等�
 - 不维护版本化工具白名单，不校验每种工具专属参数或模型兼容性；合法 JSON 声明的 provider 专属约束仍由调用方/目标 API 判断。
 - 编码回 Anthropic 时，仅恢复 source=anthropic 的 native 声明，完整保留 definition。恢复前必须验证 N-NT-1，不允许外层身份与 payload 冲突。
 
+### 3.1 OpenAI Responses 解码和回写 — N-NT-5（自 2.4.9）
+
+- `tools[i].type` 为非空字符串且不是 `function`、`custom`、`apply_patch`、`namespace` 或 `toolbox` 时，映射为 `Tool{type:native,name,source:openai,definition}`。若 wire 对象包含 `name` 则外层 name 取其值，否则外层 name 取 wire `type`。
+- 不维护版本化工具白名单；合法 JSON 声明的 provider 专属约束仍由调用方/目标 API 判断。
+- 编码回 Responses 时，仅恢复 `source=openai` 的 native 声明，完整保留 definition 原始文本并写回顶层 `tools[]`。恢复前验证 N-NT-1，不允许外层身份与 payload 冲突。
+
 ## 4. 目标能力缺口与损失 — N-NT-3
 
-当前 OpenAI Chat Completions、OpenAI Responses 不表示此来源限定声明，MUST 省略整个 native Tool，不得生成同名 function 或转换成目标协议的近似 builtin。Anthropic 对未知 source 同样省略。
+当前 OpenAI Chat Completions 不表示来源限定声明；Anthropic 与 Responses 分别仅表示来自自身来源（`source=anthropic` 或 `source=openai`）的原生声明，对于其他来源的原生声明 MUST 省略整个 native Tool，不得生成同名 function 或转换成目标协议的近似 builtin。
 
 每个被省略声明恰好一条损失，按输入 Tool 顺序：
 

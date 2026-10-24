@@ -5,6 +5,23 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.9 - 2026-10-24
+
+### Added
+
+- [11 — Mapping OpenAI Responses](11-mapping-openai-responses.md)：
+  - 新增 N-R-15 规范规则，支持层级工具容器（`namespace`、`toolbox`）递归平铺为点分工具名称，并通过原生注解保留容器来源以支持编码时高保真重组。
+  - 支持 `input[]` 中 `additional_tools` 声明项的解包并提升至请求顶层 `Tools`。
+  - 支持 `function_call` 与 `custom_tool_call` 的 `namespace` 属性解析、命名规范化与编码拆分。
+  - 支持 `tool_choice` 针对命名空间工具的解析与编码回写。
+  - 容器展开后的重名冲突、空容器、缺失或非法命名空间名称严格校验为结构错误。
+  - 跨面转换至不支持工具容器的协议（Chat Completions、Anthropic）时，记录容器层级降级 `degraded` 损失。
+- [15 — Native Request Options](15-native-request-options.md)：
+  - 明确 Responses 协议原生支持 `defer_loading`（仅限 `true`），支持双向无损回转；仅在跨面至 Chat Completions 时产生 `degraded` 遗漏损失。
+- [16 — Native Tool Declarations](16-native-tool-declarations.md)：
+  - 扩展原生工具声明来源至 `openai`（N-NT-5），覆盖 Responses `tools[]` 中的 `web_search`、`file_search`、`code_interpreter`、`computer`、`mcp`、`tool_search` 等平台原生/内置工具声明。
+  - 原始声明 JSON 文本严格保真，同源无损回转，跨源省略并记录 `unsupported-semantic` 损失。
+
 ## 2.4.8 - 2026-10-23
 
 ### Added

@@ -47,24 +47,27 @@ The wire objects in scope are:
   `metadata`, and the unsupported `text` (`verbosity`, `format`),
   `reasoning`, `parallel_tool_calls`. Responses has NO stop-sequences
   parameter.
+- **Tool**: flat `type: "function"` with `name`, `description`,
+  `parameters` (JSON Schema), `strict`; container types (`type: "namespace"`, `type: "toolbox"`)
+  with `name`, optional `description`, and `tools[]`; or native tool declarations
+  (e.g. `web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`).
+  Tools may carry `"defer_loading": true` (N-R-15).
 - **InputItem**: a message item (`type` absent or `"message"`, `role`
   `system` | `developer` | `user` | `assistant`, `content` string or parts array), a
-  `function_call` item (`call_id`, `name`, `arguments`), a
-  `function_call_output` item (`call_id`, `output`), a `reasoning` item
-  (`summary[]` text parts), or an unknown type.
+  `function_call` item (`call_id`, `name`, optional `namespace`, `arguments`), a
+  `function_call_output` item (`call_id`, `output`), an `additional_tools` item
+  (`tools[]`), a `reasoning` item (`summary[]` text parts), or an unknown type.
 - **ContentPart**: `type` (`input_text` | `output_text` | `input_image`),
   `text`, `image_url` (a plain https or `data:` URL string, unlike the
   Chat Completions object form).
-- **Tool**: flat `type: "function"` with `name`, `description`,
-  `parameters` (JSON Schema), `strict`.
 - **Response**: `id`, `object`, `status` (`completed` | `incomplete` |
   `failed`), `model`, `output[]`, `usage` (`input_tokens`,
   `output_tokens`, `total_tokens`), `incomplete_details.reason`, `error`.
 - **OutputItem**: `type` (`message` | `function_call` | `reasoning`),
   `id`, `status`, `role`, `content[]` (`output_text` parts with
-  `annotations`), `call_id`, `name`, `arguments`.
+  `annotations`), `call_id`, `name`, optional `namespace`, `arguments`.
 
-来源限定的 `Tool[type=native]` 及指向它的 named choice 不映射为 Responses function/custom 或同名 builtin，按 [spec/16](16-native-tool-declarations.md) 逐声明省略并记录 `unsupported-semantic` loss。
+来源限定的 `Tool[type=native]`：若 `source == "openai"`，在 Responses 编码时原样保真恢复其原始声明文本；若来源非 `openai`（如 `anthropic`）及指向其的 named choice，不映射为 Responses 工具，按 [spec/16](16-native-tool-declarations.md) 逐声明省略并记录 `unsupported-semantic` loss。
 
 ## 3. Request Field Mapping (RE → IR / IR → RE)
 
@@ -79,7 +82,11 @@ The wire objects in scope are:
 | `input[type=function_call_output]` (consecutive run) | one user message of `ToolResultBlock`s | N-R-6 |
 | `input[type=reasoning].summary[]` | assistant `ThinkingBlock`s | N-R-13; accepts `summary_text` and legacy `output_text` in encounter order |
 | `tools[].{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | flat form; schema bytes carried verbatim (INV-1) |
-| `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; `{type:"function",name}` ⇄ mode `tool`) | N-R-9 |
+| `tools[type=namespace/toolbox]` | `Tools[]` | flattened with `<name>.` prefix; container preserved in native annotation (N-R-15) |
+| `tools[type=web_search/...]` | `Tools[]` (`type: "native"`) | source="openai", definition verbatim (N-R-15, spec/16) |
+| `tools[].defer_loading` | `Tools[].Native` (`kind: "defer_loading"`) | 1:1 round-trip loss-free (N-R-15, spec/15) |
+| `input[type=additional_tools]` | `Tools[]` | hoisted to request Tools (N-R-15) |
+| `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; `{type:"function",name}` ⇄ mode `tool`) | N-R-9; namespace split/join (N-R-15) |
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_output_tokens` | `Params.MaxTokens` | name mapping only; loss-free both directions (N-R-7) |
@@ -290,6 +297,43 @@ Each rule has a stable ID usable as a vector tag.
   `type: "json_object"` maps to json_object variant; `type: "json_schema"`
   maps to json_schema variant (`name`, `description`, `schema`, `strict`).
   On encode, IR `ResponseFormat` renders into request `text.format`.
+- **N-R-15 (tool containers, namespacing, and native declarations).** (Since 2.4.9).
+  Responses supports hierarchical tool containers (`namespace`, `toolbox`), dynamic tool injection items (`additional_tools`), deferred tool loading (`defer_loading`), and OpenAI native tool declarations (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.).
+
+  1. Container decoding:
+     - When `tools[]` contains an item with `type: "namespace"` or `type: "toolbox"`:
+       - `name` MUST be a non-empty string. An absent, non-string, or empty `name`, or a name starting/ending with `.` or containing consecutive `..`, is a structural error.
+       - `tools` MUST be a non-empty array of tool declarations. Missing, non-array, or empty `tools` is a structural error.
+       - Child declarations are recursively flattened into `req.Tools`.
+       - For each child declaration, if its name $C$ does not already begin with `<name>.`, its flattened name becomes `<name>.<C>`.
+       - Flattening MUST NOT produce duplicate tool names across the request. Duplicate tool names are structural errors.
+       - Each flattened child tool records a `NativeAnnotation{Source: "openai", Kind: "container", Value: "<container_type>"}` and `NativeAnnotation{Source: "openai", Kind: "namespace", Value: "\"<name>\""}`.
+       - A child tool with `defer_loading: true` retains `NativeAnnotation{Kind: "defer_loading", Value: "true"}` (per spec/15).
+     - When `input[]` contains an item with `type: "additional_tools"`:
+       - `tools` MUST be a non-empty array. Missing, non-array, or empty `tools` is a structural error.
+       - The child tools are recursively flattened and hoisted to `req.Tools` at request level.
+
+  2. Calling and choice mapping:
+     - An `input` or `output` item with `type: "function_call"` or `type: "custom_tool_call"` may carry an optional `namespace` string.
+     - On decode, if `namespace` is present and non-empty, and `name` does not start with `<namespace>.`, the IR tool use block name is normalized to `<namespace>.<name>`.
+     - In `tool_choice`, a named choice `{type: "function"|"custom", name, namespace?}` or dotted `name` maps to `ToolChoice{Mode: "tool", Name: "<namespace>.<name>", ToolType: ...}`.
+
+  3. OpenAI Native Tools:
+     - Any `tools[]` declaration with a recognized or provider-defined native tool type (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.) that is not `function`, `custom`, `apply_patch`, `namespace`, or `toolbox` decodes to `Tool{Type: "native", Name: tool.Type, Source: "openai", Definition: <raw JSON object text>}` per spec/16. If the wire object contains `name`, outer `name` matches that `name`; otherwise outer `name` defaults to wire `type`.
+
+  4. Encoding (IR → RE):
+     - All tools in `req.Tools` render in the request top-level `tools[]`.
+     - Tools with `Source == "openai"` and `Type == "native"` are restored verbatim from their `definition` text.
+     - Ordinary and custom tools:
+       - If consecutive tools share a container `NativeAnnotation` or a dotted prefix `<prefix>.<subname>`, they are grouped into a container object `{"type": "<container_type>", "name": "<prefix>", "tools": [...]}` where child names are stripped of the prefix. If no container annotation is present, dotted names default to `type: "namespace"`.
+       - Standalone tools without container prefix render as flat tool declarations.
+       - Tools with `defer_loading: true` annotation render `"defer_loading": true`.
+     - For `function_call` and `custom_tool_call` items, if the tool name contains a dot (`<ns>.<subname>`) and corresponds to a grouped container or dotted declaration, the encoder renders `namespace: "<ns>"` and `name: "<subname>"`.
+     - `tool_choice` with a dotted name splits into `namespace` and `name` on encode when appropriate.
+
+  5. Cross-face degradation:
+     - When an IR request containing container tools is encoded to a face that does not support tool containers (such as Chat Completions or Anthropic Messages), the flattened tools remain available and callable under their flattened names; the dropped container hierarchy records a `degraded` loss per container (Path: `tools[i]`, Field: `type`, Reason: `degraded`, Detail: `tool container grouping was flattened into dotted tool names`).
+     - Native tools with `source: "openai"` sent to other faces record an `unsupported-semantic` loss and are omitted per spec/16.
 
 ## 8. Loss Catalog
 

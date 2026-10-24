@@ -221,6 +221,7 @@ pub struct ToolDef {
     pub defer_loading: Option<bool>,
     pub tools: Option<Vec<Value>>,
     pub raw: Option<Value>,
+    pub raw_definition: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -282,9 +283,10 @@ impl<'de> Deserialize<'de> for ToolDef {
     where
         D: serde::Deserializer<'de>,
     {
-        let val = Value::deserialize(deserializer)?;
-        let wire: ToolDefWire =
-            serde_json::from_value(val.clone()).map_err(serde::de::Error::custom)?;
+        let raw_val: Box<serde_json::value::RawValue> = Box::deserialize(deserializer)?;
+        let raw_str = raw_val.get();
+        let val: Value = serde_json::from_str(raw_str).map_err(serde::de::Error::custom)?;
+        let wire: ToolDefWire = serde_json::from_str(raw_str).map_err(serde::de::Error::custom)?;
         Ok(ToolDef {
             kind: wire.kind,
             name: wire.name,
@@ -295,6 +297,7 @@ impl<'de> Deserialize<'de> for ToolDef {
             defer_loading: wire.defer_loading,
             tools: wire.tools,
             raw: Some(val),
+            raw_definition: Some(raw_str.to_string()),
         })
     }
 }
@@ -500,6 +503,8 @@ pub struct StreamEvent {
     pub call_id: Option<String>,
     #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    #[serde(rename = "namespace", skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
     #[serde(rename = "arguments", skip_serializing_if = "Option::is_none")]
     pub arguments: Option<String>,
     #[serde(rename = "input", skip_serializing_if = "Option::is_none")]

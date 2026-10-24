@@ -63,6 +63,27 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(tools) = &req.tools {
         let mut wire_tools = Vec::with_capacity(tools.len());
         for (index, tool) in tools.iter().enumerate() {
+            for (t_ann_idx, ann) in tool.native.iter().enumerate() {
+                if ann.source != oxa_ir::NATIVE_SOURCE_ANTHROPIC
+                    && ann.kind != oxa_ir::NATIVE_KIND_DEFER_LOADING
+                {
+                    if let Some(omission) = &ann.omission {
+                        losses.push(loss(
+                            format!("tools[{index}].native[{t_ann_idx}]"),
+                            &omission.field,
+                            omission.reason.clone(),
+                            omission.detail.clone().unwrap_or_default(),
+                        ));
+                    } else {
+                        losses.push(loss(
+                            format!("tools[{index}].native[{t_ann_idx}]"),
+                            "source",
+                            LossReason::UnsupportedSemantic,
+                            format!("unsupported native option source {:?}", ann.source),
+                        ));
+                    }
+                }
+            }
             if tool.tool_type == Some(oxa_ir::ToolType::Native) {
                 let source = tool.source.as_deref().unwrap_or_default();
                 if source != oxa_ir::NATIVE_SOURCE_ANTHROPIC {

@@ -527,7 +527,7 @@ pub fn get_block_cache_control(native: &[NativeAnnotation]) -> Option<Value> {
 
 pub fn get_tool_defer_loading(native: &[NativeAnnotation]) -> Option<bool> {
     for n in native {
-        if n.source == NATIVE_SOURCE_ANTHROPIC
+        if (n.source == NATIVE_SOURCE_ANTHROPIC || n.source == "openai")
             && n.kind == oxa_ir::NATIVE_KIND_DEFER_LOADING
             && serde_json::from_str::<bool>(&n.value).ok() == Some(true)
         {

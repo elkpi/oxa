@@ -468,6 +468,173 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     ))
 }
 
+fn parse_container_path(tool: &oxa_ir::Tool) -> Option<Vec<crate::decode::ContainerEntry>> {
+    for ann in &tool.native {
+        if ann.source == "openai" && ann.kind == "container" {
+            if let Ok(payload) =
+                serde_json::from_str::<crate::decode::ContainerPathPayload>(&ann.value)
+            {
+                if !payload.path.is_empty() {
+                    return Some(payload.path);
+                }
+            }
+            let single = ann.value.trim_matches('"');
+            if !single.is_empty() {
+                let dot_idx = tool.name.find('.');
+                let name = if let Some(idx) = dot_idx {
+                    tool.name[..idx].to_string()
+                } else {
+                    tool.name.clone()
+                };
+                return Some(vec![crate::decode::ContainerEntry {
+                    r#type: single.to_string(),
+                    name,
+                    description: None,
+                }]);
+            }
+        }
+    }
+    None
+}
+
+fn build_nested_container(
+    path_stack: &[crate::decode::ContainerEntry],
+    tools: &[oxa_ir::Tool],
+) -> Result<ToolDef, Error> {
+    if path_stack.is_empty() {
+        return Err(Error::new("empty path_stack"));
+    }
+    let curr = &path_stack[0];
+    if path_stack.len() == 1 {
+        let mut child_tools = Vec::new();
+        for sub_tool in tools {
+            let last_dot = sub_tool.name.rfind('.');
+            let stripped_name = if let Some(idx) = last_dot {
+                &sub_tool.name[idx + 1..]
+            } else {
+                &sub_tool.name
+            };
+            let has_defer = sub_tool
+                .native
+                .iter()
+                .any(|ann| ann.kind == "defer_loading" && ann.value == "true");
+
+            if sub_tool.tool_type == Some(ToolType::Custom) {
+                let fmt_val = match &sub_tool.format {
+                    Some(f) => serde_json::to_value(f).ok(),
+                    None => None,
+                };
+                let mut m = serde_json::Map::new();
+                m.insert(
+                    "type".into(),
+                    serde_json::Value::String(TOOL_TYPE_CUSTOM.into()),
+                );
+                m.insert(
+                    "name".into(),
+                    serde_json::Value::String(stripped_name.into()),
+                );
+                if let Some(ref d) = sub_tool.description {
+                    m.insert("description".into(), serde_json::Value::String(d.clone()));
+                }
+                if let Some(f) = fmt_val {
+                    m.insert("format".into(), f);
+                }
+                if has_defer {
+                    m.insert("defer_loading".into(), serde_json::Value::Bool(true));
+                }
+                child_tools.push(serde_json::Value::Object(m));
+            } else {
+                let mut m = serde_json::Map::new();
+                m.insert(
+                    "type".into(),
+                    serde_json::Value::String(TOOL_TYPE_FUNCTION.into()),
+                );
+                m.insert(
+                    "name".into(),
+                    serde_json::Value::String(stripped_name.into()),
+                );
+                if let Some(ref d) = sub_tool.description {
+                    m.insert("description".into(), serde_json::Value::String(d.clone()));
+                }
+                if let Some(ref p) = sub_tool.input_schema {
+                    m.insert("parameters".into(), p.clone());
+                }
+                if has_defer {
+                    m.insert("defer_loading".into(), serde_json::Value::Bool(true));
+                }
+                child_tools.push(serde_json::Value::Object(m));
+            }
+        }
+        let mut obj = serde_json::Map::new();
+        obj.insert(
+            "type".into(),
+            serde_json::Value::String(curr.r#type.clone()),
+        );
+        obj.insert("name".into(), serde_json::Value::String(curr.name.clone()));
+        if let Some(ref d) = curr.description {
+            obj.insert("description".into(), serde_json::Value::String(d.clone()));
+        }
+        obj.insert(
+            "tools".into(),
+            serde_json::Value::Array(child_tools.clone()),
+        );
+        return Ok(ToolDef {
+            kind: curr.r#type.clone(),
+            name: curr.name.clone(),
+            description: curr.description.clone().unwrap_or_default(),
+            tools: Some(child_tools),
+            raw: Some(serde_json::Value::Object(obj)),
+            ..ToolDef::default()
+        });
+    }
+
+    // Multi-level
+    let mut child_tools = Vec::new();
+    let mut k = 0;
+    while k < tools.len() {
+        let sub_path = parse_container_path(&tools[k]);
+        if sub_path.as_ref().map_or(0, |p| p.len()) < 2 {
+            k += 1;
+            continue;
+        }
+        let next_name = sub_path.as_ref().unwrap()[1].name.clone();
+        let mut m = k;
+        while m < tools.len() {
+            let p = parse_container_path(&tools[m]);
+            if p.as_ref().map_or(0, |p| p.len()) < 2 || p.as_ref().unwrap()[1].name != next_name {
+                break;
+            }
+            m += 1;
+        }
+        let nested_def = build_nested_container(&path_stack[1..], &tools[k..m])?;
+        if let Some(raw) = nested_def.raw {
+            child_tools.push(raw);
+        }
+        k = m;
+    }
+    let mut obj = serde_json::Map::new();
+    obj.insert(
+        "type".into(),
+        serde_json::Value::String(curr.r#type.clone()),
+    );
+    obj.insert("name".into(), serde_json::Value::String(curr.name.clone()));
+    if let Some(ref d) = curr.description {
+        obj.insert("description".into(), serde_json::Value::String(d.clone()));
+    }
+    obj.insert(
+        "tools".into(),
+        serde_json::Value::Array(child_tools.clone()),
+    );
+    Ok(ToolDef {
+        kind: curr.r#type.clone(),
+        name: curr.name.clone(),
+        description: curr.description.clone().unwrap_or_default(),
+        tools: Some(child_tools),
+        raw: Some(serde_json::Value::Object(obj)),
+        ..ToolDef::default()
+    })
+}
+
 fn encode_responses_grouped_tools(
     tools: &[oxa_ir::Tool],
     losses: &mut Vec<Loss>,
@@ -492,7 +659,10 @@ fn encode_responses_grouped_tools(
                     format!("tools[{i}]"),
                     "type",
                     LossReason::UnsupportedSemantic,
-                    format!("native tool \"{}\" from \"{source}\" cannot be represented by the target protocol", tool.name),
+                    format!(
+                        "native tool \"{}\" from \"{source}\" cannot be represented by the target protocol",
+                        tool.name
+                    ),
                 ));
             }
             i += 1;
@@ -508,88 +678,51 @@ fn encode_responses_grouped_tools(
             continue;
         }
 
-        let mut container_kind = String::new();
-        for ann in &tool.native {
-            if ann.source == "openai" && ann.kind == "container" {
-                let raw_val = &ann.value;
-                if let Ok(s) = serde_json::from_str::<String>(raw_val) {
-                    container_kind = s;
-                } else {
-                    container_kind = raw_val.trim_matches('"').to_string();
-                }
-                break;
-            }
-        }
-
+        let container_path = parse_container_path(tool);
         let dot_idx = tool.name.find('.');
-        if let Some(idx) = dot_idx {
-            let prefix = &tool.name[..idx];
-            if container_kind.is_empty() {
-                container_kind = "namespace".to_string();
-            }
-            let mut child_tools = Vec::new();
+        if let Some(ref path_entries) = container_path {
+            let top_name = &path_entries[0].name;
             let mut j = i;
-            while j < tools.len() && tools[j].name.starts_with(&format!("{prefix}.")) {
-                let sub_tool = &tools[j];
-                let stripped_name = &sub_tool.name[prefix.len() + 1..];
-                let has_defer = sub_tool
-                    .native
-                    .iter()
-                    .any(|ann| ann.kind == "defer_loading" && ann.value == "true");
-
-                if sub_tool.tool_type == Some(ToolType::Custom) {
-                    let fmt_val = match &sub_tool.format {
-                        Some(f) => serde_json::to_value(f).ok(),
-                        None => None,
-                    };
-                    let mut m = serde_json::Map::new();
-                    m.insert(
-                        "type".into(),
-                        serde_json::Value::String(TOOL_TYPE_CUSTOM.into()),
-                    );
-                    m.insert(
-                        "name".into(),
-                        serde_json::Value::String(stripped_name.into()),
-                    );
-                    if let Some(ref d) = sub_tool.description {
-                        m.insert("description".into(), serde_json::Value::String(d.clone()));
-                    }
-                    if let Some(f) = fmt_val {
-                        m.insert("format".into(), f);
-                    }
-                    if has_defer {
-                        m.insert("defer_loading".into(), serde_json::Value::Bool(true));
-                    }
-                    child_tools.push(serde_json::Value::Object(m));
-                } else {
-                    let mut m = serde_json::Map::new();
-                    m.insert(
-                        "type".into(),
-                        serde_json::Value::String(TOOL_TYPE_FUNCTION.into()),
-                    );
-                    m.insert(
-                        "name".into(),
-                        serde_json::Value::String(stripped_name.into()),
-                    );
-                    if let Some(ref d) = sub_tool.description {
-                        m.insert("description".into(), serde_json::Value::String(d.clone()));
-                    }
-                    if let Some(ref p) = sub_tool.input_schema {
-                        m.insert("parameters".into(), p.clone());
-                    }
-                    if has_defer {
-                        m.insert("defer_loading".into(), serde_json::Value::Bool(true));
-                    }
-                    child_tools.push(serde_json::Value::Object(m));
+            while j < tools.len() {
+                let next_tool = &tools[j];
+                if next_tool.tool_type == Some(ToolType::Native)
+                    || next_tool.tool_type == Some(ToolType::ApplyPatch)
+                {
+                    break;
+                }
+                let next_path = parse_container_path(next_tool);
+                if next_path
+                    .as_ref()
+                    .map_or(true, |p| p.is_empty() || &p[0].name != top_name)
+                {
+                    break;
                 }
                 j += 1;
             }
-            out.push(ToolDef {
-                kind: container_kind,
+            out.push(build_nested_container(path_entries, &tools[i..j])?);
+            i = j;
+            continue;
+        } else if let Some(idx) = dot_idx {
+            let prefix = &tool.name[..idx];
+            let mut j = i;
+            while j < tools.len() {
+                let next_tool = &tools[j];
+                if next_tool.tool_type == Some(ToolType::Native)
+                    || next_tool.tool_type == Some(ToolType::ApplyPatch)
+                {
+                    break;
+                }
+                if !next_tool.name.starts_with(&format!("{prefix}.")) {
+                    break;
+                }
+                j += 1;
+            }
+            let synthetic = vec![crate::decode::ContainerEntry {
+                r#type: "namespace".to_string(),
                 name: prefix.to_string(),
-                tools: Some(child_tools),
-                ..ToolDef::default()
-            });
+                description: None,
+            }];
+            out.push(build_nested_container(&synthetic, &tools[i..j])?);
             i = j;
             continue;
         }

@@ -167,6 +167,20 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "tool" {
+        if let Some(tool_type) = tag(&object, "type") {
+            if !tool_type.is_empty()
+                && tool_type != "function"
+                && tool_type != "custom"
+                && tool_type != "apply_patch"
+                && tool_type != "namespace"
+                && tool_type != "toolbox"
+                && is_responses_native_tool(&tool_type, &object)
+            {
+                return Ok(raw.get().to_string());
+            }
+        }
+    }
     let Some(fields) = shape(name, &object) else {
         let mut out = String::from("{");
         let mut first = true;
@@ -588,4 +602,35 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         ]),
         _ => None,
     }
+}
+
+pub(crate) fn is_known_openai_native_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        "web_search"
+            | "file_search"
+            | "code_interpreter"
+            | "computer"
+            | "computer_use_preview"
+            | "mcp"
+            | "tool_search"
+            | "image_generation"
+            | "local_shell"
+            | "shell"
+            | "programmatic_tool_calling"
+    ) || kind.starts_with("web_search_")
+        || kind.starts_with("file_search_")
+        || kind.starts_with("computer_")
+}
+
+fn is_responses_native_tool(tool_type: &str, object: &RawObject<'_>) -> bool {
+    let has_name = object
+        .0
+        .iter()
+        .any(|(k, v)| k == "name" && v.get() != "\"\"");
+    let has_server_label = object
+        .0
+        .iter()
+        .any(|(k, v)| k == "server_label" && v.get() != "\"\"");
+    has_name || has_server_label || is_known_openai_native_type(tool_type)
 }

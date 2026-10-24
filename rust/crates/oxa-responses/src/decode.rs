@@ -1,5 +1,7 @@
 //! Face → IR conversions (spec/11 §4).
 
+use serde::{Deserialize, Serialize};
+
 use oxa_ir::{
     Block, CustomToolFormat, CustomToolOutput, InputTokensDetails, Loss, LossReason,
     OutputTokensDetails, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
@@ -79,8 +81,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         let val = serde_json::to_value(tool).map_err(|e| Error::new(e.to_string()))?;
         tools.extend(decode_responses_tool_item(
             &val,
-            "",
-            "",
+            tool.raw_definition.as_deref(),
+            &[],
             &format!("tools[{index}]"),
             &mut seen_names,
             &mut losses,
@@ -200,8 +202,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         for (t_idx, t_entry) in item_tools.iter().enumerate() {
                             req_tools.extend(decode_responses_tool_item(
                                 t_entry,
-                                "",
-                                "",
+                                None,
+                                &[],
                                 &format!("input[{index}].tools[{t_idx}]"),
                                 &mut seen_names,
                                 &mut losses,
@@ -810,10 +812,49 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     ))
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContainerEntry {
+    pub r#type: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ContainerPathPayload {
+    pub path: Vec<ContainerEntry>,
+}
+
+fn compact_json(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut in_string = false;
+    let mut escape = false;
+    for ch in raw.chars() {
+        if in_string {
+            out.push(ch);
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+                out.push(ch);
+            } else if ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r' {
+                out.push(ch);
+            }
+        }
+    }
+    out
+}
+
 fn decode_responses_tool_item(
     value: &serde_json::Value,
-    prefix: &str,
-    container_type: &str,
+    raw_def: Option<&str>,
+    path_stack: &[ContainerEntry],
     path: &str,
     seen_names: &mut std::collections::HashSet<String>,
     losses: &mut Vec<Loss>,
@@ -843,17 +884,22 @@ fn decode_responses_tool_item(
                 "responses: {path}: {kind} requires non-empty tools array"
             )));
         }
-        let current_prefix = if prefix.is_empty() {
-            name.to_string()
-        } else {
-            format!("{prefix}.{name}")
-        };
+        let desc = obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let mut new_stack = path_stack.to_vec();
+        new_stack.push(ContainerEntry {
+            r#type: kind.to_string(),
+            name: name.to_string(),
+            description: desc,
+        });
         let mut out = Vec::new();
         for (idx, child) in tools_arr.iter().enumerate() {
             out.extend(decode_responses_tool_item(
                 child,
-                &current_prefix,
-                kind,
+                None,
+                &new_stack,
                 &format!("{path}.tools[{idx}]"),
                 seen_names,
                 losses,
@@ -861,6 +907,12 @@ fn decode_responses_tool_item(
         }
         return Ok(out);
     }
+
+    let prefix = path_stack
+        .iter()
+        .map(|e| e.name.as_str())
+        .collect::<Vec<_>>()
+        .join(".");
 
     if kind == crate::types::TOOL_TYPE_APPLY_PATCH {
         return Ok(vec![oxa_ir::Tool {
@@ -925,11 +977,15 @@ fn decode_responses_tool_item(
         }
 
         let mut native = Vec::new();
-        if !container_type.is_empty() {
+        if !path_stack.is_empty() {
+            let val = serde_json::to_string(&ContainerPathPayload {
+                path: path_stack.to_vec(),
+            })
+            .unwrap_or_default();
             native.push(oxa_ir::NativeAnnotation {
                 source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
                 kind: oxa_ir::NATIVE_KIND_CONTAINER.into(),
-                value: format!("\"{container_type}\""),
+                value: val,
                 omission: Some(oxa_ir::NativeOmission {
                     field: "type".into(),
                     reason: LossReason::Degraded,
@@ -940,18 +996,25 @@ fn decode_responses_tool_item(
                 projection: None,
             });
         }
-        if obj.get("defer_loading").and_then(|v| v.as_bool()) == Some(true) {
-            native.push(oxa_ir::NativeAnnotation {
-                source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
-                kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
-                value: "true".into(),
-                omission: Some(oxa_ir::NativeOmission {
-                    field: "defer_loading".into(),
-                    reason: LossReason::Degraded,
-                    detail: Some(oxa_ir::DEFER_LOADING_LOSS_DETAIL.into()),
-                }),
-                projection: None,
-            });
+        if let Some(dl_val) = obj.get("defer_loading") {
+            let Some(dl_bool) = dl_val.as_bool() else {
+                return Err(Error::new(format!(
+                    "responses: {path}.defer_loading must be a boolean"
+                )));
+            };
+            if dl_bool {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
+                    value: "true".into(),
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "defer_loading".into(),
+                        reason: LossReason::Degraded,
+                        detail: Some(oxa_ir::DEFER_LOADING_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
         }
 
         let desc = obj
@@ -999,11 +1062,15 @@ fn decode_responses_tool_item(
         }
 
         let mut native = Vec::new();
-        if !container_type.is_empty() {
+        if !path_stack.is_empty() {
+            let val = serde_json::to_string(&ContainerPathPayload {
+                path: path_stack.to_vec(),
+            })
+            .unwrap_or_default();
             native.push(oxa_ir::NativeAnnotation {
                 source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
                 kind: oxa_ir::NATIVE_KIND_CONTAINER.into(),
-                value: format!("\"{container_type}\""),
+                value: val,
                 omission: Some(oxa_ir::NativeOmission {
                     field: "type".into(),
                     reason: LossReason::Degraded,
@@ -1014,18 +1081,25 @@ fn decode_responses_tool_item(
                 projection: None,
             });
         }
-        if obj.get("defer_loading").and_then(|v| v.as_bool()) == Some(true) {
-            native.push(oxa_ir::NativeAnnotation {
-                source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
-                kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
-                value: "true".into(),
-                omission: Some(oxa_ir::NativeOmission {
-                    field: "defer_loading".into(),
-                    reason: LossReason::Degraded,
-                    detail: Some(oxa_ir::DEFER_LOADING_LOSS_DETAIL.into()),
-                }),
-                projection: None,
-            });
+        if let Some(dl_val) = obj.get("defer_loading") {
+            let Some(dl_bool) = dl_val.as_bool() else {
+                return Err(Error::new(format!(
+                    "responses: {path}.defer_loading must be a boolean"
+                )));
+            };
+            if dl_bool {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_DEFER_LOADING.into(),
+                    value: "true".into(),
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "defer_loading".into(),
+                        reason: LossReason::Degraded,
+                        detail: Some(oxa_ir::DEFER_LOADING_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
         }
 
         let desc = obj
@@ -1049,30 +1123,30 @@ fn decode_responses_tool_item(
         .get("name")
         .and_then(|v| v.as_str())
         .is_some_and(|s| !s.is_empty());
-    let is_known_native = matches!(
-        kind,
-        "web_search"
-            | "file_search"
-            | "code_interpreter"
-            | "computer"
-            | "computer_use_preview"
-            | "mcp"
-            | "tool_search"
-            | "image_generation"
-            | "local_shell"
-            | "shell"
-            | "web_search_preview"
-            | "programmatic_tool_calling"
-    );
+    let has_server_label = obj
+        .get("server_label")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
+    let is_known_native = crate::audit::is_known_openai_native_type(kind);
 
-    if has_name || is_known_native {
-        let tool_name = obj.get("name").and_then(|v| v.as_str()).unwrap_or(kind);
+    if has_name || has_server_label || is_known_native {
+        let tool_name = obj
+            .get("name")
+            .and_then(|v| v.as_str())
+            .or_else(|| obj.get("server_label").and_then(|v| v.as_str()))
+            .unwrap_or(kind);
         if seen_names.contains(tool_name) {
             return Err(Error::new(format!(
                 "responses: duplicate tool name {tool_name:?}"
             )));
         }
         seen_names.insert(tool_name.to_string());
+
+        let def_str = if let Some(raw) = raw_def {
+            compact_json(raw)
+        } else {
+            serde_json::to_string(value).unwrap_or_default()
+        };
 
         return Ok(vec![oxa_ir::Tool {
             tool_type: Some(ToolType::Native),
@@ -1082,7 +1156,7 @@ fn decode_responses_tool_item(
             format: None,
             native: Vec::new(),
             source: Some("openai".into()),
-            definition: Some(serde_json::to_string(value).unwrap_or_default()),
+            definition: Some(def_str),
         }]);
     }
 

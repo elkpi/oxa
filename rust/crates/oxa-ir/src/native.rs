@@ -490,6 +490,9 @@ fn append_omission_loss(
         if target == "responses" {
             return;
         }
+        if target == "anthropic" && ann.kind == NATIVE_KIND_DEFER_LOADING {
+            return;
+        }
         if let Some(ref om) = ann.omission {
             losses.push(Loss {
                 path: path.into(),

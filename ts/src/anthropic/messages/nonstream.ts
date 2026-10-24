@@ -487,6 +487,28 @@ export function encodeRequest(
           : encoded,
     };
   });
+  request.tools?.forEach((tool, i) => {
+    tool.native?.forEach((ann, tAnnIdx) => {
+      if (ann.source !== "anthropic" && ann.kind !== "defer_loading") {
+        if (ann.omission) {
+          losses.push({
+            path: `tools[${i}].native[${tAnnIdx}]`,
+            field: ann.omission.field,
+            reason: ann.omission.reason,
+            ...(ann.omission.detail ? { detail: ann.omission.detail } : {}),
+          });
+        } else {
+          losses.push({
+            path: `tools[${i}].native[${tAnnIdx}]`,
+            field: "source",
+            reason: "unsupported-semantic",
+            detail: `unsupported native option source "${ann.source}"`,
+          });
+        }
+      }
+    });
+  });
+
   const tools: JsonObject[] =
     request.tools?.flatMap<JsonObject>((tool, index) => {
       const cc = getBlockCacheControl(tool);

@@ -552,6 +552,9 @@ function appendOmissionLoss(
     if (target === "responses") {
       return;
     }
+    if (target === "anthropic" && ann.kind === NATIVE_KIND_DEFER_LOADING) {
+      return;
+    }
     if (ann.omission) {
       losses.push({
         path,

@@ -6,6 +6,8 @@ import {
   isJsonNumber,
   jsonText,
   parseJson,
+  sourceTextOf,
+  stringifyJson,
   type JsonObject,
   type JsonValue,
 } from "../../json/index.js";
@@ -103,8 +105,7 @@ function decodeRequestObject(
   for (const [index, entry] of optionalArray(wire.tools, "tools").entries()) {
     const decoded = decodeResponsesToolItem(
       entry,
-      "",
-      "",
+      [],
       `tools[${index}]`,
       seenNames,
       losses,
@@ -368,8 +369,7 @@ function decodeRequestObject(
         for (const [tIdx, tEntry] of itemTools.entries()) {
           const decoded = decodeResponsesToolItem(
             tEntry,
-            "",
-            "",
+            [],
             `input[${index}].tools[${tIdx}]`,
             seenNames,
             losses,
@@ -860,17 +860,31 @@ function decodeResponseObject(
         ...(outResult.output !== undefined ? { output: outResult.output } : {}),
       });
     } else if (item.type === "function_call") {
+      const rawName = nonEmptyString(item.name, `output[${index}].name`);
+      const ns =
+        typeof item.namespace === "string" && item.namespace
+          ? item.namespace
+          : "";
+      const finalName =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
       calls.push({
         type: "tool_use",
         id: nonEmptyString(item.call_id, `output[${index}].call_id`),
-        name: nonEmptyString(item.name, `output[${index}].name`),
+        name: finalName,
         input: jsonText(string(item.arguments, `output[${index}].arguments`)),
       });
     } else if (item.type === "custom_tool_call") {
+      const rawName = nonEmptyString(item.name, `output[${index}].name`);
+      const ns =
+        typeof item.namespace === "string" && item.namespace
+          ? item.namespace
+          : "";
+      const finalName =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
       calls.push({
         type: "custom_tool_use",
         id: nonEmptyString(item.call_id, `output[${index}].call_id`),
-        name: nonEmptyString(item.name, `output[${index}].name`),
+        name: finalName,
         input: string(item.input, `output[${index}].input`),
       });
     } else if (item.type === "custom_tool_call_output") {
@@ -1653,10 +1667,40 @@ function encodeToolChoice(
   return undefined;
 }
 
+interface ContainerEntry {
+  readonly type: string;
+  readonly name: string;
+  readonly description?: string;
+}
+
+function isKnownOpenAINativeType(type: string): boolean {
+  switch (type) {
+    case "web_search":
+    case "file_search":
+    case "code_interpreter":
+    case "computer":
+    case "computer_use_preview":
+    case "mcp":
+    case "tool_search":
+    case "image_generation":
+    case "local_shell":
+    case "shell":
+    case "programmatic_tool_calling":
+      return true;
+  }
+  if (
+    type.startsWith("web_search_") ||
+    type.startsWith("file_search_") ||
+    type.startsWith("computer_")
+  ) {
+    return true;
+  }
+  return false;
+}
+
 function decodeResponsesToolItem(
   entry: JsonValue,
-  prefix: string,
-  containerType: string,
+  pathStack: readonly ContainerEntry[],
   path: string,
   seenNames: Set<string>,
   losses: Loss[],
@@ -1678,18 +1722,30 @@ function decodeResponsesToolItem(
     if (tools.length === 0) {
       fail(`${path}: ${type} requires non-empty tools array`);
     }
-    const currentPrefix = prefix ? `${prefix}.${name}` : name;
+    const desc =
+      tool.description === undefined
+        ? undefined
+        : string(tool.description, `${path}.description`);
+    const newStack = [
+      ...pathStack,
+      {
+        type,
+        name,
+        ...(desc !== undefined ? { description: desc } : {}),
+      },
+    ];
     return tools.flatMap((child, idx) =>
       decodeResponsesToolItem(
         child,
-        currentPrefix,
-        type,
+        newStack,
         `${path}.tools[${idx}]`,
         seenNames,
         losses,
       ),
     );
   }
+
+  const prefix = pathStack.map((e) => e.name).join(".");
 
   if (type === "apply_patch") {
     return [{ type: "apply_patch" as const }];
@@ -1718,11 +1774,11 @@ function decodeResponsesToolItem(
 
     const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] =
       [];
-    if (containerType !== "") {
+    if (pathStack.length > 0) {
       nativeAnnotations.push({
         source: "openai",
         kind: "container",
-        value: JSON.stringify(containerType),
+        value: JSON.stringify({ path: pathStack }),
         omission: {
           field: "type",
           reason: "degraded",
@@ -1731,17 +1787,22 @@ function decodeResponsesToolItem(
         },
       });
     }
-    if (tool.defer_loading === true) {
-      nativeAnnotations.push({
-        source: "openai",
-        kind: "defer_loading",
-        value: "true",
-        omission: {
-          field: "defer_loading",
-          reason: "degraded",
-          detail: DEFER_LOADING_LOSS_DETAIL,
-        },
-      });
+    if (tool.defer_loading !== undefined) {
+      if (typeof tool.defer_loading !== "boolean") {
+        fail(`${path}.defer_loading must be a boolean`);
+      }
+      if (tool.defer_loading === true) {
+        nativeAnnotations.push({
+          source: "openai",
+          kind: "defer_loading",
+          value: "true",
+          omission: {
+            field: "defer_loading",
+            reason: "degraded",
+            detail: DEFER_LOADING_LOSS_DETAIL,
+          },
+        });
+      }
     }
 
     return [
@@ -1776,11 +1837,11 @@ function decodeResponsesToolItem(
 
     const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] =
       [];
-    if (containerType !== "") {
+    if (pathStack.length > 0) {
       nativeAnnotations.push({
         source: "openai",
         kind: "container",
-        value: JSON.stringify(containerType),
+        value: JSON.stringify({ path: pathStack }),
         omission: {
           field: "type",
           reason: "degraded",
@@ -1789,17 +1850,22 @@ function decodeResponsesToolItem(
         },
       });
     }
-    if (tool.defer_loading === true) {
-      nativeAnnotations.push({
-        source: "openai",
-        kind: "defer_loading",
-        value: "true",
-        omission: {
-          field: "defer_loading",
-          reason: "degraded",
-          detail: DEFER_LOADING_LOSS_DETAIL,
-        },
-      });
+    if (tool.defer_loading !== undefined) {
+      if (typeof tool.defer_loading !== "boolean") {
+        fail(`${path}.defer_loading must be a boolean`);
+      }
+      if (tool.defer_loading === true) {
+        nativeAnnotations.push({
+          source: "openai",
+          kind: "defer_loading",
+          value: "true",
+          omission: {
+            field: "defer_loading",
+            reason: "degraded",
+            detail: DEFER_LOADING_LOSS_DETAIL,
+          },
+        });
+      }
     }
 
     return [
@@ -1812,22 +1878,172 @@ function decodeResponsesToolItem(
     ];
   }
 
-  // Native tool declaration
-  const toolName =
-    typeof tool.name === "string" && tool.name ? tool.name : type;
+  // Native tool declaration or unsupported
+  const hasName = typeof tool.name === "string" && tool.name.length > 0;
+  const hasServerLabel =
+    typeof tool.server_label === "string" && tool.server_label.length > 0;
+  const isNative = hasName || hasServerLabel || isKnownOpenAINativeType(type);
+  if (!isNative) {
+    losses.push({
+      path,
+      field: "type",
+      reason: "unsupported-semantic",
+      detail: `Responses tool type "${type}" has no IR equivalent`,
+    });
+    return [];
+  }
+
+  const toolName = hasName
+    ? (tool.name as string)
+    : hasServerLabel
+      ? (tool.server_label as string)
+      : type;
   if (seenNames.has(toolName)) {
     fail(`responses: duplicate tool name "${toolName}"`);
   }
   seenNames.add(toolName);
+
+  const rawSource = sourceTextOf(tool as JsonObject);
+  const defRaw =
+    rawSource !== undefined ? rawSource : stringifyJson(tool as JsonValue);
+  const definition = compactJson(defRaw);
 
   return [
     {
       type: "native" as const,
       name: toolName,
       source: "openai",
-      definition: JSON.stringify(tool),
+      definition,
     },
   ];
+}
+
+function compactJson(raw: string): string {
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+    if (inString) {
+      out += ch;
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+    } else {
+      if (ch === '"') {
+        inString = true;
+        out += ch;
+      } else if (ch !== " " && ch !== "\t" && ch !== "\n" && ch !== "\r") {
+        out += ch;
+      }
+    }
+  }
+  return out;
+}
+
+function parseContainerPath(tool: Tool): ContainerEntry[] | undefined {
+  if (!tool.native) return undefined;
+  for (const ann of tool.native) {
+    if (ann.source === "openai" && ann.kind === "container") {
+      try {
+        const parsed = JSON.parse(ann.value);
+        if (parsed && Array.isArray(parsed.path) && parsed.path.length > 0) {
+          return parsed.path;
+        }
+      } catch {}
+      const single = ann.value.replace(/^"|"$/g, "");
+      if (single) {
+        const rawName = tool.name ?? "";
+        const dotIdx = rawName.indexOf(".");
+        const name = dotIdx > 0 ? rawName.slice(0, dotIdx) : rawName;
+        return [{ type: single, name }];
+      }
+    }
+  }
+  return undefined;
+}
+
+function buildNestedContainer(
+  pathStack: readonly ContainerEntry[],
+  tools: readonly Tool[],
+): JsonValue {
+  const curr = pathStack[0]!;
+  if (pathStack.length === 1) {
+    const childTools: JsonValue[] = [];
+    for (const subTool of tools) {
+      const rawName = subTool.name ?? "";
+      const lastDot = rawName.lastIndexOf(".");
+      const strippedName = lastDot >= 0 ? rawName.slice(lastDot + 1) : rawName;
+      const hasDefer = subTool.native?.some(
+        (ann) => ann.kind === "defer_loading" && ann.value === "true",
+      );
+      if (subTool.type === "custom") {
+        childTools.push({
+          type: "custom",
+          name: strippedName,
+          ...(subTool.description !== undefined
+            ? { description: subTool.description }
+            : {}),
+          ...(subTool.format !== undefined
+            ? { format: encodeCustomToolFormat(subTool.format) }
+            : {}),
+          ...(hasDefer ? { defer_loading: true } : {}),
+        });
+      } else {
+        childTools.push({
+          type: "function",
+          name: strippedName,
+          ...(subTool.description !== undefined
+            ? { description: subTool.description }
+            : {}),
+          parameters: (subTool as any).input_schema as JsonObject,
+          ...(hasDefer ? { defer_loading: true } : {}),
+        });
+      }
+    }
+    return {
+      type: curr.type,
+      name: curr.name,
+      ...(curr.description !== undefined
+        ? { description: curr.description }
+        : {}),
+      tools: childTools,
+    };
+  }
+
+  // Multi-level
+  const childTools: JsonValue[] = [];
+  let k = 0;
+  while (k < tools.length) {
+    const subPath = parseContainerPath(tools[k]!);
+    if (!subPath || subPath.length < 2) {
+      k++;
+      continue;
+    }
+    const nextName = subPath[1]!.name;
+    let m = k;
+    while (m < tools.length) {
+      const p = parseContainerPath(tools[m]!);
+      if (!p || p.length < 2 || p[1]!.name !== nextName) break;
+      m++;
+    }
+    childTools.push(
+      buildNestedContainer(pathStack.slice(1), tools.slice(k, m)),
+    );
+    k = m;
+  }
+  return {
+    type: curr.type,
+    name: curr.name,
+    ...(curr.description !== undefined
+      ? { description: curr.description }
+      : {}),
+    tools: childTools,
+  };
 }
 
 function encodeResponsesGroupedTools(
@@ -1840,7 +2056,7 @@ function encodeResponsesGroupedTools(
     const tool = tools[i]!;
     if (tool.type === "native") {
       if (tool.source === "openai") {
-        out.push(JSON.parse(tool.definition));
+        out.push(parseJson(tool.definition));
       } else {
         losses.push({
           path: `tools[${i}]`,
@@ -1859,71 +2075,39 @@ function encodeResponsesGroupedTools(
       continue;
     }
 
-    let containerKind = "";
-    if (tool.native) {
-      for (const ann of tool.native) {
-        if (ann.source === "openai" && ann.kind === "container") {
-          try {
-            containerKind = JSON.parse(ann.value);
-          } catch {
-            containerKind = ann.value.replace(/^"|"$/g, "");
-          }
-          break;
-        }
-      }
-    }
-
+    const containerPath = parseContainerPath(tool);
     const dotIdx = tool.name ? tool.name.indexOf(".") : -1;
-    if (dotIdx > 0 && tool.name) {
-      const prefix = tool.name.slice(0, dotIdx);
-      if (!containerKind) {
-        containerKind = "namespace";
-      }
-      const childTools: JsonValue[] = [];
+    if (containerPath && containerPath.length > 0) {
+      const topName = containerPath[0]!.name;
       let j = i;
       while (j < tools.length) {
-        const nextTool = tools[j];
-        if (
-          !nextTool ||
-          !nextTool.name ||
-          !nextTool.name.startsWith(prefix + ".")
-        ) {
+        const nextTool = tools[j]!;
+        if (nextTool.type === "native" || nextTool.type === "apply_patch")
           break;
-        }
-        const strippedName = nextTool.name.slice(prefix.length + 1);
-        const hasDefer = nextTool.native?.some(
-          (ann) => ann.kind === "defer_loading" && ann.value === "true",
-        );
-        if (nextTool.type === "custom") {
-          childTools.push({
-            type: "custom",
-            name: strippedName,
-            ...(nextTool.description !== undefined
-              ? { description: nextTool.description }
-              : {}),
-            ...(nextTool.format !== undefined
-              ? { format: encodeCustomToolFormat(nextTool.format) }
-              : {}),
-            ...(hasDefer ? { defer_loading: true } : {}),
-          });
-        } else {
-          childTools.push({
-            type: "function",
-            name: strippedName,
-            ...(nextTool.description !== undefined
-              ? { description: nextTool.description }
-              : {}),
-            parameters: (nextTool as any).input_schema as JsonObject,
-            ...(hasDefer ? { defer_loading: true } : {}),
-          });
-        }
+        const nextPath = parseContainerPath(nextTool);
+        if (!nextPath || nextPath.length === 0 || nextPath[0]!.name !== topName)
+          break;
         j++;
       }
-      out.push({
-        type: containerKind,
-        name: prefix,
-        tools: childTools,
-      });
+      out.push(buildNestedContainer(containerPath, tools.slice(i, j)));
+      i = j;
+      continue;
+    } else if (dotIdx > 0 && tool.name) {
+      const prefix = tool.name.slice(0, dotIdx);
+      let j = i;
+      while (j < tools.length) {
+        const nextTool = tools[j]!;
+        if (nextTool.type === "native" || nextTool.type === "apply_patch")
+          break;
+        if (!nextTool.name || !nextTool.name.startsWith(prefix + ".")) break;
+        j++;
+      }
+      out.push(
+        buildNestedContainer(
+          [{ type: "namespace", name: prefix }],
+          tools.slice(i, j),
+        ),
+      );
       i = j;
       continue;
     }

@@ -300,11 +300,17 @@ export class ResponsesStreamDecoder {
     }
     if (event.item.type === "custom_tool_call") {
       const callId = event.item.call_id ?? "";
-      const name = event.item.name ?? "";
-      if (callId === "" || name === "" || event.item.input !== "")
+      const rawName = event.item.name ?? "";
+      if (callId === "" || rawName === "" || event.item.input !== "")
         this.#lifecycle(
           "custom_tool_call added requires id, call_id, name, and input empty string",
         );
+      const ns =
+        typeof event.item.namespace === "string" && event.item.namespace
+          ? event.item.namespace
+          : "";
+      const name =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
       this.#customCall = {
         itemId: this.#itemId,
         outputIndex: index,
@@ -318,9 +324,15 @@ export class ResponsesStreamDecoder {
     }
     if (event.item.type === "function_call") {
       const callId = event.item.call_id ?? "";
-      const name = event.item.name ?? "";
-      if (this.#itemId === "" || callId === "" || name === "")
+      const rawName = event.item.name ?? "";
+      if (this.#itemId === "" || callId === "" || rawName === "")
         this.#lifecycle("function_call item requires id, call_id, and name");
+      const ns =
+        typeof event.item.namespace === "string" && event.item.namespace
+          ? event.item.namespace
+          : "";
+      const name =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
       this.#functionCall = {
         itemId: this.#itemId,
         outputIndex: index,
@@ -486,9 +498,20 @@ export class ResponsesStreamDecoder {
     const call = this.#requireFunctionCall(event);
     if (call.argumentsDone)
       this.#lifecycle("duplicate response.function_call_arguments.done");
+    const rawName = event.name ?? "";
+    const ns =
+      typeof event.namespace === "string" && event.namespace
+        ? event.namespace
+        : "";
+    const fullName =
+      ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
+    const nameMatches =
+      event.name === call.name ||
+      fullName === call.name ||
+      call.name.endsWith("." + rawName);
     if (
       event.call_id !== call.callId ||
-      event.name !== call.name ||
+      !nameMatches ||
       event.arguments !== call.fragments.join("")
     )
       this.#lifecycle(
@@ -717,9 +740,20 @@ export class ResponsesStreamDecoder {
     if (this.#customCall !== undefined) {
       const call = this.#customCall;
       const input = event.item.input;
+      const rawName = event.item.name ?? "";
+      const ns =
+        typeof event.item.namespace === "string" && event.item.namespace
+          ? event.item.namespace
+          : "";
+      const fullName =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
+      const nameMatches =
+        event.item.name === call.name ||
+        fullName === call.name ||
+        call.name.endsWith("." + rawName);
       if (
         event.item.call_id !== call.callId ||
-        event.item.name !== call.name ||
+        !nameMatches ||
         typeof input !== "string"
       )
         this.#lifecycle(
@@ -756,9 +790,20 @@ export class ResponsesStreamDecoder {
     if (this.#functionCall !== undefined) {
       const call = this.#functionCall;
       const arguments_ = call.fragments.join("");
+      const rawName = event.item.name ?? "";
+      const ns =
+        typeof event.item.namespace === "string" && event.item.namespace
+          ? event.item.namespace
+          : "";
+      const fullName =
+        ns && !rawName.startsWith(ns + ".") ? `${ns}.${rawName}` : rawName;
+      const nameMatches =
+        event.item.name === call.name ||
+        fullName === call.name ||
+        call.name.endsWith("." + rawName);
       if (
         event.item.call_id !== call.callId ||
-        event.item.name !== call.name ||
+        !nameMatches ||
         event.item.arguments !== arguments_
       )
         this.#lifecycle(
@@ -1196,6 +1241,7 @@ type EncoderItem =
       readonly outputIndex: number;
       readonly callId: string;
       readonly name: string;
+      readonly namespace?: string;
     }
   | {
       readonly kind: "custom_tool_call";
@@ -1203,6 +1249,7 @@ type EncoderItem =
       readonly outputIndex: number;
       readonly callId: string;
       readonly name: string;
+      readonly namespace?: string;
       readonly input: string;
     }
   | {
@@ -1456,7 +1503,10 @@ export class ResponsesStreamEncoder {
         );
       events.push(this.#closeMessageItem());
     }
-    const item = this.#openFunctionCallItem(callId, name);
+    const dotIdx = name.indexOf(".");
+    const rawName = dotIdx > 0 ? name.slice(dotIdx + 1) : name;
+    const namespace = dotIdx > 0 ? name.slice(0, dotIdx) : undefined;
+    const item = this.#openFunctionCallItem(callId, rawName, namespace);
     this.#activeItem = item;
     this.#activeBlock = { kind: "tool", index, input, fragments: [] };
     events.push({
@@ -1466,7 +1516,8 @@ export class ResponsesStreamEncoder {
         type: "function_call",
         id: item.id,
         call_id: callId,
-        name,
+        name: rawName,
+        ...(namespace !== undefined ? { namespace } : {}),
         status: "in_progress",
       },
     });
@@ -1489,13 +1540,17 @@ export class ResponsesStreamEncoder {
         );
       events.push(this.#closeMessageItem());
     }
+    const dotIdx = name.indexOf(".");
+    const rawName = dotIdx > 0 ? name.slice(dotIdx + 1) : name;
+    const namespace = dotIdx > 0 ? name.slice(0, dotIdx) : undefined;
     const ordinal = this.#nextCustomItem++;
     const item: Extract<EncoderItem, { kind: "custom_tool_call" }> = {
       kind: "custom_tool_call",
       id: `ctc_${ordinal}`,
       outputIndex: this.#nextOutputIndex++,
       callId,
-      name,
+      name: rawName,
+      ...(namespace !== undefined ? { namespace } : {}),
       input,
     };
     this.#activeItem = item;
@@ -1507,7 +1562,8 @@ export class ResponsesStreamEncoder {
         type: "custom_tool_call",
         id: item.id,
         call_id: callId,
-        name,
+        name: rawName,
+        ...(namespace !== undefined ? { namespace } : {}),
         input: "",
       },
     });
@@ -1804,6 +1860,7 @@ export class ResponsesStreamEncoder {
       id: item.id,
       call_id: item.callId,
       name: item.name,
+      ...(item.namespace !== undefined ? { namespace: item.namespace } : {}),
       input: block.input,
     };
     events.push(
@@ -1907,6 +1964,7 @@ export class ResponsesStreamEncoder {
       id: item.id,
       call_id: item.callId,
       name: item.name,
+      ...(item.namespace !== undefined ? { namespace: item.namespace } : {}),
       status: "completed",
       arguments: arguments_,
     };
@@ -1963,6 +2021,7 @@ export class ResponsesStreamEncoder {
   #openFunctionCallItem(
     callId: string,
     name: string,
+    namespace?: string,
   ): Extract<EncoderItem, { kind: "function_call" }> {
     const ordinal = this.#nextFunctionItem++;
     return {
@@ -1971,6 +2030,7 @@ export class ResponsesStreamEncoder {
       outputIndex: this.#nextOutputIndex++,
       callId,
       name,
+      ...(namespace !== undefined ? { namespace } : {}),
     };
   }
 

@@ -295,6 +295,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             status: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             arguments: undefined,
           },
         };
@@ -305,6 +306,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             id: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             input: undefined,
           },
         };

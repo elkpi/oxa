@@ -18,7 +18,9 @@ export const NATIVE_KIND_DEFER_LOADING = "defer_loading";
 export const NATIVE_KIND_DOCUMENT_TITLE = "document_title";
 export const NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
 export const NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
+export const NATIVE_KIND_CONTAINER = "container";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
+export const NATIVE_SOURCE_OPENAI = "openai";
 
 export const CACHE_CONTROL_LOSS_DETAIL =
   "anthropic-native cache breakpoint; the target face has no cache_control representation";
@@ -375,6 +377,31 @@ function validateAnnotations(
           }
           break;
       }
+    } else if (ann.source === NATIVE_SOURCE_OPENAI) {
+      switch (ann.kind) {
+        case NATIVE_KIND_CONTAINER:
+          if (host !== "tool") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai container is only allowed on Tool`,
+            );
+          }
+          break;
+        case NATIVE_KIND_DEFER_LOADING:
+          if (host !== "tool") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai defer_loading is only allowed on Tool`,
+            );
+          }
+          if (parsedJson !== true) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid defer_loading ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+      }
     }
   }
 }
@@ -399,7 +426,7 @@ function validateBlockNative(blk: Block, host: HostType, path: string): void {
 
 export function omittedNativeRequestLosses(
   request: Request,
-  _target: string,
+  target: string,
 ): readonly Loss[] {
   validateNativeRequest(request);
 
@@ -420,6 +447,7 @@ export function omittedNativeRequestLosses(
       `native[${i}]`,
       hasActiveBudgetProj,
       request.params?.reasoning_effort,
+      target,
     );
   });
 
@@ -431,13 +459,14 @@ export function omittedNativeRequestLosses(
         `system[${sIdx}].native[${i}]`,
         false,
         undefined,
+        target,
       );
     });
   });
 
   request.messages.forEach((msg, mIdx) => {
     msg.content.forEach((blk, cIdx) => {
-      collectBlockOmissions(losses, blk, `messages[${mIdx}].content[${cIdx}]`);
+      collectBlockOmissions(losses, blk, `messages[${mIdx}].content[${cIdx}]`, target);
     });
   });
 
@@ -449,6 +478,7 @@ export function omittedNativeRequestLosses(
         `tools[${tIdx}].native[${i}]`,
         false,
         undefined,
+        target,
       );
     });
   });
@@ -456,23 +486,23 @@ export function omittedNativeRequestLosses(
   return losses;
 }
 
-function collectBlockOmissions(losses: Loss[], blk: Block, path: string): void {
+function collectBlockOmissions(losses: Loss[], blk: Block, path: string, target: string): void {
   if (blk.type === "document") {
     // N-AN-16: whole-block drop; annotations not reported a second time
     return;
   }
   blk.native?.forEach((ann, i) => {
-    appendOmissionLoss(losses, ann, `${path}.native[${i}]`, false, undefined);
+    appendOmissionLoss(losses, ann, `${path}.native[${i}]`, false, undefined, target);
   });
   if (blk.type === "tool_result") {
     (blk as ToolResultBlock).content.forEach((child, k) => {
-      collectBlockOmissions(losses, child, `${path}.content[${k}]`);
+      collectBlockOmissions(losses, child, `${path}.content[${k}]`, target);
     });
   } else if (blk.type === "custom_tool_result") {
     const out = (blk as CustomToolResultBlock).output;
     if (Array.isArray(out)) {
       out.forEach((child, k) => {
-        collectBlockOmissions(losses, child, `${path}.output.content[${k}]`);
+        collectBlockOmissions(losses, child, `${path}.output.content[${k}]`, target);
       });
     }
   }
@@ -484,7 +514,22 @@ function appendOmissionLoss(
   path: string,
   hasActiveBudgetProj: boolean,
   currentEffort: string | undefined,
+  target: string,
 ): void {
+  if (ann.source === NATIVE_SOURCE_OPENAI) {
+    if (target === "responses") {
+      return;
+    }
+    if (ann.omission) {
+      losses.push({
+        path,
+        field: ann.omission.field,
+        reason: ann.omission.reason,
+        ...(ann.omission.detail ? { detail: ann.omission.detail } : {}),
+      });
+    }
+    return;
+  }
   if (ann.source !== NATIVE_SOURCE_ANTHROPIC) {
     losses.push({
       path,
@@ -553,6 +598,9 @@ function appendOmissionLoss(
       return;
     }
     case NATIVE_KIND_DEFER_LOADING: {
+      if (target === "responses" || target === "anthropic") {
+        return;
+      }
       const field = ann.omission?.field || "defer_loading";
       const reason = ann.omission?.reason || "degraded";
       const detail = ann.omission?.detail || DEFER_LOADING_LOSS_DETAIL;

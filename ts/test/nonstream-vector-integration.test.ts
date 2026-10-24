@@ -25,7 +25,7 @@ test("preserves Responses instructions and composed losses across faces", () => 
       anthropic,
       chatcompletions,
     }),
-    7,
+    9,
   );
 });
 

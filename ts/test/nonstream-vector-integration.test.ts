@@ -36,6 +36,6 @@ test("runs Anthropic cross request vectors across faces including native roundtr
       chatcompletions,
       responses,
     }),
-    18,
+    19,
   );
 });

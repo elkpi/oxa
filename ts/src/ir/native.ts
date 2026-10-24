@@ -19,6 +19,11 @@ export const NATIVE_KIND_DOCUMENT_TITLE = "document_title";
 export const NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
 export const NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
 export const NATIVE_KIND_CONTAINER = "container";
+export const NATIVE_KIND_EAGER_INPUT_STREAMING = "eager_input_streaming";
+export const NATIVE_KIND_STORE = "store";
+export const NATIVE_KIND_STREAM = "stream";
+export const NATIVE_KIND_STREAM_OPTIONS = "stream_options";
+export const NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 export const NATIVE_SOURCE_OPENAI = "openai";
 
@@ -27,6 +32,35 @@ export const CACHE_CONTROL_LOSS_DETAIL =
 
 export const DEFER_LOADING_LOSS_DETAIL =
   "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
+
+export const EAGER_INPUT_STREAMING_LOSS_DETAIL =
+  "target does not preserve eager tool input streaming semantics";
+
+export const STREAM_OPTIONS_LOSS_DETAIL =
+  "target does not emit the requested final usage chunk";
+
+export interface LossFingerprint {
+  path: string;
+  field: string;
+  reason: string;
+}
+
+export function fingerprintLosses(
+  losses: readonly Loss[],
+  limit = 0,
+): LossFingerprint[] {
+  const n = limit > 0 && limit < losses.length ? limit : losses.length;
+  const out: LossFingerprint[] = [];
+  for (let i = 0; i < n; i++) {
+    const l = losses[i]!;
+    out.push({
+      path: l.path,
+      field: l.field,
+      reason: l.reason,
+    });
+  }
+  return out;
+}
 
 export const DOCUMENT_TITLE_LOSS_DETAIL =
   "anthropic-native document title; the target face has no document representation";
@@ -376,9 +410,77 @@ function validateAnnotations(
             );
           }
           break;
+        case NATIVE_KIND_EAGER_INPUT_STREAMING:
+          if (host !== "tool") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: anthropic ${ann.kind} is only allowed on Tool`,
+            );
+          }
+          if (typeof parsedJson !== "boolean") {
+            throw new OxaError(
+              "invalid-input",
+              `invalid eager_input_streaming ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
       }
     } else if (ann.source === NATIVE_SOURCE_OPENAI) {
       switch (ann.kind) {
+        case NATIVE_KIND_MAX_COMPLETION_TOKENS:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          break;
+        case NATIVE_KIND_STORE:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (typeof parsedJson !== "boolean") {
+            throw new OxaError(
+              "invalid-input",
+              `invalid store ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+        case NATIVE_KIND_STREAM:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (typeof parsedJson !== "boolean") {
+            throw new OxaError(
+              "invalid-input",
+              `invalid stream ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+        case NATIVE_KIND_STREAM_OPTIONS:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            typeof parsedJson !== "object" ||
+            parsedJson === null ||
+            Array.isArray(parsedJson)
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid stream_options ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
         case NATIVE_KIND_CONTAINER:
           if (host !== "tool") {
             throw new OxaError(
@@ -549,21 +651,64 @@ function appendOmissionLoss(
   target: string,
 ): void {
   if (ann.source === NATIVE_SOURCE_OPENAI) {
-    if (target === "responses") {
-      return;
+    switch (ann.kind) {
+      case NATIVE_KIND_MAX_COMPLETION_TOKENS:
+      case NATIVE_KIND_STREAM:
+        return;
+      case NATIVE_KIND_STREAM_OPTIONS: {
+        if (target === "chatcompletions") {
+          return;
+        }
+        const field = ann.omission?.field || "stream_options";
+        const reason = ann.omission?.reason || "degraded";
+        const detail = ann.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL;
+        losses.push({
+          path,
+          field,
+          reason,
+          ...(detail ? { detail } : {}),
+        });
+        return;
+      }
+      case NATIVE_KIND_STORE: {
+        if (target === "chatcompletions" || target === "responses") {
+          return;
+        }
+        let isTrue = false;
+        try {
+          isTrue = JSON.parse(ann.value) === true;
+        } catch {}
+        if (isTrue) {
+          const field = ann.omission?.field || "store";
+          const reason = ann.omission?.reason || "unsupported-semantic";
+          const detail =
+            ann.omission?.detail || "target does not support output retention";
+          losses.push({
+            path,
+            field,
+            reason,
+            ...(detail ? { detail } : {}),
+          });
+        }
+        return;
+      }
+      default:
+        if (target === "responses") {
+          return;
+        }
+        if (target === "anthropic" && ann.kind === NATIVE_KIND_DEFER_LOADING) {
+          return;
+        }
+        if (ann.omission) {
+          losses.push({
+            path,
+            field: ann.omission.field,
+            reason: ann.omission.reason,
+            ...(ann.omission.detail ? { detail: ann.omission.detail } : {}),
+          });
+        }
+        return;
     }
-    if (target === "anthropic" && ann.kind === NATIVE_KIND_DEFER_LOADING) {
-      return;
-    }
-    if (ann.omission) {
-      losses.push({
-        path,
-        field: ann.omission.field,
-        reason: ann.omission.reason,
-        ...(ann.omission.detail ? { detail: ann.omission.detail } : {}),
-      });
-    }
-    return;
   }
   if (ann.source !== NATIVE_SOURCE_ANTHROPIC) {
     losses.push({
@@ -645,6 +790,28 @@ function appendOmissionLoss(
         reason,
         detail,
       });
+      return;
+    }
+    case NATIVE_KIND_EAGER_INPUT_STREAMING: {
+      if (target === "anthropic") {
+        return;
+      }
+      let isTrue = false;
+      try {
+        isTrue = JSON.parse(ann.value) === true;
+      } catch {}
+      if (isTrue) {
+        const field = ann.omission?.field || "eager_input_streaming";
+        const reason = ann.omission?.reason || "degraded";
+        const detail =
+          ann.omission?.detail || EAGER_INPUT_STREAMING_LOSS_DETAIL;
+        losses.push({
+          path,
+          field,
+          reason,
+          detail,
+        });
+      }
       return;
     }
     case NATIVE_KIND_THINKING_DISPLAY:

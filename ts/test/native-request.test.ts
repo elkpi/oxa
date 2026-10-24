@@ -10,6 +10,9 @@ import {
   CACHE_CONTROL_LOSS_DETAIL,
   DEFER_LOADING_LOSS_DETAIL,
   NATIVE_KIND_DEFER_LOADING,
+  NATIVE_KIND_EAGER_INPUT_STREAMING,
+  EAGER_INPUT_STREAMING_LOSS_DETAIL,
+  fingerprintLosses,
   type Request,
   type TextBlock,
   type NativeAnnotation,
@@ -844,4 +847,92 @@ test("defer_loading tool native option round-trip and validation", () => {
   // 9. public exports check
   assert.equal(NATIVE_KIND_DEFER_LOADING, "defer_loading");
   assert.ok(DEFER_LOADING_LOSS_DETAIL.length > 0);
+});
+
+test("fingerprintLosses extracts safe subset and limits output", () => {
+  const losses: Loss[] = [
+    { path: "tools[0]", field: "eager_input_streaming", reason: "degraded", detail: "sensitive detail 1" },
+    { path: "native[1]", field: "store", reason: "unsupported-semantic", detail: "sensitive detail 2" },
+    { path: "stream_options", field: "extra", reason: "unmapped-field", detail: "sensitive detail 3" },
+  ];
+
+  const all = fingerprintLosses(losses, 0);
+  assert.equal(all.length, 3);
+  assert.deepEqual(all[0], {
+    path: "tools[0]",
+    field: "eager_input_streaming",
+    reason: "degraded",
+  });
+  assert.equal((all[0] as any).detail, undefined);
+
+  const truncated = fingerprintLosses(losses, 2);
+  assert.equal(truncated.length, 2);
+  assert.equal(truncated[1]?.field, "store");
+});
+
+test("eager_input_streaming tool native option round-trip and validation", () => {
+  // 1. 32 tools carrying eager_input_streaming: true produce 0 losses
+  const tools = Array.from({ length: 32 }, (_, i) => ({
+    name: `tool_${i}`,
+    input_schema: { type: "object" },
+    eager_input_streaming: true,
+  }));
+  const raw32 = JSON.stringify({
+    model: "claude-opus-5-5",
+    max_tokens: 1024,
+    messages: [{ role: "user", content: "hi" }],
+    tools,
+  });
+  const decoded = decodeAnthropicJSON(raw32);
+  assert.equal(decoded.losses.length, 0);
+  assert.equal(decoded.value.tools?.length, 32);
+  assert.equal(
+    decoded.value.tools?.[0]?.native?.[0]?.kind,
+    NATIVE_KIND_EAGER_INPUT_STREAMING,
+  );
+
+  // 2. Non-boolean eager_input_streaming throws
+  for (const bad of ["true", 1, null, {}]) {
+    const rawBad = JSON.stringify({
+      model: "claude-opus-5-5",
+      max_tokens: 1024,
+      messages: [{ role: "user", content: "hi" }],
+      tools: [{ name: "t1", input_schema: { type: "object" }, eager_input_streaming: bad }],
+    });
+    assert.throws(
+      () => decodeAnthropicJSON(rawBad),
+      /tools\[0\]\.eager_input_streaming must be a boolean/,
+    );
+  }
+
+  // 3. Round-trip
+  const encoded = encodeAnthropic(decoded.value);
+  assert.equal((encoded.value as any).tools?.[0]?.eager_input_streaming, true);
+});
+
+test("chatcompletions request controls conflict and validation", () => {
+  // Conflict
+  const rawConflict = JSON.stringify({
+    model: "gpt-5",
+    messages: [{ role: "user", content: "hi" }],
+    max_tokens: 100,
+    max_completion_tokens: 200,
+  });
+  assert.throws(
+    () => decodeChatCompletionsJSON(rawConflict),
+    /cannot specify both max_tokens and max_completion_tokens/,
+  );
+
+  // stream_options unknown child loss
+  const rawUnknown = JSON.stringify({
+    model: "gpt-5",
+    messages: [{ role: "user", content: "hi" }],
+    stream_options: { include_usage: true, unknown_field: "foo" },
+  });
+  const res = decodeChatCompletionsJSON(rawUnknown);
+  assert.ok(
+    res.losses.some(
+      (l) => l.path === "stream_options.unknown_field" && l.reason === "unmapped-field",
+    ),
+  );
 });

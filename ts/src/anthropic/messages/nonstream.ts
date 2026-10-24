@@ -24,8 +24,11 @@ import {
   getBlockCacheControl,
   attachBlockCacheControl,
   getToolDeferLoading,
+  getToolEagerInputStreaming,
   DEFER_LOADING_LOSS_DETAIL,
   NATIVE_KIND_DEFER_LOADING,
+  NATIVE_KIND_EAGER_INPUT_STREAMING,
+  EAGER_INPUT_STREAMING_LOSS_DETAIL,
 } from "./native.js";
 import {
   NATIVE_SOURCE_ANTHROPIC,
@@ -178,24 +181,42 @@ function decodeRequestObject(
     }
 
     const schema = object(tool.input_schema, `tools[${index}].input_schema`);
-    let native: NativeAnnotation[] | undefined = undefined;
+    const native: NativeAnnotation[] = [];
     if (tool.defer_loading === true) {
-      native = [
-        {
-          source: NATIVE_SOURCE_ANTHROPIC,
-          kind: NATIVE_KIND_DEFER_LOADING,
-          value: "true",
-          omission: {
-            field: "defer_loading",
-            reason: "degraded" as const,
-            detail: DEFER_LOADING_LOSS_DETAIL,
-          },
+      native.push({
+        source: NATIVE_SOURCE_ANTHROPIC,
+        kind: NATIVE_KIND_DEFER_LOADING,
+        value: "true",
+        omission: {
+          field: "defer_loading",
+          reason: "degraded" as const,
+          detail: DEFER_LOADING_LOSS_DETAIL,
         },
-      ];
+      });
     } else {
-      native = attachBlockCacheControl(tool, `tools[${index}]`, losses) as
-        | NativeAnnotation[]
-        | undefined;
+      const cc = attachBlockCacheControl(tool, `tools[${index}]`, losses);
+      if (cc) {
+        native.push(...cc);
+      }
+    }
+    if ("eager_input_streaming" in tool && tool.eager_input_streaming !== undefined) {
+      if (typeof tool.eager_input_streaming !== "boolean") {
+        fail(`tools[${index}].eager_input_streaming must be a boolean`);
+      }
+      native.push({
+        source: NATIVE_SOURCE_ANTHROPIC,
+        kind: NATIVE_KIND_EAGER_INPUT_STREAMING,
+        value: tool.eager_input_streaming ? "true" : "false",
+        ...(tool.eager_input_streaming
+          ? {
+              omission: {
+                field: "eager_input_streaming",
+                reason: "degraded" as const,
+                detail: EAGER_INPUT_STREAMING_LOSS_DETAIL,
+              },
+            }
+          : {}),
+      });
     }
     if (isCustomToolInputSchema(schema)) {
       customTools.add(name);
@@ -210,7 +231,7 @@ function decodeRequestObject(
                 `tools[${index}].description`,
               ),
             }),
-        ...(native ? { native } : {}),
+        ...(native.length > 0 ? { native } : {}),
       };
     }
     return {
@@ -224,7 +245,7 @@ function decodeRequestObject(
             ),
           }),
       input_schema: schema,
-      ...(native ? { native } : {}),
+      ...(native.length > 0 ? { native } : {}),
     };
   });
   const toolChoice = decodeToolChoice(
@@ -513,6 +534,7 @@ export function encodeRequest(
     request.tools?.flatMap<JsonObject>((tool, index) => {
       const cc = getBlockCacheControl(tool);
       const dl = getToolDeferLoading(tool);
+      const es = getToolEagerInputStreaming(tool);
       if (cc && dl) {
         fail(
           `tools[${index}]: cannot specify both defer_loading and cache_control`,
@@ -537,6 +559,7 @@ export function encodeRequest(
             },
             ...(cc ? { cache_control: cc } : {}),
             ...(dl ? { defer_loading: true } : {}),
+            ...(es !== undefined ? { eager_input_streaming: es } : {}),
           },
         ];
       }
@@ -585,6 +608,7 @@ export function encodeRequest(
           input_schema: tool.input_schema,
           ...(cc ? { cache_control: cc } : {}),
           ...(dl ? { defer_loading: true } : {}),
+          ...(es !== undefined ? { eager_input_streaming: es } : {}),
         },
       ];
     }) ?? [];

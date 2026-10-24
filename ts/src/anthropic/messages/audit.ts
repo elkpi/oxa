@@ -116,6 +116,7 @@ const TOOL: WireAuditSpec = {
         input_schema: undefined,
         cache_control: undefined,
         defer_loading: undefined,
+        eager_input_streaming: undefined,
       },
     };
   },

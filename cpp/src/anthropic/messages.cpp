@@ -666,6 +666,26 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         json::Value tools_arr = json::Value::array();
         for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
             const auto& t = (*req.tools)[ti];
+            for (std::size_t ai = 0; ai < t.native.size(); ++ai) {
+                const auto& ann = t.native[ai];
+                if (ann.source != ir::NATIVE_SOURCE_ANTHROPIC && ann.kind != ir::NATIVE_KIND_DEFER_LOADING) {
+                    if (ann.omission.has_value()) {
+                        losses.push_back(ir::Loss{
+                            "tools[" + std::to_string(ti) + "].native[" + std::to_string(ai) + "]",
+                            ann.omission->field,
+                            ann.omission->reason,
+                            ann.omission->detail.value_or(""),
+                        });
+                    } else {
+                        losses.push_back(ir::Loss{
+                            "tools[" + std::to_string(ti) + "].native[" + std::to_string(ai) + "]",
+                            "source",
+                            std::string(ir::LOSS_UNSUPPORTED_SEMANTIC),
+                            "unsupported native option source \"" + ann.source + "\"",
+                        });
+                    }
+                }
+            }
             if (t.type == "custom") {
                 if (t.format.has_value() && t.format->find("type") && t.format->find("type")->is_string() && t.format->find("type")->as_string() == "grammar") {
                     losses.push_back(make_ant_loss(

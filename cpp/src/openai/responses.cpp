@@ -2,6 +2,7 @@
 #include "responses_audit.hpp"
 
 #include <cstdio>
+#include <unordered_set>
 
 namespace oxa::openai::responses {
 namespace {
@@ -157,6 +158,12 @@ StatusOr<ir::Block> decode_tool_call_item(const json::Value& item, bool custom) 
     std::string call_id, name;
     if (const auto* v = item.find("call_id"); v && v->is_string()) call_id = v->as_string();
     if (const auto* v = item.find("name"); v && v->is_string()) name = v->as_string();
+    if (const auto* v = item.find("namespace"); v && v->is_string() && !v->as_string().empty()) {
+        const std::string ns = v->as_string();
+        if (!name.starts_with(ns + ".")) {
+            name = ns + "." + name;
+        }
+    }
     if (call_id.empty() || name.empty()) return invalid_argument("responses: tool call requires non-empty call_id and name");
     if (custom) {
         const auto* input = item.find("input");
@@ -222,6 +229,12 @@ std::pair<std::optional<ir::ToolChoice>, std::vector<ir::Loss>> decode_tool_choi
         }
         std::string name;
         if (const auto* nv = tc->find("name"); nv && nv->is_string()) name = nv->as_string();
+        if (const auto* nsv = tc->find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+            const std::string ns = nsv->as_string();
+            if (!name.starts_with(ns + ".")) {
+                name = ns + "." + name;
+            }
+        }
         if ((kind == "function" || kind == "custom") && !name.empty()) {
             ir::ToolChoice choice{std::string(ir::TOOL_CHOICE_TOOL), name};
             if (kind == "custom") choice.tool_type = "custom";
@@ -549,6 +562,253 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
     return res;
 }
 
+struct ContainerEntry {
+    std::string type;
+    std::string name;
+    std::optional<std::string> description;
+};
+
+inline std::string compact_json(std::string_view raw) {
+    std::string out;
+    out.reserve(raw.size());
+    bool in_string = false;
+    bool escape = false;
+    for (char ch : raw) {
+        if (in_string) {
+            out.push_back(ch);
+            if (escape) {
+                escape = false;
+            } else if (ch == '\\') {
+                escape = true;
+            } else if (ch == '"') {
+                in_string = false;
+            }
+        } else {
+            if (ch == '"') {
+                in_string = true;
+                out.push_back(ch);
+            } else if (ch != ' ' && ch != '\t' && ch != '\n' && ch != '\r') {
+                out.push_back(ch);
+            }
+        }
+    }
+    return out;
+}
+
+inline std::string serialize_container_path(const std::vector<ContainerEntry>& path_stack) {
+    std::string payload = "{\"path\":[";
+    for (std::size_t i = 0; i < path_stack.size(); ++i) {
+        if (i > 0) payload += ",";
+        payload += "{\"type\":";
+        payload += json::serialize(json::Value::string(path_stack[i].type));
+        payload += ",\"name\":";
+        payload += json::serialize(json::Value::string(path_stack[i].name));
+        if (path_stack[i].description.has_value()) {
+            payload += ",\"description\":";
+            payload += json::serialize(json::Value::string(*path_stack[i].description));
+        }
+        payload += "}";
+    }
+    payload += "]}";
+    return payload;
+}
+
+Status decode_responses_tool_item(
+    const json::Value& t,
+    const std::vector<ContainerEntry>& path_stack,
+    const std::string& path,
+    std::unordered_set<std::string>& seen_names,
+    std::vector<ir::Tool>& tools,
+    std::vector<ir::Loss>& losses) {
+    if (!t.is_object()) return invalid_argument("responses: " + path + " must be an object");
+    const auto* type_val = t.find("type");
+    std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "function";
+
+    if (kind == "namespace" || kind == "toolbox") {
+        const auto* nv = t.find("name");
+        std::string name = nv && nv->is_string() ? nv->as_string() : "";
+        if (name.empty() || name.starts_with('.') || name.ends_with('.') || name.find("..") != std::string::npos) {
+            return invalid_argument("responses: " + path + ": invalid " + kind + " name \"" + name + "\"");
+        }
+        const auto* tools_arr = t.find("tools");
+        if (!tools_arr || !tools_arr->is_array() || tools_arr->as_array().empty()) {
+            return invalid_argument("responses: " + path + ": " + kind + " requires non-empty tools array");
+        }
+        std::optional<std::string> desc;
+        if (const auto* dv = t.find("description"); dv && dv->is_string()) {
+            desc = dv->as_string();
+        }
+        std::vector<ContainerEntry> next_stack = path_stack;
+        next_stack.push_back(ContainerEntry{kind, name, std::move(desc)});
+        for (std::size_t idx = 0; idx < tools_arr->as_array().size(); ++idx) {
+            OXA_RETURN_IF_ERROR(decode_responses_tool_item(
+                tools_arr->as_array()[idx],
+                next_stack,
+                path + ".tools[" + std::to_string(idx) + "]",
+                seen_names,
+                tools,
+                losses));
+        }
+        return ok_status();
+    }
+
+    std::string prefix;
+    for (std::size_t i = 0; i < path_stack.size(); ++i) {
+        if (i > 0) prefix += ".";
+        prefix += path_stack[i].name;
+    }
+
+    if (kind == "apply_patch") {
+        ir::Tool tool;
+        tool.type = "apply_patch";
+        tools.push_back(std::move(tool));
+        return ok_status();
+    }
+
+    if (kind == "custom") {
+        const auto* nv = t.find("name");
+        std::string raw_name = nv && nv->is_string() ? nv->as_string() : "";
+        if (raw_name.empty()) return invalid_argument("responses: " + path + ".name is required for custom tool");
+        std::string final_name = (!prefix.empty() && !raw_name.starts_with(prefix + ".")) ? prefix + "." + raw_name : raw_name;
+        if (seen_names.count(final_name)) {
+            return invalid_argument("responses: duplicate tool name \"" + final_name + "\"");
+        }
+        seen_names.insert(final_name);
+
+        ir::Tool tool;
+        tool.type = "custom";
+        tool.name = final_name;
+        if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
+            tool.description = dv->as_string();
+            tool.has_description = true;
+        }
+        if (const auto* format = t.find("format")) {
+            if (!format->is_object()) return invalid_argument("responses: custom tool format must be an object");
+            tool.format = *format;
+            const auto* ft = format->find("type");
+            const std::string ftype = ft && ft->is_string() ? ft->as_string() : "";
+            if (ftype != "text" && ftype != "grammar") losses.push_back(make_resp_loss(
+                path + ".format.type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "unknown custom tool format type has no IR equivalent"));
+            else if (ftype == "grammar") {
+                const auto* syntax = format->find("syntax");
+                if (!syntax || !syntax->is_string() || (syntax->as_string() != "lark" && syntax->as_string() != "regex"))
+                    losses.push_back(make_resp_loss(path + ".format.syntax",
+                        "syntax", ir::LOSS_UNSUPPORTED_SEMANTIC, "unknown custom tool grammar syntax has no IR equivalent"));
+            }
+        }
+        if (!path_stack.empty()) {
+            tool.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_OPENAI),
+                std::string(ir::NATIVE_KIND_CONTAINER),
+                serialize_container_path(path_stack),
+                ir::NativeOmission{"type", std::string(ir::LOSS_DEGRADED), "tool container grouping was flattened into dotted tool names"},
+                std::nullopt,
+            });
+        }
+        if (const auto* dl = t.find("defer_loading")) {
+            if (!dl->is_bool()) {
+                return invalid_argument("responses: " + path + ".defer_loading must be a boolean");
+            }
+            if (dl->as_bool()) {
+                tool.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_OPENAI),
+                    std::string(ir::NATIVE_KIND_DEFER_LOADING),
+                    "true",
+                    ir::NativeOmission{"defer_loading", std::string(ir::LOSS_DEGRADED), std::string(ir::DEFER_LOADING_LOSS_DETAIL)},
+                    std::nullopt,
+                });
+            }
+        }
+        tools.push_back(std::move(tool));
+        return ok_status();
+    }
+
+    if (kind == "function" || kind.empty()) {
+        const auto* nv = t.find("name");
+        std::string raw_name = nv && nv->is_string() ? nv->as_string() : "";
+        if (raw_name.empty()) return invalid_argument("responses: " + path + ".name is required for function tool");
+        std::string final_name = (!prefix.empty() && !raw_name.starts_with(prefix + ".")) ? prefix + "." + raw_name : raw_name;
+        if (seen_names.count(final_name)) {
+            return invalid_argument("responses: duplicate tool name \"" + final_name + "\"");
+        }
+        seen_names.insert(final_name);
+
+        ir::Tool tool;
+        tool.type = "function";
+        tool.name = final_name;
+        if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
+            tool.description = dv->as_string();
+            tool.has_description = true;
+        }
+        if (const auto* pv = t.find("parameters")) tool.input_schema = *pv;
+        else tool.input_schema = json::Value::null();
+
+        if (t.find("strict") != nullptr) {
+            losses.push_back(make_resp_loss(
+                path + ".strict", "strict", ir::LOSS_UNMAPPED_FIELD,
+                "Responses function tool strict mode has no IR equivalent in v1."));
+        }
+
+        if (!path_stack.empty()) {
+            tool.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_OPENAI),
+                std::string(ir::NATIVE_KIND_CONTAINER),
+                serialize_container_path(path_stack),
+                ir::NativeOmission{"type", std::string(ir::LOSS_DEGRADED), "tool container grouping was flattened into dotted tool names"},
+                std::nullopt,
+            });
+        }
+        if (const auto* dl = t.find("defer_loading")) {
+            if (!dl->is_bool()) {
+                return invalid_argument("responses: " + path + ".defer_loading must be a boolean");
+            }
+            if (dl->as_bool()) {
+                tool.native.push_back(ir::NativeAnnotation{
+                    std::string(ir::NATIVE_SOURCE_OPENAI),
+                    std::string(ir::NATIVE_KIND_DEFER_LOADING),
+                    "true",
+                    ir::NativeOmission{"defer_loading", std::string(ir::LOSS_DEGRADED), std::string(ir::DEFER_LOADING_LOSS_DETAIL)},
+                    std::nullopt,
+                });
+            }
+        }
+        tools.push_back(std::move(tool));
+        return ok_status();
+    }
+
+    // Native tool vs unsupported tool
+    bool has_name = t.find("name") && t.find("name")->is_string() && !t.find("name")->as_string().empty();
+    bool has_server_label = t.find("server_label") && t.find("server_label")->is_string() && !t.find("server_label")->as_string().empty();
+    bool is_known_native = (kind == "web_search" || kind == "file_search" || kind == "code_interpreter" ||
+                            kind == "computer" || kind == "computer_use_preview" || kind == "mcp" ||
+                            kind == "tool_search" || kind == "image_generation" || kind == "local_shell" ||
+                            kind == "shell" || kind == "programmatic_tool_calling" ||
+                            kind.rfind("web_search_", 0) == 0 || kind.rfind("file_search_", 0) == 0 ||
+                            kind.rfind("computer_", 0) == 0);
+
+    if (has_name || has_server_label || is_known_native) {
+        std::string tool_name = has_name ? t.find("name")->as_string() : (has_server_label ? t.find("server_label")->as_string() : kind);
+        if (seen_names.count(tool_name)) {
+            return invalid_argument("responses: duplicate tool name \"" + tool_name + "\"");
+        }
+        seen_names.insert(tool_name);
+
+        ir::Tool tool;
+        tool.type = "native";
+        tool.name = tool_name;
+        tool.source = "openai";
+        std::string_view slice = t.raw_slice();
+        tool.definition = !slice.empty() ? compact_json(slice) : json::serialize(t);
+        tools.push_back(std::move(tool));
+        return ok_status();
+    }
+
+    losses.push_back(make_resp_loss(path, "type",
+        ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses tool type \"" + kind + "\" has no IR equivalent"));
+    return ok_status();
+}
+
 }  // namespace
 
 static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Value& wire,
@@ -580,56 +840,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         req.system.push_back(ir::TextBlock{inst->as_string()});
     }
 
+    std::unordered_set<std::string> seen_names;
+    std::vector<ir::Tool> tools;
     if (const auto* tools_val = wire.find("tools"); tools_val && tools_val->is_array()) {
-        std::vector<ir::Tool> tools;
         for (std::size_t i = 0; i < tools_val->as_array().size(); ++i) {
-            const auto& t = tools_val->as_array()[i];
-            const auto* type_val = t.find("type");
-            std::string kind = type_val && type_val->is_string() ? type_val->as_string() : "";
-            if (kind == "apply_patch") {
-                ir::Tool tool;
-                tool.type = "apply_patch";
-                tools.push_back(std::move(tool));
-                continue;
-            }
-            if (kind != "function" && kind != "custom") {
-                losses.push_back(make_resp_loss("tools[" + std::to_string(i) + "]", "type",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses tool type \"" + kind + "\" has no IR equivalent"));
-                continue;
-            }
-            ir::Tool tool;
-            tool.type = kind;
-            if (const auto* nv = t.find("name"); nv && nv->is_string()) tool.name = nv->as_string();
-            if (const auto* dv = t.find("description"); dv && dv->is_string() && !dv->as_string().empty()) {
-                tool.description = dv->as_string();
-                tool.has_description = true;
-            }
-            if (kind == "custom") {
-                if (const auto* format = t.find("format")) {
-                    if (!format->is_object()) return invalid_argument("responses: custom tool format must be an object");
-                    tool.format = *format;
-                    const auto* ft = format->find("type");
-                    const std::string ftype = ft && ft->is_string() ? ft->as_string() : "";
-                    if (ftype != "text" && ftype != "grammar") losses.push_back(make_resp_loss(
-                        "tools[" + std::to_string(i) + "].format.type", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                        "unknown custom tool format type has no IR equivalent"));
-                    else if (ftype == "grammar") {
-                        const auto* syntax = format->find("syntax");
-                        if (!syntax || !syntax->is_string() || (syntax->as_string() != "lark" && syntax->as_string() != "regex"))
-                            losses.push_back(make_resp_loss("tools[" + std::to_string(i) + "].format.syntax",
-                                "syntax", ir::LOSS_UNSUPPORTED_SEMANTIC, "unknown custom tool grammar syntax has no IR equivalent"));
-                    }
-                }
-            } else if (const auto* pv = t.find("parameters")) tool.input_schema = *pv;
-            else tool.input_schema = json::Value::null();
-            if (kind == "function" && t.find("strict") != nullptr) {
-                losses.push_back(make_resp_loss(
-                    "tools[" + std::to_string(i) + "].strict", "strict", ir::LOSS_UNMAPPED_FIELD,
-                    "Responses function tool strict mode has no IR equivalent in v1."));
-            }
-            tools.push_back(std::move(tool));
+            OXA_RETURN_IF_ERROR(decode_responses_tool_item(
+                tools_val->as_array()[i],
+                {},
+                "tools[" + std::to_string(i) + "]",
+                seen_names,
+                tools,
+                losses));
         }
-        if (!tools.empty()) req.tools = std::move(tools);
     }
 
     auto [tool_choice, tc_losses] = decode_tool_choice(wire.find("tool_choice"));
@@ -826,6 +1048,21 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (!tr_blocks.empty()) {
                     req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(tr_blocks)});
                 }
+            } else if (kind == "additional_tools") {
+                const auto* item_tools = item.find("tools");
+                if (!item_tools || !item_tools->is_array() || item_tools->as_array().empty()) {
+                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires non-empty tools array");
+                }
+                for (std::size_t t_idx = 0; t_idx < item_tools->as_array().size(); ++t_idx) {
+                    OXA_RETURN_IF_ERROR(decode_responses_tool_item(
+                        item_tools->as_array()[t_idx],
+                        {},
+                        "input[" + std::to_string(index) + "].tools[" + std::to_string(t_idx) + "]",
+                        seen_names,
+                        tools,
+                        losses));
+                }
+                ++index;
             } else {
                 losses.push_back(make_resp_loss(
                     "input[" + std::to_string(index) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -844,6 +1081,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             "input", "input", ir::LOSS_DEGRADED,
             "An empty user message was added because the IR requires at least one conversation message."));
     }
+
+    if (!tools.empty()) req.tools = std::move(tools);
 
     ir::Params params;
     bool has_params = false;
@@ -925,6 +1164,205 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
     return decode_request(v, opts);
 }
 
+inline std::optional<std::vector<ContainerEntry>> parse_container_path(const ir::Tool& tool) {
+    for (const auto& ann : tool.native) {
+        if (ann.source == "openai" && ann.kind == "container") {
+            auto parsed = json::parse(ann.value);
+            if (parsed.ok() && parsed->is_object() && parsed->find("path") && parsed->find("path")->is_array()) {
+                std::vector<ContainerEntry> res;
+                for (const auto& item : parsed->find("path")->as_array()) {
+                    if (item.is_object()) {
+                        std::string typ = item.find("type") && item.find("type")->is_string() ? item.find("type")->as_string() : "";
+                        std::string nm = item.find("name") && item.find("name")->is_string() ? item.find("name")->as_string() : "";
+                        std::optional<std::string> desc;
+                        if (const auto* dv = item.find("description"); dv && dv->is_string()) {
+                            desc = dv->as_string();
+                        }
+                        res.push_back(ContainerEntry{std::move(typ), std::move(nm), std::move(desc)});
+                    }
+                }
+                if (!res.empty()) return res;
+            }
+            std::string single = ann.value;
+            if (single.size() >= 2 && single.front() == '"' && single.back() == '"') {
+                single = single.substr(1, single.size() - 2);
+            }
+            if (!single.empty()) {
+                auto dot_idx = tool.name.find('.');
+                std::string nm = dot_idx != std::string::npos ? tool.name.substr(0, dot_idx) : tool.name;
+                return std::vector<ContainerEntry>{ContainerEntry{std::move(single), std::move(nm), std::nullopt}};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
+static json::Value build_nested_container(
+    const std::vector<ContainerEntry>& path_stack,
+    std::size_t path_offset,
+    const std::vector<ir::Tool>& tools,
+    std::size_t start,
+    std::size_t count) {
+    const auto& curr = path_stack[path_offset];
+    if (path_offset + 1 == path_stack.size()) {
+        json::Value child_tools = json::Value::array();
+        for (std::size_t idx = 0; idx < count; ++idx) {
+            const auto& sub = tools[start + idx];
+            auto last_dot = sub.name.rfind('.');
+            std::string stripped_name = last_dot != std::string::npos ? sub.name.substr(last_dot + 1) : sub.name;
+            bool has_defer = false;
+            for (const auto& ann : sub.native) {
+                if (ann.kind == "defer_loading" && ann.value == "true") has_defer = true;
+            }
+            if (sub.type == "custom") {
+                json::Value ct = json::Value::object();
+                ct.set("type", json::Value::string("custom"));
+                ct.set("name", json::Value::string(stripped_name));
+                if (sub.has_description && !sub.description.empty()) ct.set("description", json::Value::string(sub.description));
+                if (sub.format.has_value()) ct.set("format", *sub.format);
+                if (has_defer) ct.set("defer_loading", json::Value::boolean(true));
+                child_tools.push_back(std::move(ct));
+            } else {
+                json::Value ft = json::Value::object();
+                ft.set("type", json::Value::string("function"));
+                ft.set("name", json::Value::string(stripped_name));
+                if (sub.has_description && !sub.description.empty()) ft.set("description", json::Value::string(sub.description));
+                ft.set("parameters", sub.input_schema.is_null() ? json::Value::object() : sub.input_schema);
+                if (has_defer) ft.set("defer_loading", json::Value::boolean(true));
+                child_tools.push_back(std::move(ft));
+            }
+        }
+        json::Value obj = json::Value::object();
+        obj.set("type", json::Value::string(curr.type));
+        obj.set("name", json::Value::string(curr.name));
+        if (curr.description.has_value()) {
+            obj.set("description", json::Value::string(*curr.description));
+        }
+        obj.set("tools", std::move(child_tools));
+        return obj;
+    }
+
+    // Multi-level
+    json::Value child_tools = json::Value::array();
+    std::size_t k = 0;
+    while (k < count) {
+        auto sub_path = parse_container_path(tools[start + k]);
+        if (!sub_path.has_value() || sub_path->size() <= path_offset + 1) {
+            k++;
+            continue;
+        }
+        std::string next_name = (*sub_path)[path_offset + 1].name;
+        std::size_t m = k;
+        while (m < count) {
+            auto p = parse_container_path(tools[start + m]);
+            if (!p.has_value() || p->size() <= path_offset + 1 || (*p)[path_offset + 1].name != next_name) break;
+            m++;
+        }
+        child_tools.push_back(build_nested_container(path_stack, path_offset + 1, tools, start + k, m - k));
+        k = m;
+    }
+    json::Value obj = json::Value::object();
+    obj.set("type", json::Value::string(curr.type));
+    obj.set("name", json::Value::string(curr.name));
+    if (curr.description.has_value()) {
+        obj.set("description", json::Value::string(*curr.description));
+    }
+    obj.set("tools", std::move(child_tools));
+    return obj;
+}
+
+static json::Value encode_responses_grouped_tools(
+    const std::vector<ir::Tool>& tools,
+    std::vector<ir::Loss>& losses) {
+    json::Value out = json::Value::array();
+    std::size_t i = 0;
+    while (i < tools.size()) {
+        const auto& tool = tools[i];
+        if (tool.type == "native") {
+            if (tool.source.has_value() && *tool.source == "openai") {
+                auto val = json::parse(tool.definition.value_or("{}"));
+                if (val.ok()) {
+                    out.push_back(val.value());
+                } else {
+                    out.push_back(json::Value::raw(tool.definition.value_or("{}")));
+                }
+            } else {
+                losses.push_back(make_resp_loss(
+                    "tools[" + std::to_string(i) + "]", "type",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "native tool \"" + tool.name + "\" from \"" + tool.source.value_or("") + "\" cannot be represented by the target protocol"));
+            }
+            ++i;
+            continue;
+        }
+
+        if (tool.type == ir::TOOL_TYPE_APPLY_PATCH) {
+            json::Value tw = json::Value::object();
+            tw.set("type", json::Value::string("apply_patch"));
+            out.push_back(std::move(tw));
+            ++i;
+            continue;
+        }
+
+        auto container_path = parse_container_path(tool);
+        auto dot_idx = tool.name.find('.');
+        if (container_path.has_value() && !container_path->empty()) {
+            std::string top_name = (*container_path)[0].name;
+            std::size_t j = i;
+            while (j < tools.size()) {
+                const auto& next_tool = tools[j];
+                if (next_tool.type == "native" || next_tool.type == "apply_patch") break;
+                auto next_path = parse_container_path(next_tool);
+                if (!next_path.has_value() || next_path->empty() || (*next_path)[0].name != top_name) break;
+                j++;
+            }
+            out.push_back(build_nested_container(*container_path, 0, tools, i, j - i));
+            i = j;
+            continue;
+        } else if (dot_idx != std::string::npos) {
+            std::string prefix = tool.name.substr(0, dot_idx);
+            std::size_t j = i;
+            while (j < tools.size()) {
+                const auto& next_tool = tools[j];
+                if (next_tool.type == "native" || next_tool.type == "apply_patch") break;
+                if (!next_tool.name.starts_with(prefix + ".")) break;
+                j++;
+            }
+            std::vector<ContainerEntry> synth{ContainerEntry{"namespace", prefix, std::nullopt}};
+            out.push_back(build_nested_container(synth, 0, tools, i, j - i));
+            i = j;
+            continue;
+        }
+
+        bool has_defer = false;
+        for (const auto& ann : tool.native) {
+            if (ann.kind == "defer_loading" && ann.value == "true") {
+                has_defer = true;
+                break;
+            }
+        }
+        json::Value tw = json::Value::object();
+        if (tool.type == "custom") {
+            tw.set("type", json::Value::string("custom"));
+            tw.set("name", json::Value::string(tool.name));
+            if (tool.has_description) tw.set("description", json::Value::string(tool.description));
+            if (tool.format.has_value()) tw.set("format", *tool.format);
+            if (has_defer) tw.set("defer_loading", json::Value::boolean(true));
+        } else {
+            tw.set("type", json::Value::string("function"));
+            tw.set("name", json::Value::string(tool.name));
+            if (tool.has_description && !tool.description.empty()) {
+                tw.set("description", json::Value::string(tool.description));
+            }
+            tw.set("parameters", tool.input_schema.is_null() ? json::Value::object() : tool.input_schema);
+            if (has_defer) tw.set("defer_loading", json::Value::boolean(true));
+        }
+        out.push_back(std::move(tw));
+        ++i;
+    }
+    return out;
+}
+
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
     std::vector<ir::Loss> losses;
@@ -945,34 +1383,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     bool all_tools_dropped = false;
     if (req.tools.has_value() && !req.tools->empty()) {
-        json::Value tools_arr = json::Value::array();
-        for (std::size_t ti = 0; ti < req.tools->size(); ++ti) {
-            const auto& t = (*req.tools)[ti];
-            if (t.type == "native") {
-                losses.push_back(make_resp_loss(
-                    "tools[" + std::to_string(ti) + "]", "type",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "native tool \"" + t.name + "\" from \"" + t.source.value_or("") + "\" cannot be represented by the target protocol"));
-                continue;
-            }
-            json::Value tw = json::Value::object();
-            if (t.type == ir::TOOL_TYPE_APPLY_PATCH) {
-                tw.set("type", json::Value::string("apply_patch"));
-            } else if (t.type == "custom") {
-                tw.set("type", json::Value::string("custom"));
-                tw.set("name", json::Value::string(t.name));
-                if (t.has_description) tw.set("description", json::Value::string(t.description));
-                if (t.format.has_value()) tw.set("format", *t.format);
-            } else {
-                tw.set("type", json::Value::string("function"));
-                tw.set("name", json::Value::string(t.name));
-                if (t.has_description && !t.description.empty()) {
-                    tw.set("description", json::Value::string(t.description));
-                }
-                tw.set("parameters", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
-            }
-            tools_arr.push_back(std::move(tw));
-        }
+        json::Value tools_arr = encode_responses_grouped_tools(*req.tools, losses);
         all_tools_dropped = tools_arr.as_array().empty();
         if (!tools_arr.as_array().empty()) {
             out.set("tools", std::move(tools_arr));
@@ -991,16 +1402,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 }
             }
         }
-        bool name_retained = false;
-        if (const auto* tw_arr = out.find("tools"); tw_arr && tw_arr->is_array()) {
-            for (const auto& tw : tw_arr->as_array()) {
-                if (const auto* nv = tw.find("name"); nv && nv->is_string() && nv->as_string() == cname) {
-                    name_retained = true;
+        bool is_openai_native = false;
+        if (req.tools.has_value()) {
+            for (const auto& t : *req.tools) {
+                if (t.type == "native" && t.name == cname && t.source.has_value() && *t.source == "openai") {
+                    is_openai_native = true;
                     break;
                 }
             }
         }
-        if (is_native && !name_retained) {
+        if (is_native && !is_openai_native) {
             native_named_choice_dropped = true;
         }
     }
@@ -1030,7 +1441,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 json::Value tco = json::Value::object();
                 const bool custom = tc.tool_type.has_value() && *tc.tool_type == "custom";
                 tco.set("type", json::Value::string(custom ? "custom" : "function"));
-                tco.set("name", json::Value::string(*tc.name));
+                auto dot_idx = tc.name->find('.');
+                if (dot_idx != std::string::npos) {
+                    tco.set("namespace", json::Value::string(tc.name->substr(0, dot_idx)));
+                    tco.set("name", json::Value::string(tc.name->substr(dot_idx + 1)));
+                } else {
+                    tco.set("name", json::Value::string(*tc.name));
+                }
                 out.set("tool_choice", std::move(tco));
             } else {
                 losses.push_back(make_resp_loss("tool_choice", "tool_choice",
@@ -1186,14 +1603,26 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     json::Value fc = json::Value::object();
                     fc.set("type", json::Value::string("function_call"));
                     fc.set("call_id", json::Value::string(tu->id));
-                    fc.set("name", json::Value::string(tu->name));
+                    auto dot_idx = tu->name.find('.');
+                    if (dot_idx != std::string::npos) {
+                        fc.set("namespace", json::Value::string(tu->name.substr(0, dot_idx)));
+                        fc.set("name", json::Value::string(tu->name.substr(dot_idx + 1)));
+                    } else {
+                        fc.set("name", json::Value::string(tu->name));
+                    }
                     fc.set("arguments", json::Value::string(tu->input));
                     fc_items.push_back(std::move(fc));
                 } else if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&b)) {
                     json::Value call = json::Value::object();
                     call.set("type", json::Value::string("custom_tool_call"));
                     call.set("call_id", json::Value::string(custom->id));
-                    call.set("name", json::Value::string(custom->name));
+                    auto dot_idx = custom->name.find('.');
+                    if (dot_idx != std::string::npos) {
+                        call.set("namespace", json::Value::string(custom->name.substr(0, dot_idx)));
+                        call.set("name", json::Value::string(custom->name.substr(dot_idx + 1)));
+                    } else {
+                        call.set("name", json::Value::string(custom->name));
+                    }
                     call.set("input", json::Value::string(custom->input));
                     fc_items.push_back(std::move(call));
                 }
@@ -1348,11 +1777,8 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         "Responses reasoning encrypted_content has no IR equivalent in v2."));
                 }
             } else if (kind == "function_call") {
-                ir::ToolUseBlock tu;
-                if (const auto* cid = item.find("call_id"); cid && cid->is_string()) tu.id = cid->as_string();
-                if (const auto* nv = item.find("name"); nv && nv->is_string()) tu.name = nv->as_string();
-                if (const auto* av = item.find("arguments"); av && av->is_string()) tu.input = av->as_string();
-                resp.content.push_back(std::move(tu));
+                OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(item, false));
+                resp.content.push_back(std::move(call));
                 has_tool_use = true;
             } else if (kind == "custom_tool_call") {
                 OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(item, true));
@@ -1480,7 +1906,13 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             fc.set("id", json::Value::string("fc_abc123"));
             fc.set("status", json::Value::string("completed"));
             fc.set("call_id", json::Value::string(tu->id));
-            fc.set("name", json::Value::string(tu->name));
+            auto dot_idx = tu->name.find('.');
+            if (dot_idx != std::string::npos) {
+                fc.set("namespace", json::Value::string(tu->name.substr(0, dot_idx)));
+                fc.set("name", json::Value::string(tu->name.substr(dot_idx + 1)));
+            } else {
+                fc.set("name", json::Value::string(tu->name));
+            }
             fc.set("arguments", json::Value::string(tu->input));
             calls.push_back(std::move(fc));
         } else if (const auto* custom = std::get_if<ir::CustomToolUseBlock>(&b)) {
@@ -1488,7 +1920,13 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             call.set("type", json::Value::string("custom_tool_call"));
             call.set("id", json::Value::string("ctc_abc123"));
             call.set("call_id", json::Value::string(custom->id));
-            call.set("name", json::Value::string(custom->name));
+            auto dot_idx = custom->name.find('.');
+            if (dot_idx != std::string::npos) {
+                call.set("namespace", json::Value::string(custom->name.substr(0, dot_idx)));
+                call.set("name", json::Value::string(custom->name.substr(dot_idx + 1)));
+            } else {
+                call.set("name", json::Value::string(custom->name));
+            }
             call.set("input", json::Value::string(custom->input));
             calls.push_back(std::move(call));
         } else if (const auto* custom_result = std::get_if<ir::CustomToolResultBlock>(&b)) {
@@ -1781,6 +2219,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             if (item_id_.empty() || call_id.empty() || name.empty()) {
                 return invalid_argument("responses: function_call item requires id, call_id, and name");
             }
+            if (const auto* nsv = item->find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+                std::string ns = nsv->as_string();
+                if (!name.starts_with(ns + ".")) name = ns + "." + name;
+            }
             StreamFunctionCall fc;
             fc.item_id = item_id_;
             fc.output_index = out_idx;
@@ -1799,6 +2241,10 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             const auto* input = item->find("input");
             if (item_id_.empty() || call_id.empty() || name.empty() || !input || !input->is_string() || !input->as_string().empty())
                 return invalid_argument("responses: custom_tool_call added item requires id, call_id, name, and input empty string");
+            if (const auto* nsv = item->find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+                std::string ns = nsv->as_string();
+                if (!name.starts_with(ns + ".")) name = ns + "." + name;
+            }
             custom_tool_call_ = StreamCustomToolCall{item_id_, out_idx, call_id, name, "", {}, std::nullopt};
             return events;
         }
@@ -1929,7 +2375,13 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         if (const auto* av = chunk.find("arguments"); av && av->is_string()) args = av->as_string();
         std::string joined;
         for (const auto& f : function_call_->fragments) joined += f;
-        if (call_id != function_call_->call_id || name != function_call_->name || args != joined) {
+        std::string raw_name = name;
+        std::string full_name = raw_name;
+        if (const auto* nsv = chunk.find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+            if (!full_name.starts_with(nsv->as_string() + ".")) full_name = nsv->as_string() + "." + full_name;
+        }
+        bool name_matches = (name == function_call_->name || full_name == function_call_->name || function_call_->name.ends_with("." + raw_name));
+        if (call_id != function_call_->call_id || !name_matches || args != joined) {
             return invalid_argument("responses: response.function_call_arguments.done does not match the active function call");
         }
         function_call_->arguments_done = true;
@@ -2148,7 +2600,13 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             if (const auto* cv = item->find("call_id"); cv && cv->is_string()) cid = cv->as_string();
             if (const auto* nv = item->find("name"); nv && nv->is_string()) name = nv->as_string();
             if (const auto* av = item->find("arguments"); av && av->is_string()) args = av->as_string();
-            if (cid != function_call_->call_id || name != function_call_->name || args != joined) {
+            std::string raw_name = name;
+            std::string full_name = raw_name;
+            if (const auto* nsv = item->find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+                if (!full_name.starts_with(nsv->as_string() + ".")) full_name = nsv->as_string() + "." + full_name;
+            }
+            bool name_matches = (name == function_call_->name || full_name == function_call_->name || function_call_->name.ends_with("." + raw_name));
+            if (cid != function_call_->call_id || !name_matches || args != joined) {
                 return invalid_argument("responses: response.output_item.done does not match the active function call");
             }
             OXA_ASSIGN_OR_RETURN(events, replay_function_call(*function_call_));
@@ -2157,8 +2615,14 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         }
         if (custom_tool_call_.has_value()) {
             const auto* cid = item->find("call_id"); const auto* name = item->find("name"); const auto* input = item->find("input");
+            std::string raw_name = name && name->is_string() ? name->as_string() : "";
+            std::string full_name = raw_name;
+            if (const auto* nsv = item->find("namespace"); nsv && nsv->is_string() && !nsv->as_string().empty()) {
+                if (!full_name.starts_with(nsv->as_string() + ".")) full_name = nsv->as_string() + "." + full_name;
+            }
+            bool name_matches = (raw_name == custom_tool_call_->name || full_name == custom_tool_call_->name || custom_tool_call_->name.ends_with("." + raw_name));
             if (!cid || !cid->is_string() || !name || !name->is_string() || !input || !input->is_string() ||
-                cid->as_string() != custom_tool_call_->call_id || name->as_string() != custom_tool_call_->name)
+                cid->as_string() != custom_tool_call_->call_id || !name_matches)
                 return invalid_argument("responses: custom_tool_call.done identity does not match added item");
             if (custom_tool_call_->snapshot.has_value() && *custom_tool_call_->snapshot != input->as_string())
                 return invalid_argument("responses: custom tool input snapshots conflict");
@@ -2422,12 +2886,16 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_func
     std::string_view call_id, std::string_view name) {
     std::string item_id = stream_generated_item_id("fc", next_function_item_++);
     std::int64_t output_index = next_output_index_++;
+    auto dot_idx = name.find('.');
+    std::string raw_name = dot_idx != std::string_view::npos ? std::string(name.substr(dot_idx + 1)) : std::string(name);
+    std::string ns = dot_idx != std::string_view::npos ? std::string(name.substr(0, dot_idx)) : "";
     StreamOutputItem item;
     item.kind = OutputItemKind::FunctionCall;
     item.id = item_id;
     item.output_index = output_index;
     item.call_id = std::string(call_id);
-    item.name = std::string(name);
+    item.name = raw_name;
+    item.namespace_val = ns;
 
     json::Value event = json::Value::object();
     event.set("type", json::Value::string("response.output_item.added"));
@@ -2437,7 +2905,8 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_func
     i.set("type", json::Value::string("function_call"));
     i.set("status", json::Value::string("in_progress"));
     i.set("call_id", json::Value::string(std::string(call_id)));
-    i.set("name", json::Value::string(std::string(name)));
+    i.set("name", json::Value::string(raw_name));
+    if (!ns.empty()) i.set("namespace", json::Value::string(ns));
     event.set("item", std::move(i));
 
     return {std::move(item), std::move(event)};
@@ -2447,8 +2916,11 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_cust
     std::string_view call_id, std::string_view name) {
     std::string item_id = "ctc_" + std::to_string(next_custom_item_++);
     std::int64_t output_index = next_output_index_++;
+    auto dot_idx = name.find('.');
+    std::string raw_name = dot_idx != std::string_view::npos ? std::string(name.substr(dot_idx + 1)) : std::string(name);
+    std::string ns = dot_idx != std::string_view::npos ? std::string(name.substr(0, dot_idx)) : "";
     StreamOutputItem item; item.kind = OutputItemKind::CustomToolCall; item.id = item_id;
-    item.output_index = output_index; item.call_id = std::string(call_id); item.name = std::string(name);
+    item.output_index = output_index; item.call_id = std::string(call_id); item.name = raw_name; item.namespace_val = ns;
     json::Value event = json::Value::object();
     event.set("type", json::Value::string("response.output_item.added"));
     event.set("output_index", json::Value::integer(output_index));
@@ -2456,7 +2928,8 @@ std::pair<StreamEncoder::StreamOutputItem, json::Value> StreamEncoder::open_cust
     wire_item.set("id", json::Value::string(item_id));
     wire_item.set("type", json::Value::string("custom_tool_call"));
     wire_item.set("call_id", json::Value::string(std::string(call_id)));
-    wire_item.set("name", json::Value::string(std::string(name)));
+    wire_item.set("name", json::Value::string(raw_name));
+    if (!ns.empty()) wire_item.set("namespace", json::Value::string(ns));
     wire_item.set("input", json::Value::string(""));
     event.set("item", std::move(wire_item));
     return {std::move(item), std::move(event)};
@@ -2723,6 +3196,9 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     completed.set("status", json::Value::string("completed"));
     completed.set("call_id", json::Value::string(active_item_->call_id));
     completed.set("name", json::Value::string(active_item_->name));
+    if (!active_item_->namespace_val.empty()) {
+        completed.set("namespace", json::Value::string(active_item_->namespace_val));
+    }
     completed.set("arguments", json::Value::string(arguments));
 
     json::Value args_done = json::Value::object();
@@ -2772,6 +3248,9 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     completed.set("type", json::Value::string("custom_tool_call"));
     completed.set("call_id", json::Value::string(active_item_->call_id));
     completed.set("name", json::Value::string(active_item_->name));
+    if (!active_item_->namespace_val.empty()) {
+        completed.set("namespace", json::Value::string(active_item_->namespace_val));
+    }
     completed.set("input", json::Value::string(input));
     json::Value done = json::Value::object();
     done.set("type", json::Value::string("response.output_item.done"));

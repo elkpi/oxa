@@ -1,0 +1,58 @@
+{
+  "name": "responses.nonstream.tool-additional-tools-to-ir",
+  "description": "Responses input additional_tools items are unpacked and hoisted to IR request tools.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Use additional tool."
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Calculator",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Use additional tool."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "calc",
+        "description": "Calculator",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "additional_tools", "N-R-15"]
+}

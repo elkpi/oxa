@@ -263,7 +263,12 @@ impl Tool {
             if kind.is_empty() || kind == "function" || kind == "custom" {
                 return Err("ir: native tool definition requires a native type".into());
             }
-            if object.get("name").and_then(Value::as_str) != Some(self.name.as_str()) {
+            let expected_name = object
+                .get("name")
+                .and_then(Value::as_str)
+                .or_else(|| object.get("server_label").and_then(Value::as_str))
+                .unwrap_or(kind);
+            if expected_name != self.name.as_str() {
                 return Err("ir: native tool definition name must match tool name".into());
             }
             return Ok(());

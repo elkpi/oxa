@@ -29,13 +29,13 @@ export function getToolDeferLoading(tool: Tool): boolean {
   return (
     tool.native?.some((n) => {
       if (
-        n.source === NATIVE_SOURCE_ANTHROPIC &&
+        (n.source === NATIVE_SOURCE_ANTHROPIC || n.source === "openai") &&
         n.kind === NATIVE_KIND_DEFER_LOADING
       ) {
         try {
           return JSON.parse(n.value) === true;
         } catch {
-          return false;
+          return n.value === "true";
         }
       }
       return false;

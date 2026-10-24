@@ -1,0 +1,56 @@
+{
+  "name": "responses.nonstream.native-tool-mcp-to-ir",
+  "description": "Multiple MCP server native tool declarations preserve distinct server_label identities and complete configuration without collision.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": "Connect MCP servers.",
+    "tools": [
+      {
+        "type": "mcp",
+        "server_label": "repo",
+        "server_url": "https://example.com/repo"
+      },
+      {
+        "type": "mcp",
+        "server_label": "editor",
+        "server_url": "https://example.com/editor",
+        "require_approval": "never"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Connect MCP servers."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "type": "native",
+        "name": "repo",
+        "source": "openai",
+        "definition": "{\"type\":\"mcp\",\"server_label\":\"repo\",\"server_url\":\"https://example.com/repo\"}"
+      },
+      {
+        "type": "native",
+        "name": "editor",
+        "source": "openai",
+        "definition": "{\"type\":\"mcp\",\"server_label\":\"editor\",\"server_url\":\"https://example.com/editor\",\"require_approval\":\"never\"}"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "native", "mcp", "N-R-15", "n-nt-1", "n-nt-5"]
+}

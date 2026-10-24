@@ -288,7 +288,14 @@ export function decodeRequest(document: JsonValue): Request {
               ) {
                 fail("native tool definition requires a native type");
               }
-              if (defParsed.name !== name) {
+              const expectedName =
+                typeof defParsed.name === "string" && defParsed.name
+                  ? defParsed.name
+                  : typeof defParsed.server_label === "string" &&
+                      defParsed.server_label
+                    ? defParsed.server_label
+                    : defParsed.type;
+              if (expectedName !== name) {
                 fail("native tool definition name must match tool name");
               }
               return {

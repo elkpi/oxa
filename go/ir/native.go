@@ -39,10 +39,12 @@ const (
 	NativeKindDocumentTitle     = "document_title"
 	NativeKindDocumentContext   = "document_context"
 	NativeKindDocumentCitations = "document_citations"
+	NativeKindContainer         = "container"
 )
 
 const (
 	NativeSourceAnthropic = "anthropic"
+	NativeSourceOpenAI    = "openai"
 )
 
 // CacheControlLossDetail is the canonical spec/15 §3.2 capability-gap detail for
@@ -190,7 +192,8 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 		}
 		seen[key] = true
 
-		if ann.Source == NativeSourceAnthropic {
+		switch ann.Source {
+		case NativeSourceAnthropic:
 			switch ann.Kind {
 			case NativeKindThinkingMode:
 				if host != hostRequest {
@@ -286,6 +289,35 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				}
 			default:
 			}
+		case NativeSourceOpenAI:
+			switch ann.Kind {
+			case NativeKindContainer:
+				if host != hostTool {
+					return fmt.Errorf("openai container is only allowed on Tool")
+				}
+				var obj struct {
+					Path []struct {
+						Type        string `json:"type"`
+						Name        string `json:"name"`
+						Description string `json:"description,omitempty"`
+					} `json:"path"`
+				}
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+					var str string
+					if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
+						return fmt.Errorf("openai container value must be valid JSON: %w", err)
+					}
+				}
+			case NativeKindDeferLoading:
+				if host != hostTool {
+					return fmt.Errorf("openai defer_loading is only allowed on Tool")
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil || !b {
+					return fmt.Errorf("invalid defer_loading %s", ann.Value)
+				}
+			default:
+			}
 		}
 	}
 	return nil
@@ -357,14 +389,14 @@ func OmittedNativeRequestLosses(req *Request, target string) ([]Loss, error) {
 	// 1. Request.Native
 	for i, ann := range req.Native {
 		path := fmt.Sprintf("native[%d]", i)
-		losses = appendAnnotationLoss(losses, ann, path, hasActiveBudgetProj, req.Params.ReasoningEffort)
+		losses = appendAnnotationLoss(losses, ann, path, hasActiveBudgetProj, req.Params.ReasoningEffort, target)
 	}
 
 	// 2. System blocks
 	for sIdx, sb := range req.System {
 		for i, ann := range sb.Native {
 			path := fmt.Sprintf("system[%d].native[%d]", sIdx, i)
-			losses = appendAnnotationLoss(losses, ann, path, false, "")
+			losses = appendAnnotationLoss(losses, ann, path, false, "", target)
 		}
 	}
 
@@ -372,7 +404,7 @@ func OmittedNativeRequestLosses(req *Request, target string) ([]Loss, error) {
 	for mIdx, msg := range req.Messages {
 		for cIdx, blk := range msg.Content {
 			basePath := fmt.Sprintf("messages[%d].content[%d]", mIdx, cIdx)
-			losses = collectBlockOmissionLosses(losses, blk, basePath)
+			losses = collectBlockOmissionLosses(losses, blk, basePath, target)
 		}
 	}
 
@@ -380,14 +412,14 @@ func OmittedNativeRequestLosses(req *Request, target string) ([]Loss, error) {
 	for tIdx, tool := range req.Tools {
 		for i, ann := range tool.Native {
 			path := fmt.Sprintf("tools[%d].native[%d]", tIdx, i)
-			losses = appendAnnotationLoss(losses, ann, path, false, "")
+			losses = appendAnnotationLoss(losses, ann, path, false, "", target)
 		}
 	}
 
 	return losses, nil
 }
 
-func collectBlockOmissionLosses(losses []Loss, b Block, path string) []Loss {
+func collectBlockOmissionLosses(losses []Loss, b Block, path string, target string) []Loss {
 	var nat []NativeAnnotation
 	var children []Block
 	switch blk := b.(type) {
@@ -415,17 +447,31 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string) []Loss {
 
 	for i, ann := range nat {
 		p := fmt.Sprintf("%s.native[%d]", path, i)
-		losses = appendAnnotationLoss(losses, ann, p, false, "")
+		losses = appendAnnotationLoss(losses, ann, p, false, "", target)
 	}
 
 	for k, child := range children {
 		childPath := fmt.Sprintf("%s.content[%d]", path, k)
-		losses = collectBlockOmissionLosses(losses, child, childPath)
+		losses = collectBlockOmissionLosses(losses, child, childPath, target)
 	}
 	return losses
 }
 
-func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasActiveBudgetProj bool, currentEffort string) []Loss {
+func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasActiveBudgetProj bool, currentEffort string, target string) []Loss {
+	if ann.Source == NativeSourceOpenAI {
+		if target == "responses" {
+			return losses
+		}
+		if ann.Omission != nil {
+			return append(losses, Loss{
+				Path:   path,
+				Field:  ann.Omission.Field,
+				Reason: ann.Omission.Reason,
+				Detail: ann.Omission.Detail,
+			})
+		}
+		return losses
+	}
 	if ann.Source != NativeSourceAnthropic {
 		// Unknown source
 		return append(losses, Loss{
@@ -509,6 +555,9 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 		})
 
 	case NativeKindDeferLoading:
+		if target == "responses" || target == "anthropic" {
+			return losses
+		}
 		field := "defer_loading"
 		reason := LossDegraded
 		detail := DeferLoadingLossDetail

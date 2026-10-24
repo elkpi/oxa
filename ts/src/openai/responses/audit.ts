@@ -89,6 +89,7 @@ const INPUT_ITEM: WireAuditSpec = {
             status: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             arguments: undefined,
           },
         };
@@ -108,6 +109,7 @@ const INPUT_ITEM: WireAuditSpec = {
             type: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             input: undefined,
           },
         };
@@ -126,6 +128,14 @@ const INPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
+          },
+        };
+      case "additional_tools":
+        return {
+          fields: {
+            type: undefined,
+            role: undefined,
+            tools: { items: TOOL },
           },
         };
       default:
@@ -150,39 +160,61 @@ const CUSTOM_FORMAT: WireAuditSpec = {
 };
 
 const TOOL: WireAuditSpec = {
-  variant: (tool) =>
-    tool.type === "apply_patch"
-      ? {
-          fields: {
-            type: undefined,
-          },
-        }
-      : tool.type === "function"
-        ? {
-            fields: {
-              type: undefined,
-              name: undefined,
-              description: undefined,
-              parameters: undefined,
-            },
-          }
-        : tool.type === "custom"
-          ? {
-              fields: {
-                type: undefined,
-                name: undefined,
-                description: undefined,
-                format: CUSTOM_FORMAT,
-              },
-            }
-          : undefined,
+  variant: (tool) => {
+    if (tool.type === "apply_patch") {
+      return {
+        fields: {
+          type: undefined,
+        },
+      };
+    }
+    if (tool.type === "function") {
+      return {
+        fields: {
+          type: undefined,
+          name: undefined,
+          description: undefined,
+          parameters: undefined,
+          defer_loading: undefined,
+        },
+      };
+    }
+    if (tool.type === "custom") {
+      return {
+        fields: {
+          type: undefined,
+          name: undefined,
+          description: undefined,
+          format: CUSTOM_FORMAT,
+          defer_loading: undefined,
+        },
+      };
+    }
+    if (tool.type === "namespace" || tool.type === "toolbox") {
+      return {
+        fields: {
+          type: undefined,
+          name: undefined,
+          description: undefined,
+          tools: { items: TOOL },
+        },
+      };
+    }
+    if (typeof tool.type === "string" && tool.type !== "") {
+      // Native tool declaration: all fields preserved opaquely
+      return undefined;
+    }
+    return undefined;
+  },
 };
 
 const TOOL_CHOICE: WireAuditSpec = {
   variant: (choice) => {
     if (choice.type === "apply_patch") return { fields: { type: undefined } };
     if (choice.type === "function" || choice.type === "custom")
-      return { fields: { type: undefined, name: undefined } };
+      return {
+        fields: { type: undefined, name: undefined, namespace: undefined },
+      };
     return undefined;
   },
 };
@@ -263,6 +295,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             status: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             arguments: undefined,
           },
         };
@@ -273,6 +306,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             id: undefined,
             call_id: undefined,
             name: undefined,
+            namespace: undefined,
             input: undefined,
           },
         };

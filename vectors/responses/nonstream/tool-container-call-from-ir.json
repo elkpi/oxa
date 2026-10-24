@@ -1,0 +1,115 @@
+{
+  "name": "responses.nonstream.tool-container-call-from-ir",
+  "description": "IR ToolUseBlock with dotted name and container tool declaration encodes with namespace and name.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "tools": [
+      {
+        "name": "repo.read",
+        "description": "Read file",
+        "input_schema": {
+          "type": "object",
+          "properties": { "path": { "type": "string" } },
+          "required": ["path"]
+        },
+        "native": [
+          {
+            "source": "openai",
+            "kind": "container",
+            "value": "{\"path\":[{\"type\":\"toolbox\",\"name\":\"repo\"}]}",
+            "omission": {
+              "field": "type",
+              "reason": "degraded",
+              "detail": "tool container grouping was flattened into dotted tool names"
+            }
+          }
+        ]
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Read file."
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_123",
+            "name": "repo.read",
+            "input": "{\"path\":\"a.txt\"}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_123",
+            "content": [
+              {
+                "type": "text",
+                "text": "file content"
+              }
+            ],
+            "is_error": false
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "tools": [
+      {
+        "type": "toolbox",
+        "name": "repo",
+        "tools": [
+          {
+            "type": "function",
+            "name": "read",
+            "description": "Read file",
+            "parameters": {
+              "type": "object",
+              "properties": { "path": { "type": "string" } },
+              "required": ["path"]
+            }
+          }
+        ]
+      }
+    ],
+    "input": [
+      {
+        "role": "user",
+        "content": "Read file."
+      },
+      {
+        "type": "function_call",
+        "call_id": "call_123",
+        "name": "read",
+        "namespace": "repo",
+        "arguments": "{\"path\":\"a.txt\"}"
+      },
+      {
+        "type": "function_call_output",
+        "call_id": "call_123",
+        "output": "file content"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "conversation", "function_call", "namespace", "N-R-15"]
+}

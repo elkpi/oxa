@@ -229,9 +229,16 @@ impl StreamDecoder {
                             "responses: function_call item requires id, call_id, and name",
                         ));
                     }
+                    let raw_name = &item.name;
+                    let ns = item.namespace.as_deref().unwrap_or("");
+                    let name = if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                        format!("{ns}.{raw_name}")
+                    } else {
+                        raw_name.clone()
+                    };
                     self.function_call = Some(StreamFunctionCall {
                         call_id: item.call_id.clone(),
-                        name: item.name.clone(),
+                        name,
                         fragments: vec![item.arguments.clone()],
                         arguments_done: false,
                         custom: false,
@@ -250,9 +257,16 @@ impl StreamDecoder {
                             "responses: custom_tool_call added item must carry input empty string",
                         ));
                     }
+                    let raw_name = &item.name;
+                    let ns = item.namespace.as_deref().unwrap_or("");
+                    let name = if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                        format!("{ns}.{raw_name}")
+                    } else {
+                        raw_name.clone()
+                    };
                     self.function_call = Some(StreamFunctionCall {
                         call_id: item.call_id.clone(),
-                        name: item.name.clone(),
+                        name,
                         fragments: Vec::new(),
                         arguments_done: false,
                         custom: true,
@@ -402,9 +416,18 @@ impl StreamDecoder {
                     ));
                 }
                 let call_id = ev.call_id.as_deref().unwrap_or("");
-                let name = ev.name.as_deref().unwrap_or("");
+                let raw_name = ev.name.as_deref().unwrap_or("");
+                let ns = ev.namespace.as_deref().unwrap_or("");
+                let full_name = if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                    format!("{ns}.{raw_name}")
+                } else {
+                    raw_name.to_string()
+                };
+                let name_matches = raw_name == fc.name
+                    || full_name == fc.name
+                    || fc.name.ends_with(&format!(".{raw_name}"));
                 let arguments = ev.arguments.as_deref().unwrap_or("");
-                if call_id != fc.call_id || name != fc.name || arguments != fc.fragments.concat() {
+                if call_id != fc.call_id || !name_matches || arguments != fc.fragments.concat() {
                     return Err(Error::new(
                         "responses: response.function_call_arguments.done does not match the active function call",
                     ));
@@ -780,7 +803,18 @@ impl StreamDecoder {
                         let input = item.input.as_ref().ok_or_else(|| {
                             Error::new("responses: custom_tool_call output_item.done missing input")
                         })?;
-                        if item.call_id != fc.call_id || item.name != fc.name {
+                        let raw_name = &item.name;
+                        let ns = item.namespace.as_deref().unwrap_or("");
+                        let full_name =
+                            if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                                format!("{ns}.{raw_name}")
+                            } else {
+                                raw_name.to_string()
+                            };
+                        let name_matches = raw_name == &fc.name
+                            || full_name == fc.name
+                            || fc.name.ends_with(&format!(".{raw_name}"));
+                        if item.call_id != fc.call_id || !name_matches {
                             return Err(Error::new(
                                 "responses: output_item.done does not match active custom_tool_call",
                             ));
@@ -827,10 +861,17 @@ impl StreamDecoder {
                         return self.close_stream_item(events);
                     }
                     let joined = fc.fragments.concat();
-                    if item.call_id != fc.call_id
-                        || item.name != fc.name
-                        || item.arguments != joined
-                    {
+                    let raw_name = &item.name;
+                    let ns = item.namespace.as_deref().unwrap_or("");
+                    let full_name = if !ns.is_empty() && !raw_name.starts_with(&format!("{ns}.")) {
+                        format!("{ns}.{raw_name}")
+                    } else {
+                        raw_name.to_string()
+                    };
+                    let name_matches = raw_name == &fc.name
+                        || full_name == fc.name
+                        || fc.name.ends_with(&format!(".{raw_name}"));
+                    if item.call_id != fc.call_id || !name_matches || item.arguments != joined {
                         return Err(Error::new(
                             "responses: response.output_item.done does not match the active function call",
                         ));

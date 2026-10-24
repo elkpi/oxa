@@ -23,6 +23,7 @@
         "id": "fc_1",
         "status": "completed",
         "call_id": "call_9",
+        "namespace": "forecast",
         "name": "weather",
         "arguments": "{\"city\":\"Paris\"}"
       }
@@ -35,7 +36,7 @@
     "model": "gpt-4o-mini",
     "content": [
       { "type": "text", "text": "Checking." },
-      { "type": "tool_use", "id": "call_9", "name": "weather", "input": "{\"city\":\"Paris\"}" }
+      { "type": "tool_use", "id": "call_9", "name": "forecast.weather", "input": "{\"city\":\"Paris\"}" }
     ],
     "stop_reason": "tool_use",
     "usage": { "input_tokens": 10, "output_tokens": 5 }

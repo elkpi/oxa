@@ -2064,10 +2064,10 @@
         "request",
         "native",
         "tools",
-        "defer-loading",
-        "loss"
+        "defer_loading",
+        "N-R-15"
       ],
-      "sha256": "8193ac004aa503b81707aa1b2838b4901d4830e7f9e7ff14f2c667cddee60a65"
+      "sha256": "ddabbd210c310ed61a7fbb2fe2ac770affccaf6536401fb371f3f0f5b1e70ad3"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request",
@@ -2189,6 +2189,18 @@
       "sha256": "04bb5bc2e61b5ac386a3ed2cb29fc50b27f0bc193d88fd9819b247cc49c50b6c"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-container-defer-loading",
+      "file": "cross/nonstream/responses-to-anthropic-container-defer-loading.json",
+      "tags": [
+        "cross",
+        "request",
+        "container",
+        "defer_loading",
+        "N-R-15"
+      ],
+      "sha256": "2e786d28e2d30d15cbbac7c7ab7307a2d8705ae5c6e5a1753b92fcd752fbf951"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-custom-tool",
       "file": "cross/nonstream/responses-to-anthropic-custom-tool.json",
       "tags": [
@@ -2198,6 +2210,19 @@
         "n-an-13"
       ],
       "sha256": "f5367e0ce54d925add9afb635f5532195bc22dfe7079f7965cf54b7d2331b4e1"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-native-tool",
+      "file": "cross/nonstream/responses-to-anthropic-native-tool.json",
+      "tags": [
+        "cross",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-3",
+        "n-nt-5"
+      ],
+      "sha256": "c5b392052920b69559b8b890c61b086458d06c8cf6f1e9259c5ddf02a7f8b5c9"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-request",
@@ -2268,6 +2293,18 @@
         "usage"
       ],
       "sha256": "efab1e18a40333def1296fc9d0bbac4d36fa91fc3c2426819919c8c5e303ab98"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-tool-container",
+      "file": "cross/nonstream/responses-to-chatcompletions-tool-container.json",
+      "tags": [
+        "cross",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "2acfa4711b43cf37e6d1afb1a66073716c9951582247e7ac678aad71c3b3962c"
     },
     {
       "name": "responses.nonstream.annotations-loss-response-to-ir",
@@ -3348,6 +3385,88 @@
       "sha256": "15f53a8c601e840eac4d2d1ae04acbb9d9a32ee7f8341e3364665fab635c3612"
     },
     {
+      "name": "responses.nonstream.native-tool-mcp-from-ir",
+      "file": "responses/nonstream/native-tool-mcp-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "mcp",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "3f4c8e020caab11f4d63f7ef4851cc4607f1e550e2d90ae75b09f51929552bfe"
+    },
+    {
+      "name": "responses.nonstream.native-tool-mcp-to-ir",
+      "file": "responses/nonstream/native-tool-mcp-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "mcp",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "3c11d4c47b040cabd24e1573f3ea61858431a546ff8ec24f32a3a29618b398ab"
+    },
+    {
+      "name": "responses.nonstream.native-tool-numbers-from-ir",
+      "file": "responses/nonstream/native-tool-numbers-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "numbers",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "3050d6b88323256053ae354a14a66dcaa39e01953dd59e626519685e9d742e7d"
+    },
+    {
+      "name": "responses.nonstream.native-tool-numbers-to-ir",
+      "file": "responses/nonstream/native-tool-numbers-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "numbers",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "16b05815dfd1c4fbb25b6c103b5e78a808b7f060a6e971df75c5dc1e49ff7d2e"
+    },
+    {
+      "name": "responses.nonstream.native-tool-web-search-from-ir",
+      "file": "responses/nonstream/native-tool-web-search-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "035ab650784cfcbf65f0bd26f8fa2b21d804effa5a3a301f2ecfa915521f1a02"
+    },
+    {
+      "name": "responses.nonstream.native-tool-web-search-to-ir",
+      "file": "responses/nonstream/native-tool-web-search-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "N-R-15",
+        "n-nt-1",
+        "n-nt-5"
+      ],
+      "sha256": "108033bd4df5590bd7b4b2b7c0104e1ed7ad2814c2a6ebe95a01db5224d4ce58"
+    },
+    {
       "name": "responses.nonstream.params-request-from-ir",
       "file": "responses/nonstream/params-request-from-ir.json",
       "tags": [
@@ -3618,6 +3737,17 @@
       "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "9aa458271263a424d1b5d83b2c717f2a2041e291c02cf09800d67da054cfe1a3"
+    },
+    {
       "name": "responses.nonstream.tool-choice-auto-from-ir",
       "file": "responses/nonstream/tool-choice-auto-from-ir.json",
       "tags": [
@@ -3678,6 +3808,78 @@
       "sha256": "39c159642d11eba5e1bc4b170c510c8b0813883b56893e27c7cc2fb233b64b5a"
     },
     {
+      "name": "responses.nonstream.tool-container-call-from-ir",
+      "file": "responses/nonstream/tool-container-call-from-ir.json",
+      "tags": [
+        "tools",
+        "conversation",
+        "function_call",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "a639e8d8bf5d1e59eaba17dfd37f18cde6e77540c4e9c67607de1ca45a89bc36"
+    },
+    {
+      "name": "responses.nonstream.tool-container-call-to-ir",
+      "file": "responses/nonstream/tool-container-call-to-ir.json",
+      "tags": [
+        "tools",
+        "conversation",
+        "function_call",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "111a302111d89e8b6a4186fef7e54a14ac2b051f4ff6aaf54489d3b434f356cc"
+    },
+    {
+      "name": "responses.nonstream.tool-container-namespace-from-ir",
+      "file": "responses/nonstream/tool-container-namespace-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "620c29e1bb07cc0545ed0f4b756467c4853e06a046a7e637596497349a80c7ae"
+    },
+    {
+      "name": "responses.nonstream.tool-container-namespace-to-ir",
+      "file": "responses/nonstream/tool-container-namespace-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "1112ca255df8e947cfdf7ddbc24b331a42e1e6fe0531d07ffbb534dbab100fb0"
+    },
+    {
+      "name": "responses.nonstream.tool-container-toolbox-from-ir",
+      "file": "responses/nonstream/tool-container-toolbox-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "toolbox",
+        "N-R-15"
+      ],
+      "sha256": "f396535c8d12ed45262b2ed4878fb475bc260628c8a9345f7c9b4a3ea7d8b7ee"
+    },
+    {
+      "name": "responses.nonstream.tool-container-toolbox-to-ir",
+      "file": "responses/nonstream/tool-container-toolbox-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "toolbox",
+        "N-R-15"
+      ],
+      "sha256": "2b7ebf130cfe252c8f71bbf15d46acc04e0f18c9d6ebad8bb4ba18ec89bb18a1"
+    },
+    {
       "name": "responses.nonstream.tool-conversation-from-ir",
       "file": "responses/nonstream/tool-conversation-from-ir.json",
       "tags": [
@@ -3702,6 +3904,54 @@
       "sha256": "224a9fdd7acb68bc952a2c468105c7ef8a303eb6808aed605ebb89aa582efccb"
     },
     {
+      "name": "responses.nonstream.tool-defer-loading-from-ir",
+      "file": "responses/nonstream/tool-defer-loading-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "defer_loading",
+        "N-R-15"
+      ],
+      "sha256": "226d5af2debdb6662d751d21d002ecc3fa66541cea4e72f235c0a5c571e4159c"
+    },
+    {
+      "name": "responses.nonstream.tool-defer-loading-to-ir",
+      "file": "responses/nonstream/tool-defer-loading-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "native",
+        "defer_loading",
+        "N-R-15"
+      ],
+      "sha256": "e1b45a742e2b28cd5e4b6f2165e742b8b679c8e8561596d0d959f5d6ee613a37"
+    },
+    {
+      "name": "responses.nonstream.tool-nested-container-from-ir",
+      "file": "responses/nonstream/tool-nested-container-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "nested",
+        "N-R-15"
+      ],
+      "sha256": "d776f54d7c248020c5393a6755d7b89c0ceb9024ca8c021a6bcc0c73dd803c90"
+    },
+    {
+      "name": "responses.nonstream.tool-nested-container-to-ir",
+      "file": "responses/nonstream/tool-nested-container-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "container",
+        "nested",
+        "N-R-15"
+      ],
+      "sha256": "4d2bb6f236e8ff8de2d9a52f82162265e070fcf2d90741630168dfc01f9df5f2"
+    },
+    {
       "name": "responses.nonstream.tool-response-from-ir",
       "file": "responses/nonstream/tool-response-from-ir.json",
       "tags": [
@@ -3722,7 +3972,7 @@
         "N-R-5",
         "N-R-11"
       ],
-      "sha256": "75283bae0d263b7da145e9a5b26614a842f6becda66d35926c1a440d602a6ee1"
+      "sha256": "e7a860ac3b2670380041ef75c4c86ab8df3172a212ee4284bce6057fd902917a"
     },
     {
       "name": "responses.nonstream.tools-definition-from-ir",
@@ -4082,6 +4332,28 @@
         "n-s-6"
       ],
       "sha256": "7c5673095bdce96e62d11f69cf06dc2ea2ebba5fc25b3e99571fd2cc98b10f13"
+    },
+    {
+      "name": "responses.stream.tool-call-namespace-from-ir",
+      "file": "responses/stream/tool-call-namespace-from-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "e3ff2b5a3527170e3fa9cc0c1e35a0cb25bab10ed4bad867ae841755cf08cb5a"
+    },
+    {
+      "name": "responses.stream.tool-call-namespace-to-ir",
+      "file": "responses/stream/tool-call-namespace-to-ir.json",
+      "tags": [
+        "tools",
+        "stream",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "85da39367d706e65a9d4c8c0f71b9de2793d058cda641db5d0a15938153cf6d9"
     },
     {
       "name": "responses.stream.unknown-event-field-to-ir",

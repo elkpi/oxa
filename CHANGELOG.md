@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.9] - 2026-10-24
+
+### Added
+
+- OpenAI Responses 层级工具容器与原生工具支持（spec/11 N-R-15、spec/15 §3.4、spec/16 N-NT-5）：
+  - 支持 `namespace` 与 `toolbox` 层级容器解码，子工具递归扁平化为点分工具名称（如 `editor.submit_patch`、`repo.read`），并通过 `NativeAnnotation` 保留容器类型以供高保真回写重组。
+  - 支持 `input[]` 中 `additional_tools` 声明项的解包并提升至请求顶层 `Tools`。
+  - 支持 `function_call` 与 `custom_tool_call` 的 `namespace` 属性解析、命名空间规范化与编码拆分。
+  - 支持 `tool_choice` 对命名空间工具（包含嵌套与点分名称）的强类型选择与拆分回写。
+  - 容器空数组、缺失/非法名称、展平后名称冲突严格校验为结构错误。
+  - Responses 原生支持 `defer_loading`（仅限 `true`）无损回转，仅跨面至 Chat Completions 时产生 `degraded` 遗漏损失。
+  - 扩展平台内置原生工具声明支持（`web_search`、`file_search`、`code_interpreter`、`computer`、`mcp`、`tool_search` 等），映射为 `type: "native"`、`source: "openai"`，原始 JSON 声明文本严格保真，同源回写，跨面安全省略并记录 `unsupported-semantic` 损失。
+  - Go、TypeScript、Python、Rust、C++ 全部 5 门语言 100% 同步实现并全量绿灯通过。
+- 新增 13 条共享黄金向量（359 → 372），覆盖命名空间、工具箱、动态注入、命名空间工具调用/选择、OpenAI 原生内置工具声明及其跨协议映射。
+
+### Changed
+
+- Spec 版本、五种语言实现版本和状态矩阵统一更新至 `2.4.9`；IR contract 保持 `0.2.0`。
+
 ## [v2.4.8] - 2026-10-23
 
 ### Added

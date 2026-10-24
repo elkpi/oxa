@@ -16,6 +16,7 @@ type streamFunctionCall struct {
 	outputIndex   int
 	callID        string
 	name          string
+	rawName       string
 	fragments     []string
 	argumentsDone bool
 }
@@ -169,11 +170,16 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Name == "" {
 				return nil, fmt.Errorf("responses: function_call item requires id, call_id, and name")
 			}
+			finalName := ev.Item.Name
+			if ev.Item.Namespace != "" && !strings.HasPrefix(finalName, ev.Item.Namespace+".") {
+				finalName = ev.Item.Namespace + "." + finalName
+			}
 			d.functionCall = &streamFunctionCall{
 				itemID:      ev.Item.ID,
 				outputIndex: ev.OutputIndex,
 				callID:      ev.Item.CallID,
-				name:        ev.Item.Name,
+				name:        finalName,
+				rawName:     ev.Item.Name,
 				fragments:   []string{ev.Item.Arguments},
 			}
 			return nil, nil
@@ -252,7 +258,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		if d.functionCall.argumentsDone {
 			return nil, fmt.Errorf("responses: duplicate response.function_call_arguments.done")
 		}
-		if ev.CallID != d.functionCall.callID || ev.Name != d.functionCall.name || ev.Arguments != strings.Join(d.functionCall.fragments, "") {
+		if ev.CallID != d.functionCall.callID || (ev.Name != d.functionCall.name && ev.Name != d.functionCall.rawName) || ev.Arguments != strings.Join(d.functionCall.fragments, "") {
 			return nil, fmt.Errorf("responses: response.function_call_arguments.done does not match the active function call")
 		}
 		d.functionCall.argumentsDone = true
@@ -432,7 +438,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if d.functionCall != nil {
 			joined := strings.Join(d.functionCall.fragments, "")
-			if ev.Item.CallID != d.functionCall.callID || ev.Item.Name != d.functionCall.name || ev.Item.Arguments != joined {
+			if ev.Item.CallID != d.functionCall.callID || (ev.Item.Name != d.functionCall.name && ev.Item.Name != d.functionCall.rawName) || ev.Item.Arguments != joined {
 				return nil, fmt.Errorf("responses: response.output_item.done does not match the active function call")
 			}
 			var err error

@@ -41,6 +41,7 @@ struct StreamOutputItem {
     next_content_index: i64,
     call_id: String,
     name: String,
+    namespace: String,
 }
 
 struct StreamEncodeBlock {
@@ -591,6 +592,17 @@ impl StreamEncoder {
         self.next_output_index += 1;
         let item_id = format!("ctc_{}", self.next_custom_item);
         self.next_custom_item += 1;
+        let dot_idx = name.find('.');
+        let raw_name = if let Some(idx) = dot_idx {
+            &name[idx + 1..]
+        } else {
+            name
+        };
+        let namespace = if let Some(idx) = dot_idx {
+            &name[..idx]
+        } else {
+            ""
+        };
         self.active_item = Some(StreamOutputItem {
             kind: StreamOutputItemKind::CustomToolCall,
             id: item_id.clone(),
@@ -598,7 +610,8 @@ impl StreamEncoder {
             content: Vec::new(),
             next_content_index: 0,
             call_id: id.to_string(),
-            name: name.to_string(),
+            name: raw_name.to_string(),
+            namespace: namespace.to_string(),
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -615,7 +628,12 @@ impl StreamEncoder {
                 id: item_id,
                 kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
                 call_id: id.to_string(),
-                name: name.to_string(),
+                name: raw_name.to_string(),
+                namespace: if namespace.is_empty() {
+                    None
+                } else {
+                    Some(namespace.to_string())
+                },
                 input: Some(String::new()),
                 ..OutputItem::default()
             }),
@@ -659,6 +677,11 @@ impl StreamEncoder {
             status: STATUS_COMPLETED.to_string(),
             call_id: active_item.call_id.clone(),
             name: active_item.name.clone(),
+            namespace: if active_item.namespace.is_empty() {
+                None
+            } else {
+                Some(active_item.namespace.clone())
+            },
             arguments: arguments.clone(),
             ..Default::default()
         };
@@ -716,6 +739,11 @@ impl StreamEncoder {
             kind: ITEM_TYPE_CUSTOM_TOOL_CALL.to_string(),
             call_id: active_item.call_id.clone(),
             name: active_item.name.clone(),
+            namespace: if active_item.namespace.is_empty() {
+                None
+            } else {
+                Some(active_item.namespace.clone())
+            },
             input: Some(input.clone()),
             ..OutputItem::default()
         };
@@ -774,6 +802,7 @@ impl StreamEncoder {
             next_content_index: 0,
             call_id: id.clone(),
             name: String::new(),
+            namespace: String::new(),
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -884,6 +913,7 @@ impl StreamEncoder {
             next_content_index: 0,
             call_id: tool_use_id.clone(),
             name: String::new(),
+            namespace: String::new(),
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -968,6 +998,7 @@ impl StreamEncoder {
             next_content_index: 0,
             call_id: String::new(),
             name: String::new(),
+            namespace: String::new(),
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -993,6 +1024,17 @@ impl StreamEncoder {
         self.next_function_item += 1;
         let output_index = self.next_output_index;
         self.next_output_index += 1;
+        let dot_idx = name.find('.');
+        let raw_name = if let Some(idx) = dot_idx {
+            &name[idx + 1..]
+        } else {
+            name
+        };
+        let namespace = if let Some(idx) = dot_idx {
+            &name[..idx]
+        } else {
+            ""
+        };
         let item = StreamOutputItem {
             kind: StreamOutputItemKind::FunctionCall,
             id: id.clone(),
@@ -1000,7 +1042,8 @@ impl StreamEncoder {
             content: Vec::new(),
             next_content_index: 0,
             call_id: call_id.to_string(),
-            name: name.to_string(),
+            name: raw_name.to_string(),
+            namespace: namespace.to_string(),
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -1010,7 +1053,12 @@ impl StreamEncoder {
                 kind: ITEM_TYPE_FUNCTION_CALL.to_string(),
                 status: STATUS_IN_PROGRESS.to_string(),
                 call_id: call_id.to_string(),
-                name: name.to_string(),
+                name: raw_name.to_string(),
+                namespace: if namespace.is_empty() {
+                    None
+                } else {
+                    Some(namespace.to_string())
+                },
                 arguments: String::new(),
                 ..Default::default()
             }),
@@ -1032,6 +1080,7 @@ impl StreamEncoder {
             next_content_index: 0,
             call_id: String::new(),
             name: String::new(),
+            namespace: String::new(),
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),

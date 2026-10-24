@@ -167,6 +167,18 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "tool"
+        && let Some(tool_type) = tag(&object, "type")
+        && !tool_type.is_empty()
+        && tool_type != "function"
+        && tool_type != "custom"
+        && tool_type != "apply_patch"
+        && tool_type != "namespace"
+        && tool_type != "toolbox"
+        && is_responses_native_tool(&tool_type, &object)
+    {
+        return Ok(raw.get().to_string());
+    }
     let Some(fields) = shape(name, &object) else {
         let mut out = String::from("{");
         let mut first = true;
@@ -298,10 +310,12 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
                 "apply_patch_call" => shape("apply_patch_call", object),
                 "apply_patch_call_output" => shape("apply_patch_call_output", object),
                 "reasoning" => shape("reasoning_item", object),
+                "additional_tools" => shape("additional_tools_item", object),
                 _ => None,
             },
             None => shape("input_message", object),
         },
+        "additional_tools_item" => Some(&[("type", ""), ("role", ""), ("tools", "tool[]")]),
         "input_message" => Some(&[
             ("type", ""),
             ("id", ""),
@@ -315,6 +329,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("status", ""),
             ("call_id", ""),
             ("name", ""),
+            ("namespace", ""),
             ("arguments", ""),
         ]),
         "custom_tool_call" => Some(&[
@@ -322,6 +337,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("id", ""),
             ("call_id", ""),
             ("name", ""),
+            ("namespace", ""),
             ("input", ""),
         ]),
         "custom_tool_output" => {
@@ -421,10 +437,17 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
                 "apply_patch" => shape("apply_patch_tool", object),
                 "function" => shape("function_tool", object),
                 "custom" => shape("custom_tool", object),
+                "namespace" | "toolbox" => shape("container_tool", object),
                 _ => None,
             },
             None => None,
         },
+        "container_tool" => Some(&[
+            ("type", ""),
+            ("name", ""),
+            ("description", ""),
+            ("tools", "tool[]"),
+        ]),
         "apply_patch_tool" => Some(&[("type", "")]),
         "function_tool" => Some(&[
             ("type", ""),
@@ -432,12 +455,14 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("description", ""),
             ("parameters", ""),
             ("strict", ""),
+            ("defer_loading", ""),
         ]),
         "custom_tool" => Some(&[
             ("type", ""),
             ("name", ""),
             ("description", ""),
             ("format", "custom_format"),
+            ("defer_loading", ""),
         ]),
         "custom_format" => match tag(object, "type").as_deref() {
             Some("text") => Some(&[("type", "")]),
@@ -453,7 +478,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             None => None,
         },
         "apply_patch_choice" => Some(&[("type", "")]),
-        "named_choice" => Some(&[("type", ""), ("name", "")]),
+        "named_choice" => Some(&[("type", ""), ("name", ""), ("namespace", "")]),
         "text_params" => Some(&[("format", "format")]),
         "format" => match tag(object, "type") {
             Some(value) => match value.as_str() {
@@ -575,4 +600,35 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         ]),
         _ => None,
     }
+}
+
+pub(crate) fn is_known_openai_native_type(kind: &str) -> bool {
+    matches!(
+        kind,
+        "web_search"
+            | "file_search"
+            | "code_interpreter"
+            | "computer"
+            | "computer_use_preview"
+            | "mcp"
+            | "tool_search"
+            | "image_generation"
+            | "local_shell"
+            | "shell"
+            | "programmatic_tool_calling"
+    ) || kind.starts_with("web_search_")
+        || kind.starts_with("file_search_")
+        || kind.starts_with("computer_")
+}
+
+fn is_responses_native_tool(tool_type: &str, object: &RawObject<'_>) -> bool {
+    let has_name = object
+        .0
+        .iter()
+        .any(|(k, v)| k == "name" && v.get() != "\"\"");
+    let has_server_label = object
+        .0
+        .iter()
+        .any(|(k, v)| k == "server_label" && v.get() != "\"\"");
+    has_name || has_server_label || is_known_openai_native_type(tool_type)
 }

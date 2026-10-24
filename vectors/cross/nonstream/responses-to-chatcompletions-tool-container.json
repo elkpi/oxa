@@ -1,0 +1,64 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-tool-container",
+  "description": "Responses tool container converts to Chat Completions as a flattened dotted tool with degraded loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": "Edit code.",
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "editor",
+        "description": "Editor tools",
+        "tools": [
+          {
+            "type": "function",
+            "name": "submit_patch",
+            "description": "Submit a patch",
+            "parameters": {
+              "type": "object",
+              "properties": { "diff": { "type": "string" } },
+              "required": ["diff"]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Edit code."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "editor.submit_patch",
+          "description": "Submit a patch",
+          "parameters": {
+            "type": "object",
+            "properties": { "diff": { "type": "string" } },
+            "required": ["diff"]
+          }
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tools[0].native[0]",
+      "field": "type",
+      "reason": "degraded",
+      "detail": "tool container grouping was flattened into dotted tool names"
+    }
+  ],
+  "tags": ["cross", "request", "container", "namespace", "N-R-15"]
+}

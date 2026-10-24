@@ -19,6 +19,8 @@ const (
 	ToolTypeFunction                      = "function"
 	ToolTypeCustom                        = "custom"
 	ToolTypeApplyPatch                    = "apply_patch"
+	ToolTypeNamespace                     = "namespace"
+	ToolTypeToolbox                       = "toolbox"
 	ItemTypeCustomToolCall                = "custom_tool_call"
 	ItemTypeCustomToolCallOutput          = "custom_tool_call_output"
 	ItemTypeApplyPatchCall                = "apply_patch_call"
@@ -34,6 +36,7 @@ const (
 	ItemTypeFunctionCall       = "function_call"
 	ItemTypeFunctionCallOutput = "function_call_output"
 	ItemTypeReasoning          = "reasoning"
+	ItemTypeAdditionalTools    = "additional_tools"
 
 	PartTypeInputText   = "input_text"
 	PartTypeOutputText  = "output_text"
@@ -164,12 +167,14 @@ type InputItem struct {
 	Content   any                      `json:"content,omitempty"` // string or []ContentPart
 	CallID    string                   `json:"call_id,omitempty"`
 	Name      string                   `json:"name,omitempty"`
+	Namespace string                   `json:"namespace,omitempty"`
 	Arguments string                   `json:"arguments,omitempty"`
 	Output    any                      `json:"output,omitempty"`
 	Input     *string                  `json:"input,omitempty"`
 	Status    string                   `json:"status,omitempty"`
 	Operation *ApplyPatchOperationWire `json:"operation,omitempty"`
 	Summary   []OutputContent          `json:"summary,omitempty"`
+	Tools     []json.RawMessage        `json:"tools,omitempty"`
 }
 
 // ContentPart is one element of a parts-array item content: input_text,
@@ -180,17 +185,37 @@ type ContentPart struct {
 	ImageURL string `json:"image_url,omitempty"`
 }
 
-// ToolDef is one element of a wire tools array. The supported Responses tool
-// variant is type:function with a flat name/description/parameters shape.
-// Strict has no IR equivalent in v1 and is dropped with an unmapped-field
-// loss (N-R-8).
+// ToolDef is one element of a wire tools array.
 type ToolDef struct {
-	Type        string                `json:"type"`
-	Name        string                `json:"name,omitempty"`
-	Description string                `json:"description,omitempty"`
-	Parameters  json.RawMessage       `json:"parameters,omitempty"`
-	Strict      *bool                 `json:"strict,omitempty"`
-	Format      *CustomToolFormatWire `json:"format,omitempty"`
+	Type          string                `json:"type"`
+	Name          string                `json:"name,omitempty"`
+	Description   string                `json:"description,omitempty"`
+	Parameters    json.RawMessage       `json:"parameters,omitempty"`
+	Strict        *bool                 `json:"strict,omitempty"`
+	Format        *CustomToolFormatWire `json:"format,omitempty"`
+	DeferLoading  *bool                 `json:"defer_loading,omitempty"`
+	Tools         []json.RawMessage     `json:"tools,omitempty"`
+	RawDefinition string                `json:"-"`
+}
+
+func (td ToolDef) MarshalJSON() ([]byte, error) {
+	if td.RawDefinition != "" {
+		return []byte(td.RawDefinition), nil
+	}
+	type Alias ToolDef
+	return json.Marshal((Alias)(td))
+}
+
+func (td *ToolDef) UnmarshalJSON(data []byte) error {
+	td.RawDefinition = string(data)
+	type Alias ToolDef
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*td = ToolDef(a)
+	td.RawDefinition = string(data)
+	return nil
 }
 
 type ApplyPatchOperationWire struct {
@@ -207,8 +232,9 @@ type CustomToolFormatWire struct {
 
 // ToolChoiceWire forces one named function or custom or apply_patch tool.
 type ToolChoiceWire struct {
-	Type string `json:"type"`
-	Name string `json:"name,omitempty"`
+	Type      string `json:"type"`
+	Name      string `json:"name,omitempty"`
+	Namespace string `json:"namespace,omitempty"`
 }
 
 // Response is the Responses wire response object.
@@ -244,6 +270,7 @@ type OutputItem struct {
 	Content          []OutputContent          `json:"content,omitempty"`
 	CallID           string                   `json:"call_id,omitempty"`
 	Name             string                   `json:"name,omitempty"`
+	Namespace        string                   `json:"namespace,omitempty"`
 	Arguments        string                   `json:"arguments,omitempty"`
 	Input            *string                  `json:"input,omitempty"`
 	Output           *string                  `json:"output,omitempty"`

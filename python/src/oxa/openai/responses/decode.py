@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from oxa._wire import RawDocument, audit_decode
+from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -45,6 +45,15 @@ from oxa.ir import (
 from oxa.ir import (
     Message as IrMessage,
 )
+from oxa.ir.native import (
+    NativeAnnotation,
+    NativeOmission,
+    NATIVE_SOURCE_OPENAI,
+    NATIVE_KIND_CONTAINER,
+    NATIVE_KIND_DEFER_LOADING,
+    DEFER_LOADING_LOSS_DETAIL,
+)
+import json
 from oxa.modelmap import Table
 from oxa.openai.responses.constants import (
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
@@ -127,36 +136,10 @@ def decode_request(
     if wire.get("instructions") is not None:
         req.system.append(TextBlock(text=wire["instructions"]))
 
+    seen_names: set[str] = set()
     tools: list[Tool] = []
     for index, tool in enumerate(wire.get("tools", [])):
-        kind = tool.get("type", "")
-        if kind == "apply_patch":
-            tools.append(Tool(type="apply_patch"))
-            continue
-        if kind == TOOL_TYPE_CUSTOM:
-            fmt = decode_custom_tool_format(tool.get("format"), f"tools[{index}].format", losses) if "format" in tool else None
-            tools.append(Tool(name=tool.get("name", ""), description=tool.get("description"), type="custom", format=fmt))
-            continue
-        if kind != TOOL_TYPE_FUNCTION:
-            losses.append(loss(f"tools[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, f"Responses tool type {kind!r} has no IR equivalent"))
-            continue
-        desc = tool.get("description")
-        tools.append(
-            Tool(
-                name=tool.get("name", ""),
-                description=desc if desc else None,
-                input_schema=tool.get("parameters", {}),
-            )
-        )
-        if tool.get("strict") is not None:
-            losses.append(
-                loss(
-                    f"tools[{index}].strict",
-                    "strict",
-                    LOSS_UNMAPPED_FIELD,
-                    "Responses function tool strict mode has no IR equivalent in v1.",
-                )
-            )
+        tools.extend(decode_responses_tool_item(tool, [], f"tools[{index}]", seen_names, losses, raw_text))
 
     tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
     losses.extend(tc_losses)
@@ -220,6 +203,13 @@ def decode_request(
                     req.messages.append(msg)
                 losses.extend(run_losses)
                 index = next_idx
+            elif kind == "additional_tools":
+                item_tools = item.get("tools")
+                if not isinstance(item_tools, list) or not item_tools:
+                    raise ValueError(f"responses: input[{index}]: additional_tools requires non-empty tools array")
+                for t_idx, t_entry in enumerate(item_tools):
+                    tools.extend(decode_responses_tool_item(t_entry, [], f"input[{index}].tools[{t_idx}]", seen_names, losses, raw_text))
+                index += 1
             else:
                 losses.append(
                     loss(
@@ -493,12 +483,18 @@ def decode_response(
                 raise ValueError(f"responses: output[{item_index}].output must be a string")
             calls.append(ApplyPatchToolResultBlock(tool_use_id=call_id, status=r_status, output=out))
         elif kind == ITEM_TYPE_FUNCTION_CALL:
-            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item.get("arguments", "")))
+            raw_name = item.get("name", "")
+            ns = item.get("namespace", "")
+            final_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+            calls.append(ToolUseBlock(id=item.get("call_id", ""), name=final_name, input=item.get("arguments", "")))
             has_tool_use = True
         elif kind == ITEM_TYPE_CUSTOM_TOOL_CALL:
             if "input" not in item:
                 raise ValueError(f"responses: output[{item_index}].input is missing")
-            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=item.get("name", ""), input=item["input"]))
+            raw_name = item.get("name", "")
+            ns = item.get("namespace", "")
+            final_name = f"{ns}.{raw_name}" if ns and not raw_name.startswith(ns + ".") else raw_name
+            calls.append(CustomToolUseBlock(id=item.get("call_id", ""), name=final_name, input=item["input"]))
             has_tool_use = True
         elif kind == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT:
             output = item.get("output")
@@ -624,6 +620,230 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
             "status",
             LOSS_UNMAPPED_VALUE,
             f"Responses status {status!r} has no IR equivalent",
+        )
+    ]
+
+
+def is_known_openai_native_type(kind: str) -> bool:
+    if kind in (
+        "web_search",
+        "file_search",
+        "code_interpreter",
+        "computer",
+        "computer_use_preview",
+        "mcp",
+        "tool_search",
+        "image_generation",
+        "local_shell",
+        "shell",
+        "programmatic_tool_calling",
+    ):
+        return True
+    if kind.startswith("web_search_") or kind.startswith("file_search_") or kind.startswith("computer_"):
+        return True
+    return False
+
+
+def compact_json(raw: str) -> str:
+    out: list[str] = []
+    in_string = False
+    escape = False
+    for ch in raw:
+        if in_string:
+            out.append(ch)
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+        else:
+            if ch == '"':
+                in_string = True
+                out.append(ch)
+            elif ch not in (" ", "\t", "\n", "\r"):
+                out.append(ch)
+    return "".join(out)
+
+
+def decode_responses_tool_item(
+    tool: dict[str, Any],
+    path_stack: list[dict[str, Any]],
+    path: str,
+    seen_names: set[str],
+    losses: list[Loss],
+    raw_text: str = "",
+) -> list[Tool]:
+    kind = tool.get("type", "")
+
+    if kind in ("namespace", "toolbox"):
+        name = tool.get("name")
+        if not isinstance(name, str) or not name or name.startswith(".") or name.endswith(".") or ".." in name:
+            raise ValueError(f"responses: {path}: invalid {kind} name {name!r}")
+        child_tools = tool.get("tools")
+        if not isinstance(child_tools, list) or not child_tools:
+            raise ValueError(f"responses: {path}: {kind} requires non-empty tools array")
+        desc = tool.get("description")
+        entry: dict[str, Any] = {"type": kind, "name": name}
+        if desc is not None:
+            entry["description"] = desc
+        new_stack = path_stack + [entry]
+        res: list[Tool] = []
+        for idx, child in enumerate(child_tools):
+            res.extend(decode_responses_tool_item(child, new_stack, f"{path}.tools[{idx}]", seen_names, losses, raw_text))
+        return res
+
+    prefix = ".".join(e["name"] for e in path_stack)
+
+    if kind == "apply_patch":
+        return [Tool(type="apply_patch")]
+
+    if kind == TOOL_TYPE_CUSTOM:
+        raw_name = tool.get("name", "")
+        if not raw_name:
+            raise ValueError(f"responses: {path}: custom tool name is required")
+        final_name = f"{prefix}.{raw_name}" if prefix and not raw_name.startswith(prefix + ".") else raw_name
+        if final_name in seen_names:
+            raise ValueError(f"responses: duplicate tool name {final_name!r}")
+        seen_names.add(final_name)
+
+        fmt = decode_custom_tool_format(tool.get("format"), f"{path}.format", losses) if "format" in tool else None
+        if "format" in tool and fmt is None:
+            return []
+
+        native_ann: list[NativeAnnotation] = []
+        if path_stack:
+            native_ann.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_OPENAI,
+                    kind=NATIVE_KIND_CONTAINER,
+                    value=json.dumps({"path": path_stack}, separators=(",", ":")),
+                    omission=NativeOmission(
+                        field="type",
+                        reason="degraded",
+                        detail="tool container grouping was flattened into dotted tool names",
+                    ),
+                )
+            )
+        if "defer_loading" in tool:
+            if not isinstance(tool["defer_loading"], bool):
+                raise ValueError(f"responses: {path}.defer_loading must be a boolean")
+            if tool["defer_loading"] is True:
+                native_ann.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_OPENAI,
+                        kind=NATIVE_KIND_DEFER_LOADING,
+                        value="true",
+                        omission=NativeOmission(
+                            field="defer_loading",
+                            reason="degraded",
+                            detail=DEFER_LOADING_LOSS_DETAIL,
+                        ),
+                    )
+                )
+
+        return [
+            Tool(
+                name=final_name,
+                description=tool.get("description"),
+                type="custom",
+                format=fmt,
+                native=tuple(native_ann) if native_ann else (),
+            )
+        ]
+
+    if kind in (TOOL_TYPE_FUNCTION, ""):
+        raw_name = tool.get("name", "")
+        if not raw_name:
+            raise ValueError(f"responses: {path}: function tool name is required")
+        final_name = f"{prefix}.{raw_name}" if prefix and not raw_name.startswith(prefix + ".") else raw_name
+        if final_name in seen_names:
+            raise ValueError(f"responses: duplicate tool name {final_name!r}")
+        seen_names.add(final_name)
+
+        if tool.get("strict") is not None:
+            losses.append(
+                loss(
+                    f"{path}.strict",
+                    "strict",
+                    LOSS_UNMAPPED_FIELD,
+                    "Responses function tool strict mode has no IR equivalent in v1.",
+                )
+            )
+
+        native_ann = []
+        if path_stack:
+            native_ann.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_OPENAI,
+                    kind=NATIVE_KIND_CONTAINER,
+                    value=json.dumps({"path": path_stack}, separators=(",", ":")),
+                    omission=NativeOmission(
+                        field="type",
+                        reason="degraded",
+                        detail="tool container grouping was flattened into dotted tool names",
+                    ),
+                )
+            )
+        if "defer_loading" in tool:
+            if not isinstance(tool["defer_loading"], bool):
+                raise ValueError(f"responses: {path}.defer_loading must be a boolean")
+            if tool["defer_loading"] is True:
+                native_ann.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_OPENAI,
+                        kind=NATIVE_KIND_DEFER_LOADING,
+                        value="true",
+                        omission=NativeOmission(
+                            field="defer_loading",
+                            reason="degraded",
+                            detail=DEFER_LOADING_LOSS_DETAIL,
+                        ),
+                    )
+                )
+
+        desc = tool.get("description")
+        return [
+            Tool(
+                name=final_name,
+                description=desc if desc else None,
+                input_schema=tool.get("parameters", {}),
+                native=tuple(native_ann) if native_ann else (),
+            )
+        ]
+
+    # Native tool declaration
+    has_name = bool(tool.get("name"))
+    has_server_label = bool(tool.get("server_label"))
+    is_native = has_name or has_server_label or is_known_openai_native_type(kind)
+    if not is_native:
+        losses.append(
+            loss(
+                path,
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f"Responses tool type {kind!r} has no IR equivalent",
+            )
+        )
+        return []
+
+    tool_name = tool.get("name") or tool.get("server_label") or kind
+    if tool_name in seen_names:
+        raise ValueError(f"responses: duplicate tool name {tool_name!r}")
+    seen_names.add(tool_name)
+
+    raw_slice = raw_field(raw_text, path) if raw_text else None
+    if raw_slice:
+        definition = compact_json(raw_slice)
+    else:
+        definition = json.dumps(tool, separators=(",", ":"))
+
+    return [
+        Tool(
+            type="native",
+            name=tool_name,
+            source="openai",
+            definition=definition,
         )
     ]
 

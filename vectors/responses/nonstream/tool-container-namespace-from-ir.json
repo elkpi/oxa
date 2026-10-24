@@ -1,0 +1,72 @@
+{
+  "name": "responses.nonstream.tool-container-namespace-from-ir",
+  "description": "IR tools with container native annotation re-group into a Responses namespace container on encode.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Edit code."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "editor.submit_patch",
+        "description": "Submit a patch",
+        "input_schema": {
+          "type": "object",
+          "properties": { "diff": { "type": "string" } },
+          "required": ["diff"]
+        },
+        "native": [
+          {
+            "source": "openai",
+            "kind": "container",
+            "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
+            "omission": {
+              "field": "type",
+              "reason": "degraded",
+              "detail": "tool container grouping was flattened into dotted tool names"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "input": "Edit code.",
+    "tools": [
+      {
+        "type": "namespace",
+        "name": "editor",
+        "description": "Code editing tools",
+        "tools": [
+          {
+            "type": "function",
+            "name": "submit_patch",
+            "description": "Submit a patch",
+            "parameters": {
+              "type": "object",
+              "properties": { "diff": { "type": "string" } },
+              "required": ["diff"]
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "container", "namespace", "N-R-15"]
+}

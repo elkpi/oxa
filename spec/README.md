@@ -8,14 +8,14 @@ is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **2.4.8**。IR contract 保持 **0.2.0**。
+Current spec version: **2.4.9**。IR contract 保持 **0.2.0**。
 Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)，原生请求配置保真见 [15](15-native-request-options.md)，原生工具声明保真见 [16](16-native-tool-declarations.md)。
 
 上一冻结规范版本为 **2.3.1**。Go, TypeScript, Rust, Python, and C++ share
-one golden suite of **359 vectors**, covering reasoning, usage granularity,
+one golden suite of **372 vectors**, covering reasoning, usage granularity,
 structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, and Native Tool Declarations.
-Implementation release **v2.4.8 is prepared**; the latest published
-coordinated release is **v2.4.7**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+Implementation release **v2.4.9 is prepared**; the latest published
+coordinated release is **v2.4.8**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 

@@ -1,0 +1,74 @@
+{
+  "name": "responses.nonstream.tool-nested-container-to-ir",
+  "description": "Nested toolbox and namespace containers flatten to multi-dotted tool names and record the complete container path in native annotation.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": "Read file.",
+    "tools": [
+      {
+        "type": "toolbox",
+        "name": "repo",
+        "description": "Repo tools",
+        "tools": [
+          {
+            "type": "namespace",
+            "name": "editor",
+            "description": "Editor tools",
+            "tools": [
+              {
+                "type": "function",
+                "name": "read",
+                "description": "Read file",
+                "parameters": {
+                  "type": "object"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Read file."
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "repo.editor.read",
+        "description": "Read file",
+        "input_schema": {
+          "type": "object"
+        },
+        "native": [
+          {
+            "source": "openai",
+            "kind": "container",
+            "value": "{\"path\":[{\"type\":\"toolbox\",\"name\":\"repo\",\"description\":\"Repo tools\"},{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Editor tools\"}]}",
+            "omission": {
+              "field": "type",
+              "reason": "degraded",
+              "detail": "tool container grouping was flattened into dotted tool names"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "container", "nested", "N-R-15"]
+}

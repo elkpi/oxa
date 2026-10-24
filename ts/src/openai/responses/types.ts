@@ -57,6 +57,7 @@ export interface ResponsesOutputItem {
   readonly encrypted_content?: string;
   readonly call_id?: string;
   readonly name?: string;
+  readonly namespace?: string;
   /** Opaque JSON text for function_call items. */
   readonly arguments?: string;
   readonly output?: string | readonly ResponsesOutputContentPart[];
@@ -89,6 +90,7 @@ export interface ResponsesStreamEvent {
   readonly text?: string;
   readonly call_id?: string;
   readonly name?: string;
+  readonly namespace?: string;
   /** Opaque JSON text used only by arguments.done. */
   readonly arguments?: string;
   readonly input?: string;

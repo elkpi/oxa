@@ -1,0 +1,32 @@
+{
+  "name": "responses.stream.tool-call-namespace-to-ir",
+  "description": "Streaming function_call items carrying namespace normalize to dotted tool names in aggregated IR tool_use blocks.",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_ns1", "object": "response", "status": "in_progress", "model": "gpt-5.5", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "function_call", "id": "fc_ns1", "call_id": "call_ns1", "namespace": "repo", "name": "read", "status": "in_progress", "arguments": "{\"path\":" } },
+      { "type": "response.function_call_arguments.delta", "item_id": "fc_ns1", "output_index": 0, "delta": " \"file.txt\"}" },
+      { "type": "response.function_call_arguments.done", "item_id": "fc_ns1", "output_index": 0, "call_id": "call_ns1", "name": "read", "arguments": "{\"path\": \"file.txt\"}" },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "function_call", "id": "fc_ns1", "call_id": "call_ns1", "namespace": "repo", "name": "read", "status": "completed", "arguments": "{\"path\": \"file.txt\"}" } },
+      { "type": "response.completed", "response": { "id": "resp_ns1", "object": "response", "status": "completed", "model": "gpt-5.5", "output": [ { "type": "function_call", "id": "fc_ns1", "call_id": "call_ns1", "namespace": "repo", "name": "read", "status": "completed", "arguments": "{\"path\": \"file.txt\"}" } ], "usage": { "input_tokens": 10, "output_tokens": 6, "total_tokens": 16 } } }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "resp_ns1", "model": "gpt-5.5" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "tool_use", "id": "call_ns1", "name": "repo.read", "input": "{\"path\": \"file.txt\"}" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": "{\"path\":" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "input_json_delta", "partial_json": " \"file.txt\"}" } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "message_delta", "stop_reason": "tool_use", "usage": { "input_tokens": 10, "output_tokens": 6 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "stream", "namespace", "N-R-15"]
+}

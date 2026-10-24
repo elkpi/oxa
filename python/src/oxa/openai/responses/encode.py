@@ -67,6 +67,171 @@ from oxa.openai.responses.normalize import (
 )
 
 
+import json
+from oxa.ir.native import (
+    NATIVE_SOURCE_OPENAI,
+    NATIVE_KIND_CONTAINER,
+    NATIVE_KIND_DEFER_LOADING,
+)
+
+
+def parse_container_path(tool: Tool) -> list[dict[str, Any]] | None:
+    for ann in tool.native or ():
+        if ann.source == NATIVE_SOURCE_OPENAI and ann.kind == NATIVE_KIND_CONTAINER:
+            try:
+                parsed = json.loads(ann.value)
+                if isinstance(parsed, dict) and isinstance(parsed.get("path"), list) and parsed["path"]:
+                    return parsed["path"]
+            except Exception:
+                pass
+            single = ann.value.strip('"')
+            if single:
+                raw_name = tool.name or ""
+                dot_idx = raw_name.find(".")
+                name = raw_name[:dot_idx] if dot_idx > 0 else raw_name
+                return [{"type": single, "name": name}]
+    return None
+
+
+def build_nested_container(path_stack: list[dict[str, Any]], tools: list[Tool]) -> dict[str, Any]:
+    curr = path_stack[0]
+    if len(path_stack) == 1:
+        child_tools: list[dict[str, Any]] = []
+        for sub_tool in tools:
+            raw_name = sub_tool.name or ""
+            last_dot = raw_name.rfind(".")
+            stripped_name = raw_name[last_dot + 1:] if last_dot >= 0 else raw_name
+            has_defer = any(ann.kind == NATIVE_KIND_DEFER_LOADING and ann.value == "true" for ann in (sub_tool.native or ()))
+            if sub_tool.type == "custom":
+                c_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": stripped_name}
+                if sub_tool.description is not None:
+                    c_dict["description"] = sub_tool.description
+                if sub_tool.format is not None:
+                    c_dict["format"] = encode_custom_tool_format(sub_tool.format)
+                if has_defer:
+                    c_dict["defer_loading"] = True
+                child_tools.append(c_dict)
+            else:
+                c_dict = {"type": TOOL_TYPE_FUNCTION, "name": stripped_name, "parameters": sub_tool.input_schema}
+                if sub_tool.description is not None:
+                    c_dict["description"] = sub_tool.description
+                if has_defer:
+                    c_dict["defer_loading"] = True
+                child_tools.append(c_dict)
+        res = {
+            "type": curr["type"],
+            "name": curr["name"],
+            "tools": child_tools,
+        }
+        if "description" in curr and curr["description"] is not None:
+            res["description"] = curr["description"]
+        return res
+
+    # Multi-level
+    child_tools = []
+    k = 0
+    while k < len(tools):
+        sub_path = parse_container_path(tools[k])
+        if not sub_path or len(sub_path) < 2:
+            k += 1
+            continue
+        next_name = sub_path[1]["name"]
+        m = k
+        while m < len(tools):
+            p = parse_container_path(tools[m])
+            if not p or len(p) < 2 or p[1]["name"] != next_name:
+                break
+            m += 1
+        child_tools.append(build_nested_container(path_stack[1:], tools[k:m]))
+        k = m
+    res = {
+        "type": curr["type"],
+        "name": curr["name"],
+        "tools": child_tools,
+    }
+    if "description" in curr and curr["description"] is not None:
+        res["description"] = curr["description"]
+    return res
+
+
+def encode_responses_grouped_tools(tools: Sequence[Tool], losses: list[Loss]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    i = 0
+    while i < len(tools):
+        tool = tools[i]
+        if tool.type == "native":
+            if tool.source == "openai":
+                out.append(json.loads(tool.definition))
+            else:
+                losses.append(
+                    loss(
+                        f"tools[{i}]",
+                        "type",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        f'native tool "{tool.name}" from "{tool.source}" cannot be represented by the target protocol',
+                    )
+                )
+            i += 1
+            continue
+
+        if tool.type == "apply_patch":
+            out.append({"type": "apply_patch"})
+            i += 1
+            continue
+
+        container_path = parse_container_path(tool)
+        dot_idx = tool.name.find(".") if tool.name else -1
+        if container_path:
+            top_name = container_path[0]["name"]
+            j = i
+            while j < len(tools):
+                next_tool = tools[j]
+                if next_tool.type in ("native", "apply_patch"):
+                    break
+                next_path = parse_container_path(next_tool)
+                if not next_path or next_path[0]["name"] != top_name:
+                    break
+                j += 1
+            out.append(build_nested_container(container_path, list(tools[i:j])))
+            i = j
+            continue
+        elif dot_idx > 0 and tool.name:
+            prefix = tool.name[:dot_idx]
+            j = i
+            while j < len(tools):
+                next_tool = tools[j]
+                if next_tool.type in ("native", "apply_patch"):
+                    break
+                if not next_tool.name or not next_tool.name.startswith(prefix + "."):
+                    break
+                j += 1
+            out.append(build_nested_container([{"type": "namespace", "name": prefix}], list(tools[i:j])))
+            i = j
+            continue
+
+        has_defer = any(ann.kind == NATIVE_KIND_DEFER_LOADING and ann.value == "true" for ann in (tool.native or ()))
+        if tool.type == "custom":
+            t_dict = {"type": TOOL_TYPE_CUSTOM, "name": tool.name}
+            if tool.description is not None:
+                t_dict["description"] = tool.description
+            if tool.format is not None:
+                t_dict["format"] = encode_custom_tool_format(tool.format)
+            if has_defer:
+                t_dict["defer_loading"] = True
+            out.append(t_dict)
+        else:
+            if tool.input_schema is None:
+                raise ValueError(f"responses: tools[{len(out)}].input_schema is required")
+            t_dict = {"type": TOOL_TYPE_FUNCTION, "name": tool.name, "parameters": tool.input_schema}
+            if tool.description:
+                t_dict["description"] = tool.description
+            if has_defer:
+                t_dict["defer_loading"] = True
+            out.append(t_dict)
+        i += 1
+    return out
+
+
 def encode_request(
     req: Request,
     table: Table | None = None,
@@ -96,35 +261,9 @@ def encode_request(
         instructions = "".join(b.text for b in req.system)
         out["instructions"] = instructions
 
+    tools_wire: list[dict[str, Any]] = []
     if req.tools:
-        tools_wire: list[dict[str, Any]] = []
-        for index, tool in enumerate(req.tools):
-            if tool.type == "native":
-                losses.append(
-                    loss(
-                        f"tools[{index}]",
-                        "type",
-                        LOSS_UNSUPPORTED_SEMANTIC,
-                        f'native tool "{tool.name}" from "{tool.source}" cannot be represented by the target protocol',
-                    )
-                )
-                continue
-            if tool.type == "apply_patch":
-                tools_wire.append({"type": "apply_patch"})
-                continue
-            if tool.type == "custom":
-                t_dict: dict[str, Any] = {"type": TOOL_TYPE_CUSTOM, "name": tool.name}
-                if tool.description is not None:
-                    t_dict["description"] = tool.description
-                if tool.format is not None:
-                    t_dict["format"] = encode_custom_tool_format(tool.format)
-            else:
-                if tool.input_schema is None:
-                    raise ValueError(f"responses: tools[{len(tools_wire)}].input_schema is required")
-                t_dict = {"type": TOOL_TYPE_FUNCTION, "name": tool.name, "parameters": tool.input_schema}
-                if tool.description:
-                    t_dict["description"] = tool.description
-            tools_wire.append(t_dict)
+        tools_wire = encode_responses_grouped_tools(req.tools, losses)
         if tools_wire:
             out["tools"] = tools_wire
 
@@ -135,7 +274,7 @@ def encode_request(
             req.tool_choice.tool_type == "native"
             or any(t.type == "native" and t.name == req.tool_choice.name for t in (req.tools or ()))
         )
-        and not any(t.get("name") == req.tool_choice.name for t in tools_wire)
+        and not any(t.type == "native" and t.name == req.tool_choice.name and t.source == "openai" for t in (req.tools or ()))
     )
     choice_wire, choice_loss = encode_tool_choice(req.tool_choice)
     if req.tools and not tools_wire and req.tool_choice is not None and req.tool_choice.mode == "any":
@@ -287,9 +426,23 @@ def encode_response(
             calls.append(item)
             apco_index += 1
         elif isinstance(block, ToolUseBlock):
-            calls.append({"type": ITEM_TYPE_FUNCTION_CALL, "id": "fc_abc123", "status": STATUS_COMPLETED, "call_id": block.id, "name": block.name, "arguments": block.input})
+            dot_idx = block.name.find(".")
+            call_dict = {"type": ITEM_TYPE_FUNCTION_CALL, "id": "fc_abc123", "status": STATUS_COMPLETED, "call_id": block.id, "arguments": block.input}
+            if dot_idx > 0:
+                call_dict["namespace"] = block.name[:dot_idx]
+                call_dict["name"] = block.name[dot_idx + 1:]
+            else:
+                call_dict["name"] = block.name
+            calls.append(call_dict)
         elif isinstance(block, CustomToolUseBlock):
-            calls.append({"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "id": "ctc_abc123", "call_id": block.id, "name": block.name, "input": block.input})
+            dot_idx = block.name.find(".")
+            call_dict = {"type": ITEM_TYPE_CUSTOM_TOOL_CALL, "id": "ctc_abc123", "call_id": block.id, "input": block.input}
+            if dot_idx > 0:
+                call_dict["namespace"] = block.name[:dot_idx]
+                call_dict["name"] = block.name[dot_idx + 1:]
+            else:
+                call_dict["name"] = block.name
+            calls.append(call_dict)
         elif isinstance(block, CustomToolResultBlock):
             if isinstance(block.output, str):
                 output = block.output

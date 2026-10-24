@@ -1,6 +1,6 @@
 {
   "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",
-  "description": "Anthropic tool with defer_loading degrades to eagerly declared Responses tool with degraded loss.",
+  "description": "Anthropic tool with defer_loading preserves defer_loading on Responses without loss (since 2.4.9).",
   "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
@@ -41,24 +41,18 @@
         "description": "Search DB.",
         "parameters": {
           "type": "object"
-        }
+        },
+        "defer_loading": true
       }
     ]
   },
-  "expected_losses": [
-    {
-      "path": "tools[0].native[0]",
-      "field": "defer_loading",
-      "reason": "degraded",
-      "detail": "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
-    }
-  ],
+  "expected_losses": [],
   "tags": [
     "cross",
     "request",
     "native",
     "tools",
-    "defer-loading",
-    "loss"
+    "defer_loading",
+    "N-R-15"
   ]
 }

@@ -16,6 +16,7 @@ from oxa.ir.constants import (
 from oxa.ir.loss import Loss
 
 NATIVE_SOURCE_ANTHROPIC = "anthropic"
+NATIVE_SOURCE_OPENAI = "openai"
 NATIVE_KIND_THINKING_MODE = "thinking_mode"
 NATIVE_KIND_THINKING_BUDGET = "thinking_budget"
 NATIVE_KIND_THINKING_DISPLAY = "thinking_display"
@@ -26,6 +27,7 @@ NATIVE_KIND_DEFER_LOADING = "defer_loading"
 NATIVE_KIND_DOCUMENT_TITLE = "document_title"
 NATIVE_KIND_DOCUMENT_CONTEXT = "document_context"
 NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations"
+NATIVE_KIND_CONTAINER = "container"
 
 DEFER_LOADING_LOSS_DETAIL = (
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
@@ -206,6 +208,17 @@ def validate_annotations(
                     raise CodecError(f"anthropic {ann.kind} value must be a JSON object")
                 if "enabled" in parsed_json and not isinstance(parsed_json["enabled"], bool):
                     raise CodecError(f"anthropic {ann.kind} enabled must be a boolean")
+        elif ann.source == NATIVE_SOURCE_OPENAI:
+            if ann.kind == NATIVE_KIND_CONTAINER:
+                if host != HostType.TOOL:
+                    raise CodecError(f"{path}: openai container is only allowed on Tool")
+                if not isinstance(parsed_json, (dict, str)):
+                    raise CodecError(f"{path}: openai container must be an object with path array or string")
+            elif ann.kind == NATIVE_KIND_DEFER_LOADING:
+                if host != HostType.TOOL:
+                    raise CodecError(f"{path}: openai defer_loading is only allowed on Tool")
+                if parsed_json is not True:
+                    raise CodecError(f"invalid defer_loading {parsed_json!r}")
 
 
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
@@ -246,6 +259,7 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
             f"native[{i}]",
             has_active_budget_proj,
             current_effort,
+            target,
         )
 
     for s_idx, sb in enumerate(getattr(req, "system", ()) or ()):
@@ -256,6 +270,7 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
                 f"system[{s_idx}].native[{i}]",
                 False,
                 None,
+                target,
             )
 
     for m_idx, msg in enumerate(getattr(req, "messages", ()) or ()):
@@ -264,6 +279,7 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
                 losses,
                 blk,
                 f"messages[{m_idx}].content[{c_idx}]",
+                target,
             )
 
     for t_idx, tool in enumerate(getattr(req, "tools", ()) or ()):
@@ -274,29 +290,30 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
                 f"tools[{t_idx}].native[{i}]",
                 False,
                 None,
+                target,
             )
 
     return losses
 
 
-def _collect_block_omissions(losses: list[Loss], blk: Any, path: str) -> None:
+def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: str) -> None:
     if getattr(blk, "type", "") == BLOCK_TYPE_DOCUMENT:
         # N-AN-16: a document block crossing to a face without document
         # support is dropped as one whole-block loss; its annotations are
         # part of it and are not reported a second time.
         return
     for i, ann in enumerate(getattr(blk, "native", ())):
-        _append_omission_loss(losses, ann, f"{path}.native[{i}]", False, None)
+        _append_omission_loss(losses, ann, f"{path}.native[{i}]", False, None, target)
 
     content = getattr(blk, "content", None)
     if isinstance(content, list):
         for k, child in enumerate(content):
-            _collect_block_omissions(losses, child, f"{path}.content[{k}]")
+            _collect_block_omissions(losses, child, f"{path}.content[{k}]", target)
 
     output = getattr(blk, "output", None)
     if isinstance(output, list):
         for k, child in enumerate(output):
-            _collect_block_omissions(losses, child, f"{path}.output.content[{k}]")
+            _collect_block_omissions(losses, child, f"{path}.output.content[{k}]", target)
 
 
 def _append_omission_loss(
@@ -305,7 +322,23 @@ def _append_omission_loss(
     path: str,
     has_active_budget_proj: bool,
     current_effort: ReasoningEffort | None,
+    target: str,
 ) -> None:
+    if ann.source == NATIVE_SOURCE_OPENAI:
+        if target == "responses":
+            return
+        if target == "anthropic" and ann.kind == NATIVE_KIND_DEFER_LOADING:
+            return
+        if ann.omission is not None:
+            losses.append(
+                Loss(
+                    path=path,
+                    field=ann.omission.field,
+                    reason=ann.omission.reason,
+                    detail=ann.omission.detail or "",
+                )
+            )
+        return
     if ann.source != NATIVE_SOURCE_ANTHROPIC:
         losses.append(
             Loss(
@@ -387,6 +420,8 @@ def _append_omission_loss(
         return
 
     if ann.kind == NATIVE_KIND_DEFER_LOADING:
+        if target in ("responses", "anthropic"):
+            return
         field = "defer_loading"
         reason = LOSS_DEGRADED
         detail = DEFER_LOADING_LOSS_DETAIL

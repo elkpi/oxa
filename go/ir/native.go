@@ -30,22 +30,24 @@ type NativeProjection struct {
 
 // Known native annotation kinds and sources.
 const (
-	NativeKindThinkingMode        = "thinking_mode"
-	NativeKindThinkingBudget      = "thinking_budget"
-	NativeKindThinkingDisplay     = "thinking_display"
-	NativeKindOutputEffort        = "output_effort"
-	NativeKindCacheControl        = "cache_control"
-	NativeKindContextManagement   = "context_management"
-	NativeKindDeferLoading        = "defer_loading"
-	NativeKindDocumentTitle       = "document_title"
-	NativeKindDocumentContext     = "document_context"
-	NativeKindDocumentCitations   = "document_citations"
-	NativeKindContainer           = "container"
-	NativeKindEagerInputStreaming = "eager_input_streaming"
-	NativeKindStore               = "store"
-	NativeKindStream              = "stream"
-	NativeKindStreamOptions       = "stream_options"
-	NativeKindMaxCompletionTokens = "max_completion_tokens"
+	NativeKindThinkingMode           = "thinking_mode"
+	NativeKindThinkingBudget         = "thinking_budget"
+	NativeKindThinkingDisplay        = "thinking_display"
+	NativeKindOutputEffort           = "output_effort"
+	NativeKindCacheControl           = "cache_control"
+	NativeKindContextManagement      = "context_management"
+	NativeKindDeferLoading           = "defer_loading"
+	NativeKindDocumentTitle          = "document_title"
+	NativeKindDocumentContext        = "document_context"
+	NativeKindDocumentCitations      = "document_citations"
+	NativeKindContainer              = "container"
+	NativeKindEagerInputStreaming    = "eager_input_streaming"
+	NativeKindStore                  = "store"
+	NativeKindStream                 = "stream"
+	NativeKindStreamOptions          = "stream_options"
+	NativeKindMaxCompletionTokens    = "max_completion_tokens"
+	NativeKindTopK                   = "top_k"
+	NativeKindDisableParallelToolUse = "disable_parallel_tool_use"
 )
 
 const (
@@ -242,8 +244,24 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
 					return fmt.Errorf("anthropic thinking_mode value must be a JSON string: %w", err)
 				}
-				if str != "adaptive" && str != "enabled" && str != "disabled" {
+				if str != "adaptive" && str != "enabled" && str != "disabled" && str != "between_tools" {
 					return fmt.Errorf("invalid thinking_mode %q", str)
+				}
+			case NativeKindTopK:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var k int64
+				if err := json.Unmarshal([]byte(ann.Value), &k); err != nil || k < 0 || k > 9007199254740991 {
+					return fmt.Errorf("invalid top_k %s", ann.Value)
+				}
+			case NativeKindDisableParallelToolUse:
+				if host != hostRequest {
+					return fmt.Errorf("anthropic %s is only allowed on Request", ann.Kind)
+				}
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err != nil {
+					return fmt.Errorf("invalid disable_parallel_tool_use %s", ann.Value)
 				}
 			case NativeKindThinkingBudget:
 				if host != hostRequest {
@@ -434,6 +452,8 @@ func validateBlockAnnotations(b Block, path string) error {
 		}
 	case ThinkingBlock:
 		nat = blk.Native
+	case RedactedThinkingBlock:
+		nat = blk.Native
 	case CustomToolUseBlock:
 		nat = blk.Native
 	case CustomToolResultBlock:
@@ -524,6 +544,8 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 		nat = blk.Native
 		children = blk.Content
 	case ThinkingBlock:
+		nat = blk.Native
+	case RedactedThinkingBlock:
 		nat = blk.Native
 	case CustomToolUseBlock:
 		nat = blk.Native
@@ -762,7 +784,7 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 		}
 		return losses
 
-	case NativeKindThinkingDisplay, NativeKindContextManagement:
+	case NativeKindThinkingDisplay, NativeKindContextManagement, NativeKindTopK, NativeKindDisableParallelToolUse:
 		if ann.Omission != nil {
 			return append(losses, Loss{
 				Path:   path,

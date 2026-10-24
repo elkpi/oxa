@@ -70,11 +70,17 @@ const (
 	DeltaTypeInputJSONDelta = "input_json_delta"
 	DeltaTypeThinking       = "thinking_delta"
 	DeltaTypeSignature      = "signature_delta"
+	DeltaTypeCitation       = "citation_delta"
 )
 
 // TextDelta is a text fragment.
 type TextDelta struct {
 	Text string
+}
+
+// CitationDelta is a text citation delta (since 2.4.11).
+type CitationDelta struct {
+	Citation TextCitation
 }
 
 // InputJSONDelta is a fragment of the tool-argument string. PartialJSON is
@@ -99,6 +105,7 @@ func (TextDelta) isDelta()      {}
 func (InputJSONDelta) isDelta() {}
 func (ThinkingDelta) isDelta()  {}
 func (SignatureDelta) isDelta() {}
+func (CitationDelta) isDelta()  {}
 
 // EventStream is the JSON document form of a streamed response (spec/01
 // s5.3): specVersion plus the totally ordered event sequence.

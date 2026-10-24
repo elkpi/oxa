@@ -245,6 +245,16 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 	// 1. Thinking
 	if wire.Thinking != nil {
 		switch wire.Thinking.Type {
+		case "between_tools":
+			if wire.Thinking.BudgetTokens > 0 || wire.Thinking.Display != "" {
+				return nil, fmt.Errorf("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+			}
+			req.Native = append(req.Native, ir.NativeAnnotation{
+				Source:   ir.NativeSourceAnthropic,
+				Kind:     ir.NativeKindThinkingMode,
+				Value:    `"between_tools"`,
+				Omission: &ir.NativeOmission{Field: "type", Reason: ir.LossUnmappedField},
+			})
 		case "adaptive", "disabled":
 			req.Native = append(req.Native, ir.NativeAnnotation{
 				Source:   ir.NativeSourceAnthropic,
@@ -373,6 +383,19 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 				Omission: &ir.NativeOmission{Field: "context_management", Reason: ir.LossUnsupportedSemantic},
 			})
 		}
+	}
+
+	// 5. TopK
+	if wire.TopK != nil {
+		if *wire.TopK < 0 || *wire.TopK > 9007199254740991 {
+			return nil, fmt.Errorf("anthropic: top_k must be a non-negative safe integer")
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceAnthropic,
+			Kind:     ir.NativeKindTopK,
+			Value:    fmt.Sprintf("%d", *wire.TopK),
+			Omission: &ir.NativeOmission{Field: "top_k", Reason: ir.LossUnmappedField},
+		})
 	}
 
 	return losses, nil
@@ -542,6 +565,20 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 			if err := json.Unmarshal([]byte(n.Value), &cm); err == nil {
 				wire.ContextManagement = &cm
 			}
+		case ir.NativeKindTopK:
+			var k int64
+			if err := json.Unmarshal([]byte(n.Value), &k); err == nil {
+				wire.TopK = &k
+			}
+		case ir.NativeKindDisableParallelToolUse:
+			var b bool
+			if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
+				if wire.ToolChoice == nil {
+					return nil, fmt.Errorf("anthropic: disable_parallel_tool_use requires tool_choice")
+				}
+				wire.ToolChoice.DisableParallelToolUse = b
+				wire.ToolChoice.HasDisableParallelToolUse = true
+			}
 		default:
 			losses = append(losses, ir.Loss{
 				Path:   fmt.Sprintf("native[%d]", i),
@@ -556,6 +593,11 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 	currentEffort := req.Params.ReasoningEffort
 	if nativeMode != "" || nativeEffort != "" || currentEffort != "" {
 		switch nativeMode {
+		case "between_tools":
+			wire.Thinking = &ThinkingWire{Type: "between_tools"}
+			if currentEffort != "" {
+				wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}
+			}
 		case "disabled":
 			wire.Thinking = &ThinkingWire{Type: "disabled"}
 			if nativeEffort != "" || nativeEffortProj != nil {

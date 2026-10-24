@@ -254,7 +254,7 @@ func TestDecodeRequestToolChoiceModes(t *testing.T) {
 	}
 }
 
-func TestDecodeRequestDisableParallelToolUseLoss(t *testing.T) {
+func TestDecodeRequestDisableParallelToolUseNative(t *testing.T) {
 	wire := &Request{
 		Model:      "claude-sonnet-4-5",
 		MaxTokens:  512,
@@ -268,9 +268,18 @@ func TestDecodeRequestDisableParallelToolUseLoss(t *testing.T) {
 	if req.ToolChoice == nil || req.ToolChoice.Mode != "auto" {
 		t.Fatalf("tool choice not mapped: %+v", req.ToolChoice)
 	}
-	if len(losses) != 1 || losses[0].Path != "tool_choice.disable_parallel_tool_use" ||
-		losses[0].Field != "disable_parallel_tool_use" || losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("disable parallel tool use loss wrong: %+v", losses)
+	if len(losses) != 0 {
+		t.Fatalf("expected 0 decode losses, got: %+v", losses)
+	}
+	var found bool
+	for _, ann := range req.Native {
+		if ann.Kind == ir.NativeKindDisableParallelToolUse && ann.Value == "true" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected disable_parallel_tool_use native annotation, got %+v", req.Native)
 	}
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -148,6 +149,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	}
 	req.ToolChoice = choice
 	losses = append(losses, choiceLosses...)
+	if wire.ToolChoice != nil && (wire.ToolChoice.HasDisableParallelToolUse || wire.ToolChoice.DisableParallelToolUse) {
+		val := "false"
+		if wire.ToolChoice.DisableParallelToolUse {
+			val = "true"
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceAnthropic,
+			Kind:     ir.NativeKindDisableParallelToolUse,
+			Value:    val,
+			Omission: &ir.NativeOmission{Field: "disable_parallel_tool_use", Reason: ir.LossUnmappedField},
+		})
+	}
 
 	system, sysLosses, err := decodeSystem(wire.System)
 	if err != nil {
@@ -224,6 +237,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		blocks, blockLosses, err := decodeBlocks(m.Content, fmt.Sprintf("messages[%d].content", i), customCallIDs, declaredTools, customTools, true)
 		if err != nil {
 			return nil, nil, err
+		}
+		if role == ir.RoleUser {
+			for j, b := range blocks {
+				switch blk := b.(type) {
+				case ir.RedactedThinkingBlock:
+					return nil, nil, fmt.Errorf("anthropic: messages[%d].content[%d]: redacted_thinking is not permitted in user messages", i, j)
+				case ir.TextBlock:
+					if len(blk.Citations) > 0 {
+						return nil, nil, fmt.Errorf("anthropic: messages[%d].content[%d].citations: citations are not permitted on user text blocks", i, j)
+					}
+				}
+			}
 		}
 		losses = append(losses, blockLosses...)
 		req.Messages = append(req.Messages, ir.Message{Role: role, Content: blocks})
@@ -424,9 +449,19 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 	var losses []ir.Loss
 	switch w.Type {
 	case BlockTypeText:
-		block = ir.TextBlock{Text: w.Text}
+		cites, citeLosses, err := decodeTextCitations(w.Citations, path+".citations", isRequest)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		losses = append(losses, citeLosses...)
+		block = ir.TextBlock{Text: w.Text, Citations: cites}
 	case BlockTypeThinking:
 		block = ir.ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature}
+	case BlockTypeRedactedThinking:
+		if !w.hasData && w.Data == "" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.data is required", path)
+		}
+		block = ir.RedactedThinkingBlock{Data: w.Data}
 	case BlockTypeImage:
 		image, imageLoss, err := decodeImage(w.Source, path+".source")
 		if err != nil {
@@ -500,6 +535,16 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 				if err != nil {
 					return nil, nil, false, err
 				}
+				for idx, cb := range content {
+					switch blk := cb.(type) {
+					case ir.RedactedThinkingBlock:
+						return nil, nil, false, fmt.Errorf("anthropic: %s.content[%d]: redacted_thinking is not permitted in tool_result", path, idx)
+					case ir.TextBlock:
+						if len(blk.Citations) > 0 {
+							return nil, nil, false, fmt.Errorf("anthropic: %s.content[%d].citations: citations are not permitted in tool_result", path, idx)
+						}
+					}
+				}
 				losses = append(losses, contentLosses...)
 				block = ir.CustomToolResultBlock{
 					ToolUseID: w.ToolUseID,
@@ -510,6 +555,16 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 			content, contentLosses, err := decodeBlocks(w.Content, path+".content", customCallIDs, declaredTools, customTools, isRequest)
 			if err != nil {
 				return nil, nil, false, err
+			}
+			for idx, cb := range content {
+				switch blk := cb.(type) {
+				case ir.RedactedThinkingBlock:
+					return nil, nil, false, fmt.Errorf("anthropic: %s.content[%d]: redacted_thinking is not permitted in tool_result", path, idx)
+				case ir.TextBlock:
+					if len(blk.Citations) > 0 {
+						return nil, nil, false, fmt.Errorf("anthropic: %s.content[%d].citations: citations are not permitted in tool_result", path, idx)
+					}
+				}
 			}
 			block = ir.ToolResultBlock{ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError}
 			losses = append(losses, contentLosses...)
@@ -692,13 +747,10 @@ func decodeToolChoice(choice *ToolChoiceWire, customTools, nativeTools map[strin
 			Detail: fmt.Sprintf("Anthropic tool_choice type %q has no IR equivalent", choice.Type),
 		})
 	}
-	if choice.DisableParallelToolUse {
-		losses = append(losses, ir.Loss{
-			Path:   "tool_choice.disable_parallel_tool_use",
-			Field:  "disable_parallel_tool_use",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic disable_parallel_tool_use has no IR equivalent in v1.",
-		})
+	if choice.HasDisableParallelToolUse || choice.DisableParallelToolUse {
+		if choice.Type == ToolChoiceTypeNone {
+			return nil, nil, fmt.Errorf("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
+		}
 	}
 	return decoded, losses, nil
 }
@@ -891,4 +943,376 @@ func decodeStopReason(stop, stopSequence string) (ir.StopReason, *ir.Loss, error
 			Detail: fmt.Sprintf("Anthropic stop_reason %q has no IR equivalent", stop),
 		}, nil
 	}
+}
+
+func decodeTextCitations(raw json.RawMessage, path string, isRequest bool) ([]ir.TextCitation, []ir.Loss, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, nil, nil
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 || trimmed[0] != '[' {
+		return nil, nil, fmt.Errorf("anthropic: %s must be an array", path)
+	}
+	var raws []json.RawMessage
+	if err := json.Unmarshal(trimmed, &raws); err != nil {
+		return nil, nil, fmt.Errorf("anthropic: %s must be an array: %w", path, err)
+	}
+	if len(raws) == 0 {
+		return nil, nil, nil
+	}
+	var cites []ir.TextCitation
+	var losses []ir.Loss
+	for i, r := range raws {
+		itemPath := fmt.Sprintf("%s[%d]", path, i)
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(r, &obj); err != nil {
+			return nil, nil, fmt.Errorf("anthropic: %s must be an object", itemPath)
+		}
+		rawType, ok := obj["type"]
+		if !ok || string(rawType) == "null" {
+			return nil, nil, fmt.Errorf("anthropic: %s.type is required", itemPath)
+		}
+		var citeType string
+		if err := json.Unmarshal(rawType, &citeType); err != nil {
+			return nil, nil, fmt.Errorf("anthropic: %s.type must be a string", itemPath)
+		}
+
+		cleanObj := make(map[string]any)
+		cleanObj["type"] = citeType
+
+		switch citeType {
+		case "char_location":
+			if err := decodeCharLocation(obj, cleanObj, itemPath); err != nil {
+				return nil, nil, err
+			}
+		case "page_location":
+			if err := decodePageLocation(obj, cleanObj, itemPath); err != nil {
+				return nil, nil, err
+			}
+		case "content_block_location":
+			if err := decodeContentBlockLocation(obj, cleanObj, itemPath); err != nil {
+				return nil, nil, err
+			}
+		case "web_search_result_location":
+			if err := decodeWebSearchResultLocation(obj, cleanObj, itemPath); err != nil {
+				return nil, nil, err
+			}
+		case "search_result_location":
+			if err := decodeSearchResultLocation(obj, cleanObj, itemPath); err != nil {
+				return nil, nil, err
+			}
+		default:
+			losses = append(losses, ir.Loss{
+				Path:   itemPath,
+				Field:  "type",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("unsupported citation type %q", citeType),
+			})
+			continue
+		}
+
+		var extraKeys []string
+		for k := range obj {
+			if _, ok := cleanObj[k]; !ok {
+				extraKeys = append(extraKeys, k)
+			}
+		}
+		sort.Strings(extraKeys)
+		for _, k := range extraKeys {
+			losses = append(losses, ir.Loss{
+				Path:   fmt.Sprintf("%s.%s", itemPath, k),
+				Field:  k,
+				Reason: ir.LossUnmappedField,
+			})
+		}
+
+		compact, err := json.Marshal(cleanObj)
+		if err != nil {
+			return nil, nil, err
+		}
+		cites = append(cites, ir.TextCitation{
+			Source: "anthropic",
+			Value:  string(compact),
+		})
+	}
+	return cites, losses, nil
+}
+
+func decodeCharLocation(obj map[string]json.RawMessage, clean map[string]any, itemPath string) error {
+	txt, err := getRequiredString(obj, "cited_text", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["cited_text"] = txt
+
+	docIdx, err := getRequiredInt(obj, "document_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if docIdx < 0 {
+		return fmt.Errorf("anthropic: %s.document_index must be non-negative", itemPath)
+	}
+	clean["document_index"] = docIdx
+
+	title, err := getNullableString(obj, "document_title", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["document_title"] = title
+
+	start, err := getRequiredInt(obj, "start_char_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if start < 0 {
+		return fmt.Errorf("anthropic: %s.start_char_index must be non-negative", itemPath)
+	}
+	clean["start_char_index"] = start
+
+	end, err := getRequiredInt(obj, "end_char_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if end <= start {
+		return fmt.Errorf("anthropic: %s.end_char_index must be greater than start_char_index", itemPath)
+	}
+	clean["end_char_index"] = end
+
+	fid, hasFid, err := getOptionalNullableString(obj, "file_id", itemPath)
+	if err != nil {
+		return err
+	}
+	if hasFid {
+		clean["file_id"] = fid
+	}
+	return nil
+}
+
+func decodePageLocation(obj map[string]json.RawMessage, clean map[string]any, itemPath string) error {
+	txt, err := getRequiredString(obj, "cited_text", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["cited_text"] = txt
+
+	docIdx, err := getRequiredInt(obj, "document_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if docIdx < 0 {
+		return fmt.Errorf("anthropic: %s.document_index must be non-negative", itemPath)
+	}
+	clean["document_index"] = docIdx
+
+	title, err := getNullableString(obj, "document_title", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["document_title"] = title
+
+	start, err := getRequiredInt(obj, "start_page_number", itemPath)
+	if err != nil {
+		return err
+	}
+	if start < 1 {
+		return fmt.Errorf("anthropic: %s.start_page_number must be at least 1", itemPath)
+	}
+	clean["start_page_number"] = start
+
+	end, err := getRequiredInt(obj, "end_page_number", itemPath)
+	if err != nil {
+		return err
+	}
+	if end < start {
+		return fmt.Errorf("anthropic: %s.end_page_number must be greater than or equal to start_page_number", itemPath)
+	}
+	clean["end_page_number"] = end
+
+	fid, hasFid, err := getOptionalNullableString(obj, "file_id", itemPath)
+	if err != nil {
+		return err
+	}
+	if hasFid {
+		clean["file_id"] = fid
+	}
+	return nil
+}
+
+func decodeContentBlockLocation(obj map[string]json.RawMessage, clean map[string]any, itemPath string) error {
+	txt, err := getRequiredString(obj, "cited_text", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["cited_text"] = txt
+
+	docIdx, err := getRequiredInt(obj, "document_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if docIdx < 0 {
+		return fmt.Errorf("anthropic: %s.document_index must be non-negative", itemPath)
+	}
+	clean["document_index"] = docIdx
+
+	title, err := getNullableString(obj, "document_title", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["document_title"] = title
+
+	start, err := getRequiredInt(obj, "start_block_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if start < 0 {
+		return fmt.Errorf("anthropic: %s.start_block_index must be non-negative", itemPath)
+	}
+	clean["start_block_index"] = start
+
+	end, err := getRequiredInt(obj, "end_block_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if end <= start {
+		return fmt.Errorf("anthropic: %s.end_block_index must be greater than start_block_index", itemPath)
+	}
+	clean["end_block_index"] = end
+
+	fid, hasFid, err := getOptionalNullableString(obj, "file_id", itemPath)
+	if err != nil {
+		return err
+	}
+	if hasFid {
+		clean["file_id"] = fid
+	}
+	return nil
+}
+
+func decodeWebSearchResultLocation(obj map[string]json.RawMessage, clean map[string]any, itemPath string) error {
+	txt, err := getRequiredString(obj, "cited_text", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["cited_text"] = txt
+
+	encIdx, err := getRequiredString(obj, "encrypted_index", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["encrypted_index"] = encIdx
+
+	title, err := getNullableString(obj, "title", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["title"] = title
+
+	url, err := getRequiredString(obj, "url", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["url"] = url
+	return nil
+}
+
+func decodeSearchResultLocation(obj map[string]json.RawMessage, clean map[string]any, itemPath string) error {
+	txt, err := getRequiredString(obj, "cited_text", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["cited_text"] = txt
+
+	searchIdx, err := getRequiredInt(obj, "search_result_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if searchIdx < 0 {
+		return fmt.Errorf("anthropic: %s.search_result_index must be non-negative", itemPath)
+	}
+	clean["search_result_index"] = searchIdx
+
+	source, err := getRequiredString(obj, "source", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["source"] = source
+
+	title, err := getNullableString(obj, "title", itemPath)
+	if err != nil {
+		return err
+	}
+	clean["title"] = title
+
+	start, err := getRequiredInt(obj, "start_block_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if start < 0 {
+		return fmt.Errorf("anthropic: %s.start_block_index must be non-negative", itemPath)
+	}
+	clean["start_block_index"] = start
+
+	end, err := getRequiredInt(obj, "end_block_index", itemPath)
+	if err != nil {
+		return err
+	}
+	if end <= start {
+		return fmt.Errorf("anthropic: %s.end_block_index must be greater than start_block_index", itemPath)
+	}
+	clean["end_block_index"] = end
+	return nil
+}
+
+func getRequiredString(obj map[string]json.RawMessage, field, itemPath string) (string, error) {
+	raw, ok := obj[field]
+	if !ok || string(raw) == "null" {
+		return "", fmt.Errorf("anthropic: %s.%s is required", itemPath, field)
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return "", fmt.Errorf("anthropic: %s.%s must be a string", itemPath, field)
+	}
+	return s, nil
+}
+
+func getNullableString(obj map[string]json.RawMessage, field, itemPath string) (*string, error) {
+	raw, ok := obj[field]
+	if !ok {
+		return nil, fmt.Errorf("anthropic: %s.%s is required", itemPath, field)
+	}
+	if string(raw) == "null" {
+		return nil, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, fmt.Errorf("anthropic: %s.%s must be a string or null", itemPath, field)
+	}
+	return &s, nil
+}
+
+func getOptionalNullableString(obj map[string]json.RawMessage, field, itemPath string) (*string, bool, error) {
+	raw, ok := obj[field]
+	if !ok {
+		return nil, false, nil
+	}
+	if string(raw) == "null" {
+		return nil, true, nil
+	}
+	var s string
+	if err := json.Unmarshal(raw, &s); err != nil {
+		return nil, true, fmt.Errorf("anthropic: %s.%s must be a string or null", itemPath, field)
+	}
+	return &s, true, nil
+}
+
+func getRequiredInt(obj map[string]json.RawMessage, field, itemPath string) (int, error) {
+	raw, ok := obj[field]
+	if !ok || string(raw) == "null" {
+		return 0, fmt.Errorf("anthropic: %s.%s is required", itemPath, field)
+	}
+	var n int
+	if err := json.Unmarshal(raw, &n); err != nil {
+		return 0, fmt.Errorf("anthropic: %s.%s must be an integer", itemPath, field)
+	}
+	return n, nil
 }

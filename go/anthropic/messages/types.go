@@ -18,12 +18,13 @@ const (
 	RoleAssistant = "assistant"
 	RoleSystem    = "system"
 
-	BlockTypeText       = "text"
-	BlockTypeImage      = "image"
-	BlockTypeToolUse    = "tool_use"
-	BlockTypeToolResult = "tool_result"
-	BlockTypeThinking   = "thinking"
-	BlockTypeDocument   = "document"
+	BlockTypeText             = "text"
+	BlockTypeImage            = "image"
+	BlockTypeToolUse          = "tool_use"
+	BlockTypeToolResult       = "tool_result"
+	BlockTypeThinking         = "thinking"
+	BlockTypeRedactedThinking = "redacted_thinking"
+	BlockTypeDocument         = "document"
 
 	SourceTypeBase64 = "base64"
 	SourceTypeURL    = "url"
@@ -51,6 +52,7 @@ const (
 	DeltaTypeInputJSONDelta = "input_json_delta"
 	DeltaTypeThinking       = "thinking_delta"
 	DeltaTypeSignature      = "signature_delta"
+	DeltaTypeCitations      = "citations_delta"
 
 	TypeMessage = "message"
 )
@@ -64,6 +66,7 @@ type Request struct {
 	MaxTokens         int64                  `json:"max_tokens"`
 	Temperature       *float64               `json:"temperature,omitempty"`
 	TopP              *float64               `json:"top_p,omitempty"`
+	TopK              *int64                 `json:"top_k,omitempty"`
 	StopSequences     []string               `json:"stop_sequences,omitempty"`
 	Metadata          any                    `json:"metadata,omitempty"`
 	Tools             []ToolWire             `json:"tools,omitempty"`
@@ -211,11 +214,43 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 }
 
 // ToolChoiceWire is the wire tool_choice object. disable_parallel_tool_use
-// has no IR equivalent and is dropped with an unmapped-field loss (N-AN-6).
+// is preserved as a native option in IR (spec/15, N-AN-19).
 type ToolChoiceWire struct {
-	Type                   string `json:"type"` // auto | any | tool
-	Name                   string `json:"name,omitempty"`
-	DisableParallelToolUse bool   `json:"disable_parallel_tool_use,omitempty"`
+	Type                      string `json:"type"` // auto | any | tool
+	Name                      string `json:"name,omitempty"`
+	DisableParallelToolUse    bool   `json:"disable_parallel_tool_use,omitempty"`
+	HasDisableParallelToolUse bool   `json:"-"`
+}
+
+func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
+	type alias ToolChoiceWire
+	var raw alias
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*c = ToolChoiceWire(raw)
+	if _, ok := fields["disable_parallel_tool_use"]; ok {
+		c.HasDisableParallelToolUse = true
+	}
+	return nil
+}
+
+func (c ToolChoiceWire) MarshalJSON() ([]byte, error) {
+	type shadow struct {
+		Type                   string `json:"type"`
+		Name                   string `json:"name,omitempty"`
+		DisableParallelToolUse *bool  `json:"disable_parallel_tool_use,omitempty"`
+	}
+	s := shadow{Type: c.Type, Name: c.Name}
+	if c.HasDisableParallelToolUse || c.DisableParallelToolUse {
+		val := c.DisableParallelToolUse
+		s.DisableParallelToolUse = &val
+	}
+	return json.Marshal(s)
 }
 
 // SystemBlockWire is one element of the system block array. cache_control is
@@ -244,6 +279,8 @@ type BlockWire struct {
 	// thinking
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
+	// redacted_thinking
+	Data string `json:"data,omitempty"`
 	// tool_use
 	ID    string          `json:"id,omitempty"`
 	Name  string          `json:"name,omitempty"`
@@ -255,11 +292,13 @@ type BlockWire struct {
 	// image
 	Source *SourceWire `json:"source,omitempty"`
 	// document
-	Title      string          `json:"title,omitempty"`
-	Context    string          `json:"context,omitempty"`
-	Citations  json.RawMessage `json:"citations,omitempty"`
-	hasTitle   bool
-	hasContext bool
+	Title        string          `json:"title,omitempty"`
+	Context      string          `json:"context,omitempty"`
+	Citations    json.RawMessage `json:"citations,omitempty"`
+	hasTitle     bool
+	hasContext   bool
+	hasData      bool
+	hasCitations bool
 }
 
 func (w *BlockWire) UnmarshalJSON(data []byte) error {
@@ -288,18 +327,28 @@ func (w *BlockWire) UnmarshalJSON(data []byte) error {
 	*w = BlockWire(decoded)
 	_, w.hasTitle = fields["title"]
 	_, w.hasContext = fields["context"]
+	_, w.hasData = fields["data"]
+	_, w.hasCitations = fields["citations"]
 	return nil
 }
 
 func (w BlockWire) MarshalJSON() ([]byte, error) {
 	type blockAlias BlockWire
 	data, err := json.Marshal(blockAlias(w))
-	if err != nil || (!w.hasTitle && !w.hasContext) {
-		return data, err
+	if err != nil {
+		return nil, err
+	}
+	if !w.hasTitle && !w.hasContext && w.Type != BlockTypeRedactedThinking {
+		return data, nil
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return nil, err
+	}
+	if w.Type == BlockTypeRedactedThinking {
+		if _, ok := fields["data"]; !ok {
+			fields["data"] = json.RawMessage(`""`)
+		}
 	}
 	if w.hasTitle {
 		if _, ok := fields["title"]; !ok {
@@ -400,6 +449,7 @@ type StreamDelta struct {
 	PartialJSON  string `json:"partial_json,omitempty"`
 	Thinking     string `json:"thinking,omitempty"`
 	Signature    string `json:"signature,omitempty"`
+	Citation     any    `json:"citation,omitempty"`
 	StopReason   string `json:"stop_reason,omitempty"`
 	StopSequence string `json:"stop_sequence,omitempty"`
 }

@@ -128,7 +128,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				}
 				for j, block := range content {
 					if text, ok := block.(ir.TextBlock); ok {
-						req.System = append(req.System, ir.SystemBlock(text))
+						req.System = append(req.System, ir.SystemBlock{Text: text.Text, Native: text.Native})
 						continue
 					}
 					losses = append(losses, loss(

@@ -293,7 +293,18 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
 	case ir.TextBlock:
-		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
+		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
+		if len(b.Citations) > 0 {
+			rawCites, citeLosses, err := encodeRequestCitations(b.Citations, path+".citations")
+			if err != nil {
+				return BlockWire{}, nil, false, err
+			}
+			bw.Citations = rawCites
+			return bw, citeLosses, true, nil
+		}
+		return bw, nil, true, nil
+	case ir.RedactedThinkingBlock:
+		return BlockWire{Type: BlockTypeRedactedThinking, Data: b.Data}, nil, true, nil
 	case ir.ThinkingBlock:
 		var blockLosses []ir.Loss
 		if b.Signature == "" {
@@ -622,7 +633,17 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
 	case ir.TextBlock:
-		return BlockWire{Type: BlockTypeText, Text: b.Text}, nil, true, nil
+		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
+		if len(b.Citations) > 0 {
+			rawCites, err := encodeResponseCitations(b.Citations)
+			if err != nil {
+				return BlockWire{}, nil, false, err
+			}
+			bw.Citations = rawCites
+		}
+		return bw, nil, true, nil
+	case ir.RedactedThinkingBlock:
+		return BlockWire{Type: BlockTypeRedactedThinking, Data: b.Data}, nil, true, nil
 	case ir.ThinkingBlock:
 		var blockLosses []ir.Loss
 		if b.Signature == "" {
@@ -671,4 +692,41 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 	default:
 		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
 	}
+}
+
+func encodeRequestCitations(cites []ir.TextCitation, path string) (json.RawMessage, []ir.Loss, error) {
+	var losses []ir.Loss
+	var items []json.RawMessage
+	for i, c := range cites {
+		var obj map[string]any
+		if err := json.Unmarshal([]byte(c.Value), &obj); err != nil {
+			return nil, nil, err
+		}
+		if fid, ok := obj["file_id"]; ok {
+			if fid != nil {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("%s[%d].file_id", path, i),
+					Field:  "file_id",
+					Reason: ir.LossUnmappedField,
+					Detail: "response citation file_id has no request-side representation",
+				})
+			}
+			delete(obj, "file_id")
+		}
+		b, err := json.Marshal(obj)
+		if err != nil {
+			return nil, nil, err
+		}
+		items = append(items, b)
+	}
+	b, err := json.Marshal(items)
+	return b, losses, err
+}
+
+func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
+	var items []json.RawMessage
+	for _, c := range cites {
+		items = append(items, json.RawMessage(c.Value))
+	}
+	return json.Marshal(items)
 }

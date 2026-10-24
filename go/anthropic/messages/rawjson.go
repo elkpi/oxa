@@ -57,6 +57,7 @@ type rawRequestShadow struct {
 	MaxTokens         int64                  `json:"max_tokens"`
 	Temperature       *float64               `json:"temperature"`
 	TopP              *float64               `json:"top_p"`
+	TopK              *int64                 `json:"top_k"`
 	StopSequences     []string               `json:"stop_sequences"`
 	Metadata          json.RawMessage        `json:"metadata"`
 	Tools             []ToolWire             `json:"tools"`
@@ -83,6 +84,7 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 		MaxTokens:         shadow.MaxTokens,
 		Temperature:       shadow.Temperature,
 		TopP:              shadow.TopP,
+		TopK:              shadow.TopK,
 		StopSequences:     shadow.StopSequences,
 		Tools:             shadow.Tools,
 		ToolChoice:        shadow.ToolChoice,
@@ -449,9 +451,17 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
 			case BlockTypeText:
-				return rawObjectSchema(t, []string{"type", "text", "cache_control"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "text", "citations", "cache_control"},
+					map[string]*rawJSONSchema{
+						"citations": {
+							items: citationSchema(seen),
+						},
+					},
+					seen)
 			case BlockTypeThinking:
 				return rawObjectSchema(t, []string{"type", "thinking", "signature", "cache_control"}, nil, seen)
+			case BlockTypeRedactedThinking:
+				return rawObjectSchema(t, []string{"type", "data", "cache_control"}, nil, seen)
 			case BlockTypeToolUse:
 				return rawObjectSchema(t, []string{"type", "id", "name", "input", "cache_control"}, nil, seen)
 			case BlockTypeToolResult:
@@ -498,9 +508,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		}
 		return schema
 	case reflect.TypeOf(ToolWire{}):
-		return rawObjectSchema(t, []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
 	case reflect.TypeOf(ToolChoiceWire{}):
-		return rawObjectSchema(t, []string{"type", "name"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "name", "disable_parallel_tool_use"}, nil, seen)
 	case reflect.TypeOf(ThinkingWire{}):
 		return rawObjectSchema(t, []string{"type", "budget_tokens", "display"}, nil, seen)
 	case reflect.TypeOf(OutputConfigWire{}):
@@ -550,6 +560,11 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "thinking"}, nil, seen)
 			case DeltaTypeSignature:
 				return rawObjectSchema(t, []string{"type", "signature"}, nil, seen)
+			case DeltaTypeCitations:
+				return rawObjectSchema(t, []string{"type", "citation"},
+					map[string]*rawJSONSchema{
+						"citation": citationSchema(seen),
+					}, seen)
 			default:
 				return rawObjectSchema(t, []string{"stop_reason", "stop_sequence"}, nil, seen)
 			}
@@ -647,9 +662,17 @@ func schemaForResponseBlock(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema
 		kind, _ := rawJSONStringField(node, "type")
 		switch kind {
 		case BlockTypeText:
-			return rawObjectSchema(t, []string{"type", "text"}, nil, seen)
+			return rawObjectSchema(t, []string{"type", "text", "citations"},
+				map[string]*rawJSONSchema{
+					"citations": {
+						items: citationSchema(seen),
+					},
+				},
+				seen)
 		case BlockTypeThinking:
 			return rawObjectSchema(t, []string{"type", "thinking", "signature"}, nil, seen)
+		case BlockTypeRedactedThinking:
+			return rawObjectSchema(t, []string{"type", "data"}, nil, seen)
 		case BlockTypeToolUse:
 			return rawObjectSchema(t, []string{"type", "id", "name", "input"}, nil, seen)
 		case BlockTypeToolResult:
@@ -669,6 +692,48 @@ func schemaForResponseBlock(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema
 					"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
 				},
 				seen)
+		default:
+			return nil
+		}
+	}
+	return schema
+}
+
+type wireCitationLocation struct {
+	Type              string  `json:"type"`
+	CitedText         string  `json:"cited_text"`
+	DocumentIndex     int     `json:"document_index"`
+	DocumentTitle     *string `json:"document_title"`
+	StartCharIndex    int     `json:"start_char_index"`
+	EndCharIndex      int     `json:"end_char_index"`
+	StartPageNumber   int     `json:"start_page_number"`
+	EndPageNumber     int     `json:"end_page_number"`
+	StartBlockIndex   int     `json:"start_block_index"`
+	EndBlockIndex     int     `json:"end_block_index"`
+	FileID            *string `json:"file_id"`
+	EncryptedIndex    string  `json:"encrypted_index"`
+	Title             *string `json:"title"`
+	URL               string  `json:"url"`
+	SearchResultIndex int     `json:"search_result_index"`
+	Source            string  `json:"source"`
+}
+
+func citationSchema(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema {
+	t := reflect.TypeOf(wireCitationLocation{})
+	schema := &rawJSONSchema{}
+	schema.variant = func(node *rawJSONNode) *rawJSONSchema {
+		kind, _ := rawJSONStringField(node, "type")
+		switch kind {
+		case "char_location":
+			return rawObjectSchema(t, []string{"type", "cited_text", "document_index", "document_title", "start_char_index", "end_char_index", "file_id"}, nil, seen)
+		case "page_location":
+			return rawObjectSchema(t, []string{"type", "cited_text", "document_index", "document_title", "start_page_number", "end_page_number", "file_id"}, nil, seen)
+		case "content_block_location":
+			return rawObjectSchema(t, []string{"type", "cited_text", "document_index", "document_title", "start_block_index", "end_block_index", "file_id"}, nil, seen)
+		case "web_search_result_location":
+			return rawObjectSchema(t, []string{"type", "cited_text", "encrypted_index", "title", "url"}, nil, seen)
+		case "search_result_location":
+			return rawObjectSchema(t, []string{"type", "cited_text", "search_result_index", "source", "title", "start_block_index", "end_block_index"}, nil, seen)
 		default:
 			return nil
 		}

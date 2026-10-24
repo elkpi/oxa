@@ -26,6 +26,7 @@ type StreamEncoder struct {
 	openTool      bool
 	openCustom    bool
 	openThinking  bool
+	openRedacted  bool
 	toolInput     string
 	toolParts     []string
 	thinkingInput string
@@ -53,6 +54,7 @@ func (d StreamDelta) MarshalJSON() ([]byte, error) {
 		PartialJSON  *string `json:"partial_json,omitempty"`
 		Thinking     string  `json:"thinking,omitempty"`
 		Signature    string  `json:"signature,omitempty"`
+		Citation     any     `json:"citation,omitempty"`
 		StopReason   string  `json:"stop_reason,omitempty"`
 		StopSequence string  `json:"stop_sequence,omitempty"`
 	}
@@ -61,6 +63,7 @@ func (d StreamDelta) MarshalJSON() ([]byte, error) {
 		Text:         d.Text,
 		Thinking:     d.Thinking,
 		Signature:    d.Signature,
+		Citation:     d.Citation,
 		StopReason:   d.StopReason,
 		StopSequence: d.StopSequence,
 	}
@@ -120,6 +123,7 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.blockOpen = true
 			e.openTool = false
 			e.openThinking = true
+			e.openRedacted = false
 			e.openIndex = event.Index
 			e.thinkingInput = block.Thinking
 			e.thinkingSig = block.Signature
@@ -127,6 +131,17 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.signatureSeen = false
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
 				Type: BlockTypeThinking, Thinking: "",
+			}}}, nil, nil
+		case ir.RedactedThinkingBlock:
+			e.nextIndex++
+			e.blockOpen = true
+			e.openTool = false
+			e.openCustom = false
+			e.openThinking = false
+			e.openRedacted = true
+			e.openIndex = event.Index
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
+				Type: BlockTypeRedactedThinking, Data: block.Data,
 			}}}, nil, nil
 		case ir.ToolUseBlock:
 			if block.ID == "" {
@@ -179,6 +194,9 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		if !e.blockOpen || event.Index != e.openIndex {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta out of grammar order")
 		}
+		if e.openRedacted {
+			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta on redacted_thinking block")
+		}
 		switch delta := event.Delta.(type) {
 		case ir.ThinkingDelta:
 			if !e.openThinking {
@@ -193,10 +211,21 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.signatureSeen = true
 			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeSignature, Signature: delta.Signature}}}, nil, nil
 		case ir.TextDelta:
-			if e.openTool || e.openThinking {
+			if e.openTool || e.openThinking || e.openRedacted {
 				return nil, nil, fmt.Errorf("anthropic: TextDelta on non-text block")
 			}
 			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{Type: DeltaTypeTextDelta, Text: delta.Text}}}, nil, nil
+		case ir.CitationDelta:
+			if e.openTool || e.openThinking || e.openRedacted {
+				return nil, nil, fmt.Errorf("anthropic: CitationDelta on non-text block")
+			}
+			var citeObj map[string]any
+			if err := json.Unmarshal([]byte(delta.Citation.Value), &citeObj); err != nil {
+				return nil, nil, err
+			}
+			return []*StreamEvent{{Type: EventTypeContentBlockDelta, Index: event.Index, Delta: &StreamDelta{
+				Type: DeltaTypeCitations, Citation: citeObj,
+			}}}, nil, nil
 		case ir.InputJSONDelta:
 			if !e.openTool {
 				return nil, nil, fmt.Errorf("anthropic: InputJSONDelta on text block")
@@ -225,6 +254,11 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 	case ir.ContentBlockStop:
 		if !e.blockOpen || event.Index != e.openIndex {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockStop out of grammar order")
+		}
+		if e.openRedacted {
+			e.blockOpen = false
+			e.openRedacted = false
+			return []*StreamEvent{{Type: EventTypeContentBlockStop, Index: event.Index}}, nil, nil
 		}
 		if e.openTool {
 			if e.openCustom {

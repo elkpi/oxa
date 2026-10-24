@@ -366,6 +366,17 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 		case ir.TextBlock:
 			parts = append(parts, ContentPart{Type: ContentPartTypeText, Text: value.Text})
 			text += value.Text
+			if len(value.Citations) > 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
+		case ir.RedactedThinkingBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
 		case ir.ImageBlock:
 			part, imageLoss := encodeImageBlock(value, fmt.Sprintf("%s[%d]", path, i))
 			if imageLoss != nil {
@@ -402,6 +413,12 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 		switch value := block.(type) {
 		case ir.TextBlock:
 			text += value.Text
+			if len(value.Citations) > 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
 		case ir.ThinkingBlock:
 			out.ReasoningContent += value.Thinking
 			if value.Signature != "" {
@@ -410,6 +427,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 					"Chat Completions carries no signature field on reasoning_content",
 				))
 			}
+		case ir.RedactedThinkingBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
 		case ir.ToolUseBlock:
 			var arguments string
 			if err := json.Unmarshal(value.Input, &arguments); err != nil {
@@ -481,7 +503,7 @@ func contentSystem(blocks []ir.Block, path string) ([]ir.SystemBlock, []ir.Loss)
 	var losses []ir.Loss
 	for i, block := range blocks {
 		if text, ok := block.(ir.TextBlock); ok {
-			out = append(out, ir.SystemBlock(text))
+			out = append(out, ir.SystemBlock{Text: text.Text, Native: text.Native})
 			continue
 		}
 		losses = append(losses, loss(

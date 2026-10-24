@@ -16,20 +16,22 @@ const (
 	streamToolBlock
 	streamThinkingBlock
 	streamCustomBlock
+	streamRedactedBlock
 )
 
 // streamEncodeBlock retains the current IR block. Tool input and fragments are
 // decoded only from their outer IR JSON string tokens; their payloads remain
 // opaque and are emitted as CC function.arguments strings without inspection.
 type streamEncodeBlock struct {
-	kind        streamBlockKind
-	index       int
-	toolID      string
-	toolName    string
-	toolInput   string
-	fragments   []string
-	nativeIndex int
-	toolStarted bool
+	kind             streamBlockKind
+	index            int
+	toolID           string
+	toolName         string
+	toolInput        string
+	fragments        []string
+	nativeIndex      int
+	toolStarted      bool
+	citationLossSeen bool
 }
 
 // StreamEncoder incrementally converts an IR event stream into Chat
@@ -52,6 +54,7 @@ type StreamEncoder struct {
 	pendingTools    []*Chunk
 	finished        bool // MessageDelta applied
 	done            bool // MessageDone applied
+	eventOrdinal    int
 }
 
 // NewStreamEncoder returns an event-stream encoder. The variadic Options match
@@ -71,6 +74,9 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 	if e.done || (e.finished && !isMessageDone(ev)) {
 		return nil, nil, fmt.Errorf("chatcompletions: event applied after stream termination (%T)", ev)
 	}
+
+	ordinal := e.eventOrdinal
+	e.eventOrdinal++
 
 	switch event := ev.(type) {
 	case ir.MessageStart:
@@ -96,7 +102,22 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 				e.orderingDegrade = true
 			}
 			e.active = &streamEncodeBlock{kind: streamTextBlock, index: event.Index}
-			return nil, nil, nil
+			var startLosses []ir.Loss
+			if len(block.Citations) > 0 {
+				e.active.citationLossSeen = true
+				startLosses = append(startLosses, loss(
+					fmt.Sprintf("events[%d].block.citations", ordinal), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
+			return nil, startLosses, nil
+		case ir.RedactedThinkingBlock:
+			e.active = &streamEncodeBlock{kind: streamRedactedBlock, index: event.Index}
+			l := loss(
+				fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			)
+			return nil, []ir.Loss{l}, nil
 		case ir.ThinkingBlock:
 			e.active = &streamEncodeBlock{kind: streamThinkingBlock, index: event.Index}
 			return nil, nil, nil
@@ -148,12 +169,25 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		}
 		switch e.active.kind {
 		case streamTextBlock:
-			delta, ok := event.Delta.(ir.TextDelta)
-			if !ok {
+			switch delta := event.Delta.(type) {
+			case ir.TextDelta:
+				text := delta.Text
+				return []*Chunk{e.chunk(DeltaPayload{Content: &text})}, nil, nil
+			case ir.CitationDelta:
+				if !e.active.citationLossSeen {
+					e.active.citationLossSeen = true
+					l := loss(
+						fmt.Sprintf("events[%d].delta.citation", ordinal), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					)
+					return nil, []ir.Loss{l}, nil
+				}
+				return nil, nil, nil
+			default:
 				return nil, nil, fmt.Errorf("chatcompletions: TextBlock received non-text delta %T", event.Delta)
 			}
-			text := delta.Text
-			return []*Chunk{e.chunk(DeltaPayload{Content: &text})}, nil, nil
+		case streamRedactedBlock:
+			return nil, nil, fmt.Errorf("chatcompletions: RedactedThinkingBlock received unexpected delta %T", event.Delta)
 		case streamThinkingBlock:
 			switch delta := event.Delta.(type) {
 			case ir.ThinkingDelta:
@@ -199,6 +233,10 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 	case ir.ContentBlockStop:
 		if e.active == nil || event.Index != e.active.index {
 			return nil, nil, fmt.Errorf("chatcompletions: ContentBlockStop out of grammar order")
+		}
+		if e.active.kind == streamRedactedBlock {
+			e.active = nil
+			return nil, nil, nil
 		}
 		if e.active.kind == streamCustomBlock {
 			if len(e.active.fragments) == 0 {

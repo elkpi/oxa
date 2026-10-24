@@ -202,6 +202,8 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				block.kind = "text"
 			case ir.ThinkingBlock:
 				block.kind = "thinking"
+			case ir.RedactedThinkingBlock:
+				block.kind = "redacted_thinking"
 			case ir.CustomToolUseBlock:
 				input, err := decodeEventString(b.Input)
 				if err != nil {
@@ -242,6 +244,10 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 			case ir.TextDelta:
 				if open.kind != "text" {
 					return fmt.Errorf("%s.delta: text_delta requires a text block, got %s", path, open.kind)
+				}
+			case ir.CitationDelta:
+				if open.kind != "text" {
+					return fmt.Errorf("%s.delta: citation_delta requires a text block, got %s", path, open.kind)
 				}
 			case ir.ThinkingDelta:
 				if open.kind != "thinking" {

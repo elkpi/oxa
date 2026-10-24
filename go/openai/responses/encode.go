@@ -260,6 +260,18 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			parts = append(parts, ContentPart{Type: PartTypeInputText, Text: value.Text})
 			text += value.Text
 			textBlocks++
+			if len(value.Citations) > 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
+		case ir.RedactedThinkingBlock:
+			otherBlocks++
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
 		case ir.ImageBlock:
 			part, imageLoss := encodeImagePart(value, fmt.Sprintf("%s[%d]", path, i))
 			if imageLoss != nil {
@@ -305,6 +317,17 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+			if len(value.Citations) > 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
+		case ir.RedactedThinkingBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
 		case ir.ThinkingBlock:
 			thinkings = append(thinkings, OutputContent{
 				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
@@ -394,6 +417,17 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+			if len(value.Citations) > 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("content[%d].citations", i), "citations", ir.LossUnsupportedSemantic,
+					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+				))
+			}
+		case ir.RedactedThinkingBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
 		case ir.ThinkingBlock:
 			thinkings = append(thinkings, OutputContent{
 				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},

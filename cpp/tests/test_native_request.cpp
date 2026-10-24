@@ -515,6 +515,90 @@ void test_eager_input_streaming_32_tools_and_validation() {
     CHECK(!bad_dec.ok());
 }
 
+void test_chatcompletions_controls_and_foreign_isolation() {
+    // 1. max_completion_tokens <= 0 or non-integer fails
+    for (const auto& bad : {"0", "-1", "1.5", "\"bad\"", "true"}) {
+        std::string raw = std::string("{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_completion_tokens\":") + bad + "}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(!d.ok());
+    }
+
+    // 2. stream_options unknown child loss & clean native value
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream_options\":{\"include_usage\":true,\"extra_prop\":\"val\"}}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        bool found_loss = false;
+        for (const auto& l : d->losses) {
+            if (l.path == "stream_options.extra_prop" && l.reason == oxa::ir::LOSS_UNMAPPED_FIELD) {
+                found_loss = true;
+            }
+        }
+        CHECK(found_loss);
+        for (const auto& n : d->value.native) {
+            if (n.kind == "stream_options") {
+                CHECK(n.value.find("extra_prop") == std::string::npos);
+            }
+        }
+        auto enc = oxa::openai::chatcompletions::encode_request(d->value);
+        CHECK(enc.ok());
+        CHECK(oxa::json::serialize(enc->value).find("extra_prop") == std::string::npos);
+    }
+
+    // 3. null values for store, stream, stream_options
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"store\":null,\"stream\":null,\"stream_options\":null}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        CHECK(d->losses.empty());
+        auto enc = oxa::openai::chatcompletions::encode_request(d->value);
+        CHECK(enc.ok());
+        CHECK(enc->value.find("store") != nullptr && enc->value.find("store")->is_null());
+        CHECK(enc->value.find("stream") != nullptr && enc->value.find("stream")->is_null());
+        CHECK(enc->value.find("stream_options") != nullptr && enc->value.find("stream_options")->is_null());
+    }
+
+    // 4. store: false encodes to Responses
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"store\":false}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        auto r = oxa::openai::responses::encode_request(d->value);
+        CHECK(r.ok());
+        CHECK(r->losses.empty());
+        const auto* st = r->value.find("store");
+        CHECK(st != nullptr && st->is_bool() && !st->as_bool());
+    }
+
+    // 5. foreign openai native options do not leak into Anthropic
+    {
+        oxa::ir::Request req;
+        req.model = "claude-opus-5-5";
+        req.params = oxa::ir::Params{};
+        req.params->max_tokens = 100;
+        req.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+        req.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+            std::string(oxa::ir::NATIVE_KIND_THINKING_MODE),
+            "\"disabled\"",
+            std::nullopt,
+            std::nullopt,
+        });
+        req.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+            std::string(oxa::ir::NATIVE_KIND_CONTEXT_MANAGEMENT),
+            "{\"edits\":[{\"type\":\"clear_tool_uses_20250919\"}]}",
+            std::nullopt,
+            std::nullopt,
+        });
+        auto enc = oxa::anthropic::messages::encode_request(req);
+        CHECK(enc.ok());
+        CHECK(enc->value.find("thinking") == nullptr);
+        CHECK(enc->value.find("context_management") == nullptr);
+        CHECK(enc->losses.size() == 2);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -532,6 +616,7 @@ int main() {
     test_cache_control_omission_loss_detail();
     test_fingerprint_losses();
     test_eager_input_streaming_32_tools_and_validation();
+    test_chatcompletions_controls_and_foreign_isolation();
 
     std::printf("test_native_request: all tests passed\n");
     return 0;

@@ -289,8 +289,13 @@ function decodeRequestObject(
         ),
       );
   }
-  if (wire.max_tokens !== undefined && wire.max_completion_tokens !== undefined) {
-    fail("chatcompletions: cannot specify both max_tokens and max_completion_tokens");
+  if (
+    wire.max_tokens !== undefined &&
+    wire.max_completion_tokens !== undefined
+  ) {
+    fail(
+      "chatcompletions: cannot specify both max_tokens and max_completion_tokens",
+    );
   }
   const maxTokens =
     wire.max_tokens !== undefined
@@ -298,6 +303,13 @@ function decodeRequestObject(
       : wire.max_completion_tokens !== undefined
         ? whole(wire.max_completion_tokens, "max_completion_tokens")
         : undefined;
+  if (
+    wire.max_completion_tokens !== undefined &&
+    maxTokens !== undefined &&
+    maxTokens <= 0n
+  ) {
+    fail("max_completion_tokens must be a positive integer");
+  }
 
   const native: NativeAnnotation[] = [];
   if (wire.max_completion_tokens !== undefined) {
@@ -308,49 +320,72 @@ function decodeRequestObject(
     });
   }
   if (wire.store !== undefined) {
-    if (typeof wire.store !== "boolean") {
-      fail("chatcompletions: store must be a boolean");
+    if (wire.store !== null && typeof wire.store !== "boolean") {
+      fail("store must be a boolean or null");
     }
     native.push({
       source: "openai",
       kind: "store",
-      value: wire.store ? "true" : "false",
+      value: wire.store === null ? "null" : wire.store ? "true" : "false",
     });
   }
   if (wire.stream !== undefined) {
-    if (typeof wire.stream !== "boolean") {
-      fail("chatcompletions: stream must be a boolean");
+    if (wire.stream !== null && typeof wire.stream !== "boolean") {
+      fail("stream must be a boolean or null");
     }
     native.push({
       source: "openai",
       kind: "stream",
-      value: wire.stream ? "true" : "false",
+      value: wire.stream === null ? "null" : wire.stream ? "true" : "false",
     });
   }
-  if (wire.stream_options !== undefined && wire.stream_options !== null) {
-    if (
-      typeof wire.stream_options !== "object" ||
-      Array.isArray(wire.stream_options)
-    ) {
-      fail("chatcompletions: stream_options must be an object");
+  if (wire.stream_options !== undefined) {
+    if (wire.stream_options !== null) {
+      if (
+        typeof wire.stream_options !== "object" ||
+        Array.isArray(wire.stream_options)
+      ) {
+        fail("stream_options must be an object or null");
+      }
+      const so = wire.stream_options as Record<string, unknown>;
+      if (
+        so.include_usage !== undefined &&
+        typeof so.include_usage !== "boolean"
+      ) {
+        fail("stream_options.include_usage must be a boolean");
+      }
+      if (
+        so.include_obfuscation !== undefined &&
+        typeof so.include_obfuscation !== "boolean"
+      ) {
+        fail("stream_options.include_obfuscation must be a boolean");
+      }
+      const cleanSo: Record<string, boolean> = {};
+      if (typeof so.include_obfuscation === "boolean")
+        cleanSo.include_obfuscation = so.include_obfuscation;
+      if (typeof so.include_usage === "boolean")
+        cleanSo.include_usage = so.include_usage;
+      native.push({
+        source: "openai",
+        kind: "stream_options",
+        value: JSON.stringify(cleanSo),
+        ...(cleanSo.include_usage === true
+          ? {
+              omission: {
+                field: "stream_options",
+                reason: "degraded",
+                detail: STREAM_OPTIONS_LOSS_DETAIL,
+              },
+            }
+          : {}),
+      });
+    } else {
+      native.push({
+        source: "openai",
+        kind: "stream_options",
+        value: "null",
+      });
     }
-    const so = wire.stream_options as Record<string, unknown>;
-    if (so.include_usage !== undefined && typeof so.include_usage !== "boolean") {
-      fail("chatcompletions: stream_options.include_usage must be a boolean");
-    }
-    if (so.include_obfuscation !== undefined && typeof so.include_obfuscation !== "boolean") {
-      fail("chatcompletions: stream_options.include_obfuscation must be a boolean");
-    }
-    native.push({
-      source: "openai",
-      kind: "stream_options",
-      value: JSON.stringify(wire.stream_options),
-      omission: {
-        field: "stream_options",
-        reason: "degraded",
-        detail: STREAM_OPTIONS_LOSS_DETAIL,
-      },
-    });
   }
 
   const responseFormat = decodeResponseFormat(wire.response_format, losses);
@@ -673,22 +708,34 @@ export function encodeRequest(
     (n) => n.source === "openai" && n.kind === "stream_options",
   );
 
-  let storeVal: boolean | undefined = undefined;
+  let storeVal: boolean | null | undefined = undefined;
   if (storeAnn) {
     try {
-      storeVal = JSON.parse(storeAnn.value) === true;
+      const parsed = JSON.parse(storeAnn.value);
+      if (typeof parsed === "boolean" || parsed === null) {
+        storeVal = parsed;
+      }
     } catch {}
   }
-  let streamVal: boolean | undefined = undefined;
+  let streamVal: boolean | null | undefined = undefined;
   if (streamAnn) {
     try {
-      streamVal = JSON.parse(streamAnn.value) === true;
+      const parsed = JSON.parse(streamAnn.value);
+      if (typeof parsed === "boolean" || parsed === null) {
+        streamVal = parsed;
+      }
     } catch {}
   }
-  let streamOptionsVal: JsonObject | undefined = undefined;
+  let streamOptionsVal: JsonValue | undefined = undefined;
   if (streamOptionsAnn) {
     try {
-      streamOptionsVal = JSON.parse(streamOptionsAnn.value) as JsonObject;
+      const parsed = JSON.parse(streamOptionsAnn.value);
+      if (
+        parsed === null ||
+        (typeof parsed === "object" && !Array.isArray(parsed))
+      ) {
+        streamOptionsVal = parsed as JsonValue;
+      }
     } catch {}
   }
 
@@ -706,7 +753,9 @@ export function encodeRequest(
         : { max_tokens: integer(params.max_tokens) }),
     ...(storeVal !== undefined ? { store: storeVal } : {}),
     ...(streamVal !== undefined ? { stream: streamVal } : {}),
-    ...(streamOptionsVal !== undefined ? { stream_options: streamOptionsVal } : {}),
+    ...(streamOptionsVal !== undefined
+      ? { stream_options: streamOptionsVal }
+      : {}),
     ...(params?.stop_sequences === undefined ||
     params.stop_sequences.length === 0
       ? {}

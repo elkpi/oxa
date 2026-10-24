@@ -851,9 +851,24 @@ test("defer_loading tool native option round-trip and validation", () => {
 
 test("fingerprintLosses extracts safe subset and limits output", () => {
   const losses: Loss[] = [
-    { path: "tools[0]", field: "eager_input_streaming", reason: "degraded", detail: "sensitive detail 1" },
-    { path: "native[1]", field: "store", reason: "unsupported-semantic", detail: "sensitive detail 2" },
-    { path: "stream_options", field: "extra", reason: "unmapped-field", detail: "sensitive detail 3" },
+    {
+      path: "tools[0]",
+      field: "eager_input_streaming",
+      reason: "degraded",
+      detail: "sensitive detail 1",
+    },
+    {
+      path: "native[1]",
+      field: "store",
+      reason: "unsupported-semantic",
+      detail: "sensitive detail 2",
+    },
+    {
+      path: "stream_options",
+      field: "extra",
+      reason: "unmapped-field",
+      detail: "sensitive detail 3",
+    },
   ];
 
   const all = fingerprintLosses(losses, 0);
@@ -897,7 +912,13 @@ test("eager_input_streaming tool native option round-trip and validation", () =>
       model: "claude-opus-5-5",
       max_tokens: 1024,
       messages: [{ role: "user", content: "hi" }],
-      tools: [{ name: "t1", input_schema: { type: "object" }, eager_input_streaming: bad }],
+      tools: [
+        {
+          name: "t1",
+          input_schema: { type: "object" },
+          eager_input_streaming: bad,
+        },
+      ],
     });
     assert.throws(
       () => decodeAnthropicJSON(rawBad),
@@ -932,7 +953,68 @@ test("chatcompletions request controls conflict and validation", () => {
   const res = decodeChatCompletionsJSON(rawUnknown);
   assert.ok(
     res.losses.some(
-      (l) => l.path === "stream_options.unknown_field" && l.reason === "unmapped-field",
+      (l) =>
+        l.path === "stream_options.unknown_field" &&
+        l.reason === "unmapped-field",
     ),
   );
+  const soNative = res.value.native?.find((n) => n.kind === "stream_options");
+  assert.ok(soNative && !soNative.value.includes("unknown_field"));
+
+  // max_completion_tokens <= 0 throws
+  for (const bad of [0, -1]) {
+    const rawBad = JSON.stringify({
+      model: "gpt-5",
+      messages: [{ role: "user", content: "hi" }],
+      max_completion_tokens: bad,
+    });
+    assert.throws(
+      () => decodeChatCompletionsJSON(rawBad),
+      /max_completion_tokens must be a positive integer/,
+    );
+  }
+
+  // null values accepted and round-tripped
+  const rawNulls = JSON.stringify({
+    model: "gpt-5",
+    messages: [{ role: "user", content: "hi" }],
+    store: null,
+    stream: null,
+    stream_options: null,
+  });
+  const decNulls = decodeChatCompletionsJSON(rawNulls);
+  assert.equal(decNulls.losses.length, 0);
+  const encNulls = encodeChatCompletions(decNulls.value);
+  assert.equal((encNulls.value as any).store, null);
+  assert.equal((encNulls.value as any).stream, null);
+  assert.equal((encNulls.value as any).stream_options, null);
+
+  // store: false encodes to Responses as store: false
+  const rawStoreFalse = JSON.stringify({
+    model: "gpt-5",
+    messages: [{ role: "user", content: "hi" }],
+    store: false,
+  });
+  const decStoreFalse = decodeChatCompletionsJSON(rawStoreFalse);
+  const encResp = encodeResponses(decStoreFalse.value);
+  assert.equal((encResp.value as any).store, false);
+
+  // foreign openai native option does not leak into Anthropic
+  const reqForeign: Request = {
+    model: "claude-opus-5-5",
+    params: { max_tokens: 100n },
+    messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    native: [
+      { source: "openai", kind: "thinking_mode", value: '"disabled"' },
+      {
+        source: "openai",
+        kind: "context_management",
+        value: '{"edits":[{"type":"clear_tool_uses_20250919"}]}',
+      },
+    ],
+  };
+  const encForeign = encodeAnthropic(reqForeign);
+  assert.equal((encForeign.value as any).thinking, undefined);
+  assert.equal((encForeign.value as any).context_management, undefined);
+  assert.equal(encForeign.losses.length, 2);
 });

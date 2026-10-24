@@ -7,6 +7,8 @@ package chatcompletions
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -47,12 +49,192 @@ type Request struct {
 	// Metadata has no Chat Completions request equivalent in v1; presence is
 	// dropped with an unmapped-field loss (vectors/README.md bucket 3).
 	Metadata any `json:"metadata,omitempty"`
+
+	rawStore         json.RawMessage
+	rawStream        json.RawMessage
+	rawStreamOptions json.RawMessage
+}
+
+func (r *Request) UnmarshalJSON(data []byte) error {
+	type shadow struct {
+		Model               string          `json:"model"`
+		Messages            []Message       `json:"messages"`
+		Temperature         *float64        `json:"temperature,omitempty"`
+		TopP                *float64        `json:"top_p,omitempty"`
+		MaxTokens           *int64          `json:"max_tokens,omitempty"`
+		MaxCompletionTokens *int64          `json:"max_completion_tokens,omitempty"`
+		Store               json.RawMessage `json:"store,omitempty"`
+		Stream              json.RawMessage `json:"stream,omitempty"`
+		StreamOptions       json.RawMessage `json:"stream_options,omitempty"`
+		Stop                []string        `json:"stop,omitempty"`
+		ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+		Tools               []ToolWire      `json:"tools,omitempty"`
+		ToolChoice          any             `json:"tool_choice,omitempty"`
+		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+		Functions           any             `json:"functions,omitempty"`
+		FunctionCall        any             `json:"function_call,omitempty"`
+		ResponseFormat      any             `json:"response_format,omitempty"`
+		Logprobs            any             `json:"logprobs,omitempty"`
+		TopLogprobs         any             `json:"top_logprobs,omitempty"`
+		Metadata            any             `json:"metadata,omitempty"`
+	}
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	r.Model = s.Model
+	r.Messages = s.Messages
+	r.Temperature = s.Temperature
+	r.TopP = s.TopP
+	r.MaxTokens = s.MaxTokens
+	r.MaxCompletionTokens = s.MaxCompletionTokens
+	r.Stop = s.Stop
+	r.ReasoningEffort = s.ReasoningEffort
+	r.Tools = s.Tools
+	r.ToolChoice = s.ToolChoice
+	r.ParallelToolCalls = s.ParallelToolCalls
+	r.Functions = s.Functions
+	r.FunctionCall = s.FunctionCall
+	r.ResponseFormat = s.ResponseFormat
+	r.Logprobs = s.Logprobs
+	r.TopLogprobs = s.TopLogprobs
+	r.Metadata = s.Metadata
+
+	if s.MaxCompletionTokens != nil && *s.MaxCompletionTokens <= 0 {
+		return fmt.Errorf("chatcompletions: max_completion_tokens must be a positive integer")
+	}
+
+	if len(s.Store) > 0 {
+		r.rawStore = s.Store
+		trimmed := strings.TrimSpace(string(s.Store))
+		if trimmed != "true" && trimmed != "false" && trimmed != "null" {
+			return fmt.Errorf("chatcompletions: store must be a boolean or null")
+		}
+		if trimmed == "true" {
+			b := true
+			r.Store = &b
+		} else if trimmed == "false" {
+			b := false
+			r.Store = &b
+		}
+	}
+
+	if len(s.Stream) > 0 {
+		r.rawStream = s.Stream
+		trimmed := strings.TrimSpace(string(s.Stream))
+		if trimmed != "true" && trimmed != "false" && trimmed != "null" {
+			return fmt.Errorf("chatcompletions: stream must be a boolean or null")
+		}
+		if trimmed == "true" {
+			b := true
+			r.Stream = &b
+		} else if trimmed == "false" {
+			b := false
+			r.Stream = &b
+		}
+	}
+
+	if len(s.StreamOptions) > 0 {
+		r.rawStreamOptions = s.StreamOptions
+		trimmed := strings.TrimSpace(string(s.StreamOptions))
+		if trimmed == "null" {
+			// explicit null is allowed
+		} else {
+			var so map[string]any
+			if err := json.Unmarshal(s.StreamOptions, &so); err != nil || so == nil {
+				return fmt.Errorf("chatcompletions: stream_options must be an object or null")
+			}
+			if u, ok := so["include_usage"]; ok {
+				if _, isBool := u.(bool); !isBool {
+					return fmt.Errorf("chatcompletions: stream_options.include_usage must be a boolean")
+				}
+			}
+			if ob, ok := so["include_obfuscation"]; ok {
+				if _, isBool := ob.(bool); !isBool {
+					return fmt.Errorf("chatcompletions: stream_options.include_obfuscation must be a boolean")
+				}
+			}
+			var soWire StreamOptionsWire
+			_ = json.Unmarshal(s.StreamOptions, &soWire)
+			r.StreamOptions = &soWire
+		}
+	}
+	return nil
+}
+
+func (r Request) MarshalJSON() ([]byte, error) {
+	type shadow struct {
+		Model               string          `json:"model"`
+		Messages            []Message       `json:"messages"`
+		Temperature         *float64        `json:"temperature,omitempty"`
+		TopP                *float64        `json:"top_p,omitempty"`
+		MaxTokens           *int64          `json:"max_tokens,omitempty"`
+		MaxCompletionTokens *int64          `json:"max_completion_tokens,omitempty"`
+		Store               json.RawMessage `json:"store,omitempty"`
+		Stream              json.RawMessage `json:"stream,omitempty"`
+		StreamOptions       json.RawMessage `json:"stream_options,omitempty"`
+		Stop                []string        `json:"stop,omitempty"`
+		ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+		Tools               []ToolWire      `json:"tools,omitempty"`
+		ToolChoice          any             `json:"tool_choice,omitempty"`
+		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+		Functions           any             `json:"functions,omitempty"`
+		FunctionCall        any             `json:"function_call,omitempty"`
+		ResponseFormat      any             `json:"response_format,omitempty"`
+		Logprobs            any             `json:"logprobs,omitempty"`
+		TopLogprobs         any             `json:"top_logprobs,omitempty"`
+		Metadata            any             `json:"metadata,omitempty"`
+	}
+	s := shadow{
+		Model:               r.Model,
+		Messages:            r.Messages,
+		Temperature:         r.Temperature,
+		TopP:                r.TopP,
+		MaxTokens:           r.MaxTokens,
+		MaxCompletionTokens: r.MaxCompletionTokens,
+		Stop:                r.Stop,
+		ReasoningEffort:     r.ReasoningEffort,
+		Tools:               r.Tools,
+		ToolChoice:          r.ToolChoice,
+		ParallelToolCalls:   r.ParallelToolCalls,
+		Functions:           r.Functions,
+		FunctionCall:        r.FunctionCall,
+		ResponseFormat:      r.ResponseFormat,
+		Logprobs:            r.Logprobs,
+		TopLogprobs:         r.TopLogprobs,
+		Metadata:            r.Metadata,
+	}
+	if len(r.rawStore) > 0 {
+		s.Store = r.rawStore
+	} else if r.Store != nil {
+		if *r.Store {
+			s.Store = json.RawMessage("true")
+		} else {
+			s.Store = json.RawMessage("false")
+		}
+	}
+	if len(r.rawStream) > 0 {
+		s.Stream = r.rawStream
+	} else if r.Stream != nil {
+		if *r.Stream {
+			s.Stream = json.RawMessage("true")
+		} else {
+			s.Stream = json.RawMessage("false")
+		}
+	}
+	if len(r.rawStreamOptions) > 0 {
+		s.StreamOptions = r.rawStreamOptions
+	} else if r.StreamOptions != nil {
+		b, _ := json.Marshal(r.StreamOptions)
+		s.StreamOptions = b
+	}
+	return json.Marshal(s)
 }
 
 // StreamOptionsWire is the wire shape for stream_options.
 type StreamOptionsWire struct {
-	IncludeUsage       *bool `json:"include_usage,omitempty"`
 	IncludeObfuscation *bool `json:"include_obfuscation,omitempty"`
+	IncludeUsage       *bool `json:"include_usage,omitempty"`
 }
 
 // ResponseFormatWire is the wire shape for Chat Completions response_format.

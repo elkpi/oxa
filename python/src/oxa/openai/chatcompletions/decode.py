@@ -250,8 +250,11 @@ def decode_request(
 
     native: list[NativeAnnotation] = []
     max_tokens = wire.get("max_tokens")
-    if wire.get("max_completion_tokens") is not None:
-        max_tokens = wire.get("max_completion_tokens")
+    if "max_completion_tokens" in wire and wire["max_completion_tokens"] is not None:
+        mct = wire["max_completion_tokens"]
+        if isinstance(mct, bool) or not isinstance(mct, int) or mct <= 0:
+            raise ValueError("chatcompletions: max_completion_tokens must be a positive integer")
+        max_tokens = mct
         native.append(
             NativeAnnotation(
                 source="openai",
@@ -259,48 +262,83 @@ def decode_request(
                 value="true",
             )
         )
-    if "store" in wire and wire["store"] is not None:
-        store_val = wire["store"]
-        if not isinstance(store_val, bool):
-            raise ValueError("chatcompletions: store must be a boolean")
-        native.append(
-            NativeAnnotation(
-                source="openai",
-                kind="store",
-                value="true" if store_val else "false",
+    if "store" in wire:
+        if wire["store"] is not None:
+            store_val = wire["store"]
+            if not isinstance(store_val, bool):
+                raise ValueError("chatcompletions: store must be a boolean or null")
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="store",
+                    value="true" if store_val else "false",
+                )
             )
-        )
-    if "stream" in wire and wire["stream"] is not None:
-        stream_val = wire["stream"]
-        if not isinstance(stream_val, bool):
-            raise ValueError("chatcompletions: stream must be a boolean")
-        native.append(
-            NativeAnnotation(
-                source="openai",
-                kind="stream",
-                value="true" if stream_val else "false",
+        else:
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="store",
+                    value="null",
+                )
             )
-        )
-    if "stream_options" in wire and wire["stream_options"] is not None:
-        so = wire["stream_options"]
-        if not isinstance(so, dict):
-            raise ValueError("chatcompletions: stream_options must be an object")
-        if "include_usage" in so and not isinstance(so["include_usage"], bool):
-            raise ValueError("chatcompletions: stream_options.include_usage must be a boolean")
-        if "include_obfuscation" in so and not isinstance(so["include_obfuscation"], bool):
-            raise ValueError("chatcompletions: stream_options.include_obfuscation must be a boolean")
-        native.append(
-            NativeAnnotation(
-                source="openai",
-                kind="stream_options",
-                value=json.dumps(so, separators=(",", ":")),
-                omission=NativeOmission(
+    if "stream" in wire:
+        if wire["stream"] is not None:
+            stream_val = wire["stream"]
+            if not isinstance(stream_val, bool):
+                raise ValueError("chatcompletions: stream must be a boolean or null")
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="stream",
+                    value="true" if stream_val else "false",
+                )
+            )
+        else:
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="stream",
+                    value="null",
+                )
+            )
+    if "stream_options" in wire:
+        if wire["stream_options"] is not None:
+            so = wire["stream_options"]
+            if not isinstance(so, dict):
+                raise ValueError("chatcompletions: stream_options must be an object or null")
+            if "include_usage" in so and not isinstance(so["include_usage"], bool):
+                raise ValueError("chatcompletions: stream_options.include_usage must be a boolean")
+            if "include_obfuscation" in so and not isinstance(so["include_obfuscation"], bool):
+                raise ValueError("chatcompletions: stream_options.include_obfuscation must be a boolean")
+            clean_so: dict[str, bool] = {}
+            if isinstance(so.get("include_obfuscation"), bool):
+                clean_so["include_obfuscation"] = so["include_obfuscation"]
+            if isinstance(so.get("include_usage"), bool):
+                clean_so["include_usage"] = so["include_usage"]
+            om = None
+            if clean_so.get("include_usage") is True:
+                om = NativeOmission(
                     field="stream_options",
                     reason=LOSS_DEGRADED,
                     detail=STREAM_OPTIONS_LOSS_DETAIL,
-                ),
+                )
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="stream_options",
+                    value=json.dumps(clean_so, separators=(",", ":")),
+                    omission=om,
+                )
             )
-        )
+        else:
+            native.append(
+                NativeAnnotation(
+                    source="openai",
+                    kind="stream_options",
+                    value="null",
+                )
+            )
 
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
     response_format = decode_response_format(wire.get("response_format"), losses)

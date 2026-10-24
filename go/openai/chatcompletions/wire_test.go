@@ -2,6 +2,7 @@ package chatcompletions
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -865,5 +866,51 @@ func TestChatCompletionsRequestControls(t *testing.T) {
 	}`)
 	if _, _, err := DecodeRequestJSON(rawInvalidChild); err == nil {
 		t.Fatalf("expected error for non-boolean include_usage")
+	}
+
+	// 4. max_completion_tokens <= 0 returns error
+	for _, badVal := range []string{"0", "-1"} {
+		rawBad := []byte(fmt.Sprintf(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":%s}`, badVal))
+		if _, _, err := DecodeRequestJSON(rawBad); err == nil || !strings.Contains(err.Error(), "max_completion_tokens must be a positive integer") {
+			t.Fatalf("expected positive integer error for %s, got %v", badVal, err)
+		}
+	}
+
+	// 5. null values for store, stream, stream_options decode and round-trip to null
+	rawNulls := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"store":null,"stream":null,"stream_options":null}`)
+	reqNulls, lossesNulls, err := DecodeRequestJSON(rawNulls)
+	if err != nil || len(lossesNulls) != 0 {
+		t.Fatalf("decode nulls failed: err=%v, losses=%v", err, lossesNulls)
+	}
+	encNulls, _, err := EncodeRequest(reqNulls)
+	if err != nil {
+		t.Fatalf("encode nulls failed: %v", err)
+	}
+	bytesNulls, _ := json.Marshal(encNulls)
+	var docNulls map[string]any
+	_ = json.Unmarshal(bytesNulls, &docNulls)
+	if val, ok := docNulls["store"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for store, got %v (ok=%v)", val, ok)
+	}
+	if val, ok := docNulls["stream"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for stream, got %v (ok=%v)", val, ok)
+	}
+	if val, ok := docNulls["stream_options"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for stream_options, got %v (ok=%v)", val, ok)
+	}
+
+	// 6. stream_options does not leak unknown fields into native value or encode
+	reqUnknown, _, _ := DecodeRequestJSON(rawUnknownChild)
+	for _, n := range reqUnknown.Native {
+		if n.Kind == ir.NativeKindStreamOptions {
+			if strings.Contains(n.Value, "future_option") {
+				t.Fatalf("native stream_options leaked unknown field: %s", n.Value)
+			}
+		}
+	}
+	encUnknown, _, _ := EncodeRequest(reqUnknown)
+	bytesUnknown, _ := json.Marshal(encUnknown)
+	if strings.Contains(string(bytesUnknown), "future_option") {
+		t.Fatalf("encoded stream_options leaked unknown field: %s", string(bytesUnknown))
 	}
 }

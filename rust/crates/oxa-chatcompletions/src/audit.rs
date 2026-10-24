@@ -304,10 +304,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("tool_calls", "tool_call[]"),
             ("tool_call_id", ""),
         ]),
-        "stream_options" => Some(&[
-            ("include_usage", ""),
-            ("include_obfuscation", ""),
-        ]),
+        "stream_options" => Some(&[("include_usage", ""), ("include_obfuscation", "")]),
         "part" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "text" => shape("text", object),

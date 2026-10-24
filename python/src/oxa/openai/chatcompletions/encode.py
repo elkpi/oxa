@@ -230,17 +230,23 @@ def encode_request(
             if n.source == "openai":
                 if n.kind == "store":
                     try:
-                        out["store"] = json.loads(n.value) is True
+                        val = json.loads(n.value)
+                        if isinstance(val, bool) or val is None:
+                            out["store"] = val
                     except Exception:
                         pass
                 elif n.kind == "stream":
                     try:
-                        out["stream"] = json.loads(n.value) is True
+                        val = json.loads(n.value)
+                        if isinstance(val, bool) or val is None:
+                            out["stream"] = val
                     except Exception:
                         pass
                 elif n.kind == "stream_options":
                     try:
-                        out["stream_options"] = json.loads(n.value)
+                        val = json.loads(n.value)
+                        if isinstance(val, dict) or val is None:
+                            out["stream_options"] = val
                     except Exception:
                         pass
 

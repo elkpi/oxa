@@ -22,7 +22,7 @@
           {
             "source": "openai",
             "kind": "container",
-            "value": "toolbox",
+            "value": "\"toolbox\"",
             "omission": {
               "field": "type",
               "reason": "degraded",
@@ -93,7 +93,6 @@
     ],
     "input": [
       {
-        "type": "message",
         "role": "user",
         "content": "Read file."
       },

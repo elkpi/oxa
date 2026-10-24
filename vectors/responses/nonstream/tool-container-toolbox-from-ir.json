@@ -33,7 +33,7 @@
           {
             "source": "openai",
             "kind": "container",
-            "value": "toolbox",
+            "value": "\"toolbox\"",
             "omission": {
               "field": "type",
               "reason": "degraded",

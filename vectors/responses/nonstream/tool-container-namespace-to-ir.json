@@ -55,7 +55,7 @@
           {
             "source": "openai",
             "kind": "container",
-            "value": "namespace",
+            "value": "\"namespace\"",
             "omission": {
               "field": "type",
               "reason": "degraded",

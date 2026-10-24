@@ -15,7 +15,6 @@
       },
       {
         "type": "function_call",
-        "id": "fc_001",
         "call_id": "call_123",
         "name": "read",
         "namespace": "repo",
@@ -63,8 +62,7 @@
                 "type": "text",
                 "text": "file content"
               }
-            ],
-            "is_error": false
+            ]
           }
         ]
       }

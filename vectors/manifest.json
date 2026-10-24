@@ -2064,10 +2064,10 @@
         "request",
         "native",
         "tools",
-        "defer-loading",
-        "loss"
+        "defer_loading",
+        "N-R-15"
       ],
-      "sha256": "8193ac004aa503b81707aa1b2838b4901d4830e7f9e7ff14f2c667cddee60a65"
+      "sha256": "ddabbd210c310ed61a7fbb2fe2ac770affccaf6536401fb371f3f0f5b1e70ad3"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request",
@@ -2210,7 +2210,7 @@
         "n-nt-3",
         "n-nt-5"
       ],
-      "sha256": "d4665a6ee90d64be655d65bd753be5abd55e403fabaa6879a35e513be9b63aea"
+      "sha256": "c5b392052920b69559b8b890c61b086458d06c8cf6f1e9259c5ddf02a7f8b5c9"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-request",
@@ -3749,7 +3749,7 @@
         "namespace",
         "N-R-15"
       ],
-      "sha256": "0e00bfa2f53c9f3284137d0af97dccdbd67dc271c77ccf96ed8196500e2c3622"
+      "sha256": "46fd7fa4ca71b8b3a6b6dd4220065447a8fad52a2d905dfee24129d07c797d28"
     },
     {
       "name": "responses.nonstream.tool-container-call-to-ir",
@@ -3761,7 +3761,7 @@
         "namespace",
         "N-R-15"
       ],
-      "sha256": "b922cd3df481ccd051c09832a7adf2f7f3753a56cc27d74e9597b89177d202be"
+      "sha256": "111a302111d89e8b6a4186fef7e54a14ac2b051f4ff6aaf54489d3b434f356cc"
     },
     {
       "name": "responses.nonstream.tool-container-namespace-from-ir",
@@ -3773,7 +3773,7 @@
         "namespace",
         "N-R-15"
       ],
-      "sha256": "61309dec57dc91406f9bbed728e7423e7ef34c0ea97934c9a2b9f40c3ebc5c6e"
+      "sha256": "11f31529e5e40a23b07f7b5595f68d0fe520d52f9b9b1bffab1992fc30530350"
     },
     {
       "name": "responses.nonstream.tool-container-namespace-to-ir",
@@ -3785,7 +3785,7 @@
         "namespace",
         "N-R-15"
       ],
-      "sha256": "3369a90853bae9127b3fabcafe431b36742e8185f1942056a62a43c97279c835"
+      "sha256": "4466e237e437c16727045506f708f9a5b8eb18c32f53cb043424e211075e11af"
     },
     {
       "name": "responses.nonstream.tool-container-toolbox-from-ir",
@@ -3797,7 +3797,7 @@
         "toolbox",
         "N-R-15"
       ],
-      "sha256": "c7c89f076512c705eef89374ffb40067f89ad1722be55d12251be68579765227"
+      "sha256": "f2ef9a471d9911d188bf4d09b211748edc261e38def0feb91d6e4a8ee900e65e"
     },
     {
       "name": "responses.nonstream.tool-container-toolbox-to-ir",
@@ -3809,7 +3809,7 @@
         "toolbox",
         "N-R-15"
       ],
-      "sha256": "9e565e975892268ee3f8f0b4d4e77a2d039acd548c1e1ac5b80d153232da26e9"
+      "sha256": "75c4d474541b003aecf4a93be2e16c7efac96f2fc1d42653b72783f51be128af"
     },
     {
       "name": "responses.nonstream.tool-conversation-from-ir",

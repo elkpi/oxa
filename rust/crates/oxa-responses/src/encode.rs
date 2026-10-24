@@ -478,8 +478,9 @@ fn encode_responses_grouped_tools(
         let tool = &tools[i];
         if tool.tool_type == Some(ToolType::Native) {
             if tool.source.as_deref() == Some("openai") {
-                let val: serde_json::Value = serde_json::from_str(tool.definition.as_deref().unwrap_or("{}"))
-                    .map_err(|e| Error::new(e.to_string()))?;
+                let val: serde_json::Value =
+                    serde_json::from_str(tool.definition.as_deref().unwrap_or("{}"))
+                        .map_err(|e| Error::new(e.to_string()))?;
                 out.push(ToolDef {
                     kind: tool.name.clone(),
                     raw: Some(val),
@@ -531,7 +532,10 @@ fn encode_responses_grouped_tools(
             while j < tools.len() && tools[j].name.starts_with(&format!("{prefix}.")) {
                 let sub_tool = &tools[j];
                 let stripped_name = &sub_tool.name[prefix.len() + 1..];
-                let has_defer = sub_tool.native.iter().any(|ann| ann.kind == "defer_loading" && ann.value == "true");
+                let has_defer = sub_tool
+                    .native
+                    .iter()
+                    .any(|ann| ann.kind == "defer_loading" && ann.value == "true");
 
                 if sub_tool.tool_type == Some(ToolType::Custom) {
                     let fmt_val = match &sub_tool.format {
@@ -539,8 +543,14 @@ fn encode_responses_grouped_tools(
                         None => None,
                     };
                     let mut m = serde_json::Map::new();
-                    m.insert("type".into(), serde_json::Value::String(TOOL_TYPE_CUSTOM.into()));
-                    m.insert("name".into(), serde_json::Value::String(stripped_name.into()));
+                    m.insert(
+                        "type".into(),
+                        serde_json::Value::String(TOOL_TYPE_CUSTOM.into()),
+                    );
+                    m.insert(
+                        "name".into(),
+                        serde_json::Value::String(stripped_name.into()),
+                    );
                     if let Some(ref d) = sub_tool.description {
                         m.insert("description".into(), serde_json::Value::String(d.clone()));
                     }
@@ -553,8 +563,14 @@ fn encode_responses_grouped_tools(
                     child_tools.push(serde_json::Value::Object(m));
                 } else {
                     let mut m = serde_json::Map::new();
-                    m.insert("type".into(), serde_json::Value::String(TOOL_TYPE_FUNCTION.into()));
-                    m.insert("name".into(), serde_json::Value::String(stripped_name.into()));
+                    m.insert(
+                        "type".into(),
+                        serde_json::Value::String(TOOL_TYPE_FUNCTION.into()),
+                    );
+                    m.insert(
+                        "name".into(),
+                        serde_json::Value::String(stripped_name.into()),
+                    );
                     if let Some(ref d) = sub_tool.description {
                         m.insert("description".into(), serde_json::Value::String(d.clone()));
                     }
@@ -578,7 +594,10 @@ fn encode_responses_grouped_tools(
             continue;
         }
 
-        let has_defer = tool.native.iter().any(|ann| ann.kind == "defer_loading" && ann.value == "true");
+        let has_defer = tool
+            .native
+            .iter()
+            .any(|ann| ann.kind == "defer_loading" && ann.value == "true");
         if tool.tool_type == Some(ToolType::Custom) {
             let fmt_val = match &tool.format {
                 Some(f) => serde_json::to_value(f).ok(),

@@ -821,18 +821,27 @@ fn decode_responses_tool_item(
     let Some(obj) = value.as_object() else {
         return Err(Error::new(format!("responses: {path} must be an object")));
     };
-    let kind = obj.get("type").and_then(|v| v.as_str()).unwrap_or("function");
+    let kind = obj
+        .get("type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("function");
 
     if kind == "namespace" || kind == "toolbox" {
         let name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if name.is_empty() || name.starts_with('.') || name.ends_with('.') || name.contains("..") {
-            return Err(Error::new(format!("responses: {path}: invalid {kind} name {name:?}")));
+            return Err(Error::new(format!(
+                "responses: {path}: invalid {kind} name {name:?}"
+            )));
         }
         let Some(tools_arr) = obj.get("tools").and_then(|v| v.as_array()) else {
-            return Err(Error::new(format!("responses: {path}: {kind} requires non-empty tools array")));
+            return Err(Error::new(format!(
+                "responses: {path}: {kind} requires non-empty tools array"
+            )));
         };
         if tools_arr.is_empty() {
-            return Err(Error::new(format!("responses: {path}: {kind} requires non-empty tools array")));
+            return Err(Error::new(format!(
+                "responses: {path}: {kind} requires non-empty tools array"
+            )));
         }
         let current_prefix = if prefix.is_empty() {
             name.to_string()
@@ -869,7 +878,9 @@ fn decode_responses_tool_item(
     if kind == TOOL_TYPE_CUSTOM {
         let raw_name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if raw_name.is_empty() {
-            return Err(Error::new(format!("responses: {path}.name is required for custom tool")));
+            return Err(Error::new(format!(
+                "responses: {path}.name is required for custom tool"
+            )));
         }
         let final_name = if !prefix.is_empty() && !raw_name.starts_with(&format!("{prefix}.")) {
             format!("{prefix}.{raw_name}")
@@ -877,15 +888,27 @@ fn decode_responses_tool_item(
             raw_name.to_string()
         };
         if seen_names.contains(&final_name) {
-            return Err(Error::new(format!("responses: duplicate tool name {final_name:?}")));
+            return Err(Error::new(format!(
+                "responses: duplicate tool name {final_name:?}"
+            )));
         }
         seen_names.insert(final_name.clone());
 
         let format = match obj.get("format") {
             None => None,
             Some(v) => match serde_json::from_value::<CustomToolFormat>(v.clone()) {
-                Ok(f) if f.format_type == "text" && f.syntax.is_none() && f.definition.is_none() => Some(f),
-                Ok(f) if f.format_type == "grammar" && matches!(f.syntax.as_deref(), Some("lark" | "regex")) && f.definition.is_some() => Some(f),
+                Ok(f)
+                    if f.format_type == "text" && f.syntax.is_none() && f.definition.is_none() =>
+                {
+                    Some(f)
+                }
+                Ok(f)
+                    if f.format_type == "grammar"
+                        && matches!(f.syntax.as_deref(), Some("lark" | "regex"))
+                        && f.definition.is_some() =>
+                {
+                    Some(f)
+                }
                 _ => {
                     losses.push(loss(
                         format!("{path}.format"),
@@ -910,7 +933,9 @@ fn decode_responses_tool_item(
                 omission: Some(oxa_ir::NativeOmission {
                     field: "type".into(),
                     reason: LossReason::Degraded,
-                    detail: Some("tool container grouping was flattened into dotted tool names".into()),
+                    detail: Some(
+                        "tool container grouping was flattened into dotted tool names".into(),
+                    ),
                 }),
                 projection: None,
             });
@@ -929,7 +954,10 @@ fn decode_responses_tool_item(
             });
         }
 
-        let desc = obj.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let desc = obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         return Ok(vec![oxa_ir::Tool {
             tool_type: Some(ToolType::Custom),
             name: final_name,
@@ -945,7 +973,9 @@ fn decode_responses_tool_item(
     if kind == TOOL_TYPE_FUNCTION || kind.is_empty() {
         let raw_name = obj.get("name").and_then(|v| v.as_str()).unwrap_or("");
         if raw_name.is_empty() {
-            return Err(Error::new(format!("responses: {path}.name is required for function tool")));
+            return Err(Error::new(format!(
+                "responses: {path}.name is required for function tool"
+            )));
         }
         let final_name = if !prefix.is_empty() && !raw_name.starts_with(&format!("{prefix}.")) {
             format!("{prefix}.{raw_name}")
@@ -953,7 +983,9 @@ fn decode_responses_tool_item(
             raw_name.to_string()
         };
         if seen_names.contains(&final_name) {
-            return Err(Error::new(format!("responses: duplicate tool name {final_name:?}")));
+            return Err(Error::new(format!(
+                "responses: duplicate tool name {final_name:?}"
+            )));
         }
         seen_names.insert(final_name.clone());
 
@@ -975,7 +1007,9 @@ fn decode_responses_tool_item(
                 omission: Some(oxa_ir::NativeOmission {
                     field: "type".into(),
                     reason: LossReason::Degraded,
-                    detail: Some("tool container grouping was flattened into dotted tool names".into()),
+                    detail: Some(
+                        "tool container grouping was flattened into dotted tool names".into(),
+                    ),
                 }),
                 projection: None,
             });
@@ -994,7 +1028,10 @@ fn decode_responses_tool_item(
             });
         }
 
-        let desc = obj.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let desc = obj
+            .get("description")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
         return Ok(vec![oxa_ir::Tool {
             tool_type: None,
             name: final_name,
@@ -1008,7 +1045,10 @@ fn decode_responses_tool_item(
     }
 
     // Native tool declaration vs unsupported tool
-    let has_name = obj.get("name").and_then(|v| v.as_str()).is_some_and(|s| !s.is_empty());
+    let has_name = obj
+        .get("name")
+        .and_then(|v| v.as_str())
+        .is_some_and(|s| !s.is_empty());
     let is_known_native = matches!(
         kind,
         "web_search"
@@ -1028,7 +1068,9 @@ fn decode_responses_tool_item(
     if has_name || is_known_native {
         let tool_name = obj.get("name").and_then(|v| v.as_str()).unwrap_or(kind);
         if seen_names.contains(tool_name) {
-            return Err(Error::new(format!("responses: duplicate tool name {tool_name:?}")));
+            return Err(Error::new(format!(
+                "responses: duplicate tool name {tool_name:?}"
+            )));
         }
         seen_names.insert(tool_name.to_string());
 

@@ -456,7 +456,14 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
     };
 
     for (i, ann) in native.iter().enumerate() {
-        append_omission_loss(losses, ann, &format!("{path}.native[{i}]"), false, None, target);
+        append_omission_loss(
+            losses,
+            ann,
+            &format!("{path}.native[{i}]"),
+            false,
+            None,
+            target,
+        );
     }
 
     if let Some(ch) = children {

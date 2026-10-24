@@ -245,7 +245,11 @@ struct ToolDefWire {
     pub format: Option<Value>,
     #[serde(rename = "strict", default, skip_serializing_if = "Option::is_none")]
     pub strict: Option<bool>,
-    #[serde(rename = "defer_loading", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "defer_loading",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub defer_loading: Option<bool>,
     #[serde(rename = "tools", default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Value>>,
@@ -279,7 +283,8 @@ impl<'de> Deserialize<'de> for ToolDef {
         D: serde::Deserializer<'de>,
     {
         let val = Value::deserialize(deserializer)?;
-        let wire: ToolDefWire = serde_json::from_value(val.clone()).map_err(serde::de::Error::custom)?;
+        let wire: ToolDefWire =
+            serde_json::from_value(val.clone()).map_err(serde::de::Error::custom)?;
         Ok(ToolDef {
             kind: wire.kind,
             name: wire.name,

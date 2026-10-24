@@ -5,6 +5,23 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.10 - 2026-10-24
+
+### Added
+
+- [12 — Mapping Anthropic Messages](12-mapping-anthropic-messages.md)：
+  - 支持 `tools[].eager_input_streaming` 三态解析与回转（`true`/`false`/缺失）。
+  - 非布尔类型输入校验为不可恢复结构类型错误。
+- [10 — Mapping OpenAI Chat Completions](10-mapping-openai-chat-completions.md)：
+  - 支持 `max_completion_tokens` 映射至 `Params.MaxTokens` 并通过原生注解保留拼写形态，与 `max_tokens` 冲突互斥报错。
+  - 支持 `store`、`stream`、`stream_options` 标准请求控制参数解码为原生注解。
+  - 支持 `stream_options`（`include_usage`、`include_obfuscation`）结构校验与未知子字段审计报损。
+- [15 — Native Request Options](15-native-request-options.md)：
+  - §2 表格新增 `Tool` 宿主 `eager_input_streaming` 原生选项，以及 `Request` 宿主 `max_completion_tokens`、`store`、`stream`、`stream_options` 原生选项。
+  - §3.6 规范定义 `eager_input_streaming` 解析保真、正交性、原生回转以及跨面（OpenAI CC/Responses）时 `true` 报 `degraded` 损失、`false` 报 0 损失的双重过滤契约。
+  - §3.7 规范定义 `max_completion_tokens` 拼写保真、`store` 跨面报损（`store:true` 报 `unsupported-semantic`，`store:false` 零损）、`stream` 传输标记零损、`stream_options` 降级报损。
+  - §7 规范定义轻量且 PII 安全的损失指纹辅助工具 `FingerprintLosses`。
+
 ## 2.4.9 - 2026-10-24
 
 ### Added

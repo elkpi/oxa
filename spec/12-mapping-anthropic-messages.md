@@ -76,6 +76,7 @@ The wire objects in scope are:
 | `context_management` | `NativeAnnotation` | retained on IR Request; no loss on decode (N-AN-14) |
 | `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | 普通工具；schema bytes carried verbatim (INV-1); MUST be a JSON object |
 | `tools[].defer_loading` | `Tools[].Native` (`kind: "defer_loading"`) | true 保留为 NativeAnnotation，无 decode loss；跨面降级为 degraded 损失（N-NAT-2/3） |
+| `tools[].eager_input_streaming` | `Tools[].Native` (`kind: "eager_input_streaming"`) | true/false 保留为 NativeAnnotation，无 decode loss；跨面 true 降级为 degraded 损失，false 零损（N-NAT-2/3，规范 2.4.10） |
 | `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |

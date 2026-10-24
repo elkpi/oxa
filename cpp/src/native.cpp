@@ -208,6 +208,9 @@ void append_omission_loss(std::vector<Loss>& losses,
         if (target == "responses") {
             return;
         }
+        if (target == "anthropic" && ann.kind == NATIVE_KIND_DEFER_LOADING) {
+            return;
+        }
         if (ann.omission.has_value()) {
             losses.push_back(Loss{
                 std::string(path),

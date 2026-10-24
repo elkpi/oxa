@@ -205,6 +205,7 @@ private:
         std::int64_t next_content_index = 0;
         std::string call_id;
         std::string name;
+        std::string namespace_val;
     };
 
     struct StreamEncodeBlock {

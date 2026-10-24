@@ -121,6 +121,13 @@ const CHOICE: WireAuditSpec = {
   fields: { index: undefined, message: MESSAGE, finish_reason: undefined },
 };
 
+const STREAM_OPTIONS: WireAuditSpec = {
+  fields: {
+    include_usage: undefined,
+    include_obfuscation: undefined,
+  },
+};
+
 export const CHAT_REQUEST: WireAuditSpec = {
   fields: {
     model: undefined,
@@ -128,6 +135,10 @@ export const CHAT_REQUEST: WireAuditSpec = {
     temperature: undefined,
     top_p: undefined,
     max_tokens: undefined,
+    max_completion_tokens: undefined,
+    store: undefined,
+    stream: undefined,
+    stream_options: STREAM_OPTIONS,
     stop: { items: undefined },
     reasoning_effort: undefined,
     tools: { items: TOOL },

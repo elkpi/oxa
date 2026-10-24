@@ -99,6 +99,13 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 if (!parsed->is_bool() || !parsed->as_bool()) {
                     return invalid_argument("invalid defer_loading " + ann.value);
                 }
+            } else if (ann.kind == NATIVE_KIND_EAGER_INPUT_STREAMING) {
+                if (host != HostType::Tool) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Tool");
+                }
+                if (!parsed->is_bool()) {
+                    return invalid_argument("invalid eager_input_streaming " + ann.value);
+                }
             } else if (ann.kind == NATIVE_KIND_DOCUMENT_TITLE || ann.kind == NATIVE_KIND_DOCUMENT_CONTEXT) {
                 if (host != HostType::Content) {
                     return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on content blocks");
@@ -120,7 +127,43 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 }
             }
         } else if (ann.source == NATIVE_SOURCE_OPENAI) {
-            if (ann.kind == NATIVE_KIND_CONTAINER) {
+            if (ann.kind == NATIVE_KIND_MAX_COMPLETION_TOKENS) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_bool() || !parsed->as_bool()) {
+                    return invalid_argument("invalid max_completion_tokens " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_STORE) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_bool() && !parsed->is_null()) {
+                    return invalid_argument("invalid store " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_STREAM) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_bool() && !parsed->is_null()) {
+                    return invalid_argument("invalid stream " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_STREAM_OPTIONS) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_null()) {
+                    if (!parsed->is_object()) {
+                        return invalid_argument("invalid stream_options " + ann.value);
+                    }
+                    if (const auto* iu = parsed->find("include_usage"); iu && !iu->is_bool()) {
+                        return invalid_argument("invalid stream_options " + ann.value + ": include_usage must be a boolean");
+                    }
+                    if (const auto* io = parsed->find("include_obfuscation"); io && !io->is_bool()) {
+                        return invalid_argument("invalid stream_options " + ann.value + ": include_obfuscation must be a boolean");
+                    }
+                }
+            } else if (ann.kind == NATIVE_KIND_CONTAINER) {
                 if (host != HostType::Tool) {
                     return invalid_argument(std::string(path) + ": openai container is only allowed on Tool");
                 }
@@ -205,6 +248,56 @@ void append_omission_loss(std::vector<Loss>& losses,
                           const std::optional<std::string>& current_effort,
                           std::string_view target) {
     if (ann.source == NATIVE_SOURCE_OPENAI) {
+        if (ann.kind == NATIVE_KIND_MAX_COMPLETION_TOKENS || ann.kind == NATIVE_KIND_STREAM) {
+            return;
+        }
+        if (ann.kind == NATIVE_KIND_STREAM_OPTIONS) {
+            if (target == "chatcompletions") {
+                return;
+            }
+            auto parsed = json::parse(ann.value);
+            bool has_usage_true = false;
+            if (parsed.ok() && parsed->is_object()) {
+                const auto* iu = parsed->find("include_usage");
+                if (iu && iu->is_bool() && iu->as_bool()) {
+                    has_usage_true = true;
+                }
+            }
+            if (has_usage_true) {
+                std::string field = "stream_options";
+                std::string reason = std::string(LOSS_DEGRADED);
+                std::string detail = std::string(STREAM_OPTIONS_LOSS_DETAIL);
+                if (ann.omission.has_value()) {
+                    if (!ann.omission->field.empty()) field = ann.omission->field;
+                    if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                    if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                        detail = *ann.omission->detail;
+                    }
+                }
+                losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+            }
+            return;
+        }
+        if (ann.kind == NATIVE_KIND_STORE) {
+            if (target == "chatcompletions" || target == "responses") {
+                return;
+            }
+            auto parsed = json::parse(ann.value);
+            if (parsed.ok() && parsed->is_bool() && parsed->as_bool()) {
+                std::string field = "store";
+                std::string reason = std::string(LOSS_UNSUPPORTED_SEMANTIC);
+                std::string detail = "target does not support output retention";
+                if (ann.omission.has_value()) {
+                    if (!ann.omission->field.empty()) field = ann.omission->field;
+                    if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                    if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                        detail = *ann.omission->detail;
+                    }
+                }
+                losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+            }
+            return;
+        }
         if (target == "responses") {
             return;
         }
@@ -320,6 +413,32 @@ void append_omission_loss(std::vector<Loss>& losses,
             std::move(reason),
             std::move(detail),
         });
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_EAGER_INPUT_STREAMING) {
+        if (target == "anthropic") {
+            return;
+        }
+        auto parsed = json::parse(ann.value);
+        if (parsed.ok() && parsed->is_bool() && parsed->as_bool()) {
+            std::string field = "eager_input_streaming";
+            std::string reason = std::string(LOSS_DEGRADED);
+            std::string detail = std::string(EAGER_INPUT_STREAMING_LOSS_DETAIL);
+            if (ann.omission.has_value()) {
+                if (!ann.omission->field.empty()) field = ann.omission->field;
+                if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                    detail = *ann.omission->detail;
+                }
+            }
+            losses.push_back(Loss{
+                std::string(path),
+                std::move(field),
+                std::move(reason),
+                std::move(detail),
+            });
+        }
         return;
     }
 

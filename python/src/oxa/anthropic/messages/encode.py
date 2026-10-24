@@ -29,6 +29,7 @@ from oxa.anthropic.messages.native import (
     encode_request_native,
     get_block_cache_control,
     get_tool_defer_loading,
+    get_tool_eager_input_streaming,
 )
 from oxa.anthropic.messages.normalize import (
     encode_system,
@@ -195,6 +196,9 @@ def encode_request(
                     t_dict["cache_control"] = cc
                 if get_tool_defer_loading(tool.native):
                     t_dict["defer_loading"] = True
+                es = get_tool_eager_input_streaming(tool.native)
+                if es is not None:
+                    t_dict["eager_input_streaming"] = es
                 if "cache_control" in t_dict and "defer_loading" in t_dict:
                     raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
                 tools_wire.append(t_dict)
@@ -214,6 +218,9 @@ def encode_request(
                 t_dict["cache_control"] = cc
             if get_tool_defer_loading(tool.native):
                 t_dict["defer_loading"] = True
+            es = get_tool_eager_input_streaming(tool.native)
+            if es is not None:
+                t_dict["eager_input_streaming"] = es
             if "cache_control" in t_dict and "defer_loading" in t_dict:
                 raise ValueError(f"anthropic: tools[{index}]: cannot specify both defer_loading and cache_control")
             tools_wire.append(t_dict)

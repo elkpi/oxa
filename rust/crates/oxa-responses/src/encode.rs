@@ -213,6 +213,11 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             ));
         }
     }
+    for n in &req.native {
+        if n.source == "openai" && n.kind == oxa_ir::NATIVE_KIND_STORE {
+            out.store = serde_json::from_str::<bool>(&n.value).ok();
+        }
+    }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "responses")
         .map_err(|e| Error::new(e.to_string()))?;
     losses.extend(omission_losses);

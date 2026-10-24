@@ -150,6 +150,23 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     });
                 }
             }
+            if let Some(es) = tool.eager_input_streaming {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: oxa_ir::NATIVE_KIND_EAGER_INPUT_STREAMING.into(),
+                    value: es.to_string(),
+                    omission: if es {
+                        Some(oxa_ir::NativeOmission {
+                            field: "eager_input_streaming".into(),
+                            reason: LossReason::Degraded,
+                            detail: Some(oxa_ir::EAGER_INPUT_STREAMING_LOSS_DETAIL.into()),
+                        })
+                    } else {
+                        None
+                    },
+                    projection: None,
+                });
+            }
             if is_custom_tool_input_schema(schema_val) {
                 custom_tools.insert(tool.name.clone());
                 tools.push(oxa_ir::Tool {

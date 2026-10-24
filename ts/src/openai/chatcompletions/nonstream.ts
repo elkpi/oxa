@@ -15,6 +15,8 @@ import {
   parseUsageInteger,
   validateRequest,
   omittedNativeRequestLosses,
+  STREAM_OPTIONS_LOSS_DETAIL,
+  type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
@@ -287,15 +289,112 @@ function decodeRequestObject(
         ),
       );
   }
+  if (
+    wire.max_tokens !== undefined &&
+    wire.max_completion_tokens !== undefined
+  ) {
+    fail(
+      "chatcompletions: cannot specify both max_tokens and max_completion_tokens",
+    );
+  }
+  const maxTokens =
+    wire.max_tokens !== undefined
+      ? whole(wire.max_tokens, "max_tokens")
+      : wire.max_completion_tokens !== undefined
+        ? whole(wire.max_completion_tokens, "max_completion_tokens")
+        : undefined;
+  if (
+    wire.max_completion_tokens !== undefined &&
+    maxTokens !== undefined &&
+    maxTokens <= 0n
+  ) {
+    fail("max_completion_tokens must be a positive integer");
+  }
+
+  const native: NativeAnnotation[] = [];
+  if (wire.max_completion_tokens !== undefined) {
+    native.push({
+      source: "openai",
+      kind: "max_completion_tokens",
+      value: "true",
+    });
+  }
+  if (wire.store !== undefined) {
+    if (wire.store !== null && typeof wire.store !== "boolean") {
+      fail("store must be a boolean or null");
+    }
+    native.push({
+      source: "openai",
+      kind: "store",
+      value: wire.store === null ? "null" : wire.store ? "true" : "false",
+    });
+  }
+  if (wire.stream !== undefined) {
+    if (wire.stream !== null && typeof wire.stream !== "boolean") {
+      fail("stream must be a boolean or null");
+    }
+    native.push({
+      source: "openai",
+      kind: "stream",
+      value: wire.stream === null ? "null" : wire.stream ? "true" : "false",
+    });
+  }
+  if (wire.stream_options !== undefined) {
+    if (wire.stream_options !== null) {
+      if (
+        typeof wire.stream_options !== "object" ||
+        Array.isArray(wire.stream_options)
+      ) {
+        fail("stream_options must be an object or null");
+      }
+      const so = wire.stream_options as Record<string, unknown>;
+      if (
+        so.include_usage !== undefined &&
+        typeof so.include_usage !== "boolean"
+      ) {
+        fail("stream_options.include_usage must be a boolean");
+      }
+      if (
+        so.include_obfuscation !== undefined &&
+        typeof so.include_obfuscation !== "boolean"
+      ) {
+        fail("stream_options.include_obfuscation must be a boolean");
+      }
+      const cleanSo: Record<string, boolean> = {};
+      if (typeof so.include_obfuscation === "boolean")
+        cleanSo.include_obfuscation = so.include_obfuscation;
+      if (typeof so.include_usage === "boolean")
+        cleanSo.include_usage = so.include_usage;
+      native.push({
+        source: "openai",
+        kind: "stream_options",
+        value: JSON.stringify(cleanSo),
+        ...(cleanSo.include_usage === true
+          ? {
+              omission: {
+                field: "stream_options",
+                reason: "degraded",
+                detail: STREAM_OPTIONS_LOSS_DETAIL,
+              },
+            }
+          : {}),
+      });
+    } else {
+      native.push({
+        source: "openai",
+        kind: "stream_options",
+        value: "null",
+      });
+    }
+  }
+
   const responseFormat = decodeResponseFormat(wire.response_format, losses);
   const params = {
     ...(wire.temperature === undefined
       ? {}
       : { temperature: number(wire.temperature, "temperature") }),
     ...(wire.top_p === undefined ? {} : { top_p: number(wire.top_p, "top_p") }),
-    ...(wire.max_tokens === undefined
-      ? {}
-      : { max_tokens: whole(wire.max_tokens, "max_tokens") }),
+    ...(maxTokens === undefined ? {} : { max_tokens: maxTokens }),
     ...(wire.stop === undefined
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
@@ -311,6 +410,7 @@ function decodeRequestObject(
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
+    ...(native.length === 0 ? {} : { native }),
   };
   validateRequest(request);
   return { value: request, losses };
@@ -595,6 +695,50 @@ export function encodeRequest(
           undefined)
         : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
+  const hasMaxCompletionTokens = request.native?.some(
+    (n) => n.source === "openai" && n.kind === "max_completion_tokens",
+  );
+  const storeAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "store",
+  );
+  const streamAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "stream",
+  );
+  const streamOptionsAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "stream_options",
+  );
+
+  let storeVal: boolean | null | undefined = undefined;
+  if (storeAnn) {
+    try {
+      const parsed = JSON.parse(storeAnn.value);
+      if (typeof parsed === "boolean" || parsed === null) {
+        storeVal = parsed;
+      }
+    } catch {}
+  }
+  let streamVal: boolean | null | undefined = undefined;
+  if (streamAnn) {
+    try {
+      const parsed = JSON.parse(streamAnn.value);
+      if (typeof parsed === "boolean" || parsed === null) {
+        streamVal = parsed;
+      }
+    } catch {}
+  }
+  let streamOptionsVal: JsonValue | undefined = undefined;
+  if (streamOptionsAnn) {
+    try {
+      const parsed = JSON.parse(streamOptionsAnn.value);
+      if (
+        parsed === null ||
+        (typeof parsed === "object" && !Array.isArray(parsed))
+      ) {
+        streamOptionsVal = parsed as JsonValue;
+      }
+    } catch {}
+  }
+
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),
     messages,
@@ -604,7 +748,14 @@ export function encodeRequest(
     ...(params?.top_p === undefined ? {} : { top_p: fromValue(params.top_p) }),
     ...(params?.max_tokens === undefined
       ? {}
-      : { max_tokens: integer(params.max_tokens) }),
+      : hasMaxCompletionTokens
+        ? { max_completion_tokens: integer(params.max_tokens) }
+        : { max_tokens: integer(params.max_tokens) }),
+    ...(storeVal !== undefined ? { store: storeVal } : {}),
+    ...(streamVal !== undefined ? { stream: streamVal } : {}),
+    ...(streamOptionsVal !== undefined
+      ? { stream_options: streamOptionsVal }
+      : {}),
     ...(params?.stop_sequences === undefined ||
     params.stop_sequences.length === 0
       ? {}

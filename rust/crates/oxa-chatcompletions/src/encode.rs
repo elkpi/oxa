@@ -276,6 +276,41 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             out.response_format = Some(encode_response_format(rf));
         }
     }
+    let has_max_completion_tokens = req
+        .native
+        .iter()
+        .any(|n| n.source == "openai" && n.kind == oxa_ir::NATIVE_KIND_MAX_COMPLETION_TOKENS);
+    if has_max_completion_tokens {
+        out.max_completion_tokens = out.max_tokens.take();
+    }
+    for n in &req.native {
+        if n.source == "openai" {
+            match n.kind.as_str() {
+                oxa_ir::NATIVE_KIND_STORE => {
+                    if n.value == "null" {
+                        out.store = Some(serde_json::Value::Null);
+                    } else if let Ok(b) = serde_json::from_str::<bool>(&n.value) {
+                        out.store = Some(serde_json::Value::Bool(b));
+                    }
+                }
+                oxa_ir::NATIVE_KIND_STREAM => {
+                    if n.value == "null" {
+                        out.stream = Some(serde_json::Value::Null);
+                    } else if let Ok(b) = serde_json::from_str::<bool>(&n.value) {
+                        out.stream = Some(serde_json::Value::Bool(b));
+                    }
+                }
+                oxa_ir::NATIVE_KIND_STREAM_OPTIONS => {
+                    if n.value == "null" {
+                        out.stream_options = Some(serde_json::Value::Null);
+                    } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&n.value) {
+                        out.stream_options = Some(val);
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "chatcompletions")
         .map_err(|e| Error::new(e.to_string()))?;
     losses.extend(omission_losses);

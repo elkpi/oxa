@@ -102,6 +102,7 @@ type Request struct {
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-R-8).
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"`
+	Store             *bool `json:"store,omitempty"`
 }
 
 // TextParams is the Responses text output-shaping object.

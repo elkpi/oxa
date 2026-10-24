@@ -44,6 +44,11 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `ToolResultBlock.Content` 中的块 | `cache_control` | `messages[i].content[j].content[k].cache_control` |
 | `Tool` | `cache_control` | `tools[i].cache_control` |
 | `Tool` | `defer_loading` | `tools[i].defer_loading`（仅限 `true`，Anthropic 及 Responses 2.4.9） |
+| `Tool` | `eager_input_streaming` | `tools[i].eager_input_streaming`（`true` / `false`，Anthropic 2.4.10） |
+| `Request` | `max_completion_tokens` | `max_completion_tokens`（OpenAI Chat Completions 2.4.10 拼写保真） |
+| `Request` | `store` | `store`（`true` / `false`，OpenAI 2.4.10） |
+| `Request` | `stream` | `stream`（`true` / `false`，OpenAI 2.4.10 传输标记） |
+| `Request` | `stream_options` | `stream_options`（OpenAI 2.4.10 流式配置） |
 | `DocumentBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_title` | `messages[i].content[j].title`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
@@ -103,9 +108,44 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
 - 原生回转：编码回 Anthropic 时按 `kind` 完整恢复 wire 上的 `title`/`context`/`citations`。
 - 跨面遗漏：目标面无 document 契约时，`DocumentBlock` 整块以一条 `unsupported-semantic` 损失报损（spec/12 N-AN-16）；块内注解随整块丢弃，不再逐条报损（N-AN-9 对称原则），区别于 §4.1 中存续块注解的逐条遗漏报损。
 
+### 3.6 Eager Input Streaming（规范 2.4.10）
+- `eager_input_streaming` 适用于用户定义的普通工具（`function`）或自定义工具（`custom`）；不适用于 Anthropic 服务端原生工具（`type` 非空且非 function/custom）。
+- 取值规则：
+  - `true`：保留为 `kind: "eager_input_streaming"` 的 `NativeAnnotation`，其 `value` 为 `"true"`，携带遗漏元数据：
+    - `omission.field`: `"eager_input_streaming"`
+    - `omission.reason`: `"degraded"`
+    - `omission.detail`: `"target does not preserve eager tool input streaming semantics"`
+  - `false`：保留为 `kind: "eager_input_streaming"` 的 `NativeAnnotation`，其 `value` 为 `"false"`，`omission` 为 `nil`。
+  - 缺失：作为 API 默认行为，不生成 `NativeAnnotation`，不产生任何损失。
+  - 显式非布尔类型（如 `null`、数字、字符串、对象等）：属于结构类型错误（type violation），返回结构解析错误（error）。
+- 互斥约束：`eager_input_streaming` 与 `cache_control` 及 `defer_loading` 正交，同一个工具声明上可合法共存。
+- 跨面遗漏与损失：当编码至不支持细粒度入参流式控制的目标面（OpenAI Chat Completions / Responses）时：
+  - 若 `value` 解析为 `true`，产生一条 `degraded` 损失，detail 采用上述规范文本；
+  - 若 `value` 解析为 `false`，由于目标面默认即为标准缓冲流式（与 `false` 语义等价），不产生任何报损（0 loss）。
+- 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "eager_input_streaming"`，按解析出的布尔值精确还原输出 `"eager_input_streaming": true|false`；若无注解则完全省略该字段。
+
+### 3.7 OpenAI 请求控制选项（规范 2.4.10）
+- **`max_completion_tokens`（Token 上限与拼写保真）**：
+  - 语义映射：直接映射至通用 IR 的 `Params.MaxTokens`（正整数，0 解码损失）。
+  - 拼写保真：若解码来源使用了 `max_completion_tokens`，在 `Request.native` 记录 `kind: "max_completion_tokens", source: "openai", value: "true"`；Chat Completions 编码器在回转时若检测到该注解，则输出 wire 字段 `"max_completion_tokens"`（否则输出默认的 `"max_tokens"`）。
+  - 冲突拒绝：若来源请求同时显式包含 `max_tokens` 与 `max_completion_tokens`，解码器返回结构错误（error）。
+- **`store`（输出数据留存控制）**：
+  - 取值规则：布尔值 `true` 或 `false` 保留为 `kind: "store", source: "openai"` 的 `NativeAnnotation`，`value` 分别为 `"true"` 或 `"false"`。非布尔非 null 值作为结构错误（error）拒绝。
+  - 同面与 OpenAI 家族回转：编码回 Chat Completions 或 Responses 时无损恢复 `"store": true|false`，0 loss。
+  - 跨面转换（如 Anthropic）：若 `store: true`，产生一条 `Reason: "unsupported-semantic"` 损失（`field: "store"`，`detail: "target does not support output retention"`）；若 `store: false`，目标面天然不具备该留存机制，不产生报损（0 loss）。
+- **`stream`（传输控制标记）**：
+  - 取值规则：布尔值 `true` 或 `false` 保留为 `kind: "stream", source: "openai"` 的 `NativeAnnotation`。非流式解码器安全接收并记录该注解，0 解码损失。
+  - 跨面转换：视为网关传输层控制标记，跨面转换时不产生报损（0 loss）。
+  - 同面回转：编码回 Chat Completions 时若存在该注解，输出 wire 字段 `"stream": true|false`。
+- **`stream_options`（流式输出选项）**：
+  - 取值规则：必须为 JSON 对象。已知属性 `include_usage` 和 `include_obfuscation` 必须为布尔值。保留为 `kind: "stream_options", source: "openai"` 的 `NativeAnnotation`，`value` 为规范化 JSON 文本。
+  - 未知属性审计：若包含未知子属性，针对该未知路径（如 `stream_options.extra`）产生精确的 `unmapped-field` 报损。
+  - 跨面转换：当编码至无法输出独立的终止前 usage chunk 的目标面时，产生一条 `degraded` 损失（`field: "stream_options"`，`detail: "target does not emit the requested final usage chunk"`）。
+  - 同面回转：编码回 Chat Completions 时完整恢复 wire 上的 `"stream_options"` 对象。
+
 ## 4. 跨协议遗漏报损 — N-NAT-4
 
-当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失。Chat Completions 与 Responses 面均无 cache 断点表示，Anthropic 的 `cache_control` 断点（顶层、system、消息内容块、嵌套 tool_result 内容、tools）跨面编码时必然逐断点产生一条 `unmapped-field` 遗漏，detail 见 §3.2；工具的 `defer_loading` 原生选项跨面编码至 Chat Completions 时必然逐工具产生一条 `degraded` 遗漏（Responses 自 2.4.9 原生支持 `defer_loading`，无损回转），detail 见 §3.4：
+当 IR 编码至不原生支持上述特性的协议（OpenAI Chat Completions、OpenAI Responses）时，编码器必须通过通用中立 helper 收集遗漏损失。Chat Completions 与 Responses 面均无 cache 断点表示，Anthropic 的 `cache_control` 断点（顶层、system、消息内容块、嵌套 tool_result 内容、tools）跨面编码时必然逐断点产生一条 `unmapped-field` 遗漏，detail 见 §3.2；工具的 `defer_loading` 原生选项跨面编码至 Chat Completions 时必然逐工具产生一条 `degraded` 遗漏（Responses 自 2.4.9 原生支持 `defer_loading`，无损回转），detail 见 §3.4；工具的 `eager_input_streaming: true` 跨面编码至 Chat Completions 或 Responses 时产生一条 `degraded` 遗漏，detail 见 §3.6（`eager_input_streaming: false` 0 损失）；请求的 `store: true` 跨面编码至 Anthropic 时产生一条 `unsupported-semantic` 遗漏，detail 见 §3.7（`store: false` 0 损失）；请求的 `stream_options` 跨面编码至不支持最终 usage chunk 的目标面时产生一条 `degraded` 遗漏，detail 见 §3.7；请求的 `stream` 传输标记在跨面编码时始终为 0 损失：
 
 ### 4.1 遍历与路径规则
 - 遍历顺序固定为：`Request.native`（下标升序）→ `System` 顺序及其 native → `Messages` 深度优先（消息顺序 → 内容块顺序及其 native → 嵌套 tool_result 内容及其 native）→ `Tools` 顺序及其 native。
@@ -148,5 +188,27 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
 1. **结构合法性**：`NativeAnnotation` 的必需字段非空，`value` 为合法的 JSON 文本；若 `omission` 存在，其 `reason` 必须属于合法的四类 reason。不满足时返回结构错误（error）。
 2. **Singleton 约束**：同一宿主下同一 `(source, kind)` 出现多次，返回结构错误（error）。
 3. **宿主合法性**：已知 kind 出现在未授权宿主上，返回结构错误（error）。
+   - `eager_input_streaming`：仅允许在 `Tool` 宿主上，`source` 必须为 `"anthropic"`，`value` 解析为 JSON 布尔值。
+   - `max_completion_tokens`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`。
+   - `store`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 布尔值。
+   - `stream`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 布尔值。
+   - `stream_options`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 对象。
 4. **投影绑定冲突**：同一请求同时包含多个 conflicting effort 投影，或投影字段损坏，返回结构错误（error）。通用 effort 与 baseline 正常相异属于编辑，NOT an error。
 5. **Tool 原生选项互斥**：同一 Tool 宿主上不得同时存在 `source: "anthropic"` 的 `defer_loading` 与 `cache_control`；存在冲突时返回结构错误（error）。
+
+## 7. 损失安全指纹工具 — N-NAT-7（规范 2.4.10）
+
+为满足网关运维与安全审计的可观测性需求，通用 IR 模块必须提供轻量、PII 安全的损失指纹辅助类型与函数：
+
+```
+type LossFingerprint struct {
+    Path   string
+    Field  string
+    Reason string
+}
+func FingerprintLosses(losses []Loss, limit int) []LossFingerprint
+```
+
+- **语义保证**：仅保留 `Path`、`Field`、`Reason`，排除往往包含未脱敏取值与上下文文本的 `Detail`。若请求中包含携带敏感信息的未知字段名，调用方在持久化前可进一步对 Path/Field 执行字段脱敏。
+- **截断规则**：当 `limit <= 0` 时返回全量指纹；当 `limit > 0` 且 `len(losses) > limit` 时截断至前 `limit` 条。
+- **多语言对齐**：Go、TypeScript、Python、Rust、C++ 全部 5 种语言在 IR 命名空间导出该函数。

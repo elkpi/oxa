@@ -527,9 +527,97 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         params.top_p = top_p->is_int() ? static_cast<double>(top_p->as_int()) : top_p->as_double();
         has_params = true;
     }
-    if (const auto* mt = wire.find("max_tokens"); mt && mt->is_int()) {
+    const auto* mt = wire.find("max_tokens");
+    const auto* mct = wire.find("max_completion_tokens");
+    if (mt != nullptr && !mt->is_null() && mct != nullptr && !mct->is_null()) {
+        return invalid_argument("chatcompletions: cannot specify both max_tokens and max_completion_tokens");
+    }
+    if (mct != nullptr && !mct->is_null()) {
+        if (!mct->is_int() || mct->as_int() <= 0) {
+            return invalid_argument("chatcompletions: max_completion_tokens must be a positive integer");
+        }
+        params.max_tokens = mct->as_int();
+        has_params = true;
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_MAX_COMPLETION_TOKENS),
+            "true",
+            std::nullopt,
+            std::nullopt,
+        });
+    } else if (mt && mt->is_int()) {
         params.max_tokens = mt->as_int();
         has_params = true;
+    }
+
+    if (const auto* st = wire.find("store")) {
+        if (!st->is_bool() && !st->is_null()) {
+            return invalid_argument("chatcompletions: store must be a boolean or null");
+        }
+        std::string val = st->is_null() ? "null" : (st->as_bool() ? "true" : "false");
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_STORE),
+            std::move(val),
+            std::nullopt,
+            std::nullopt,
+        });
+    }
+
+    if (const auto* stream = wire.find("stream")) {
+        if (!stream->is_bool() && !stream->is_null()) {
+            return invalid_argument("chatcompletions: stream must be a boolean or null");
+        }
+        std::string val = stream->is_null() ? "null" : (stream->as_bool() ? "true" : "false");
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_STREAM),
+            std::move(val),
+            std::nullopt,
+            std::nullopt,
+        });
+    }
+
+    if (const auto* so = wire.find("stream_options")) {
+        if (!so->is_object() && !so->is_null()) {
+            return invalid_argument("chatcompletions: stream_options must be an object or null");
+        }
+        if (so->is_object()) {
+            if (const auto* u = so->find("include_usage"); u && !u->is_bool()) {
+                return invalid_argument("chatcompletions: stream_options.include_usage must be a boolean");
+            }
+            if (const auto* ob = so->find("include_obfuscation"); ob && !ob->is_bool()) {
+                return invalid_argument("chatcompletions: stream_options.include_obfuscation must be a boolean");
+            }
+            json::Value clean_so = json::Value::object();
+            bool has_usage_true = false;
+            if (const auto* ob = so->find("include_obfuscation")) {
+                clean_so.set("include_obfuscation", json::Value::boolean(ob->as_bool()));
+            }
+            if (const auto* u = so->find("include_usage")) {
+                clean_so.set("include_usage", json::Value::boolean(u->as_bool()));
+                if (u->as_bool()) has_usage_true = true;
+            }
+            std::optional<ir::NativeOmission> omission;
+            if (has_usage_true) {
+                omission = ir::NativeOmission{"stream_options", std::string(ir::LOSS_DEGRADED), std::string(ir::STREAM_OPTIONS_LOSS_DETAIL)};
+            }
+            req.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_OPENAI),
+                std::string(ir::NATIVE_KIND_STREAM_OPTIONS),
+                json::serialize(clean_so),
+                std::move(omission),
+                std::nullopt,
+            });
+        } else {
+            req.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_OPENAI),
+                std::string(ir::NATIVE_KIND_STREAM_OPTIONS),
+                "null",
+                std::nullopt,
+                std::nullopt,
+            });
+        }
     }
     if (const auto* stop = wire.find("stop")) {
         std::vector<std::string> stops;
@@ -940,11 +1028,25 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     }
     out.set("messages", std::move(messages_arr));
 
+    bool has_max_completion_tokens = false;
+    for (const auto& n : req.native) {
+        if (n.source == ir::NATIVE_SOURCE_OPENAI && n.kind == ir::NATIVE_KIND_MAX_COMPLETION_TOKENS) {
+            has_max_completion_tokens = true;
+            break;
+        }
+    }
+
     if (req.params.has_value()) {
         const auto& p = *req.params;
         if (p.temperature.has_value()) out.set("temperature", json::Value::real(*p.temperature));
         if (p.top_p.has_value()) out.set("top_p", json::Value::real(*p.top_p));
-        if (p.max_tokens.has_value()) out.set("max_tokens", json::Value::integer(*p.max_tokens));
+        if (p.max_tokens.has_value()) {
+            if (has_max_completion_tokens) {
+                out.set("max_completion_tokens", json::Value::integer(*p.max_tokens));
+            } else {
+                out.set("max_tokens", json::Value::integer(*p.max_tokens));
+            }
+        }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             json::Value stops = json::Value::array();
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
@@ -968,6 +1070,39 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 format.set("json_schema", std::move(schema_config));
             }
             out.set("response_format", std::move(format));
+        }
+    }
+
+    for (const auto& n : req.native) {
+        if (n.source == ir::NATIVE_SOURCE_OPENAI) {
+            if (n.kind == ir::NATIVE_KIND_STORE) {
+                if (n.value == "null") {
+                    out.set("store", json::Value::null());
+                } else {
+                    auto parsed = json::parse(n.value);
+                    if (parsed.ok() && parsed->is_bool()) {
+                        out.set("store", json::Value::boolean(parsed->as_bool()));
+                    }
+                }
+            } else if (n.kind == ir::NATIVE_KIND_STREAM) {
+                if (n.value == "null") {
+                    out.set("stream", json::Value::null());
+                } else {
+                    auto parsed = json::parse(n.value);
+                    if (parsed.ok() && parsed->is_bool()) {
+                        out.set("stream", json::Value::boolean(parsed->as_bool()));
+                    }
+                }
+            } else if (n.kind == ir::NATIVE_KIND_STREAM_OPTIONS) {
+                if (n.value == "null") {
+                    out.set("stream_options", json::Value::null());
+                } else {
+                    auto parsed = json::parse(n.value);
+                    if (parsed.ok() && parsed->is_object()) {
+                        out.set("stream_options", std::move(*parsed));
+                    }
+                }
+            }
         }
     }
 

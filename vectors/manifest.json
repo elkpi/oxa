@@ -681,6 +681,28 @@
       "sha256": "92661772cbfbcbc1d3a96f57da6172b2d84d294d53b5d183a9c98cdc3e66704e"
     },
     {
+      "name": "anthropic.nonstream.native-tool-eager-input-streaming-from-ir",
+      "file": "anthropic/nonstream/native-tool-eager-input-streaming-from-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "eager-streaming",
+        "native"
+      ],
+      "sha256": "5d0ba925b59aad2e8bdb4cd843b934a3876de62ee5620baeb3aacadddc942cb3"
+    },
+    {
+      "name": "anthropic.nonstream.native-tool-eager-input-streaming-to-ir",
+      "file": "anthropic/nonstream/native-tool-eager-input-streaming-to-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "eager-streaming",
+        "native"
+      ],
+      "sha256": "eed4864edd08256fe25cdaf2d4e5e3a8fc27ed7fab7d4bfd168de713218716e5"
+    },
+    {
       "name": "anthropic.nonstream.native-tool-foreign-source-from-ir",
       "file": "anthropic/nonstream/native-tool-foreign-source-from-ir.json",
       "tags": [
@@ -1303,6 +1325,28 @@
       "sha256": "3ecdb19853a3e2e7f4dd7f749c8128a1992230336b3ca39aab5070702004e0eb"
     },
     {
+      "name": "chatcompletions.nonstream.max-completion-tokens-from-ir",
+      "file": "chatcompletions/nonstream/max-completion-tokens-from-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "chatcompletions",
+        "native"
+      ],
+      "sha256": "ac2f7928c62672241707d3d30bf28f5c85c2cb0f3888242d98637843f4c49d87"
+    },
+    {
+      "name": "chatcompletions.nonstream.max-completion-tokens-to-ir",
+      "file": "chatcompletions/nonstream/max-completion-tokens-to-ir.json",
+      "tags": [
+        "params",
+        "request",
+        "chatcompletions",
+        "native"
+      ],
+      "sha256": "128a6d7700c8fdb1a072982befcf7cf224fa0d4de8b12a4e7aad56849d17a89a"
+    },
+    {
       "name": "chatcompletions.nonstream.minimal-text-request-from-ir",
       "file": "chatcompletions/nonstream/minimal-text-request-from-ir.json",
       "tags": [
@@ -1429,6 +1473,28 @@
         "n-cc-12"
       ],
       "sha256": "0ccd118a21d74a88ce3d15bf25aa5e89b5182fe014468a31f001ca48f17810e8"
+    },
+    {
+      "name": "chatcompletions.nonstream.request-controls-from-ir",
+      "file": "chatcompletions/nonstream/request-controls-from-ir.json",
+      "tags": [
+        "request",
+        "chatcompletions",
+        "controls",
+        "native"
+      ],
+      "sha256": "51a3e5dfa13557145f5a573cb315dc3d1523a0fc49d097aa92ae0a47c344b2e8"
+    },
+    {
+      "name": "chatcompletions.nonstream.request-controls-to-ir",
+      "file": "chatcompletions/nonstream/request-controls-to-ir.json",
+      "tags": [
+        "request",
+        "chatcompletions",
+        "controls",
+        "native"
+      ],
+      "sha256": "f9d0acdacbe0280bba499f2663703818c5d227f6a6ae6845ed60730a5ea90ae8"
     },
     {
       "name": "chatcompletions.nonstream.response-format-json-object-request-from-ir",
@@ -1896,6 +1962,19 @@
       "sha256": "b8dc3c122429e9d7642f91eca7bd4a013ed94c1a459fa43f8ce092c0cdc6c2a6"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-native-tool-eager-streaming",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-native-tool-eager-streaming.json",
+      "tags": [
+        "cross",
+        "request",
+        "tools",
+        "eager-streaming",
+        "native",
+        "loss"
+      ],
+      "sha256": "6a19841a52773c9d3e39699e8f9c7b0ca97638a61b67b2934c1302c7b3c92a86"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-native-tools",
       "file": "cross/nonstream/anthropic-to-chatcompletions-native-tools.json",
       "tags": [
@@ -2080,6 +2159,20 @@
         "loss"
       ],
       "sha256": "c542031d06268e6c27e64217ae73cc8e9cd4db81181f79a3293145848c0a71d2"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-request-controls",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-request-controls.json",
+      "tags": [
+        "cross",
+        "request",
+        "chatcompletions",
+        "anthropic",
+        "controls",
+        "native",
+        "loss"
+      ],
+      "sha256": "43df3758d31d780eeb71d75bbb9c5c0582abaf6a52ed3af699fa11c08c51ba37"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-response",

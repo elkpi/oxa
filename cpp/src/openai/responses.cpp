@@ -1690,6 +1690,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
+    for (const auto& n : req.native) {
+        if (n.source == ir::NATIVE_SOURCE_OPENAI && n.kind == ir::NATIVE_KIND_STORE) {
+            auto parsed = json::parse(n.value);
+            if (parsed.ok() && parsed->is_bool()) {
+                out.set("store", json::Value::boolean(parsed->as_bool()));
+            }
+        }
+    }
+
     auto omitted = ir::omitted_native_request_losses(req, "responses");
     if (!omitted.ok()) return omitted.status();
     losses.insert(losses.end(), omitted->begin(), omitted->end());

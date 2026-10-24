@@ -2,6 +2,8 @@ package chatcompletions
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -815,5 +817,100 @@ func TestEncodeResponsePreservesExplicitZeroUsageDetail(t *testing.T) {
 	details := usage["prompt_tokens_details"].(map[string]any)
 	if got, ok := details["cached_tokens"].(float64); !ok || got != 0 {
 		t.Fatalf("cached_tokens = %#v, want explicit 0", details["cached_tokens"])
+	}
+}
+
+func TestChatCompletionsRequestControls(t *testing.T) {
+	// 1. Conflict between max_tokens and max_completion_tokens returns error
+	rawConflict := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"max_tokens": 100,
+		"max_completion_tokens": 200
+	}`)
+	if _, _, err := DecodeRequestJSON(rawConflict); err == nil || !strings.Contains(err.Error(), "cannot specify both max_tokens and max_completion_tokens") {
+		t.Fatalf("expected conflict error between max_tokens and max_completion_tokens, got: %v", err)
+	}
+
+	// 2. stream_options with unknown field reports unmapped-field loss at stream_options.<field>
+	rawUnknownChild := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"stream": true,
+		"stream_options": {
+			"include_usage": true,
+			"future_option": "extra"
+		}
+	}`)
+	_, lossesUnknown, err := DecodeRequestJSON(rawUnknownChild)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON failed: %v", err)
+	}
+	foundUnknown := false
+	for _, l := range lossesUnknown {
+		if l.Path == "stream_options.future_option" && l.Field == "future_option" && l.Reason == ir.LossUnmappedField {
+			foundUnknown = true
+		}
+	}
+	if !foundUnknown {
+		t.Fatalf("expected stream_options.future_option unmapped-field loss, got: %+v", lossesUnknown)
+	}
+
+	// 3. stream_options non-boolean include_usage returns structural error
+	rawInvalidChild := []byte(`{
+		"model": "gpt-5",
+		"messages": [{"role": "user", "content": "hi"}],
+		"stream_options": {
+			"include_usage": "not-bool"
+		}
+	}`)
+	if _, _, err := DecodeRequestJSON(rawInvalidChild); err == nil {
+		t.Fatalf("expected error for non-boolean include_usage")
+	}
+
+	// 4. max_completion_tokens <= 0 returns error
+	for _, badVal := range []string{"0", "-1"} {
+		rawBad := []byte(fmt.Sprintf(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"max_completion_tokens":%s}`, badVal))
+		if _, _, err := DecodeRequestJSON(rawBad); err == nil || !strings.Contains(err.Error(), "max_completion_tokens must be a positive integer") {
+			t.Fatalf("expected positive integer error for %s, got %v", badVal, err)
+		}
+	}
+
+	// 5. null values for store, stream, stream_options decode and round-trip to null
+	rawNulls := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"hi"}],"store":null,"stream":null,"stream_options":null}`)
+	reqNulls, lossesNulls, err := DecodeRequestJSON(rawNulls)
+	if err != nil || len(lossesNulls) != 0 {
+		t.Fatalf("decode nulls failed: err=%v, losses=%v", err, lossesNulls)
+	}
+	encNulls, _, err := EncodeRequest(reqNulls)
+	if err != nil {
+		t.Fatalf("encode nulls failed: %v", err)
+	}
+	bytesNulls, _ := json.Marshal(encNulls)
+	var docNulls map[string]any
+	_ = json.Unmarshal(bytesNulls, &docNulls)
+	if val, ok := docNulls["store"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for store, got %v (ok=%v)", val, ok)
+	}
+	if val, ok := docNulls["stream"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for stream, got %v (ok=%v)", val, ok)
+	}
+	if val, ok := docNulls["stream_options"]; !ok || val != nil {
+		t.Fatalf("expected explicit null for stream_options, got %v (ok=%v)", val, ok)
+	}
+
+	// 6. stream_options does not leak unknown fields into native value or encode
+	reqUnknown, _, _ := DecodeRequestJSON(rawUnknownChild)
+	for _, n := range reqUnknown.Native {
+		if n.Kind == ir.NativeKindStreamOptions {
+			if strings.Contains(n.Value, "future_option") {
+				t.Fatalf("native stream_options leaked unknown field: %s", n.Value)
+			}
+		}
+	}
+	encUnknown, _, _ := EncodeRequest(reqUnknown)
+	bytesUnknown, _ := json.Marshal(encUnknown)
+	if strings.Contains(string(bytesUnknown), "future_option") {
+		t.Fatalf("encoded stream_options leaked unknown field: %s", string(bytesUnknown))
 	}
 }

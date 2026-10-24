@@ -3,6 +3,7 @@ package chatcompletions
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -154,11 +155,85 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	if len(req.Messages) == 0 {
 		return nil, nil, fmt.Errorf("chatcompletions: request carries no conversation messages")
 	}
+	if wire.MaxTokens != nil && wire.MaxCompletionTokens != nil {
+		return nil, nil, fmt.Errorf("chatcompletions: cannot specify both max_tokens and max_completion_tokens")
+	}
+	if wire.MaxCompletionTokens != nil && *wire.MaxCompletionTokens <= 0 {
+		return nil, nil, fmt.Errorf("chatcompletions: max_completion_tokens must be a positive integer")
+	}
 	req.Params = ir.Params{
 		Temperature:   wire.Temperature,
 		TopP:          wire.TopP,
 		MaxTokens:     wire.MaxTokens,
 		StopSequences: wire.Stop,
+	}
+	if wire.MaxCompletionTokens != nil {
+		req.Params.MaxTokens = wire.MaxCompletionTokens
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindMaxCompletionTokens,
+			Value:  "true",
+		})
+	}
+	if len(wire.rawStore) > 0 {
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStore,
+			Value:  strings.TrimSpace(string(wire.rawStore)),
+		})
+	} else if wire.Store != nil {
+		val := "false"
+		if *wire.Store {
+			val = "true"
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStore,
+			Value:  val,
+		})
+	}
+	if len(wire.rawStream) > 0 {
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStream,
+			Value:  strings.TrimSpace(string(wire.rawStream)),
+		})
+	} else if wire.Stream != nil {
+		val := "false"
+		if *wire.Stream {
+			val = "true"
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStream,
+			Value:  val,
+		})
+	}
+	if len(wire.rawStreamOptions) > 0 && strings.TrimSpace(string(wire.rawStreamOptions)) == "null" {
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindStreamOptions,
+			Value:  "null",
+		})
+	} else if wire.StreamOptions != nil {
+		b, err := json.Marshal(wire.StreamOptions)
+		if err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: stream_options: %w", err)
+		}
+		var om *ir.NativeOmission
+		if wire.StreamOptions.IncludeUsage != nil && *wire.StreamOptions.IncludeUsage {
+			om = &ir.NativeOmission{
+				Field:  "stream_options",
+				Reason: ir.LossDegraded,
+				Detail: ir.StreamOptionsLossDetail,
+			}
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source:   ir.NativeSourceOpenAI,
+			Kind:     ir.NativeKindStreamOptions,
+			Value:    string(b),
+			Omission: om,
+		})
 	}
 	switch wire.ReasoningEffort {
 	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:

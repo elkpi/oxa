@@ -452,6 +452,153 @@ void test_cache_control_omission_loss_detail() {
     CHECK(cc_empty->losses[0].detail == oxa::ir::CACHE_CONTROL_LOSS_DETAIL);
 }
 
+void test_fingerprint_losses() {
+    std::vector<oxa::ir::Loss> losses = {
+        oxa::ir::Loss{"tools[0]", "eager_input_streaming", std::string(oxa::ir::LOSS_DEGRADED), "sensitive1"},
+        oxa::ir::Loss{"native[1]", "store", std::string(oxa::ir::LOSS_UNSUPPORTED_SEMANTIC), "sensitive2"},
+        oxa::ir::Loss{"stream_options", "extra", std::string(oxa::ir::LOSS_UNMAPPED_FIELD), "sensitive3"},
+    };
+
+    auto all = oxa::ir::fingerprint_losses(losses, 0);
+    CHECK(all.size() == 3);
+    CHECK(all[0].path == "tools[0]");
+    CHECK(all[0].field == "eager_input_streaming");
+    CHECK(all[0].reason == oxa::ir::LOSS_DEGRADED);
+
+    auto trunc = oxa::ir::fingerprint_losses(losses, 2);
+    CHECK(trunc.size() == 2);
+    CHECK(trunc[1].field == "store");
+}
+
+void test_eager_input_streaming_32_tools_and_validation() {
+    // 32 tools carrying eager_input_streaming: true produce 0 losses
+    oxa::json::Value tools = oxa::json::Value::array();
+    for (int i = 0; i < 32; ++i) {
+        oxa::json::Value t = oxa::json::Value::object();
+        t.set("name", oxa::json::Value::string("tool_" + std::to_string(i)));
+        t.set("input_schema", oxa::json::Value::object());
+        t.set("eager_input_streaming", oxa::json::Value::boolean(true));
+        tools.push_back(std::move(t));
+    }
+    oxa::json::Value wire = oxa::json::Value::object();
+    wire.set("model", oxa::json::Value::string("claude-opus-5-5"));
+    wire.set("max_tokens", oxa::json::Value::integer(1024));
+    oxa::json::Value msgs = oxa::json::Value::array();
+    oxa::json::Value msg = oxa::json::Value::object();
+    msg.set("role", oxa::json::Value::string("user"));
+    msg.set("content", oxa::json::Value::string("hi"));
+    msgs.push_back(std::move(msg));
+    wire.set("messages", std::move(msgs));
+    wire.set("tools", std::move(tools));
+
+    auto dec = oxa::anthropic::messages::decode_request(wire);
+    CHECK(dec.ok());
+    CHECK(dec->losses.empty());
+    CHECK(dec->value.tools.has_value() && dec->value.tools->size() == 32);
+    CHECK((*dec->value.tools)[0].native.size() == 1);
+    CHECK((*dec->value.tools)[0].native[0].kind == oxa::ir::NATIVE_KIND_EAGER_INPUT_STREAMING);
+
+    // Non-boolean fails
+    oxa::json::Value bad_wire = oxa::json::Value::object();
+    bad_wire.set("model", oxa::json::Value::string("claude-opus-5-5"));
+    bad_wire.set("max_tokens", oxa::json::Value::integer(1024));
+    bad_wire.set("messages", oxa::json::Value::array());
+    oxa::json::Value bad_tools = oxa::json::Value::array();
+    oxa::json::Value bad_t = oxa::json::Value::object();
+    bad_t.set("name", oxa::json::Value::string("t1"));
+    bad_t.set("input_schema", oxa::json::Value::object());
+    bad_t.set("eager_input_streaming", oxa::json::Value::string("true"));
+    bad_tools.push_back(std::move(bad_t));
+    bad_wire.set("tools", std::move(bad_tools));
+
+    auto bad_dec = oxa::anthropic::messages::decode_request(bad_wire);
+    CHECK(!bad_dec.ok());
+}
+
+void test_chatcompletions_controls_and_foreign_isolation() {
+    // 1. max_completion_tokens <= 0 or non-integer fails
+    for (const auto& bad : {"0", "-1", "1.5", "\"bad\"", "true"}) {
+        std::string raw = std::string("{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"max_completion_tokens\":") + bad + "}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(!d.ok());
+    }
+
+    // 2. stream_options unknown child loss & clean native value
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"stream_options\":{\"include_usage\":true,\"extra_prop\":\"val\"}}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        bool found_loss = false;
+        for (const auto& l : d->losses) {
+            if (l.path == "stream_options.extra_prop" && l.reason == oxa::ir::LOSS_UNMAPPED_FIELD) {
+                found_loss = true;
+            }
+        }
+        CHECK(found_loss);
+        for (const auto& n : d->value.native) {
+            if (n.kind == "stream_options") {
+                CHECK(n.value.find("extra_prop") == std::string::npos);
+            }
+        }
+        auto enc = oxa::openai::chatcompletions::encode_request(d->value);
+        CHECK(enc.ok());
+        CHECK(oxa::json::serialize(enc->value).find("extra_prop") == std::string::npos);
+    }
+
+    // 3. null values for store, stream, stream_options
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"store\":null,\"stream\":null,\"stream_options\":null}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        CHECK(d->losses.empty());
+        auto enc = oxa::openai::chatcompletions::encode_request(d->value);
+        CHECK(enc.ok());
+        CHECK(enc->value.find("store") != nullptr && enc->value.find("store")->is_null());
+        CHECK(enc->value.find("stream") != nullptr && enc->value.find("stream")->is_null());
+        CHECK(enc->value.find("stream_options") != nullptr && enc->value.find("stream_options")->is_null());
+    }
+
+    // 4. store: false encodes to Responses
+    {
+        std::string raw = "{\"model\":\"gpt-5\",\"messages\":[{\"role\":\"user\",\"content\":\"hi\"}],\"store\":false}";
+        auto d = oxa::openai::chatcompletions::decode_request(raw);
+        CHECK(d.ok());
+        auto r = oxa::openai::responses::encode_request(d->value);
+        CHECK(r.ok());
+        CHECK(r->losses.empty());
+        const auto* st = r->value.find("store");
+        CHECK(st != nullptr && st->is_bool() && !st->as_bool());
+    }
+
+    // 5. foreign openai native options do not leak into Anthropic
+    {
+        oxa::ir::Request req;
+        req.model = "claude-opus-5-5";
+        req.params = oxa::ir::Params{};
+        req.params->max_tokens = 100;
+        req.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {oxa::ir::TextBlock{"hi"}}});
+        req.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+            std::string(oxa::ir::NATIVE_KIND_THINKING_MODE),
+            "\"disabled\"",
+            std::nullopt,
+            std::nullopt,
+        });
+        req.native.push_back(oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+            std::string(oxa::ir::NATIVE_KIND_CONTEXT_MANAGEMENT),
+            "{\"edits\":[{\"type\":\"clear_tool_uses_20250919\"}]}",
+            std::nullopt,
+            std::nullopt,
+        });
+        auto enc = oxa::anthropic::messages::encode_request(req);
+        CHECK(enc.ok());
+        CHECK(enc->value.find("thinking") == nullptr);
+        CHECK(enc->value.find("context_management") == nullptr);
+        CHECK(enc->losses.size() == 2);
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -467,6 +614,9 @@ int main() {
     test_response_native_isolation();
     test_custom_tool_result_nested_cache_control();
     test_cache_control_omission_loss_detail();
+    test_fingerprint_losses();
+    test_eager_input_streaming_32_tools_and_validation();
+    test_chatcompletions_controls_and_foreign_isolation();
 
     std::printf("test_native_request: all tests passed\n");
     return 0;

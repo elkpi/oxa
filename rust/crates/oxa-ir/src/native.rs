@@ -15,6 +15,11 @@ pub const NATIVE_KIND_DOCUMENT_TITLE: &str = "document_title";
 pub const NATIVE_KIND_DOCUMENT_CONTEXT: &str = "document_context";
 pub const NATIVE_KIND_DOCUMENT_CITATIONS: &str = "document_citations";
 pub const NATIVE_KIND_CONTAINER: &str = "container";
+pub const NATIVE_KIND_EAGER_INPUT_STREAMING: &str = "eager_input_streaming";
+pub const NATIVE_KIND_STORE: &str = "store";
+pub const NATIVE_KIND_STREAM: &str = "stream";
+pub const NATIVE_KIND_STREAM_OPTIONS: &str = "stream_options";
+pub const NATIVE_KIND_MAX_COMPLETION_TOKENS: &str = "max_completion_tokens";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 pub const NATIVE_SOURCE_OPENAI: &str = "openai";
 
@@ -22,6 +27,34 @@ pub const CACHE_CONTROL_LOSS_DETAIL: &str =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
 
 pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
+
+pub const EAGER_INPUT_STREAMING_LOSS_DETAIL: &str =
+    "target does not preserve eager tool input streaming semantics";
+
+pub const STREAM_OPTIONS_LOSS_DETAIL: &str = "target does not emit the requested final usage chunk";
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct LossFingerprint {
+    pub path: String,
+    pub field: String,
+    pub reason: LossReason,
+}
+
+pub fn fingerprint_losses(losses: &[Loss], limit: usize) -> Vec<LossFingerprint> {
+    let n = if limit > 0 && limit < losses.len() {
+        limit
+    } else {
+        losses.len()
+    };
+    losses[..n]
+        .iter()
+        .map(|l| LossFingerprint {
+            path: l.path.clone(),
+            field: l.field.clone(),
+            reason: l.reason,
+        })
+        .collect()
+}
 
 pub const DOCUMENT_TITLE_LOSS_DETAIL: &str =
     "anthropic-native document title; the target face has no document representation";
@@ -296,10 +329,83 @@ fn validate_annotations(
                         )));
                     }
                 }
+                NATIVE_KIND_EAGER_INPUT_STREAMING => {
+                    if host != HostType::Tool {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Tool",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_boolean() {
+                        return Err(Error::Custom(format!(
+                            "invalid eager_input_streaming {parsed_json:?}"
+                        )));
+                    }
+                }
                 _ => {}
             }
         } else if ann.source == NATIVE_SOURCE_OPENAI {
             match ann.kind.as_str() {
+                NATIVE_KIND_MAX_COMPLETION_TOKENS => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if parsed_json.as_bool() != Some(true) {
+                        return Err(Error::Custom(format!(
+                            "invalid max_completion_tokens {parsed_json:?}"
+                        )));
+                    }
+                }
+                NATIVE_KIND_STORE => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_boolean() && !parsed_json.is_null() {
+                        return Err(Error::Custom(format!("invalid store {parsed_json:?}")));
+                    }
+                }
+                NATIVE_KIND_STREAM => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_boolean() && !parsed_json.is_null() {
+                        return Err(Error::Custom(format!("invalid stream {parsed_json:?}")));
+                    }
+                }
+                NATIVE_KIND_STREAM_OPTIONS => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_null() {
+                        if let Some(map) = parsed_json.as_object() {
+                            for (k, v) in map {
+                                if (k == "include_usage" || k == "include_obfuscation")
+                                    && !v.is_boolean()
+                                {
+                                    return Err(Error::Custom(format!(
+                                        "invalid stream_options {parsed_json:?}: {k} must be a boolean"
+                                    )));
+                                }
+                            }
+                        } else {
+                            return Err(Error::Custom(format!(
+                                "invalid stream_options {parsed_json:?}"
+                            )));
+                        }
+                    }
+                }
                 NATIVE_KIND_CONTAINER => {
                     if host != HostType::Tool {
                         return Err(Error::Custom(format!(
@@ -487,21 +593,100 @@ fn append_omission_loss(
     target: &str,
 ) {
     if ann.source == NATIVE_SOURCE_OPENAI {
-        if target == "responses" {
-            return;
+        match ann.kind.as_str() {
+            NATIVE_KIND_MAX_COMPLETION_TOKENS | NATIVE_KIND_STREAM => return,
+            NATIVE_KIND_STREAM_OPTIONS => {
+                if target == "chatcompletions" {
+                    return;
+                }
+                #[derive(serde::Deserialize)]
+                struct SoCheck {
+                    include_usage: Option<bool>,
+                }
+                let has_usage_true = serde_json::from_str::<SoCheck>(&ann.value)
+                    .map(|so| so.include_usage == Some(true))
+                    .unwrap_or(false);
+                if has_usage_true {
+                    let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                        let f = if om.field.is_empty() {
+                            "stream_options".to_string()
+                        } else {
+                            om.field.clone()
+                        };
+                        let r = om.reason;
+                        let d = match om.detail.as_deref() {
+                            Some(s) if !s.is_empty() => s.to_string(),
+                            _ => STREAM_OPTIONS_LOSS_DETAIL.to_string(),
+                        };
+                        (f, r, d)
+                    } else {
+                        (
+                            "stream_options".to_string(),
+                            LossReason::Degraded,
+                            STREAM_OPTIONS_LOSS_DETAIL.to_string(),
+                        )
+                    };
+                    losses.push(Loss {
+                        path: path.into(),
+                        field,
+                        reason,
+                        detail,
+                    });
+                }
+                return;
+            }
+            NATIVE_KIND_STORE => {
+                if target == "chatcompletions" || target == "responses" {
+                    return;
+                }
+                let is_true = serde_json::from_str::<bool>(&ann.value).unwrap_or(false);
+                if is_true {
+                    let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                        let f = if om.field.is_empty() {
+                            "store".to_string()
+                        } else {
+                            om.field.clone()
+                        };
+                        let r = om.reason;
+                        let d = match om.detail.as_deref() {
+                            Some(s) if !s.is_empty() => s.to_string(),
+                            _ => "target does not support output retention".to_string(),
+                        };
+                        (f, r, d)
+                    } else {
+                        (
+                            "store".to_string(),
+                            LossReason::UnsupportedSemantic,
+                            "target does not support output retention".to_string(),
+                        )
+                    };
+                    losses.push(Loss {
+                        path: path.into(),
+                        field,
+                        reason,
+                        detail,
+                    });
+                }
+                return;
+            }
+            _ => {
+                if target == "responses" {
+                    return;
+                }
+                if target == "anthropic" && ann.kind == NATIVE_KIND_DEFER_LOADING {
+                    return;
+                }
+                if let Some(ref om) = ann.omission {
+                    losses.push(Loss {
+                        path: path.into(),
+                        field: om.field.clone(),
+                        reason: om.reason,
+                        detail: om.detail.clone().unwrap_or_default(),
+                    });
+                }
+                return;
+            }
         }
-        if target == "anthropic" && ann.kind == NATIVE_KIND_DEFER_LOADING {
-            return;
-        }
-        if let Some(ref om) = ann.omission {
-            losses.push(Loss {
-                path: path.into(),
-                field: om.field.clone(),
-                reason: om.reason,
-                detail: om.detail.clone().unwrap_or_default(),
-            });
-        }
-        return;
     }
     if ann.source != NATIVE_SOURCE_ANTHROPIC {
         losses.push(Loss {
@@ -616,6 +801,39 @@ fn append_omission_loss(
                 reason,
                 detail,
             });
+        }
+        NATIVE_KIND_EAGER_INPUT_STREAMING => {
+            if target == "anthropic" {
+                return;
+            }
+            let is_true = serde_json::from_str::<bool>(&ann.value).unwrap_or(false);
+            if is_true {
+                let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                    let f = if om.field.is_empty() {
+                        "eager_input_streaming".to_string()
+                    } else {
+                        om.field.clone()
+                    };
+                    let r = om.reason;
+                    let d = match om.detail.as_deref() {
+                        Some(s) if !s.is_empty() => s.to_string(),
+                        _ => EAGER_INPUT_STREAMING_LOSS_DETAIL.to_string(),
+                    };
+                    (f, r, d)
+                } else {
+                    (
+                        "eager_input_streaming".to_string(),
+                        LossReason::Degraded,
+                        EAGER_INPUT_STREAMING_LOSS_DETAIL.to_string(),
+                    )
+                };
+                losses.push(Loss {
+                    path: path.into(),
+                    field,
+                    reason,
+                    detail,
+                });
+            }
         }
         NATIVE_KIND_THINKING_DISPLAY | NATIVE_KIND_CONTEXT_MANAGEMENT => {
             if let Some(ref om) = ann.omission {

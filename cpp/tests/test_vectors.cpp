@@ -81,7 +81,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 52);
+        CHECK(r->executed == 56);
     }
 
     // 2. Anthropic nonstream
@@ -94,7 +94,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 98);
+        CHECK(r->executed == 100);
     }
 
     // 3. Responses nonstream
@@ -121,7 +121,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 41);
+        CHECK(r->executed == 43);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

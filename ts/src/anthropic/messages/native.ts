@@ -18,12 +18,35 @@ export {
   CACHE_CONTROL_LOSS_DETAIL,
   DEFER_LOADING_LOSS_DETAIL,
   NATIVE_KIND_DEFER_LOADING,
+  NATIVE_KIND_EAGER_INPUT_STREAMING,
+  EAGER_INPUT_STREAMING_LOSS_DETAIL,
 } from "../../ir/native.js";
 import {
   CACHE_CONTROL_LOSS_DETAIL,
   DEFER_LOADING_LOSS_DETAIL,
   NATIVE_KIND_DEFER_LOADING,
+  NATIVE_KIND_EAGER_INPUT_STREAMING,
+  NATIVE_KIND_STORE,
+  NATIVE_KIND_STREAM,
+  NATIVE_KIND_STREAM_OPTIONS,
+  NATIVE_KIND_MAX_COMPLETION_TOKENS,
+  NATIVE_SOURCE_OPENAI,
+  STREAM_OPTIONS_LOSS_DETAIL,
 } from "../../ir/native.js";
+
+export function getToolEagerInputStreaming(tool: Tool): boolean | undefined {
+  const ann = tool.native?.find(
+    (n) => n.kind === NATIVE_KIND_EAGER_INPUT_STREAMING,
+  );
+  if (!ann) return undefined;
+  try {
+    const parsed = JSON.parse(ann.value);
+    if (typeof parsed === "boolean") {
+      return parsed;
+    }
+  } catch {}
+  return undefined;
+}
 
 export function getToolDeferLoading(tool: Tool): boolean {
   return (
@@ -640,6 +663,65 @@ export function encodeRequestNative(
   const nativeList = request.native ?? [];
   for (let i = 0; i < nativeList.length; i++) {
     const n = nativeList[i]!;
+    if (n.source === NATIVE_SOURCE_OPENAI) {
+      switch (n.kind) {
+        case NATIVE_KIND_MAX_COMPLETION_TOKENS:
+        case NATIVE_KIND_STREAM:
+          break;
+        case NATIVE_KIND_STORE: {
+          let isTrue = false;
+          try {
+            isTrue = JSON.parse(n.value) === true;
+          } catch {}
+          if (isTrue) {
+            losses.push({
+              path: `native[${i}]`,
+              field: n.omission?.field || "store",
+              reason: n.omission?.reason || "unsupported-semantic",
+              detail:
+                n.omission?.detail ||
+                "target does not support output retention",
+            });
+          }
+          break;
+        }
+        case NATIVE_KIND_STREAM_OPTIONS: {
+          try {
+            const parsed = JSON.parse(n.value);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              parsed.include_usage === true
+            ) {
+              losses.push({
+                path: `native[${i}]`,
+                field: n.omission?.field || "stream_options",
+                reason: n.omission?.reason || "degraded",
+                detail: n.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL,
+              });
+            }
+          } catch {}
+          break;
+        }
+        default:
+          if (n.omission) {
+            losses.push({
+              path: `native[${i}]`,
+              field: n.omission.field,
+              reason: n.omission.reason,
+              ...(n.omission.detail ? { detail: n.omission.detail } : {}),
+            });
+          } else {
+            losses.push({
+              path: `native[${i}]`,
+              field: "kind",
+              reason: "unsupported-semantic",
+              detail: `unsupported native option kind "${n.kind}"`,
+            });
+          }
+      }
+      continue;
+    }
     if (n.source !== NATIVE_SOURCE_ANTHROPIC) {
       losses.push({
         path: `native[${i}]`,

@@ -45,12 +45,23 @@ inline constexpr std::string_view NATIVE_KIND_DOCUMENT_TITLE = "document_title";
 inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CONTEXT = "document_context";
 inline constexpr std::string_view NATIVE_KIND_DOCUMENT_CITATIONS = "document_citations";
 inline constexpr std::string_view NATIVE_KIND_CONTAINER = "container";
+inline constexpr std::string_view NATIVE_KIND_EAGER_INPUT_STREAMING = "eager_input_streaming";
+inline constexpr std::string_view NATIVE_KIND_STORE = "store";
+inline constexpr std::string_view NATIVE_KIND_STREAM = "stream";
+inline constexpr std::string_view NATIVE_KIND_STREAM_OPTIONS = "stream_options";
+inline constexpr std::string_view NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
 
 inline constexpr std::string_view DEFER_LOADING_LOSS_DETAIL =
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
+
+inline constexpr std::string_view EAGER_INPUT_STREAMING_LOSS_DETAIL =
+    "target does not preserve eager tool input streaming semantics";
+
+inline constexpr std::string_view STREAM_OPTIONS_LOSS_DETAIL =
+    "target does not emit the requested final usage chunk";
 
 inline constexpr std::string_view DOCUMENT_TITLE_LOSS_DETAIL =
     "anthropic-native document title; the target face has no document representation";

@@ -1,0 +1,68 @@
+{
+  "name": "chatcompletions.nonstream.request-controls-to-ir",
+  "description": "Standard Chat Completions controls store, stream and stream_options decode to IR native annotations without decode loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "store": false,
+    "stream": true,
+    "stream_options": {
+      "include_usage": true
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    ],
+    "native": [
+      {
+        "source": "openai",
+        "kind": "store",
+        "value": "false"
+      },
+      {
+        "source": "openai",
+        "kind": "stream",
+        "value": "true"
+      },
+      {
+        "source": "openai",
+        "kind": "stream_options",
+        "value": "{\"include_usage\":true}",
+        "omission": {
+          "field": "stream_options",
+          "reason": "degraded",
+          "detail": "target does not emit the requested final usage chunk"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "request",
+    "chatcompletions",
+    "controls",
+    "native"
+  ]
+}

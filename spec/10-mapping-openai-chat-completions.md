@@ -65,6 +65,10 @@ The wire objects in scope are:
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_tokens` | `Params.MaxTokens` | 1:1 |
+| `max_completion_tokens` | `Params.MaxTokens` + `NativeAnnotation` | 映射至 Params.MaxTokens，通过 NativeAnnotation (kind: "max_completion_tokens") 记忆拼写，与 max_tokens 互斥（N-NAT-2/3，规范 2.4.10） |
+| `store` | `Request.Native` (`kind: "store"`) | 布尔留存标记，同面与 Responses 转换无损保真，跨面至 Anthropic 时 store:true 报 unsupported-semantic，store:false 零损（N-NAT-2/3，规范 2.4.10） |
+| `stream` | `Request.Native` (`kind: "stream"`) | 传输控制标记，同面精准还原，跨面转换 0 loss（N-NAT-2/3，规范 2.4.10） |
+| `stream_options` | `Request.Native` (`kind: "stream_options"`) | 流式选项，包含 include_usage 校验与未知子字段审计；跨面降级为 degraded 损失（N-NAT-2/3，规范 2.4.10） |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |

@@ -2,6 +2,7 @@ package messages
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -851,7 +852,7 @@ func TestNativeToolDeferLoading(t *testing.T) {
 		]
 	}`)
 	_, _, err = DecodeRequestJSON(rawNonBool)
-	if err == nil || !strings.Contains(err.Error(), "tool defer_loading must be a boolean") {
+	if err == nil || !strings.Contains(err.Error(), "tools[0].defer_loading must be a boolean") {
 		t.Fatalf("expected boolean type error, got %v", err)
 	}
 
@@ -933,5 +934,99 @@ func TestNativeToolDeferLoading(t *testing.T) {
 	}`)
 	if _, _, err := DecodeRequestJSON(rawNullCache); err == nil || !strings.Contains(err.Error(), "cannot specify both defer_loading and cache_control") {
 		t.Fatalf("expected conflict error with null cache_control, got %v", err)
+	}
+}
+
+func TestNativeToolEagerInputStreaming(t *testing.T) {
+	// 1. 32 tools carrying eager_input_streaming: true produce NO loss amplification
+	var toolsJSON []byte
+	toolsJSON = append(toolsJSON, `[`...)
+	for i := 0; i < 32; i++ {
+		if i > 0 {
+			toolsJSON = append(toolsJSON, `,`...)
+		}
+		toolsJSON = append(toolsJSON, fmt.Sprintf(`{"name":"tool_%d","description":"tool %d","input_schema":{"type":"object"},"eager_input_streaming":true}`, i, i)...)
+	}
+	toolsJSON = append(toolsJSON, `]`...)
+
+	raw32 := fmt.Sprintf(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": "hello"}],
+		"tools": %s
+	}`, string(toolsJSON))
+
+	req32, losses32, err := DecodeRequestJSON([]byte(raw32))
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON failed for 32 tools: %v", err)
+	}
+	if len(losses32) != 0 {
+		t.Fatalf("expected 0 losses for 32 tools with eager_input_streaming, got %d losses: %+v", len(losses32), losses32)
+	}
+	if len(req32.Tools) != 32 {
+		t.Fatalf("expected 32 tools, got %d", len(req32.Tools))
+	}
+	for i, tool := range req32.Tools {
+		if len(tool.Native) != 1 || tool.Native[0].Kind != ir.NativeKindEagerInputStreaming || tool.Native[0].Value != "true" {
+			t.Fatalf("tools[%d] missing expected eager_input_streaming annotation: %+v", i, tool.Native)
+		}
+	}
+
+	// 2. Non-boolean eager_input_streaming returns structural error
+	for _, badVal := range []string{`"yes"`, `1`, `null`, `{"nested":true}`} {
+		rawBad := fmt.Sprintf(`{
+			"model": "claude-opus-5-5",
+			"max_tokens": 1024,
+			"messages": [{"role": "user", "content": "hello"}],
+			"tools": [
+				{"name": "t0", "input_schema": {"type": "object"}},
+				{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": %s}
+			]
+		}`, badVal)
+		if _, _, err := DecodeRequestJSON([]byte(rawBad)); err == nil || !strings.Contains(err.Error(), "tools[1].eager_input_streaming must be a boolean") {
+			t.Fatalf("expected structural error with index 1 for eager_input_streaming: %s, got: %v", badVal, err)
+		}
+	}
+
+	// 3. Coexistence with cache_control and defer_loading (orthogonal)
+	rawCoexist := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": "hello"}],
+		"tools": [
+			{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": true, "cache_control": {"type": "ephemeral"}}
+		]
+	}`)
+	reqCoexist, lossesCoexist, err := DecodeRequestJSON(rawCoexist)
+	if err != nil || len(lossesCoexist) != 0 {
+		t.Fatalf("expected valid coexistence with cache_control, got err=%v, losses=%+v", err, lossesCoexist)
+	}
+	if len(reqCoexist.Tools[0].Native) != 2 {
+		t.Fatalf("expected 2 native annotations on tool, got %d", len(reqCoexist.Tools[0].Native))
+	}
+
+	// 4. Foreign OpenAI native options do not leak into Anthropic request
+	maxTok := int64(100)
+	reqForeign := &ir.Request{
+		Model:    "claude-opus-5-5",
+		Params:   ir.Params{MaxTokens: &maxTok},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Native: []ir.NativeAnnotation{
+			{Source: "openai", Kind: "thinking_mode", Value: `"disabled"`},
+			{Source: "openai", Kind: "context_management", Value: `{"edits":[{"type":"clear_tool_uses_20250919"}]}`},
+		},
+	}
+	encForeign, lossesForeign, err := EncodeRequest(reqForeign)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed for foreign native: %v", err)
+	}
+	if encForeign.Thinking != nil {
+		t.Fatalf("foreign openai thinking_mode leaked into Anthropic wire: %+v", encForeign.Thinking)
+	}
+	if encForeign.ContextManagement != nil {
+		t.Fatalf("foreign openai context_management leaked into Anthropic wire: %+v", encForeign.ContextManagement)
+	}
+	if len(lossesForeign) != 2 {
+		t.Fatalf("expected 2 losses for 2 unsupported foreign native annotations, got %d: %+v", len(lossesForeign), lossesForeign)
 	}
 }

@@ -1,7 +1,9 @@
 package chatcompletions
 
 import (
+	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -167,6 +169,47 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.ReasoningEffort = req.Params.ReasoningEffort
 	if req.Params.ResponseFormat != nil {
 		out.ResponseFormat = encodeResponseFormat(req.Params.ResponseFormat)
+	}
+	for _, ann := range req.Native {
+		if ann.Source == ir.NativeSourceOpenAI {
+			switch ann.Kind {
+			case ir.NativeKindMaxCompletionTokens:
+				if out.MaxTokens != nil {
+					out.MaxCompletionTokens = out.MaxTokens
+					out.MaxTokens = nil
+				}
+			case ir.NativeKindStore:
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed == "null" {
+					out.rawStore = json.RawMessage("null")
+				} else {
+					var b bool
+					if err := json.Unmarshal([]byte(ann.Value), &b); err == nil {
+						out.Store = &b
+					}
+				}
+			case ir.NativeKindStream:
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed == "null" {
+					out.rawStream = json.RawMessage("null")
+				} else {
+					var b bool
+					if err := json.Unmarshal([]byte(ann.Value), &b); err == nil {
+						out.Stream = &b
+					}
+				}
+			case ir.NativeKindStreamOptions:
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed == "null" {
+					out.rawStreamOptions = json.RawMessage("null")
+				} else {
+					var opts StreamOptionsWire
+					if err := json.Unmarshal([]byte(ann.Value), &opts); err == nil {
+						out.StreamOptions = &opts
+					}
+				}
+			}
+		}
 	}
 	omissionLosses, err := ir.OmittedNativeRequestLosses(req, "chatcompletions")
 	if err != nil {

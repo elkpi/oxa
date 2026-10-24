@@ -43,6 +43,17 @@ pub struct Request {
     pub top_p: Option<f64>,
     #[serde(rename = "max_tokens", skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<i64>,
+    #[serde(
+        rename = "max_completion_tokens",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_completion_tokens: Option<i64>,
+    #[serde(rename = "store", skip_serializing_if = "Option::is_none")]
+    pub store: Option<Value>,
+    #[serde(rename = "stream", skip_serializing_if = "Option::is_none")]
+    pub stream: Option<Value>,
+    #[serde(rename = "stream_options", skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<Value>,
     #[serde(rename = "stop", skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     #[serde(rename = "reasoning_effort", skip_serializing_if = "Option::is_none")]

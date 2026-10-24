@@ -217,3 +217,122 @@ fn test_cache_control_omission_loss_detail() {
     assert_eq!(losses_empty.len(), 1);
     assert_eq!(losses_empty[0].detail, CACHE_CONTROL_LOSS_DETAIL);
 }
+
+#[test]
+fn test_fingerprint_losses() {
+    use oxa_ir::{Loss, LossReason, fingerprint_losses};
+
+    let losses = vec![
+        Loss {
+            path: "tools[0]".into(),
+            field: "eager_input_streaming".into(),
+            reason: LossReason::Degraded,
+            detail: "sensitive detail 1".into(),
+        },
+        Loss {
+            path: "native[1]".into(),
+            field: "store".into(),
+            reason: LossReason::UnsupportedSemantic,
+            detail: "sensitive detail 2".into(),
+        },
+        Loss {
+            path: "stream_options".into(),
+            field: "extra".into(),
+            reason: LossReason::UnmappedField,
+            detail: "sensitive detail 3".into(),
+        },
+    ];
+
+    let all = fingerprint_losses(&losses, 0);
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].path, "tools[0]");
+    assert_eq!(all[0].field, "eager_input_streaming");
+    assert_eq!(all[0].reason, LossReason::Degraded);
+
+    let truncated = fingerprint_losses(&losses, 2);
+    assert_eq!(truncated.len(), 2);
+    assert_eq!(truncated[1].field, "store");
+}
+
+#[test]
+fn test_validate_native_request_new_kinds() {
+    use oxa_ir::{
+        NATIVE_KIND_EAGER_INPUT_STREAMING, NATIVE_KIND_MAX_COMPLETION_TOKENS, NATIVE_KIND_STORE,
+        NATIVE_KIND_STREAM, NATIVE_KIND_STREAM_OPTIONS, NATIVE_SOURCE_ANTHROPIC,
+        NATIVE_SOURCE_OPENAI, Tool, validate_native_request,
+    };
+
+    let req = Request {
+        model: "m".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "hi".into(),
+                native: vec![],
+            }],
+        }],
+        tools: Some(vec![Tool {
+            name: "t1".into(),
+            description: None,
+            input_schema: Some(serde_json::json!({"type": "object"})),
+            tool_type: None,
+            format: None,
+            source: None,
+            definition: None,
+            native: vec![NativeAnnotation {
+                source: NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: NATIVE_KIND_EAGER_INPUT_STREAMING.into(),
+                value: "true".into(),
+                omission: None,
+                projection: None,
+            }],
+        }]),
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![
+            NativeAnnotation {
+                source: NATIVE_SOURCE_OPENAI.into(),
+                kind: NATIVE_KIND_MAX_COMPLETION_TOKENS.into(),
+                value: "true".into(),
+                omission: None,
+                projection: None,
+            },
+            NativeAnnotation {
+                source: NATIVE_SOURCE_OPENAI.into(),
+                kind: NATIVE_KIND_STORE.into(),
+                value: "false".into(),
+                omission: None,
+                projection: None,
+            },
+            NativeAnnotation {
+                source: NATIVE_SOURCE_OPENAI.into(),
+                kind: NATIVE_KIND_STREAM.into(),
+                value: "true".into(),
+                omission: None,
+                projection: None,
+            },
+            NativeAnnotation {
+                source: NATIVE_SOURCE_OPENAI.into(),
+                kind: NATIVE_KIND_STREAM_OPTIONS.into(),
+                value: r#"{"include_usage":true}"#.into(),
+                omission: None,
+                projection: None,
+            },
+        ],
+    };
+    assert!(validate_native_request(&req).is_ok());
+
+    let mut invalid = req.clone();
+    invalid.tools.as_mut().unwrap()[0].native[0].value = r#""not_bool""#.into();
+    assert!(validate_native_request(&invalid).is_err());
+
+    let mut invalid_null = req.clone();
+    invalid_null.tools.as_mut().unwrap()[0].native[0].value = "null".into();
+    assert!(validate_native_request(&invalid_null).is_err());
+
+    let mut invalid_so = req.clone();
+    invalid_so.native[3].value = r#"{"include_usage":"yes"}"#.into();
+    assert!(validate_native_request(&invalid_so).is_err());
+}

@@ -267,12 +267,153 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     }
     req.system = system;
     req.messages = messages;
+    if wire.max_tokens.is_some() && wire.max_completion_tokens.is_some() {
+        return Err(Error::new(
+            "chatcompletions: cannot specify both max_tokens and max_completion_tokens",
+        ));
+    }
+    if let Some(mct) = wire.max_completion_tokens
+        && mct <= 0
+    {
+        return Err(Error::new(
+            "chatcompletions: max_completion_tokens must be a positive integer",
+        ));
+    }
+    let mut native = Vec::new();
+    let max_tokens = if let Some(mct) = wire.max_completion_tokens {
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_MAX_COMPLETION_TOKENS.into(),
+            value: "true".into(),
+            omission: None,
+            projection: None,
+        });
+        Some(mct)
+    } else {
+        wire.max_tokens
+    };
+    if let Some(ref store_val) = wire.store {
+        match store_val {
+            Value::Bool(b) => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STORE.into(),
+                    value: b.to_string(),
+                    omission: None,
+                    projection: None,
+                });
+            }
+            Value::Null => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STORE.into(),
+                    value: "null".into(),
+                    omission: None,
+                    projection: None,
+                });
+            }
+            _ => {
+                return Err(Error::new(
+                    "chatcompletions: store must be a boolean or null",
+                ));
+            }
+        }
+    }
+    if let Some(ref stream_val) = wire.stream {
+        match stream_val {
+            Value::Bool(b) => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STREAM.into(),
+                    value: b.to_string(),
+                    omission: None,
+                    projection: None,
+                });
+            }
+            Value::Null => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STREAM.into(),
+                    value: "null".into(),
+                    omission: None,
+                    projection: None,
+                });
+            }
+            _ => {
+                return Err(Error::new(
+                    "chatcompletions: stream must be a boolean or null",
+                ));
+            }
+        }
+    }
+    if let Some(ref so_val) = wire.stream_options {
+        match so_val {
+            Value::Object(map) => {
+                if let Some(u) = map.get("include_usage")
+                    && !u.is_boolean()
+                {
+                    return Err(Error::new(
+                        "chatcompletions: stream_options.include_usage must be a boolean",
+                    ));
+                }
+                if let Some(ob) = map.get("include_obfuscation")
+                    && !ob.is_boolean()
+                {
+                    return Err(Error::new(
+                        "chatcompletions: stream_options.include_obfuscation must be a boolean",
+                    ));
+                }
+                let mut clean_so = serde_json::Map::new();
+                let mut has_usage_true = false;
+                if let Some(Value::Bool(ob)) = map.get("include_obfuscation") {
+                    clean_so.insert("include_obfuscation".into(), Value::Bool(*ob));
+                }
+                if let Some(Value::Bool(u)) = map.get("include_usage") {
+                    clean_so.insert("include_usage".into(), Value::Bool(*u));
+                    if *u {
+                        has_usage_true = true;
+                    }
+                }
+                let val = serde_json::to_string(&clean_so).unwrap_or_default();
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STREAM_OPTIONS.into(),
+                    value: val,
+                    omission: if has_usage_true {
+                        Some(oxa_ir::NativeOmission {
+                            field: "stream_options".into(),
+                            reason: LossReason::Degraded,
+                            detail: Some(oxa_ir::STREAM_OPTIONS_LOSS_DETAIL.into()),
+                        })
+                    } else {
+                        None
+                    },
+                    projection: None,
+                });
+            }
+            Value::Null => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_STREAM_OPTIONS.into(),
+                    value: "null".into(),
+                    omission: None,
+                    projection: None,
+                });
+            }
+            _ => {
+                return Err(Error::new(
+                    "chatcompletions: stream_options must be an object or null",
+                ));
+            }
+        }
+    }
+    req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
-        max_tokens: wire.max_tokens,
+        max_tokens,
         stop_sequences: stop,
         reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
         response_format,

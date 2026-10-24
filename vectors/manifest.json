@@ -881,7 +881,7 @@
         "multiturn",
         "n-an-17"
       ],
-      "sha256": "86b526aebfedfbebef7960074259ec95451f0c5b5966143951831880b0be7b7e"
+      "sha256": "7bed02c16fb2209c16a2c9b8457ed11480fc05ab35389b3223407037088c2891"
     },
     {
       "name": "anthropic.nonstream.redacted-thinking-to-ir",
@@ -1203,7 +1203,7 @@
         "text",
         "n-s-11"
       ],
-      "sha256": "06f794401a5c683cb4f4e9e5b1960212e96f61382af93cd0054c500297fdb4b6"
+      "sha256": "9b83476bff79f5843ee68fa825184fe455300fdc66546b7e7b56722cf9ff0237"
     },
     {
       "name": "anthropic.stream.citations-delta-to-ir",
@@ -1306,7 +1306,7 @@
         "redacted_thinking",
         "n-s-11"
       ],
-      "sha256": "3c8b1bebb484374d442b3930510efc8b17be44070708e5fd11bd49cd25c476b2"
+      "sha256": "33759bc18916516c725842dc74954a9ca17b35cf13c86a57c8f58f3ceae96ab3"
     },
     {
       "name": "anthropic.stream.redacted-thinking-to-ir",
@@ -2330,7 +2330,7 @@
         "response",
         "n-an-18"
       ],
-      "sha256": "f7f713ac260f62b6501fe372b203547ac99e9d566c8d9602041ba355b4fbbb3a"
+      "sha256": "42a7c2e2e095dedba81e6580161c3d3621f12de60892c41a84c17d1d6a837875"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",

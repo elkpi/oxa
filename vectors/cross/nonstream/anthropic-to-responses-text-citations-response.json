@@ -42,6 +42,7 @@
     "output": [
       {
         "type": "message",
+        "id": "msg_abc123",
         "status": "completed",
         "role": "assistant",
         "content": [

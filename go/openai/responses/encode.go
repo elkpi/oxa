@@ -127,6 +127,14 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 		out.Text.Format = encodeTextFormat(req.Params.ResponseFormat)
 	}
+	for _, n := range req.Native {
+		if n.Source == ir.NativeSourceOpenAI && n.Kind == ir.NativeKindStore {
+			var b bool
+			if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
+				out.Store = &b
+			}
+		}
+	}
 	omissionLosses, err := ir.OmittedNativeRequestLosses(req, "responses")
 	if err != nil {
 		return nil, nil, err

@@ -1119,6 +1119,18 @@ export function encodeRequest(
     );
   const omissionLosses = omittedNativeRequestLosses(request, "responses");
   losses.push(...omissionLosses);
+  const storeAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "store",
+  );
+  let storeVal: boolean | null | undefined = undefined;
+  if (storeAnn) {
+    try {
+      const parsed = JSON.parse(storeAnn.value);
+      if (typeof parsed === "boolean" || parsed === null) {
+        storeVal = parsed;
+      }
+    } catch {}
+  }
   return {
     value: {
       model: mapModel(options.modelMapper, request.model),
@@ -1128,6 +1140,7 @@ export function encodeRequest(
         : {
             instructions: request.system.map((block) => block.text).join(""),
           }),
+      ...(storeVal !== undefined ? { store: storeVal } : {}),
       ...(params?.temperature === undefined
         ? {}
         : { temperature: fromValue(params.temperature) }),

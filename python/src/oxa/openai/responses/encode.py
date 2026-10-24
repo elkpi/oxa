@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from oxa.ir import (
@@ -336,6 +337,16 @@ def encode_request(
                     "Responses requests have no stop-sequences parameter; the IR stop sequences are dropped.",
                 )
             )
+
+    if req.native:
+        for n in req.native:
+            if n.source == "openai" and n.kind == "store":
+                try:
+                    val = json.loads(n.value)
+                    if isinstance(val, bool) or val is None:
+                        out["store"] = val
+                except Exception:
+                    pass
 
     losses.extend(omitted_native_request_losses(req, "responses"))
 

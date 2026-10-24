@@ -95,6 +95,8 @@ pub struct Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub max_output_tokens: Option<i64>,
+    #[serde(rename = "store", default, skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
     #[serde(rename = "tools", default, skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ToolDef>,
     #[serde(

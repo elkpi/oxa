@@ -43,6 +43,14 @@ pub struct Request {
     pub top_p: Option<f64>,
     #[serde(rename = "max_tokens", skip_serializing_if = "Option::is_none")]
     pub max_tokens: Option<i64>,
+    #[serde(rename = "max_completion_tokens", skip_serializing_if = "Option::is_none")]
+    pub max_completion_tokens: Option<i64>,
+    #[serde(rename = "store", skip_serializing_if = "Option::is_none")]
+    pub store: Option<bool>,
+    #[serde(rename = "stream", skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+    #[serde(rename = "stream_options", skip_serializing_if = "Option::is_none")]
+    pub stream_options: Option<StreamOptionsWire>,
     #[serde(rename = "stop", skip_serializing_if = "Option::is_none")]
     pub stop: Option<Vec<String>>,
     #[serde(rename = "reasoning_effort", skip_serializing_if = "Option::is_none")]
@@ -74,6 +82,15 @@ pub struct Request {
     pub top_logprobs: Option<Value>,
     #[serde(rename = "metadata", skip_serializing_if = "Option::is_none")]
     pub metadata: Option<Value>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StreamOptionsWire {
+    #[serde(rename = "include_usage", skip_serializing_if = "Option::is_none")]
+    pub include_usage: Option<bool>,
+    #[serde(rename = "include_obfuscation", skip_serializing_if = "Option::is_none")]
+    pub include_obfuscation: Option<bool>,
 }
 
 /// One element of a wire tools array. The supported tool variant is

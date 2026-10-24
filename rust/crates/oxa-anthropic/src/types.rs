@@ -153,6 +153,7 @@ pub struct ToolWire {
     pub input_schema: Option<Value>,
     pub cache_control: Option<Value>,
     pub defer_loading: Option<bool>,
+    pub eager_input_streaming: Option<bool>,
     pub raw_definition: Option<String>,
 }
 
@@ -215,6 +216,19 @@ impl<'de> Deserialize<'de> for ToolWire {
                 }
             }
         };
+        let eager_input_streaming = if is_native {
+            None
+        } else {
+            match map.get("eager_input_streaming") {
+                None => None,
+                Some(Value::Bool(b)) => Some(*b),
+                Some(_) => {
+                    return Err(serde::de::Error::custom(
+                        "anthropic: tool eager_input_streaming must be a boolean",
+                    ));
+                }
+            }
+        };
         Ok(ToolWire {
             tool_type,
             name,
@@ -222,6 +236,7 @@ impl<'de> Deserialize<'de> for ToolWire {
             input_schema,
             cache_control,
             defer_loading,
+            eager_input_streaming,
             raw_definition: is_native.then(|| raw_json.get().to_string()),
         })
     }
@@ -250,6 +265,8 @@ impl Serialize for ToolWire {
             cache_control: Option<&'a Value>,
             #[serde(skip_serializing_if = "Option::is_none")]
             defer_loading: Option<bool>,
+            #[serde(skip_serializing_if = "Option::is_none")]
+            eager_input_streaming: Option<bool>,
         }
         let s = Shadow {
             tool_type: self.tool_type.as_deref(),
@@ -258,6 +275,7 @@ impl Serialize for ToolWire {
             input_schema: self.input_schema.as_ref(),
             cache_control: self.cache_control.as_ref(),
             defer_loading: self.defer_loading,
+            eager_input_streaming: self.eager_input_streaming,
         };
         s.serialize(serializer)
     }

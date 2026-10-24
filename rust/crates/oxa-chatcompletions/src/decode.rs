@@ -267,12 +267,63 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     }
     req.system = system;
     req.messages = messages;
+    if wire.max_tokens.is_some() && wire.max_completion_tokens.is_some() {
+        return Err(Error::new(
+            "chatcompletions: cannot specify both max_tokens and max_completion_tokens",
+        ));
+    }
+    let mut native = Vec::new();
+    let max_tokens = if let Some(mct) = wire.max_completion_tokens {
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_MAX_COMPLETION_TOKENS.into(),
+            value: "true".into(),
+            omission: None,
+            projection: None,
+        });
+        Some(mct)
+    } else {
+        wire.max_tokens
+    };
+    if let Some(store) = wire.store {
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_STORE.into(),
+            value: store.to_string(),
+            omission: None,
+            projection: None,
+        });
+    }
+    if let Some(stream) = wire.stream {
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_STREAM.into(),
+            value: stream.to_string(),
+            omission: None,
+            projection: None,
+        });
+    }
+    if let Some(ref so) = wire.stream_options {
+        let val = serde_json::to_string(so).unwrap_or_default();
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_STREAM_OPTIONS.into(),
+            value: val,
+            omission: Some(oxa_ir::NativeOmission {
+                field: "stream_options".into(),
+                reason: LossReason::Degraded,
+                detail: Some(oxa_ir::STREAM_OPTIONS_LOSS_DETAIL.into()),
+            }),
+            projection: None,
+        });
+    }
+    req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
-        max_tokens: wire.max_tokens,
+        max_tokens,
         stop_sequences: stop,
         reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
         response_format,

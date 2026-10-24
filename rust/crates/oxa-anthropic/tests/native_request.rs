@@ -444,3 +444,49 @@ fn test_defer_loading_tool_native_option() {
     }"#;
     assert!(decode_request_json(raw_null_cache, &config).is_err());
 }
+
+#[test]
+fn test_eager_input_streaming_32_tools_and_validation() {
+    let config = Config::default();
+
+    // 1. 32 tools carrying eager_input_streaming: true produce 0 decode losses
+    let mut tools = Vec::new();
+    for i in 0..32 {
+        tools.push(serde_json::json!({
+            "name": format!("tool_{i}"),
+            "input_schema": {"type": "object"},
+            "eager_input_streaming": true
+        }));
+    }
+    let raw32 = serde_json::json!({
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": tools
+    })
+    .to_string();
+
+    let (req32, losses32) = decode_request_json(&raw32, &config).expect("decode");
+    assert_eq!(losses32.len(), 0);
+    assert_eq!(req32.tools.as_ref().unwrap().len(), 32);
+    assert_eq!(
+        req32.tools.as_ref().unwrap()[0].native[0].kind,
+        oxa_ir::NATIVE_KIND_EAGER_INPUT_STREAMING
+    );
+
+    // 2. Non-boolean fails
+    let raw_bad = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "hi"}],
+        "tools": [{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": "true"}]
+    }"#;
+    assert!(decode_request_json(raw_bad, &config).is_err());
+
+    // 3. Round-trip
+    let (encoded, _) = encode_request(&req32, &config).expect("encode");
+    assert_eq!(
+        encoded.tools.as_ref().unwrap()[0].eager_input_streaming,
+        Some(true)
+    );
+}

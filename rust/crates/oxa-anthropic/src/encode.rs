@@ -132,6 +132,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 }
                 let cache_control = crate::native::get_block_cache_control(&tool.native);
                 let defer_loading = crate::native::get_tool_defer_loading(&tool.native);
+                let eager_input_streaming = crate::native::get_tool_eager_input_streaming(&tool.native);
                 if cache_control.is_some() && defer_loading == Some(true) {
                     return Err(Error::new(format!(
                         "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"
@@ -148,6 +149,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     })),
                     cache_control,
                     defer_loading,
+                    eager_input_streaming,
                     raw_definition: None,
                 });
                 continue;
@@ -169,6 +171,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             require_json_object(&schema, &format!("tools[{index}].input_schema"))?;
             let cache_control = crate::native::get_block_cache_control(&tool.native);
             let defer_loading = crate::native::get_tool_defer_loading(&tool.native);
+            let eager_input_streaming = crate::native::get_tool_eager_input_streaming(&tool.native);
             if cache_control.is_some() && defer_loading == Some(true) {
                 return Err(Error::new(format!(
                     "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"
@@ -181,6 +184,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 input_schema: Some(schema_val.clone()),
                 cache_control,
                 defer_loading,
+                eager_input_streaming,
                 raw_definition: None,
             });
         }

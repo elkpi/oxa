@@ -537,6 +537,15 @@ pub fn get_tool_defer_loading(native: &[NativeAnnotation]) -> Option<bool> {
     None
 }
 
+pub fn get_tool_eager_input_streaming(native: &[NativeAnnotation]) -> Option<bool> {
+    for n in native {
+        if n.kind == oxa_ir::NATIVE_KIND_EAGER_INPUT_STREAMING {
+            return serde_json::from_str::<bool>(&n.value).ok();
+        }
+    }
+    None
+}
+
 pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
     let mut losses = Vec::new();
 
@@ -548,7 +557,39 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
     let mut native_effort_proj: Option<&NativeProjection> = None;
 
     for (i, n) in req.native.iter().enumerate() {
-        if n.source != NATIVE_SOURCE_ANTHROPIC {
+        if n.source == "openai" {
+            match n.kind.as_str() {
+                oxa_ir::NATIVE_KIND_MAX_COMPLETION_TOKENS | oxa_ir::NATIVE_KIND_STREAM => continue,
+                oxa_ir::NATIVE_KIND_STORE => {
+                    let is_true = serde_json::from_str::<bool>(&n.value).unwrap_or(false);
+                    if is_true {
+                        let field = n.omission.as_ref().map(|o| o.field.clone()).unwrap_or_else(|| "store".into());
+                        let reason = n.omission.as_ref().map(|o| o.reason).unwrap_or(LossReason::UnsupportedSemantic);
+                        let detail = n.omission.as_ref().and_then(|o| o.detail.clone()).unwrap_or_else(|| "target does not support output retention".into());
+                        losses.push(Loss { path: format!("native[{i}]"), field, reason, detail });
+                    }
+                    continue;
+                }
+                oxa_ir::NATIVE_KIND_STREAM_OPTIONS => {
+                    let field = n.omission.as_ref().map(|o| o.field.clone()).unwrap_or_else(|| "stream_options".into());
+                    let reason = n.omission.as_ref().map(|o| o.reason).unwrap_or(LossReason::Degraded);
+                    let detail = n.omission.as_ref().and_then(|o| o.detail.clone()).unwrap_or_else(|| oxa_ir::STREAM_OPTIONS_LOSS_DETAIL.into());
+                    losses.push(Loss { path: format!("native[{i}]"), field, reason, detail });
+                    continue;
+                }
+                _ => {
+                    if let Some(ref om) = n.omission {
+                        losses.push(Loss {
+                            path: format!("native[{i}]"),
+                            field: om.field.clone(),
+                            reason: om.reason,
+                            detail: om.detail.clone().unwrap_or_default(),
+                        });
+                        continue;
+                    }
+                }
+            }
+        } else if n.source != NATIVE_SOURCE_ANTHROPIC {
             losses.push(Loss {
                 path: format!("native[{i}]"),
                 field: "source".into(),

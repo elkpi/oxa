@@ -1,0 +1,52 @@
+{
+  "name": "anthropic.nonstream.native-thinking-between-tools-request-to-ir",
+  "description": "Anthropic between_tools thinking mode is preserved as native IR option without decode loss (N-AN-19).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet-5-5",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Execute tool workflow."
+      }
+    ],
+    "thinking": {
+      "type": "between_tools"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-5-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Execute tool workflow."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 4096
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"between_tools\"",
+        "omission": {
+          "field": "type",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "thinking", "native", "between_tools", "n-an-19"]
+}

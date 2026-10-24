@@ -1,0 +1,71 @@
+{
+  "name": "cross.nonstream.anthropic-to-responses-text-citations-response",
+  "description": "Cross-protocol: Anthropic response text with citations converts to Responses dropping citations with unsupported-semantic loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "id": "msg_cite_cross_re",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-6",
+    "content": [
+      {
+        "type": "text",
+        "text": "Answer citing sources.",
+        "citations": [
+          {
+            "type": "char_location",
+            "cited_text": "sample source",
+            "document_index": 0,
+            "document_title": "Doc",
+            "start_char_index": 0,
+            "end_char_index": 13,
+            "file_id": null
+          }
+        ]
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 20
+    }
+  },
+  "expected_output": {
+    "id": "msg_cite_cross_re",
+    "object": "response",
+    "status": "completed",
+    "model": "claude-sonnet-4-6",
+    "output": [
+      {
+        "type": "message",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "Answer citing sources.",
+            "annotations": []
+          }
+        ]
+      }
+    ],
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 20,
+      "total_tokens": 30
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0].citations",
+      "field": "citations",
+      "reason": "unsupported-semantic",
+      "detail": "anthropic text citations; the target face cannot preserve source locations and replay metadata"
+    }
+  ],
+  "tags": ["cross", "citations", "text", "response", "n-an-18"]
+}

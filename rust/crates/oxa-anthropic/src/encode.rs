@@ -132,7 +132,8 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 }
                 let cache_control = crate::native::get_block_cache_control(&tool.native);
                 let defer_loading = crate::native::get_tool_defer_loading(&tool.native);
-                let eager_input_streaming = crate::native::get_tool_eager_input_streaming(&tool.native);
+                let eager_input_streaming =
+                    crate::native::get_tool_eager_input_streaming(&tool.native);
                 if cache_control.is_some() && defer_loading == Some(true) {
                     return Err(Error::new(format!(
                         "anthropic: tools[{index}]: cannot specify both defer_loading and cache_control"

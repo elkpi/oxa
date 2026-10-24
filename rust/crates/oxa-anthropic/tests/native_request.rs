@@ -489,4 +489,44 @@ fn test_eager_input_streaming_32_tools_and_validation() {
         encoded.tools.as_ref().unwrap()[0].eager_input_streaming,
         Some(true)
     );
+
+    // 4. Foreign OpenAI native options do not leak into Anthropic
+    let req_foreign = oxa_ir::Request {
+        model: "claude-opus-5-5".into(),
+        system: vec![],
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![oxa_ir::Block::Text {
+                text: "hi".into(),
+                native: vec![],
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: Some(oxa_ir::Params {
+            max_tokens: Some(100),
+            ..oxa_ir::Params::default()
+        }),
+        metadata: None,
+        native: vec![
+            oxa_ir::NativeAnnotation {
+                source: "openai".into(),
+                kind: "thinking_mode".into(),
+                value: "\"disabled\"".into(),
+                omission: None,
+                projection: None,
+            },
+            oxa_ir::NativeAnnotation {
+                source: "openai".into(),
+                kind: "context_management".into(),
+                value: "{\"edits\":[{\"type\":\"clear_tool_uses_20250919\"}]}".into(),
+                omission: None,
+                projection: None,
+            },
+        ],
+    };
+    let (enc_foreign, losses_foreign) = encode_request(&req_foreign, &config).expect("encode");
+    assert!(enc_foreign.thinking.is_none());
+    assert!(enc_foreign.context_management.is_none());
+    assert_eq!(losses_foreign.len(), 2);
 }

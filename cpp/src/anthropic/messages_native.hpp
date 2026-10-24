@@ -517,10 +517,16 @@ inline void encode_request_native(
                 continue;
             }
             if (n.kind == ir::NATIVE_KIND_STREAM_OPTIONS) {
-                std::string field = n.omission.has_value() && !n.omission->field.empty() ? n.omission->field : "stream_options";
-                std::string reason = n.omission.has_value() && !n.omission->reason.empty() ? n.omission->reason : std::string(ir::LOSS_DEGRADED);
-                std::string detail = n.omission.has_value() && n.omission->detail.has_value() ? *n.omission->detail : std::string(ir::STREAM_OPTIONS_LOSS_DETAIL);
-                losses.push_back(ir::Loss{"native[" + std::to_string(i) + "]", std::move(field), std::move(reason), std::move(detail)});
+                auto parsed = json::parse(n.value);
+                if (parsed.ok() && parsed->is_object()) {
+                    const auto* iu = parsed->find("include_usage");
+                    if (iu && iu->is_bool() && iu->as_bool()) {
+                        std::string field = n.omission.has_value() && !n.omission->field.empty() ? n.omission->field : "stream_options";
+                        std::string reason = n.omission.has_value() && !n.omission->reason.empty() ? n.omission->reason : std::string(ir::LOSS_DEGRADED);
+                        std::string detail = n.omission.has_value() && n.omission->detail.has_value() ? *n.omission->detail : std::string(ir::STREAM_OPTIONS_LOSS_DETAIL);
+                        losses.push_back(ir::Loss{"native[" + std::to_string(i) + "]", std::move(field), std::move(reason), std::move(detail)});
+                    }
+                }
                 continue;
             }
             if (n.omission.has_value()) {
@@ -530,8 +536,15 @@ inline void encode_request_native(
                     n.omission->reason,
                     n.omission->detail.value_or(""),
                 });
-                continue;
+            } else {
+                losses.push_back(ir::Loss{
+                    "native[" + std::to_string(i) + "]",
+                    "kind",
+                    std::string(ir::LOSS_UNSUPPORTED_SEMANTIC),
+                    "unsupported native option kind \"" + n.kind + "\"",
+                });
             }
+            continue;
         } else if (n.source != ir::NATIVE_SOURCE_ANTHROPIC) {
             losses.push_back(ir::Loss{
                 "native[" + std::to_string(i) + "]",

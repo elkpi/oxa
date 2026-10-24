@@ -199,7 +199,10 @@ function decodeRequestObject(
         native.push(...cc);
       }
     }
-    if ("eager_input_streaming" in tool && tool.eager_input_streaming !== undefined) {
+    if (
+      "eager_input_streaming" in tool &&
+      tool.eager_input_streaming !== undefined
+    ) {
       if (typeof tool.eager_input_streaming !== "boolean") {
         fail(`tools[${index}].eager_input_streaming must be a boolean`);
       }

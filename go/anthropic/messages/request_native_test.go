@@ -852,7 +852,7 @@ func TestNativeToolDeferLoading(t *testing.T) {
 		]
 	}`)
 	_, _, err = DecodeRequestJSON(rawNonBool)
-	if err == nil || !strings.Contains(err.Error(), "tool defer_loading must be a boolean") {
+	if err == nil || !strings.Contains(err.Error(), "tools[0].defer_loading must be a boolean") {
 		t.Fatalf("expected boolean type error, got %v", err)
 	}
 
@@ -978,10 +978,13 @@ func TestNativeToolEagerInputStreaming(t *testing.T) {
 			"model": "claude-opus-5-5",
 			"max_tokens": 1024,
 			"messages": [{"role": "user", "content": "hello"}],
-			"tools": [{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": %s}]
+			"tools": [
+				{"name": "t0", "input_schema": {"type": "object"}},
+				{"name": "t1", "input_schema": {"type": "object"}, "eager_input_streaming": %s}
+			]
 		}`, badVal)
-		if _, _, err := DecodeRequestJSON([]byte(rawBad)); err == nil || !strings.Contains(err.Error(), "eager_input_streaming must be a boolean") {
-			t.Fatalf("expected structural error for eager_input_streaming: %s, got: %v", badVal, err)
+		if _, _, err := DecodeRequestJSON([]byte(rawBad)); err == nil || !strings.Contains(err.Error(), "tools[1].eager_input_streaming must be a boolean") {
+			t.Fatalf("expected structural error with index 1 for eager_input_streaming: %s, got: %v", badVal, err)
 		}
 	}
 
@@ -1000,5 +1003,30 @@ func TestNativeToolEagerInputStreaming(t *testing.T) {
 	}
 	if len(reqCoexist.Tools[0].Native) != 2 {
 		t.Fatalf("expected 2 native annotations on tool, got %d", len(reqCoexist.Tools[0].Native))
+	}
+
+	// 4. Foreign OpenAI native options do not leak into Anthropic request
+	maxTok := int64(100)
+	reqForeign := &ir.Request{
+		Model:    "claude-opus-5-5",
+		Params:   ir.Params{MaxTokens: &maxTok},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Native: []ir.NativeAnnotation{
+			{Source: "openai", Kind: "thinking_mode", Value: `"disabled"`},
+			{Source: "openai", Kind: "context_management", Value: `{"edits":[{"type":"clear_tool_uses_20250919"}]}`},
+		},
+	}
+	encForeign, lossesForeign, err := EncodeRequest(reqForeign)
+	if err != nil {
+		t.Fatalf("EncodeRequest failed for foreign native: %v", err)
+	}
+	if encForeign.Thinking != nil {
+		t.Fatalf("foreign openai thinking_mode leaked into Anthropic wire: %+v", encForeign.Thinking)
+	}
+	if encForeign.ContextManagement != nil {
+		t.Fatalf("foreign openai context_management leaked into Anthropic wire: %+v", encForeign.ContextManagement)
+	}
+	if len(lossesForeign) != 2 {
+		t.Fatalf("expected 2 losses for 2 unsupported foreign native annotations, got %d: %+v", len(lossesForeign), lossesForeign)
 	}
 }

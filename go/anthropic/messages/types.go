@@ -8,6 +8,7 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -107,6 +108,8 @@ type ToolWire struct {
 	DeferLoading        *bool           `json:"defer_loading,omitempty"`
 	EagerInputStreaming *bool           `json:"eager_input_streaming,omitempty"`
 	Raw                 json.RawMessage `json:"-"`
+	rawDeferLoading     json.RawMessage `json:"-"`
+	rawEager            json.RawMessage `json:"-"`
 }
 
 func (t *ToolWire) UnmarshalJSON(data []byte) error {
@@ -148,24 +151,26 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 	} else {
 		t.Raw = nil
 		if len(s.DeferLoading) > 0 {
-			if string(s.DeferLoading) == "null" {
-				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
+			t.rawDeferLoading = s.DeferLoading
+			trimmed := strings.TrimSpace(string(s.DeferLoading))
+			if trimmed == "true" {
+				b := true
+				t.DeferLoading = &b
+			} else if trimmed == "false" {
+				b := false
+				t.DeferLoading = &b
 			}
-			var b bool
-			if err := json.Unmarshal(s.DeferLoading, &b); err != nil {
-				return fmt.Errorf("anthropic: tool defer_loading must be a boolean")
-			}
-			t.DeferLoading = &b
 		}
 		if len(s.EagerInputStreaming) > 0 {
-			if string(s.EagerInputStreaming) == "null" {
-				return fmt.Errorf("anthropic: tool eager_input_streaming must be a boolean")
+			t.rawEager = s.EagerInputStreaming
+			trimmed := strings.TrimSpace(string(s.EagerInputStreaming))
+			if trimmed == "true" {
+				b := true
+				t.EagerInputStreaming = &b
+			} else if trimmed == "false" {
+				b := false
+				t.EagerInputStreaming = &b
 			}
-			var b bool
-			if err := json.Unmarshal(s.EagerInputStreaming, &b); err != nil {
-				return fmt.Errorf("anthropic: tool eager_input_streaming must be a boolean")
-			}
-			t.EagerInputStreaming = &b
 		}
 	}
 	return nil

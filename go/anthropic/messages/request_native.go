@@ -439,7 +439,7 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 		if n.Source == ir.NativeSourceOpenAI {
 			switch n.Kind {
 			case ir.NativeKindMaxCompletionTokens, ir.NativeKindStream:
-				continue
+				// no loss
 			case ir.NativeKindStore:
 				var b bool
 				if err := json.Unmarshal([]byte(n.Value), &b); err == nil && b {
@@ -464,29 +464,32 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 						Detail: detail,
 					})
 				}
-				continue
 			case ir.NativeKindStreamOptions:
-				field := "stream_options"
-				reason := ir.LossDegraded
-				detail := ir.StreamOptionsLossDetail
-				if n.Omission != nil {
-					if n.Omission.Field != "" {
-						field = n.Omission.Field
-					}
-					if n.Omission.Reason != "" {
-						reason = n.Omission.Reason
-					}
-					if n.Omission.Detail != "" {
-						detail = n.Omission.Detail
-					}
+				var so struct {
+					IncludeUsage *bool `json:"include_usage"`
 				}
-				losses = append(losses, ir.Loss{
-					Path:   fmt.Sprintf("native[%d]", i),
-					Field:  field,
-					Reason: reason,
-					Detail: detail,
-				})
-				continue
+				if err := json.Unmarshal([]byte(n.Value), &so); err == nil && so.IncludeUsage != nil && *so.IncludeUsage {
+					field := "stream_options"
+					reason := ir.LossDegraded
+					detail := ir.StreamOptionsLossDetail
+					if n.Omission != nil {
+						if n.Omission.Field != "" {
+							field = n.Omission.Field
+						}
+						if n.Omission.Reason != "" {
+							reason = n.Omission.Reason
+						}
+						if n.Omission.Detail != "" {
+							detail = n.Omission.Detail
+						}
+					}
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("native[%d]", i),
+						Field:  field,
+						Reason: reason,
+						Detail: detail,
+					})
+				}
 			default:
 				if n.Omission != nil {
 					losses = append(losses, ir.Loss{
@@ -495,10 +498,18 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 						Reason: n.Omission.Reason,
 						Detail: n.Omission.Detail,
 					})
-					continue
+				} else {
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("native[%d]", i),
+						Field:  "kind",
+						Reason: ir.LossUnsupportedSemantic,
+						Detail: fmt.Sprintf("unsupported native option kind %q", n.Kind),
+					})
 				}
 			}
-		} else if n.Source != ir.NativeSourceAnthropic {
+			continue
+		}
+		if n.Source != ir.NativeSourceAnthropic {
 			losses = append(losses, ir.Loss{
 				Path:   fmt.Sprintf("native[%d]", i),
 				Field:  "source",

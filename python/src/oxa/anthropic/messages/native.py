@@ -410,14 +410,21 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                     pass
                 continue
             if n.kind == "stream_options":
-                field = n.omission.field if n.omission and n.omission.field else "stream_options"
-                reason = n.omission.reason if n.omission and n.omission.reason else LOSS_DEGRADED
-                detail = n.omission.detail if n.omission and n.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
-                losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
+                try:
+                    so = json.loads(n.value)
+                    if isinstance(so, dict) and so.get("include_usage") is True:
+                        field = n.omission.field if n.omission and n.omission.field else "stream_options"
+                        reason = n.omission.reason if n.omission and n.omission.reason else LOSS_DEGRADED
+                        detail = n.omission.detail if n.omission and n.omission.detail else STREAM_OPTIONS_LOSS_DETAIL
+                        losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
+                except Exception:
+                    pass
                 continue
             if n.omission:
                 losses.append(Loss(path=f"native[{i}]", field=n.omission.field, reason=n.omission.reason, detail=n.omission.detail or ""))
-                continue
+            else:
+                losses.append(Loss(path=f"native[{i}]", field="kind", reason=LOSS_UNSUPPORTED_SEMANTIC, detail=f'unsupported native option kind "{n.kind}"'))
+            continue
         elif n.source != NATIVE_SOURCE_ANTHROPIC:
             losses.append(
                 Loss(

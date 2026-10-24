@@ -667,7 +667,7 @@ export function encodeRequestNative(
       switch (n.kind) {
         case NATIVE_KIND_MAX_COMPLETION_TOKENS:
         case NATIVE_KIND_STREAM:
-          continue;
+          break;
         case NATIVE_KIND_STORE: {
           let isTrue = false;
           try {
@@ -683,16 +683,25 @@ export function encodeRequestNative(
                 "target does not support output retention",
             });
           }
-          continue;
+          break;
         }
         case NATIVE_KIND_STREAM_OPTIONS: {
-          losses.push({
-            path: `native[${i}]`,
-            field: n.omission?.field || "stream_options",
-            reason: n.omission?.reason || "degraded",
-            detail: n.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL,
-          });
-          continue;
+          try {
+            const parsed = JSON.parse(n.value);
+            if (
+              parsed &&
+              typeof parsed === "object" &&
+              parsed.include_usage === true
+            ) {
+              losses.push({
+                path: `native[${i}]`,
+                field: n.omission?.field || "stream_options",
+                reason: n.omission?.reason || "degraded",
+                detail: n.omission?.detail || STREAM_OPTIONS_LOSS_DETAIL,
+              });
+            }
+          } catch {}
+          break;
         }
         default:
           if (n.omission) {
@@ -702,10 +711,18 @@ export function encodeRequestNative(
               reason: n.omission.reason,
               ...(n.omission.detail ? { detail: n.omission.detail } : {}),
             });
-            continue;
+          } else {
+            losses.push({
+              path: `native[${i}]`,
+              field: "kind",
+              reason: "unsupported-semantic",
+              detail: `unsupported native option kind "${n.kind}"`,
+            });
           }
       }
-    } else if (n.source !== NATIVE_SOURCE_ANTHROPIC) {
+      continue;
+    }
+    if (n.source !== NATIVE_SOURCE_ANTHROPIC) {
       losses.push({
         path: `native[${i}]`,
         field: "source",

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -64,6 +65,18 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		}
 		if err := requireJSONObject(tool.InputSchema, fmt.Sprintf("tools[%d].input_schema", i)); err != nil {
 			return nil, nil, err
+		}
+		if len(tool.rawDeferLoading) > 0 {
+			trimmed := strings.TrimSpace(string(tool.rawDeferLoading))
+			if trimmed != "true" && trimmed != "false" {
+				return nil, nil, fmt.Errorf("anthropic: tools[%d].defer_loading must be a boolean", i)
+			}
+		}
+		if len(tool.rawEager) > 0 {
+			trimmed := strings.TrimSpace(string(tool.rawEager))
+			if trimmed != "true" && trimmed != "false" {
+				return nil, nil, fmt.Errorf("anthropic: tools[%d].eager_input_streaming must be a boolean", i)
+			}
 		}
 		var nat []ir.NativeAnnotation
 		if tool.DeferLoading != nil && *tool.DeferLoading {

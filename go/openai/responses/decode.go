@@ -76,11 +76,15 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	seenNames := make(map[string]bool)
 	for i, tool := range wire.Tools {
-		raw, err := json.Marshal(tool)
-		if err != nil {
-			return nil, nil, err
+		raw := []byte(tool.RawDefinition)
+		if len(raw) == 0 {
+			var err error
+			raw, err = json.Marshal(tool)
+			if err != nil {
+				return nil, nil, err
+			}
 		}
-		decodedTools, toolLosses, err := decodeToolItem(raw, "", "", fmt.Sprintf("tools[%d]", i), seenNames)
+		decodedTools, toolLosses, err := decodeToolItem(raw, nil, fmt.Sprintf("tools[%d]", i), seenNames)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -181,7 +185,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			for idx, rawTool := range item.Tools {
 				toolPath := fmt.Sprintf("input[%d].tools[%d]", i, idx)
-				decodedTools, toolLosses, err := decodeToolItem(rawTool, "", "", toolPath, seenNames)
+				decodedTools, toolLosses, err := decodeToolItem(rawTool, nil, toolPath, seenNames)
 				if err != nil {
 					return nil, nil, err
 				}

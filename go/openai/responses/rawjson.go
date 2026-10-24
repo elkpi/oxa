@@ -29,6 +29,7 @@ type rawJSONSchema struct {
 	fields  map[string]*rawJSONSchema
 	items   *rawJSONSchema
 	variant func(*rawJSONNode) *rawJSONSchema
+	opaque  bool
 }
 
 type rawJSONLoss struct {
@@ -347,9 +348,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			if kind == ToolTypeFunction {
 				return rawObjectSchema(t, []string{"type", "name", "description", "parameters", "defer_loading"}, nil, seen)
 			}
-			if kind != "" {
-				// Native tool declaration: all fields preserved opaquely per spec/16
-				return nil
+			if isResponsesNativeTool(kind, node) {
+				return &rawJSONSchema{opaque: true}
 			}
 			return nil
 		}
@@ -565,7 +565,7 @@ func inspectRawJSON(node *rawJSONNode, schema *rawJSONSchema, path string) ([]ra
 				locations.values[fieldPath] = field.value.start
 			}
 			shape = shape.variant(current)
-			if shape == nil {
+			if shape == nil || shape.opaque {
 				return
 			}
 		}
@@ -687,9 +687,40 @@ func rawJSONStringField(node *rawJSONNode, name string) (string, bool) {
 	return "", false
 }
 
+func isResponsesNativeTool(kind string, node *rawJSONNode) bool {
+	if kind == "" || kind == ToolTypeFunction || kind == ToolTypeCustom || kind == ToolTypeApplyPatch || kind == ToolTypeNamespace || kind == ToolTypeToolbox {
+		return false
+	}
+	if node != nil {
+		for _, f := range node.fields {
+			if f.name == "name" && f.value != nil && f.value.kind == '"' && len(f.value.text) > 0 {
+				return true
+			}
+			if f.name == "server_label" && f.value != nil && f.value.kind == '"' && len(f.value.text) > 0 {
+				return true
+			}
+		}
+	}
+	return isKnownOpenAINativeType(kind)
+}
+
+func isKnownOpenAINativeType(kind string) bool {
+	switch kind {
+	case "web_search", "file_search", "code_interpreter", "computer", "computer_use_preview", "mcp", "tool_search", "image_generation", "local_shell", "shell", "programmatic_tool_calling":
+		return true
+	}
+	if strings.HasPrefix(kind, "web_search_") || strings.HasPrefix(kind, "file_search_") || strings.HasPrefix(kind, "computer_") {
+		return true
+	}
+	return false
+}
+
 func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byte {
 	if node == nil || schema == nil {
 		return raw
+	}
+	if schema.opaque {
+		return raw[node.start:node.end]
 	}
 	if schema.variant != nil {
 		v := schema.variant(node)
@@ -708,6 +739,9 @@ func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byt
 			}
 			buf = append(buf, '}')
 			return buf
+		}
+		if v.opaque {
+			return raw[node.start:node.end]
 		}
 		schema = v
 	}

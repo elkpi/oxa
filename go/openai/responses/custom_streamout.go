@@ -26,13 +26,19 @@ func (e *StreamEncoder) startCustomCallBlock(index int, block ir.CustomToolUseBl
 			return nil, nil, fmt.Errorf("responses: custom block before prior call completed")
 		}
 	}
-	item := &streamOutputItem{kind: streamCustomCallOutputItem, id: fmt.Sprintf("ctc_%d", e.nextCustomItem), outputIndex: e.nextOutputIndex, callID: block.ID, name: block.Name}
+	rawName := block.Name
+	namespace := ""
+	if dotIdx := strings.Index(block.Name, "."); dotIdx > 0 {
+		namespace = block.Name[:dotIdx]
+		rawName = block.Name[dotIdx+1:]
+	}
+	item := &streamOutputItem{kind: streamCustomCallOutputItem, id: fmt.Sprintf("ctc_%d", e.nextCustomItem), outputIndex: e.nextOutputIndex, callID: block.ID, name: rawName, namespace: namespace}
 	e.nextCustomItem++
 	e.nextOutputIndex++
 	e.activeItem = item
 	e.activeBlock = &streamEncodeBlock{index: index, kind: streamCustomCallOutputItem, toolInput: input}
 	empty := ""
-	out = append(out, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{Type: ItemTypeCustomToolCall, ID: item.id, CallID: block.ID, Name: block.Name, Input: &empty}})
+	out = append(out, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{Type: ItemTypeCustomToolCall, ID: item.id, CallID: block.ID, Name: rawName, Namespace: namespace, Input: &empty}})
 	return out, nil, nil
 }
 
@@ -50,7 +56,7 @@ func (e *StreamEncoder) stopCustomCallBlock() ([]*StreamEvent, []ir.Loss, error)
 	if input != block.toolInput {
 		return nil, nil, fmt.Errorf("responses: custom input does not equal concatenated fragments")
 	}
-	completed := OutputItem{Type: ItemTypeCustomToolCall, ID: item.id, CallID: item.callID, Name: item.name, Input: &input}
+	completed := OutputItem{Type: ItemTypeCustomToolCall, ID: item.id, CallID: item.callID, Name: item.name, Namespace: item.namespace, Input: &input}
 	out = append(out, &StreamEvent{Type: EventTypeResponseCustomToolInputDone, ItemID: item.id, OutputIndex: item.outputIndex, Input: &input}, &StreamEvent{Type: EventTypeResponseOutputItemDone, OutputIndex: item.outputIndex, Item: &completed})
 	e.completed = append(e.completed, completed)
 	e.activeBlock = nil

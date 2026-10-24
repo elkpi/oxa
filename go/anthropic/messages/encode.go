@@ -55,6 +55,25 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 
 	for i, tool := range req.Tools {
+		for tAnnIdx, ann := range tool.Native {
+			if ann.Source != ir.NativeSourceAnthropic && ann.Kind != ir.NativeKindDeferLoading {
+				if ann.Omission != nil {
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("tools[%d].native[%d]", i, tAnnIdx),
+						Field:  ann.Omission.Field,
+						Reason: ann.Omission.Reason,
+						Detail: ann.Omission.Detail,
+					})
+				} else {
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("tools[%d].native[%d]", i, tAnnIdx),
+						Field:  "source",
+						Reason: ir.LossUnsupportedSemantic,
+						Detail: fmt.Sprintf("unsupported native option source %q", ann.Source),
+					})
+				}
+			}
+		}
 		if tool.Type == ir.ToolTypeNative {
 			if tool.Source != "anthropic" {
 				losses = append(losses, ir.NativeToolLoss(tool, fmt.Sprintf("tools[%d]", i)))

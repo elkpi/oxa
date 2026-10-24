@@ -206,6 +206,18 @@ func (td ToolDef) MarshalJSON() ([]byte, error) {
 	return json.Marshal((Alias)(td))
 }
 
+func (td *ToolDef) UnmarshalJSON(data []byte) error {
+	td.RawDefinition = string(data)
+	type Alias ToolDef
+	var a Alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*td = ToolDef(a)
+	td.RawDefinition = string(data)
+	return nil
+}
+
 type ApplyPatchOperationWire struct {
 	Type string `json:"type"`
 	Path any    `json:"path,omitempty"`

@@ -31,6 +31,7 @@ type streamOutputItem struct {
 	nextContentIndex int
 	callID           string
 	name             string
+	namespace        string
 }
 
 type streamEncodeBlock struct {
@@ -441,7 +442,7 @@ func (e *StreamEncoder) stopFunctionCallBlock() ([]*StreamEvent, []ir.Loss, erro
 	}
 	completed := OutputItem{
 		ID: e.activeItem.id, Type: ItemTypeFunctionCall, Status: StatusCompleted,
-		CallID: e.activeItem.callID, Name: e.activeItem.name, Arguments: arguments,
+		CallID: e.activeItem.callID, Name: e.activeItem.name, Namespace: e.activeItem.namespace, Arguments: arguments,
 	}
 	out = append(out,
 		&StreamEvent{
@@ -475,12 +476,18 @@ func (e *StreamEncoder) openMessageItem() (*streamOutputItem, *StreamEvent) {
 func (e *StreamEncoder) openFunctionCallItem(callID, name string) (*streamOutputItem, *StreamEvent) {
 	id := streamGeneratedItemID("fc", e.nextFunctionItem)
 	e.nextFunctionItem++
+	rawName := name
+	namespace := ""
+	if dotIdx := strings.Index(name, "."); dotIdx > 0 {
+		namespace = name[:dotIdx]
+		rawName = name[dotIdx+1:]
+	}
 	item := &streamOutputItem{
-		kind: streamFunctionCallOutputItem, id: id, outputIndex: e.nextOutputIndex, callID: callID, name: name,
+		kind: streamFunctionCallOutputItem, id: id, outputIndex: e.nextOutputIndex, callID: callID, name: rawName, namespace: namespace,
 	}
 	e.nextOutputIndex++
 	return item, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: item.outputIndex, Item: &OutputItem{
-		ID: item.id, Type: ItemTypeFunctionCall, Status: StatusInProgress, CallID: callID, Name: name, Arguments: "",
+		ID: item.id, Type: ItemTypeFunctionCall, Status: StatusInProgress, CallID: callID, Name: rawName, Namespace: namespace, Arguments: "",
 	}}
 }
 

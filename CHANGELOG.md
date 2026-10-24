@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.10] - 2026-10-24
+
+### Added
+
+- Anthropic Messages: 支持每工具 `eager_input_streaming` 原生三态保真（spec/12、spec/15 §3.6）：
+  - 显式 `true` 记录为 `NativeAnnotation`（`source: "anthropic"`, `kind: "eager_input_streaming"`），跨面至 Chat Completions / Responses 时产生 `degraded` 损失（detail: `"target does not preserve eager tool input streaming semantics"`）。
+  - 显式 `false` 记录为 `NativeAnnotation`，跨面至默认缓冲流式的目标面时享受双重保障零损（0 loss）放行。
+  - wire 缺省时不生成注解，同面编码时严格按原样省略。
+  - 非布尔类型输入校验为不可恢复结构类型错误；32 个工具声明携带该参数时彻底杜绝 loss 放大告警（0 解码损失）。
+- OpenAI Chat Completions: 标准请求控制（`store`、`stream`、`stream_options`、`max_completion_tokens`）保真与解构（spec/10、spec/15 §3.7）：
+  - `max_completion_tokens` 直接映射为通用 IR `Params.MaxTokens` 并通过原生注解保留拼写形态，同面回转精准恢复；与 `max_tokens` 同时出现时作为结构错误拒绝。
+  - `store`（模型蒸馏数据留存）解码为原生注解，OpenAI 家族内无损保留；跨异构平台时 `store: true` 严格报 `unsupported-semantic` 损失，`store: false` 零损放行。
+  - `stream` 传输标记解码为原生注解，非流式解码器安全接纳，跨面 0 loss，同面精确还原。
+  - `stream_options`（`include_usage`、`include_obfuscation`）强类型结构校验，未知扩展子属性精确产生 `unmapped-field` 报损，跨面降级为 `degraded` 损失。
+- 安全可观测性辅助工具（spec/15 §7）：
+  - 在 IR 模块新增轻量只读损失指纹结构 `LossFingerprint` 与工具函数 `FingerprintLosses`，严格剔除包含潜在敏感数据的 `Detail`，支持按需上限截断，全 5 门语言 100% 同步提供。
+- 新增 8 条共享黄金向量（381 → 389），覆盖工具细粒度流式三态回转与跨面降级、Token 限制映射与拼写记忆、标准请求控制回转与跨面转换。
+
+### Changed
+
+- Spec 版本、五种语言实现版本和状态矩阵统一更新至 `2.4.10`；IR contract 保持 `0.2.0`。
+
 ## [v2.4.9] - 2026-10-24
 
 ### Added

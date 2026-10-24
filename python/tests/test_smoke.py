@@ -5,7 +5,7 @@ import oxa
 
 class SmokeTest(unittest.TestCase):
     def test_version(self) -> None:
-        self.assertEqual(oxa.__version__, "2.4.9")
+        self.assertEqual(oxa.__version__, "2.4.10")
 
 
 if __name__ == "__main__":

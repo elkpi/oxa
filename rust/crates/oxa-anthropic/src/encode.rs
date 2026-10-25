@@ -252,8 +252,24 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     let shorthand = req.system.is_empty()
         && req.messages.len() == 1
         && req.messages[0].content.len() == 1
-        && matches!(&req.messages[0].content[0], Block::Text { native, .. } if native.is_empty());
+        && matches!(&req.messages[0].content[0], Block::Text { native, citations, .. } if native.is_empty() && citations.as_ref().map_or(true, |c| c.is_empty()));
     for (index, message) in req.messages.iter().enumerate() {
+        if message.role == oxa_ir::Role::User {
+            for (j, b) in message.content.iter().enumerate() {
+                if matches!(b, Block::RedactedThinking { .. }) {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}]: redacted_thinking is not permitted in user messages"
+                    )));
+                }
+                if let Block::Text { citations, .. } = b
+                    && citations.as_ref().is_some_and(|c| !c.is_empty())
+                {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}].citations: citations are not permitted on user text blocks"
+                    )));
+                }
+            }
+        }
         let role = match message.role {
             oxa_ir::Role::User => ROLE_USER,
             oxa_ir::Role::Assistant => ROLE_ASSISTANT,
@@ -327,6 +343,12 @@ fn encode_request_citations(
     let mut losses = Vec::new();
     let mut items = Vec::new();
     for (i, c) in cites.iter().enumerate() {
+        if c.source != "anthropic" {
+            return Err(Error::new(format!(
+                "anthropic: {path}[{i}]: unknown citation source {:?}",
+                c.source
+            )));
+        }
         let mut obj: serde_json::Map<String, serde_json::Value> =
             serde_json::from_str(&c.value).map_err(|e| Error::new(e.to_string()))?;
         if let Some(fid) = obj.remove("file_id")
@@ -344,9 +366,15 @@ fn encode_request_citations(
     Ok((Some(serde_json::Value::Array(items)), losses))
 }
 
-fn encode_response_citations(cites: &[oxa_ir::TextCitation]) -> Result<serde_json::Value, Error> {
+pub(crate) fn encode_response_citations(cites: &[oxa_ir::TextCitation]) -> Result<serde_json::Value, Error> {
     let mut items = Vec::new();
-    for c in cites {
+    for (i, c) in cites.iter().enumerate() {
+        if c.source != "anthropic" {
+            return Err(Error::new(format!(
+                "anthropic: citations[{i}]: unknown citation source {:?}",
+                c.source
+            )));
+        }
         let val: serde_json::Value =
             serde_json::from_str(&c.value).map_err(|e| Error::new(e.to_string()))?;
         items.push(val);
@@ -410,9 +438,6 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             ))
         }
         Block::RedactedThinking { data, .. } => {
-            if data.is_empty() {
-                return Err(Error::new(format!("anthropic: {path}.data is required")));
-            }
             Ok((
                 BlockWire {
                     kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
@@ -798,12 +823,24 @@ fn encode_tool_result_block(
     for (index, inner) in content.iter().enumerate() {
         let content_path = format!("{path}.content[{index}]");
         match inner {
-            Block::Text { text, native, .. } => wire_content.push(BlockWire {
-                kind: BLOCK_TYPE_TEXT.to_string(),
-                cache_control: crate::native::get_block_cache_control(native),
-                text: text.clone(),
-                ..BlockWire::default()
-            }),
+            Block::RedactedThinking { .. } => {
+                return Err(Error::new(format!(
+                    "anthropic: {content_path}: redacted_thinking is not permitted in tool_result"
+                )));
+            }
+            Block::Text { text, native, citations } => {
+                if citations.as_ref().is_some_and(|c| !c.is_empty()) {
+                    return Err(Error::new(format!(
+                        "anthropic: {content_path}.citations: citations are not permitted in tool_result"
+                    )));
+                }
+                wire_content.push(BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    cache_control: crate::native::get_block_cache_control(native),
+                    text: text.clone(),
+                    ..BlockWire::default()
+                })
+            }
             Block::Image {
                 media_type,
                 data,
@@ -963,9 +1000,6 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             ))
         }
         Block::RedactedThinking { data, .. } => {
-            if data.is_empty() {
-                return Err(Error::new(format!("anthropic: {path}.data is required")));
-            }
             Ok((
                 BlockWire {
                     kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),

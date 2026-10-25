@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::codec::Error;
 use crate::loss::{Loss, LossReason};
-use crate::request::{Block, NativeAnnotation, Request, SystemBlock};
+use crate::request::{Block, NativeAnnotation, Request, SystemBlock, ToolChoiceMode};
 
 pub const NATIVE_KIND_THINKING_MODE: &str = "thinking_mode";
 pub const NATIVE_KIND_THINKING_BUDGET: &str = "thinking_budget";
@@ -119,6 +119,44 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
         return Err(Error::Custom(
             "ir: conflicting effort projections on request".into(),
         ));
+    }
+
+    let mut has_between_tools = false;
+    let mut has_budget_or_display = false;
+    let mut has_disable_parallel = false;
+    for n in &request.native {
+        if n.source == NATIVE_SOURCE_ANTHROPIC {
+            if n.kind == NATIVE_KIND_THINKING_MODE && n.value == r#""between_tools""# {
+                has_between_tools = true;
+            } else if n.kind == NATIVE_KIND_THINKING_BUDGET
+                || n.kind == NATIVE_KIND_THINKING_DISPLAY
+            {
+                has_budget_or_display = true;
+            } else if n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE {
+                has_disable_parallel = true;
+            }
+        }
+    }
+    if has_between_tools && has_budget_or_display {
+        return Err(Error::Custom(
+            "anthropic: cannot specify budget_tokens or display with thinking.type between_tools"
+                .into(),
+        ));
+    }
+    if has_disable_parallel {
+        if let Some(ref tc) = request.tool_choice {
+            if tc.mode == ToolChoiceMode::None {
+                return Err(Error::Custom(
+                    "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified"
+                        .into(),
+                ));
+            }
+        } else {
+            return Err(Error::Custom(
+                "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified"
+                    .into(),
+            ));
+        }
     }
 
     for (i, sb) in request.system.iter().enumerate() {
@@ -863,10 +901,47 @@ fn append_omission_loss(
                 });
             }
         }
-        NATIVE_KIND_THINKING_DISPLAY
-        | NATIVE_KIND_CONTEXT_MANAGEMENT
-        | NATIVE_KIND_TOP_K
-        | NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
+        NATIVE_KIND_TOP_K => {
+            let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                let f = if om.field.is_empty() {
+                    "top_k".to_string()
+                } else {
+                    om.field.clone()
+                };
+                (f, om.reason, om.detail.clone().unwrap_or_default())
+            } else {
+                ("top_k".to_string(), LossReason::UnmappedField, String::new())
+            };
+            losses.push(Loss {
+                path: path.into(),
+                field,
+                reason,
+                detail,
+            });
+        }
+        NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
+            let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                let f = if om.field.is_empty() {
+                    "disable_parallel_tool_use".to_string()
+                } else {
+                    om.field.clone()
+                };
+                (f, om.reason, om.detail.clone().unwrap_or_default())
+            } else {
+                (
+                    "disable_parallel_tool_use".to_string(),
+                    LossReason::UnmappedField,
+                    String::new(),
+                )
+            };
+            losses.push(Loss {
+                path: path.into(),
+                field,
+                reason,
+                detail,
+            });
+        }
+        NATIVE_KIND_THINKING_DISPLAY | NATIVE_KIND_CONTEXT_MANAGEMENT => {
             if let Some(ref om) = ann.omission {
                 losses.push(Loss {
                     path: path.into(),

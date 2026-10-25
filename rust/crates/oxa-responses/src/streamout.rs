@@ -76,6 +76,7 @@ pub struct StreamEncoder {
     active_apply_patch_call: Option<Block>,
     active_apply_patch_result: Option<Block>,
     completed: Vec<OutputItem>,
+    event_ordinal: usize,
 }
 
 impl StreamEncoder {
@@ -101,6 +102,7 @@ impl StreamEncoder {
             active_apply_patch_call: None,
             active_apply_patch_result: None,
             completed: Vec::new(),
+            event_ordinal: 0,
         }
     }
 
@@ -111,6 +113,9 @@ impl StreamEncoder {
                 "responses: event applied after stream termination",
             ));
         }
+
+        let ordinal = self.event_ordinal;
+        self.event_ordinal += 1;
 
         match ev {
             Event::MessageStart { id, model } => {
@@ -152,7 +157,7 @@ impl StreamEncoder {
                 match block {
                     Block::Text {
                         text, citations, ..
-                    } => self.start_text_block(*index, text, citations.as_deref()),
+                    } => self.start_text_block(*index, text, citations.as_deref(), ordinal),
                     Block::RedactedThinking { .. } => {
                         self.active_block = Some(StreamEncodeBlock {
                             index: *index,
@@ -164,7 +169,7 @@ impl StreamEncoder {
                             citation_loss_seen: false,
                         });
                         let l = loss(
-                            format!("events[{index}].block"),
+                            format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
                             "anthropic encrypted thinking replay state; the target face cannot preserve this block",
@@ -175,7 +180,7 @@ impl StreamEncoder {
                         thinking,
                         signature,
                         ..
-                    } => self.start_thinking_block(*index, thinking, signature.as_deref()),
+                    } => self.start_thinking_block(*index, thinking, signature.as_deref(), ordinal),
                     Block::ToolUse {
                         id, name, input, ..
                     } => self.start_function_call_block(*index, id, name, input),
@@ -204,11 +209,14 @@ impl StreamEncoder {
                         "responses: ContentBlockDelta out of grammar order",
                     ));
                 }
+                if active_block.kind == StreamOutputItemKind::Redacted {
+                    return Err(Error::new(
+                        "responses: RedactedThinkingBlock received unexpected delta",
+                    ));
+                }
                 let active_item = self.active_item.as_ref().expect("active item");
                 match active_block.kind {
-                    StreamOutputItemKind::Redacted => Err(Error::new(
-                        "responses: RedactedThinkingBlock received unexpected delta",
-                    )),
+                    StreamOutputItemKind::Redacted => unreachable!(),
                     StreamOutputItemKind::Message => match delta {
                         Delta::TextDelta { text } => {
                             active_block.text.push_str(text);
@@ -228,7 +236,7 @@ impl StreamEncoder {
                             if !active_block.citation_loss_seen {
                                 active_block.citation_loss_seen = true;
                                 let l = loss(
-                                    format!("events[{index}].delta.citation"),
+                                    format!("events[{ordinal}].delta.citation"),
                                     "citations",
                                     LossReason::UnsupportedSemantic,
                                     "anthropic text citations; the target face cannot preserve source locations and replay metadata",
@@ -259,7 +267,7 @@ impl StreamEncoder {
                         Delta::SignatureDelta { .. } => Ok((
                             Vec::new(),
                             vec![loss(
-                                format!("events[{index}].delta.signature"),
+                                format!("events[{ordinal}].delta.signature"),
                                 "signature",
                                 LossReason::UnmappedField,
                                 "Responses carries no signature delta in streaming reasoning",
@@ -378,6 +386,7 @@ impl StreamEncoder {
         index: i64,
         text: &str,
         citations: Option<&[oxa_ir::TextCitation]>,
+        ordinal: usize,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let mut out = Vec::new();
         let mut losses = Vec::new();
@@ -387,7 +396,7 @@ impl StreamEncoder {
         {
             citation_loss_seen = true;
             losses.push(loss(
-                format!("events[{index}].block.citations"),
+                format!("events[{ordinal}].block.citations"),
                 "citations",
                 LossReason::UnsupportedSemantic,
                 "anthropic text citations; the target face cannot preserve source locations and replay metadata",
@@ -447,6 +456,7 @@ impl StreamEncoder {
         index: i64,
         thinking: &str,
         signature: Option<&str>,
+        ordinal: usize,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let mut out = Vec::new();
         if let Some(active) = &self.active_item {
@@ -501,7 +511,7 @@ impl StreamEncoder {
             .filter(|signature| !signature.is_empty())
             .map(|_| {
                 vec![loss(
-                    format!("events[{index}].block.signature"),
+                    format!("events[{ordinal}].block.signature"),
                     "signature",
                     LossReason::UnmappedField,
                     "Responses carries no signature in reasoning summary",

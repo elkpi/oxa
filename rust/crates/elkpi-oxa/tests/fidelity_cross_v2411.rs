@@ -64,3 +64,28 @@ fn test_cross_face_redacted_losses() {
                 && l.detail.contains("encrypted thinking"))
     );
 }
+
+#[test]
+fn test_responses_stream_redacted_delta_returns_err_not_panic() {
+    let mut encoder = oxa_responses::StreamEncoder::new(&oxa_responses::Config::default());
+    encoder
+        .apply(&oxa_ir::Event::MessageStart {
+            id: "id".into(),
+            model: "m".into(),
+        })
+        .unwrap();
+    encoder
+        .apply(&oxa_ir::Event::ContentBlockStart {
+            index: 0,
+            block: Block::RedactedThinking {
+                data: "TEST_ONLY".into(),
+                native: vec![],
+            },
+        })
+        .unwrap();
+    let res = encoder.apply(&oxa_ir::Event::ContentBlockDelta {
+        index: 0,
+        delta: oxa_ir::Delta::TextDelta { text: "x".into() },
+    });
+    assert!(res.is_err(), "expected error, got: {res:?}");
+}

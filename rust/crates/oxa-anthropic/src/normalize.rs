@@ -598,6 +598,7 @@ pub(crate) fn decode_content(
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
     is_request: bool,
+    in_tool_result: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Err(Error::new(format!("anthropic: {path} is missing")));
@@ -622,6 +623,7 @@ pub(crate) fn decode_content(
                     custom_call_ids,
                     declared_tools,
                     is_request,
+                    in_tool_result,
                 )?;
                 if mapped {
                     out.extend(decoded);
@@ -643,13 +645,13 @@ pub(crate) fn decode_block(
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
     is_request: bool,
+    in_tool_result: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>, bool), Error> {
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
     match wire.kind.as_str() {
         BLOCK_TYPE_TEXT => {
-            if (path.contains("tool_result")
-                || (path.contains(".content[") && path.contains("tool_use_id")))
+            if in_tool_result
                 && let Some(c) = &wire.citations
                 && !c.is_null()
                 && c.as_array().is_some_and(|a| !a.is_empty())
@@ -671,6 +673,11 @@ pub(crate) fn decode_block(
             });
         }
         BLOCK_TYPE_REDACTED_THINKING => {
+            if in_tool_result {
+                return Err(Error::new(format!(
+                    "anthropic: {path}: redacted_thinking is not permitted in tool_result"
+                )));
+            }
             let Some(ref data) = wire.data else {
                 return Err(Error::new(format!("anthropic: {path}.data is required")));
             };
@@ -945,6 +952,7 @@ pub(crate) fn decode_block(
                             custom_call_ids,
                             declared_tools,
                             is_request,
+                            true,
                         )?;
                         losses.extend(content_losses);
                         oxa_ir::CustomToolOutput::Content(content)
@@ -963,6 +971,7 @@ pub(crate) fn decode_block(
                     custom_call_ids,
                     declared_tools,
                     is_request,
+                    true,
                 )?;
                 losses.extend(content_losses);
                 block = Some(Block::ToolResult {

@@ -715,11 +715,13 @@ pub fn encode_request_native(
             }
             oxa_ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
                 if let Ok(b) = serde_json::from_str::<bool>(&n.value) {
-                    if let Some(ref mut tc) = wire.tool_choice {
+                    if let Some(ref mut tc) = wire.tool_choice
+                        && tc.kind != crate::types::TOOL_CHOICE_TYPE_NONE
+                    {
                         tc.disable_parallel_tool_use = Some(b);
                     } else {
                         return Err(crate::Error::new(
-                            "anthropic: disable_parallel_tool_use requires tool_choice",
+                            "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified",
                         ));
                     }
                 }
@@ -739,6 +741,11 @@ pub fn encode_request_native(
 
     if native_mode.is_some() || native_effort.is_some() || current_effort.is_some() {
         if native_mode.as_deref() == Some("between_tools") {
+            if native_budget.is_some() || native_display.is_some() {
+                return Err(crate::Error::new(
+                    "anthropic: cannot specify budget_tokens or display with thinking.type between_tools",
+                ));
+            }
             wire.thinking = Some(ThinkingWire {
                 kind: "between_tools".into(),
                 budget_tokens: None,

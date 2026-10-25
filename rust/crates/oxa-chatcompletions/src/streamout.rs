@@ -51,6 +51,7 @@ pub struct StreamEncoder {
     pending_tools: Vec<Chunk>,
     finished: bool,
     done: bool,
+    event_ordinal: usize,
 }
 
 impl StreamEncoder {
@@ -70,6 +71,7 @@ impl StreamEncoder {
             pending_tools: Vec::new(),
             finished: false,
             done: false,
+            event_ordinal: 0,
         }
     }
 
@@ -80,6 +82,9 @@ impl StreamEncoder {
                 "chatcompletions: event applied after stream termination",
             ));
         }
+
+        let ordinal = self.event_ordinal;
+        self.event_ordinal += 1;
 
         match ev {
             Event::MessageStart { id, model } => {
@@ -122,7 +127,7 @@ impl StreamEncoder {
                         {
                             citation_loss_seen = true;
                             start_losses.push(loss(
-                                format!("events[{index}].block.citations"),
+                                format!("events[{ordinal}].block.citations"),
                                 "citations",
                                 LossReason::UnsupportedSemantic,
                                 "anthropic text citations; the target face cannot preserve source locations and replay metadata",
@@ -156,7 +161,7 @@ impl StreamEncoder {
                             citation_loss_seen: false,
                         });
                         let l = loss(
-                            format!("events[{index}].block"),
+                            format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
                             "anthropic encrypted thinking replay state; the target face cannot preserve this block",
@@ -180,7 +185,7 @@ impl StreamEncoder {
                             .as_ref()
                             .map(|_| {
                                 vec![loss(
-                                    format!("events[{index}].signature"),
+                                    format!("events[{ordinal}].signature"),
                                     "signature",
                                     LossReason::UnmappedField,
                                     "Chat Completions reasoning_content has no signature field; the opaque signature is lost",
@@ -261,7 +266,7 @@ impl StreamEncoder {
                         Ok((
                             Vec::new(),
                             vec![loss(
-                                format!("events[{index}].block"),
+                                format!("events[{ordinal}].block"),
                                 "type",
                                 LossReason::UnsupportedSemantic,
                                 loss_detail,
@@ -318,7 +323,7 @@ impl StreamEncoder {
                             if !active.citation_loss_seen {
                                 active.citation_loss_seen = true;
                                 let l = loss(
-                                    format!("events[{index}].delta.citation"),
+                                    format!("events[{ordinal}].delta.citation"),
                                     "citations",
                                     LossReason::UnsupportedSemantic,
                                     "anthropic text citations; the target face cannot preserve source locations and replay metadata",
@@ -357,7 +362,7 @@ impl StreamEncoder {
                             Ok((
                                 Vec::new(),
                                 vec![loss(
-                                    format!("events[{index}].signature"),
+                                    format!("events[{ordinal}].signature"),
                                     "signature",
                                     LossReason::UnmappedField,
                                     "Chat Completions reasoning_content has no signature field; the opaque signature delta is lost",

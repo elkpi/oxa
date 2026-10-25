@@ -326,6 +326,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             && let Some(crate::types::ContentValue::Blocks(blocks)) = &message.content
         {
             for (j, b) in blocks.iter().enumerate() {
+                if b.kind == crate::types::BLOCK_TYPE_REDACTED_THINKING {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}]: redacted_thinking is not permitted in user messages"
+                    )));
+                }
                 if b.kind == crate::types::BLOCK_TYPE_TEXT
                     && b.citations.as_ref().is_some_and(|c| {
                         !c.is_null() && c.as_array().is_some_and(|a| !a.is_empty())
@@ -344,6 +349,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             &mut custom_call_ids,
             &declared_tools,
             true,
+            false,
         )?;
         losses.extend(block_losses);
         req.messages.push(oxa_ir::Message {
@@ -392,6 +398,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             &BTreeSet::new(),
             &mut BTreeSet::new(),
             &BTreeSet::new(),
+            false,
             false,
         )?;
         if mapped {

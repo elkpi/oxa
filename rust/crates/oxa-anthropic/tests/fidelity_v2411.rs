@@ -191,3 +191,162 @@ fn test_text_citations_roundtrip() {
     assert!(wire_json.contains(r#""char_location""#));
     assert!(wire_json.contains(r#""file_1""#));
 }
+
+#[test]
+fn test_redacted_thinking_data_validation_and_debug_mask() {
+    let config = Config::default();
+    let raw_empty = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": [{"type": "redacted_thinking", "data": ""}, {"type": "text", "text": "Ok"}]}
+        ]
+    }"#;
+    let (req, _) = decode_request_json(raw_empty, &config).expect("decode");
+    let (wire, _) = encode_request(&req, &config).expect("encode");
+    let wire_json = serde_json::to_string(&wire).unwrap();
+    assert!(wire_json.contains(r#""data":"""#));
+
+    // debug masking
+    let blk = Block::RedactedThinking {
+        data: "SECRET_PAYLOAD_12345".into(),
+        native: Vec::new(),
+    };
+    let debug_str = format!("{blk:?}");
+    assert!(!debug_str.contains("SECRET_PAYLOAD_12345"));
+    assert!(debug_str.contains("[REDACTED len=20]"));
+
+    let raw_null = r#"{
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": [{"type": "redacted_thinking", "data": null}, {"type": "text", "text": "Ok"}]}
+        ]
+    }"#;
+    assert!(decode_request_json(raw_null, &config).is_err());
+}
+
+#[test]
+fn test_disable_parallel_tool_use_null_rejected_and_conflict() {
+    let config = Config::default();
+    let raw_null = r#"{
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "tools": [{"name": "t1", "input_schema": {"type": "object"}}],
+        "tool_choice": {"type": "auto", "disable_parallel_tool_use": null}
+    }"#;
+    assert!(decode_request_json(raw_null, &config).is_err());
+
+    let req_conflict = oxa_ir::Request {
+        model: "claude-sonnet-4-5".into(),
+        system: Vec::new(),
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "Hi".into(),
+                citations: None,
+                native: Vec::new(),
+            }],
+        }],
+        tools: None,
+        tool_choice: Some(oxa_ir::ToolChoice {
+            mode: oxa_ir::ToolChoiceMode::None,
+            name: None,
+            tool_type: None,
+        }),
+        params: None,
+        metadata: None,
+        native: vec![oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+            kind: oxa_ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE.into(),
+            value: "true".into(),
+            omission: None,
+            projection: None,
+        }],
+    };
+    assert!(encode_request(&req_conflict, &config).is_err());
+}
+
+#[test]
+fn test_between_tools_encode_conflict() {
+    let config = Config::default();
+    let req_conflict = oxa_ir::Request {
+        model: "claude-sonnet-5-5".into(),
+        system: Vec::new(),
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "Hi".into(),
+                citations: None,
+                native: Vec::new(),
+            }],
+        }],
+        tools: None,
+        tool_choice: None,
+        params: None,
+        metadata: None,
+        native: vec![
+            oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_THINKING_MODE.into(),
+                value: r#""between_tools""#.into(),
+                omission: None,
+                projection: None,
+            },
+            oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_THINKING_BUDGET.into(),
+                value: "2048".into(),
+                omission: None,
+                projection: None,
+            },
+        ],
+    };
+    assert!(encode_request(&req_conflict, &config).is_err());
+}
+
+#[test]
+fn test_omitted_native_losses_default_fallback() {
+    let req = oxa_ir::Request {
+        model: "claude-opus-4-6".into(),
+        system: Vec::new(),
+        messages: vec![oxa_ir::Message {
+            role: oxa_ir::Role::User,
+            content: vec![Block::Text {
+                text: "Hi".into(),
+                citations: None,
+                native: Vec::new(),
+            }],
+        }],
+        tools: None,
+        tool_choice: Some(oxa_ir::ToolChoice {
+            mode: oxa_ir::ToolChoiceMode::Auto,
+            name: None,
+            tool_type: None,
+        }),
+        params: None,
+        metadata: None,
+        native: vec![
+            oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_TOP_K.into(),
+                value: "40".into(),
+                omission: None,
+                projection: None,
+            },
+            oxa_ir::NativeAnnotation {
+                source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+                kind: oxa_ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE.into(),
+                value: "true".into(),
+                omission: None,
+                projection: None,
+            },
+        ],
+    };
+    let losses = oxa_ir::omitted_native_request_losses(&req, "chatcompletions").expect("losses");
+    assert!(losses.iter().any(|l| l.field == "top_k" && l.reason == oxa_ir::LossReason::UnmappedField));
+    assert!(losses.iter().any(|l| l.field == "disable_parallel_tool_use" && l.reason == oxa_ir::LossReason::UnmappedField));
+}

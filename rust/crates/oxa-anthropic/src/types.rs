@@ -285,6 +285,23 @@ impl Serialize for ToolWire {
     }
 }
 
+fn deserialize_bool_or_reject_null<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    struct BoolVisitor;
+    impl<'de> serde::de::Visitor<'de> for BoolVisitor {
+        type Value = Option<bool>;
+        fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+            formatter.write_str("a boolean")
+        }
+        fn visit_bool<E>(self, v: bool) -> Result<Self::Value, E> {
+            Ok(Some(v))
+        }
+    }
+    deserializer.deserialize_bool(BoolVisitor)
+}
+
 /// The wire tool_choice object. `disable_parallel_tool_use` is preserved as native annotation (N-AN-19).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -296,6 +313,8 @@ pub struct ToolChoiceWire {
     pub name: String,
     #[serde(
         rename = "disable_parallel_tool_use",
+        default,
+        deserialize_with = "deserialize_bool_or_reject_null",
         skip_serializing_if = "Option::is_none"
     )]
     pub disable_parallel_tool_use: Option<bool>,

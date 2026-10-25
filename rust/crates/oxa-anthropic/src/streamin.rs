@@ -191,7 +191,11 @@ impl StreamDecoder {
                     }]);
                 }
                 if block.kind == BLOCK_TYPE_REDACTED_THINKING {
-                    let data = block.data.as_deref().unwrap_or_default();
+                    let Some(data) = block.data.as_deref() else {
+                        return Err(Error::new(format!(
+                            "anthropic: content_block_start[{index}].content_block.data is required"
+                        )));
+                    };
                     self.next_index += 1;
                     self.block_open = true;
                     self.open_tool = false;
@@ -231,11 +235,21 @@ impl StreamDecoder {
                 self.open_index = index;
                 self.open_ir_index = self.next_ir_index;
                 self.next_ir_index += 1;
+                let (cites, cite_losses) = if block.citations.is_some() {
+                    crate::normalize::decode_text_citations(
+                        block.citations.as_ref(),
+                        &format!("content_block_start[{index}].content_block.citations"),
+                        false,
+                    )?
+                } else {
+                    (None, Vec::new())
+                };
+                self.losses.extend(cite_losses);
                 Ok(vec![Event::ContentBlockStart {
                     index: self.open_ir_index,
                     block: Block::Text {
                         text: block.text.clone(),
-                        citations: None,
+                        citations: cites,
                         native: Vec::new(),
                     },
                 }])

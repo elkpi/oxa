@@ -73,7 +73,7 @@ pub struct TextCitation {
 /// A content block (spec/01 §3.4). Sealed; includes the Spec 2.0 thinking variant.
 /// `ToolUseBlock::input` is opaque raw JSON text (INV-1): it is a plain
 /// string and is never parsed or re-serialized by any conversion path.
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Block {
     #[serde(rename = "text")]
@@ -213,6 +213,134 @@ impl Block {
             | Block::ApplyPatchToolUse { native, .. }
             | Block::ApplyPatchToolResult { native, .. }
             | Block::ToolResult { native, .. } => native,
+        }
+    }
+}
+
+impl std::fmt::Debug for Block {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Block::Text {
+                text,
+                citations,
+                native,
+            } => f
+                .debug_struct("Text")
+                .field("text", text)
+                .field("citations", citations)
+                .field("native", native)
+                .finish(),
+            Block::Thinking {
+                thinking,
+                signature,
+                native,
+            } => f
+                .debug_struct("Thinking")
+                .field("thinking", thinking)
+                .field("signature", signature)
+                .field("native", native)
+                .finish(),
+            Block::RedactedThinking { data, native } => f
+                .debug_struct("RedactedThinking")
+                .field("data", &format!("[REDACTED len={}]", data.len()))
+                .field("native", native)
+                .finish(),
+            Block::Image {
+                media_type,
+                data,
+                url,
+                native,
+            } => f
+                .debug_struct("Image")
+                .field("media_type", media_type)
+                .field("data", data)
+                .field("url", url)
+                .field("native", native)
+                .finish(),
+            Block::Document {
+                media_type,
+                data,
+                url,
+                file_id,
+                native,
+            } => f
+                .debug_struct("Document")
+                .field("media_type", media_type)
+                .field("data", data)
+                .field("url", url)
+                .field("file_id", file_id)
+                .field("native", native)
+                .finish(),
+            Block::ToolUse {
+                id,
+                name,
+                input,
+                native,
+            } => f
+                .debug_struct("ToolUse")
+                .field("id", id)
+                .field("name", name)
+                .field("input", input)
+                .field("native", native)
+                .finish(),
+            Block::CustomToolUse {
+                id,
+                name,
+                input,
+                native,
+            } => f
+                .debug_struct("CustomToolUse")
+                .field("id", id)
+                .field("name", name)
+                .field("input", input)
+                .field("native", native)
+                .finish(),
+            Block::CustomToolResult {
+                tool_use_id,
+                output,
+                native,
+            } => f
+                .debug_struct("CustomToolResult")
+                .field("tool_use_id", tool_use_id)
+                .field("output", output)
+                .field("native", native)
+                .finish(),
+            Block::ApplyPatchToolUse {
+                id,
+                status,
+                operation,
+                native,
+            } => f
+                .debug_struct("ApplyPatchToolUse")
+                .field("id", id)
+                .field("status", status)
+                .field("operation", operation)
+                .field("native", native)
+                .finish(),
+            Block::ApplyPatchToolResult {
+                tool_use_id,
+                status,
+                output,
+                native,
+            } => f
+                .debug_struct("ApplyPatchToolResult")
+                .field("tool_use_id", tool_use_id)
+                .field("status", status)
+                .field("output", output)
+                .field("native", native)
+                .finish(),
+            Block::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+                native,
+            } => f
+                .debug_struct("ToolResult")
+                .field("tool_use_id", tool_use_id)
+                .field("content", content)
+                .field("is_error", is_error)
+                .field("native", native)
+                .finish(),
         }
     }
 }

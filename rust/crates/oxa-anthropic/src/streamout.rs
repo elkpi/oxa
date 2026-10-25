@@ -123,7 +123,7 @@ impl StreamEncoder {
                     )));
                 }
                 match block {
-                    Block::Text { text, .. } => {
+                    Block::Text { text, citations, .. } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
@@ -132,6 +132,10 @@ impl StreamEncoder {
                         self.open_ir_index = *index;
                         self.open_index = self.next_wire_index;
                         self.next_wire_index += 1;
+                        let wire_cites = citations
+                            .as_ref()
+                            .map(|cites| crate::encode::encode_response_citations(cites))
+                            .transpose()?;
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
@@ -139,6 +143,7 @@ impl StreamEncoder {
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_TEXT.to_string(),
                                     text: text.clone(),
+                                    citations: wire_cites,
                                     ..Default::default()
                                 }),
                                 ..Default::default()

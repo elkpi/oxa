@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.11] - 2026-10-25
+
+### Added
+
+- Anthropic Messages 思考历史、请求控制与引文保真（spec/01, spec/02, spec/12 N-AN-17/18/19, spec/15 §3.1/3.3/3.8, spec/20 §4.4）：
+  - **`RedactedThinkingBlock`（`redacted_thinking`）**:
+    - 新增密封 IR 内容块 `RedactedThinkingBlock`，判别值为 `redacted_thinking`，携带不透明加密数据载荷 `data: string`。
+    - 支持 Anthropic assistant 思考历史多轮往返保真；禁止出现在 user 消息中（作为结构错误拒绝）。
+    - 流式事件中作为原子块（atomic block）支持 `content_block_start` 与 `content_block_stop`，拒绝接收任何 delta。
+    - 跨协议转换至 OpenAI Chat Completions 或 Responses 时整块安全省略，并生成单条自描述 `unsupported-semantic` 损失（`detail: "anthropic encrypted thinking replay state; the target face cannot preserve this block"`），绝不泄露加密载荷。
+  - **`between_tools` 思考模式**:
+    - `thinking_mode` 原生注解扩展接受 `"between_tools"`，支持多步工具调用间的思考控制。
+    - 严格校验互斥语义：`thinking: {"type": "between_tools"}` 禁止同时声明 `budget_tokens` 或 `display`，违反时作为结构错误拒绝。
+  - **`top_k` 采样过滤参数**:
+    - 在 IR `Request.native` 容器中保留原生非负安全整数 `top_k`（`0 <= top_k <= 9007199254740991`，含显式 `0`），Anthropic 同面解码与编码保真回转。
+    - 跨面转换至 OpenAI 时安全省略并记录自描述 `unmapped-field` 遗漏损失。
+  - **`disable_parallel_tool_use` 并行工具开关**:
+    - 在 IR `Request.native` 容器中保留布尔值开关，Anthropic 解码时将 `tool_choice.disable_parallel_tool_use` 保真捕获；同面回转时精准恢复至 wire 上的 `tool_choice` 对象中。
+    - 结构语义约束：禁止挂载在 `tool_choice: "none"`（或 `"type": "none"`）上，违反时作为结构错误拒绝。
+    - 跨面转换至 OpenAI 时作为原生选项安全省略并记录 `unmapped-field` 损失。
+  - **文本块引文 `citations` 与流式增量 `citation_delta`**:
+    - 在 `TextBlock` 上定义 `citations: []TextCitation`，流式事件中扩展 `Delta` 联合支持 `citation_delta`（`DeltaTypeCitation`）。
+    - 结构化校验涵盖 5 种位置类型：`char_location`、`page_location`、`content_block_location`、`web_search_result_location`、`search_result_location`，未知类型优雅报 `unsupported-semantic` 损失，未知属性报 `unmapped-field` 损失。
+    - 引文仅允许挂载在 assistant 文本块与响应流中；禁止出现在 user 文本块或 `tool_result` 文本块中（返回结构错误拒绝）。
+    - 请求回显保真：响应引文作为后续多轮对话的 assistant 消息回显时，剥离响应专属的 `file_id` 属性，并在 `file_id` 非空时报告明确的 `unmapped-field` 损失。
+    - 跨面转换至 OpenAI Chat Completions 或 Responses 时，引文被安全剥离并记录单条 `unsupported-semantic` 损失。
+  - Go、TypeScript、Python、Rust、C++ 全部 5 门语言 100% 对齐实现并全量绿灯通过。
+- 新增 17 条共享黄金向量（389 → 406），覆盖思考历史往返、冲突校验、top_k、并行工具控制、文本引文结构化校验、回显剥离、流式引文增量及跨面损失。
+
+### Changed
+
+- Spec 版本、五种语言实现版本和状态矩阵统一更新至 `2.4.11`；IR contract 保持 `0.2.0`。
+- `spec/schema/ir.schema.json` 扩充 `redactedThinkingBlock`、`textCitation` 与 `citationDelta` 定义。
+
 ## [v2.4.10] - 2026-10-24
 
 ### Added

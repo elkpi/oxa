@@ -90,9 +90,26 @@ type ContextManagementWire struct {
 
 // ThinkingWire is the Anthropic request thinking configuration.
 type ThinkingWire struct {
-	Type         string `json:"type"` // adaptive | enabled | disabled
+	Type         string `json:"type"` // adaptive | enabled | disabled | between_tools
 	BudgetTokens int64  `json:"budget_tokens,omitempty"`
 	Display      string `json:"display,omitempty"`
+	hasBudget    bool
+	hasDisplay   bool
+}
+
+func (t *ThinkingWire) UnmarshalJSON(data []byte) error {
+	type shadow ThinkingWire
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	*t = ThinkingWire(s)
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(data, &m); err == nil {
+		_, t.hasBudget = m["budget_tokens"]
+		_, t.hasDisplay = m["display"]
+	}
+	return nil
 }
 
 // ToolWire is one element of the wire tools array. input_schema is a
@@ -232,10 +249,17 @@ func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
 	}
-	*c = ToolChoiceWire(raw)
-	if _, ok := fields["disable_parallel_tool_use"]; ok {
+	if rawDPU, ok := fields["disable_parallel_tool_use"]; ok {
+		if string(rawDPU) == "null" {
+			return fmt.Errorf("anthropic: tool_choice.disable_parallel_tool_use must be a boolean")
+		}
+		var b bool
+		if err := json.Unmarshal(rawDPU, &b); err != nil {
+			return fmt.Errorf("anthropic: tool_choice.disable_parallel_tool_use must be a boolean")
+		}
 		c.HasDisableParallelToolUse = true
 	}
+	*c = ToolChoiceWire(raw)
 	return nil
 }
 
@@ -321,6 +345,17 @@ func (w *BlockWire) UnmarshalJSON(data []byte) error {
 				if err := json.Unmarshal(raw, &value); err != nil {
 					return fmt.Errorf("anthropic: document %s must be a string", key)
 				}
+			}
+		}
+	}
+	if decoded.Type == BlockTypeRedactedThinking {
+		if raw, ok := fields["data"]; ok {
+			if string(raw) == "null" {
+				return fmt.Errorf("anthropic: redacted_thinking data must be a string")
+			}
+			var value string
+			if err := json.Unmarshal(raw, &value); err != nil {
+				return fmt.Errorf("anthropic: redacted_thinking data must be a string")
 			}
 		}
 	}

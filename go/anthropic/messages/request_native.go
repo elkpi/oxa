@@ -246,7 +246,7 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 	if wire.Thinking != nil {
 		switch wire.Thinking.Type {
 		case "between_tools":
-			if wire.Thinking.BudgetTokens > 0 || wire.Thinking.Display != "" {
+			if wire.Thinking.hasBudget || wire.Thinking.hasDisplay || wire.Thinking.BudgetTokens > 0 || wire.Thinking.Display != "" {
 				return nil, fmt.Errorf("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
 			}
 			req.Native = append(req.Native, ir.NativeAnnotation{
@@ -573,8 +573,8 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 		case ir.NativeKindDisableParallelToolUse:
 			var b bool
 			if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
-				if wire.ToolChoice == nil {
-					return nil, fmt.Errorf("anthropic: disable_parallel_tool_use requires tool_choice")
+				if wire.ToolChoice == nil || wire.ToolChoice.Type == ToolChoiceTypeNone {
+					return nil, fmt.Errorf("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
 				}
 				wire.ToolChoice.DisableParallelToolUse = b
 				wire.ToolChoice.HasDisableParallelToolUse = true
@@ -594,6 +594,9 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 	if nativeMode != "" || nativeEffort != "" || currentEffort != "" {
 		switch nativeMode {
 		case "between_tools":
+			if nativeBudget != 0 || nativeDisplay != "" {
+				return nil, fmt.Errorf("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+			}
 			wire.Thinking = &ThinkingWire{Type: "between_tools"}
 			if currentEffort != "" {
 				wire.OutputConfig = &OutputConfigWire{Effort: currentEffort}

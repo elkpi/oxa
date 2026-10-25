@@ -304,6 +304,119 @@ func TestFidelityV2411_CrossFace_Losses(t *testing.T) {
 	}
 }
 
+func TestFidelityV2411_RedactedThinking_DataValidation(t *testing.T) {
+	// 1. data: "" empty string is preserved
+	rawEmpty := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "Hi"},
+			{"role": "assistant", "content": [{"type": "redacted_thinking", "data": ""}, {"type": "text", "text": "Ok"}]}
+		]
+	}`)
+	req, _, err := DecodeRequestJSON(rawEmpty)
+	if err != nil {
+		t.Fatalf("unexpected error on empty data string: %v", err)
+	}
+	encoded, _, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("unexpected encode error on empty data: %v", err)
+	}
+	encJSON, _ := json.Marshal(encoded)
+	if !strings.Contains(string(encJSON), `"data":""`) {
+		t.Fatalf("expected \"data\":\"\" in encoded json, got: %s", string(encJSON))
+	}
+
+	// 2. data: null is rejected
+	rawNull := []byte(`{
+		"model": "claude-opus-5-5",
+		"max_tokens": 1024,
+		"messages": [
+			{"role": "user", "content": "Hi"},
+			{"role": "assistant", "content": [{"type": "redacted_thinking", "data": null}, {"type": "text", "text": "Ok"}]}
+		]
+	}`)
+	_, _, err = DecodeRequestJSON(rawNull)
+	if err == nil {
+		t.Fatalf("expected error on data: null, got nil")
+	}
+}
+
+func TestFidelityV2411_DisableParallel_NullAndConflict(t *testing.T) {
+	// null is rejected
+	rawNull := []byte(`{
+		"model": "claude-sonnet-4-5",
+		"max_tokens": 1024,
+		"messages": [{"role": "user", "content": "Hello"}],
+		"tools": [{"name": "tool1", "input_schema": {"type": "object"}}],
+		"tool_choice": {"type": "auto", "disable_parallel_tool_use": null}
+	}`)
+	_, _, err := DecodeRequestJSON(rawNull)
+	if err == nil {
+		t.Fatalf("expected error on disable_parallel_tool_use: null, got nil")
+	}
+
+	// encode conflict when tool_choice is none
+	reqConflict := &ir.Request{
+		Model:      "claude-sonnet-4-5",
+		Params:     ir.Params{MaxTokens: int64p(1024)},
+		ToolChoice: &ir.ToolChoice{Mode: ir.ToolChoiceNone},
+		Messages:   []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Native: []ir.NativeAnnotation{
+			{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindDisableParallelToolUse, Value: "true"},
+		},
+	}
+	_, _, err = EncodeRequest(reqConflict)
+	if err == nil {
+		t.Fatalf("expected error encoding disable_parallel_tool_use with tool_choice none, got nil")
+	}
+}
+
+func TestFidelityV2411_BetweenTools_EncodeConflict(t *testing.T) {
+	reqConflict := &ir.Request{
+		Model:    "claude-sonnet-5-5",
+		Params:   ir.Params{MaxTokens: int64p(1024)},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Native: []ir.NativeAnnotation{
+			{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindThinkingMode, Value: `"between_tools"`},
+			{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindThinkingBudget, Value: "2048"},
+		},
+	}
+	_, _, err := EncodeRequest(reqConflict)
+	if err == nil {
+		t.Fatalf("expected error encoding between_tools with budget, got nil")
+	}
+}
+
+func TestFidelityV2411_OmissionLosses_DefaultFallback(t *testing.T) {
+	req := &ir.Request{
+		Model:    "claude-opus-4-6",
+		Params:   ir.Params{MaxTokens: int64p(1024)},
+		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}},
+		Native: []ir.NativeAnnotation{
+			{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindTopK, Value: "40"},
+			{Source: ir.NativeSourceAnthropic, Kind: ir.NativeKindDisableParallelToolUse, Value: "true"},
+		},
+		ToolChoice: &ir.ToolChoice{Mode: ir.ToolChoiceAuto},
+	}
+	losses, err := ir.OmittedNativeRequestLosses(req, "chatcompletions")
+	if err != nil {
+		t.Fatalf("OmittedNativeRequestLosses error: %v", err)
+	}
+	var hasTopK, hasDPU bool
+	for _, l := range losses {
+		if l.Field == "top_k" && l.Reason == ir.LossUnmappedField {
+			hasTopK = true
+		}
+		if l.Field == "disable_parallel_tool_use" && l.Reason == ir.LossUnmappedField {
+			hasDPU = true
+		}
+	}
+	if !hasTopK || !hasDPU {
+		t.Fatalf("expected top_k and disable_parallel_tool_use losses without omission object, got: %+v", losses)
+	}
+}
+
 func jsonNumber(n int64) string {
 	b, _ := json.Marshal(n)
 	return string(b)

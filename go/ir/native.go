@@ -166,6 +166,31 @@ func ValidateNativeRequest(req *Request) error {
 		return fmt.Errorf("ir: conflicting effort projections on request")
 	}
 
+	var hasBetweenTools, hasBudgetOrDisplay bool
+	var hasDisableParallel bool
+	for _, n := range req.Native {
+		if n.Source == NativeSourceAnthropic {
+			switch n.Kind {
+			case NativeKindThinkingMode:
+				if n.Value == `"between_tools"` {
+					hasBetweenTools = true
+				}
+			case NativeKindThinkingBudget, NativeKindThinkingDisplay:
+				hasBudgetOrDisplay = true
+			case NativeKindDisableParallelToolUse:
+				hasDisableParallel = true
+			}
+		}
+	}
+	if hasBetweenTools && hasBudgetOrDisplay {
+		return fmt.Errorf("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+	}
+	if hasDisableParallel {
+		if req.ToolChoice == nil || req.ToolChoice.Mode == ToolChoiceNone {
+			return fmt.Errorf("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
+		}
+	}
+
 	for i, sb := range req.System {
 		if err := validateAnnotations(sb.Native, hostSystem); err != nil {
 			return fmt.Errorf("ir: system[%d] native invalid: %w", i, err)
@@ -784,7 +809,51 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 		}
 		return losses
 
-	case NativeKindThinkingDisplay, NativeKindContextManagement, NativeKindTopK, NativeKindDisableParallelToolUse:
+	case NativeKindTopK:
+		field := "top_k"
+		reason := LossUnmappedField
+		var detail string
+		if ann.Omission != nil {
+			if ann.Omission.Field != "" {
+				field = ann.Omission.Field
+			}
+			if ann.Omission.Reason != "" {
+				reason = ann.Omission.Reason
+			}
+			if ann.Omission.Detail != "" {
+				detail = ann.Omission.Detail
+			}
+		}
+		return append(losses, Loss{
+			Path:   path,
+			Field:  field,
+			Reason: reason,
+			Detail: detail,
+		})
+
+	case NativeKindDisableParallelToolUse:
+		field := "disable_parallel_tool_use"
+		reason := LossUnmappedField
+		var detail string
+		if ann.Omission != nil {
+			if ann.Omission.Field != "" {
+				field = ann.Omission.Field
+			}
+			if ann.Omission.Reason != "" {
+				reason = ann.Omission.Reason
+			}
+			if ann.Omission.Detail != "" {
+				detail = ann.Omission.Detail
+			}
+		}
+		return append(losses, Loss{
+			Path:   path,
+			Field:  field,
+			Reason: reason,
+			Detail: detail,
+		})
+
+	case NativeKindThinkingDisplay, NativeKindContextManagement:
 		if ann.Omission != nil {
 			return append(losses, Loss{
 				Path:   path,

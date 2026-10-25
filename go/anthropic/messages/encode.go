@@ -164,7 +164,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		len(req.Messages[0].Content) == 1
 	if shorthand {
 		if tb, isText := req.Messages[0].Content[0].(ir.TextBlock); isText {
-			shorthand = len(tb.Native) == 0
+			shorthand = len(tb.Native) == 0 && len(tb.Citations) == 0
 		} else {
 			shorthand = false
 		}
@@ -174,6 +174,16 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		switch m.Role {
 		case ir.RoleUser:
 			role = RoleUser
+			for j, b := range m.Content {
+				switch blk := b.(type) {
+				case ir.RedactedThinkingBlock:
+					return nil, nil, fmt.Errorf("anthropic: messages[%d].content[%d]: redacted_thinking is not permitted in user messages", i, j)
+				case ir.TextBlock:
+					if len(blk.Citations) > 0 {
+						return nil, nil, fmt.Errorf("anthropic: messages[%d].content[%d].citations: citations are not permitted on user text blocks", i, j)
+					}
+				}
+			}
 		case ir.RoleAssistant:
 			role = RoleAssistant
 		default:
@@ -504,7 +514,12 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 	for i, block := range result.Content {
 		contentPath := fmt.Sprintf("%s.content[%d]", path, i)
 		switch b := block.(type) {
+		case ir.RedactedThinkingBlock:
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s: redacted_thinking is not permitted in tool_result", contentPath)
 		case ir.TextBlock:
+			if len(b.Citations) > 0 {
+				return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.citations: citations are not permitted in tool_result", contentPath)
+			}
 			bw := BlockWire{Type: BlockTypeText, Text: b.Text}
 			if cc := getBlockCacheControl(b); len(cc) > 0 {
 				bw.CacheControl = cc
@@ -698,6 +713,12 @@ func encodeRequestCitations(cites []ir.TextCitation, path string) (json.RawMessa
 	var losses []ir.Loss
 	var items []json.RawMessage
 	for i, c := range cites {
+		if c.Source != "anthropic" {
+			return nil, nil, fmt.Errorf("anthropic: %s[%d]: unknown citation source %q", path, i, c.Source)
+		}
+		if err := ir.ValidateCitationValue(c.Value); err != nil {
+			return nil, nil, fmt.Errorf("anthropic: %s[%d]: %w", path, i, err)
+		}
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(c.Value), &obj); err != nil {
 			return nil, nil, err
@@ -725,7 +746,13 @@ func encodeRequestCitations(cites []ir.TextCitation, path string) (json.RawMessa
 
 func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
 	var items []json.RawMessage
-	for _, c := range cites {
+	for i, c := range cites {
+		if c.Source != "anthropic" {
+			return nil, fmt.Errorf("anthropic: citations[%d]: unknown citation source %q", i, c.Source)
+		}
+		if err := ir.ValidateCitationValue(c.Value); err != nil {
+			return nil, fmt.Errorf("anthropic: citations[%d]: %w", i, err)
+		}
 		items = append(items, json.RawMessage(c.Value))
 	}
 	return json.Marshal(items)

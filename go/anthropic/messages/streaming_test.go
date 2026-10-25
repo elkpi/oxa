@@ -234,7 +234,7 @@ func TestStreamDecoderRequiresSkippedBlockStop(t *testing.T) {
 	d := NewStreamDecoder()
 	for _, ev := range []*StreamEvent{
 		eventMessageStart("msg_open_skip", "claude-3"),
-		eventBlockStart(0, "redacted_thinking"),
+		eventBlockStart(0, "server_tool_use"),
 	} {
 		if _, err := d.Feed(ev); err != nil {
 			t.Fatalf("Feed(%s): %v", ev.Type, err)

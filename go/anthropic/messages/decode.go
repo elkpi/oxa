@@ -458,7 +458,7 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 	case BlockTypeThinking:
 		block = ir.ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature}
 	case BlockTypeRedactedThinking:
-		if !w.hasData && w.Data == "" {
+		if !w.hasData {
 			return nil, nil, false, fmt.Errorf("anthropic: %s.data is required", path)
 		}
 		block = ir.RedactedThinkingBlock{Data: w.Data}

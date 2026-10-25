@@ -236,7 +236,7 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			if c.Source != "anthropic" {
 				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
 			}
-			if err := validateCitationValue(c.Value); err != nil {
+			if err := ValidateCitationValue(c.Value); err != nil {
 				return nil, err
 			}
 			cites = append(cites, TextCitation(c))
@@ -550,7 +550,7 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			if c.Source != "anthropic" {
 				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
 			}
-			if err := validateCitationValue(c.Value); err != nil {
+			if err := ValidateCitationValue(c.Value); err != nil {
 				return nil, err
 			}
 			cites = append(cites, TextCitation(c))
@@ -996,7 +996,7 @@ type wireSignatureDelta struct {
 	Signature string `json:"signature"`
 }
 
-func validateCitationValue(val string) error {
+func ValidateCitationValue(val string) error {
 	if val == "" {
 		return fmt.Errorf("ir: citation value cannot be empty")
 	}
@@ -1152,7 +1152,7 @@ func MarshalDelta(d Delta) (json.RawMessage, error) {
 		if v.Citation.Source != "anthropic" {
 			return nil, fmt.Errorf("ir: unknown citation source %q", v.Citation.Source)
 		}
-		if err := validateCitationValue(v.Citation.Value); err != nil {
+		if err := ValidateCitationValue(v.Citation.Value); err != nil {
 			return nil, err
 		}
 		return json.Marshal(struct {
@@ -1219,7 +1219,7 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 		if w.Citation.Source != "anthropic" {
 			return nil, fmt.Errorf("ir: unknown citation source %q", w.Citation.Source)
 		}
-		if err := validateCitationValue(w.Citation.Value); err != nil {
+		if err := ValidateCitationValue(w.Citation.Value); err != nil {
 			return nil, err
 		}
 		return CitationDelta{Citation: TextCitation{Source: w.Citation.Source, Value: w.Citation.Value}}, nil

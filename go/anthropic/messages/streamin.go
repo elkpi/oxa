@@ -134,6 +134,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ThinkingBlock{Thinking: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}}}, nil
 		}
 		if ev.ContentBlock.Type == BlockTypeRedactedThinking {
+			if !ev.ContentBlock.hasData {
+				return nil, fmt.Errorf("anthropic: content_block_start[%d].content_block.data is required", ev.Index)
+			}
 			d.nextIndex++
 			d.blockOpen = true
 			d.openTool = false
@@ -163,7 +166,17 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.openIndex = ev.Index
 		d.openIRIndex = d.nextIRIndex
 		d.nextIRIndex++
-		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text}}}, nil
+		var cites []ir.TextCitation
+		if len(ev.ContentBlock.Citations) > 0 {
+			var citeLosses []ir.Loss
+			var err error
+			cites, citeLosses, err = decodeTextCitations(ev.ContentBlock.Citations, fmt.Sprintf("content_block_start[%d].content_block.citations", ev.Index), false)
+			if err != nil {
+				return nil, err
+			}
+			d.losses = append(d.losses, citeLosses...)
+		}
+		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text, Citations: cites}}}, nil
 	case EventTypeContentBlockDelta:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_delta before message_start")

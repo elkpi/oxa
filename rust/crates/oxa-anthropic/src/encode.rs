@@ -252,7 +252,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     let shorthand = req.system.is_empty()
         && req.messages.len() == 1
         && req.messages[0].content.len() == 1
-        && matches!(&req.messages[0].content[0], Block::Text { native, citations, .. } if native.is_empty() && citations.as_ref().map_or(true, |c| c.is_empty()));
+        && matches!(&req.messages[0].content[0], Block::Text { native, citations, .. } if native.is_empty() && citations.as_ref().is_none_or(|c| c.is_empty()));
     for (index, message) in req.messages.iter().enumerate() {
         if message.role == oxa_ir::Role::User {
             for (j, b) in message.content.iter().enumerate() {

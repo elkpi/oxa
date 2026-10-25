@@ -131,7 +131,7 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 	case TextBlock:
 		var cites []wireTextCitation
 		for _, c := range v.Citations {
-			cites = append(cites, wireTextCitation{Source: c.Source, Value: c.Value})
+			cites = append(cites, wireTextCitation(c))
 		}
 		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text, Citations: cites})
 	case ThinkingBlock:
@@ -239,7 +239,7 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			if err := validateCitationValue(c.Value); err != nil {
 				return nil, err
 			}
-			cites = append(cites, TextCitation{Source: c.Source, Value: c.Value})
+			cites = append(cites, TextCitation(c))
 		}
 		return TextBlock{Text: w.Text, Citations: cites}, nil
 	case BlockTypeThinking:
@@ -386,7 +386,7 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 	case TextBlock:
 		var cites []wireTextCitation
 		for _, c := range v.Citations {
-			cites = append(cites, wireTextCitation{Source: c.Source, Value: c.Value})
+			cites = append(cites, wireTextCitation(c))
 		}
 		return json.Marshal(struct {
 			Type      string             `json:"type"`
@@ -553,7 +553,7 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			if err := validateCitationValue(c.Value); err != nil {
 				return nil, err
 			}
-			cites = append(cites, TextCitation{Source: c.Source, Value: c.Value})
+			cites = append(cites, TextCitation(c))
 		}
 		return TextBlock{Text: w.Text, Citations: cites, Native: w.Native}, nil
 	case BlockTypeThinking:

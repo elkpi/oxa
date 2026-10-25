@@ -19,6 +19,7 @@ inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
 inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
+inline constexpr std::string_view BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
@@ -50,6 +51,7 @@ inline constexpr std::string_view DELTA_TYPE_TEXT_DELTA = "text_delta";
 inline constexpr std::string_view DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delta";
 inline constexpr std::string_view DELTA_TYPE_THINKING_DELTA = "thinking_delta";
 inline constexpr std::string_view DELTA_TYPE_SIGNATURE_DELTA = "signature_delta";
+inline constexpr std::string_view DELTA_TYPE_CITATIONS = "citations_delta";
 
 inline constexpr std::string_view TYPE_MESSAGE = "message";
 
@@ -96,6 +98,7 @@ private:
     std::set<std::int64_t> skipped_;
     bool open_tool_ = false;
     bool open_thinking_ = false;
+    bool open_redacted_ = false;
     bool thinking_signature_seen_ = false;
     std::int64_t open_index_ = 0;
     std::int64_t open_ir_index_ = 0;
@@ -131,6 +134,7 @@ private:
     bool open_tool_ = false;
     bool open_thinking_ = false;
     bool open_custom_ = false;
+    bool open_redacted_ = false;
     bool tool_seen_ = false;
     std::string thinking_input_;
     std::optional<std::string> thinking_signature_;

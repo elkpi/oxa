@@ -11,11 +11,11 @@ use crate::normalize::{
     require_json_object, unsupported_block_loss,
 };
 use crate::types::{
-    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING,
-    BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, Message, ROLE_ASSISTANT,
-    ROLE_USER, Request, Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_FILE, SOURCE_TYPE_URL,
-    STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL, STOP_REASON_STOP_SEQUENCE,
-    STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE, ToolWire, UsageWire,
+    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_REDACTED_THINKING, BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue,
+    Message, ROLE_ASSISTANT, ROLE_USER, Request, Response, SOURCE_TYPE_BASE64, SOURCE_TYPE_FILE,
+    SOURCE_TYPE_URL, STOP_REASON_END_TURN, STOP_REASON_MAX_TOKENS, STOP_REASON_REFUSAL,
+    STOP_REASON_STOP_SEQUENCE, STOP_REASON_TOOL_USE, SourceWire, TYPE_MESSAGE, ToolWire, UsageWire,
 };
 
 /// Applied when an IR request carries no `params.max_tokens` and the
@@ -252,8 +252,24 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     let shorthand = req.system.is_empty()
         && req.messages.len() == 1
         && req.messages[0].content.len() == 1
-        && matches!(&req.messages[0].content[0], Block::Text { native, .. } if native.is_empty());
+        && matches!(&req.messages[0].content[0], Block::Text { native, citations, .. } if native.is_empty() && citations.as_ref().is_none_or(|c| c.is_empty()));
     for (index, message) in req.messages.iter().enumerate() {
+        if message.role == oxa_ir::Role::User {
+            for (j, b) in message.content.iter().enumerate() {
+                if matches!(b, Block::RedactedThinking { .. }) {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}]: redacted_thinking is not permitted in user messages"
+                    )));
+                }
+                if let Block::Text { citations, .. } = b
+                    && citations.as_ref().is_some_and(|c| !c.is_empty())
+                {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}].citations: citations are not permitted on user text blocks"
+                    )));
+                }
+            }
+        }
         let role = match message.role {
             oxa_ir::Role::User => ROLE_USER,
             oxa_ir::Role::Assistant => ROLE_ASSISTANT,
@@ -315,9 +331,57 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             ));
         }
     }
-    let nat_losses = crate::native::encode_request_native(req, &mut out);
+    let nat_losses = crate::native::encode_request_native(req, &mut out)?;
     losses.extend(nat_losses);
     Ok((out, losses))
+}
+
+fn encode_request_citations(
+    cites: &[oxa_ir::TextCitation],
+    path: &str,
+) -> Result<(Option<serde_json::Value>, Vec<Loss>), Error> {
+    let mut losses = Vec::new();
+    let mut items = Vec::new();
+    for (i, c) in cites.iter().enumerate() {
+        if c.source != "anthropic" {
+            return Err(Error::new(format!(
+                "anthropic: {path}[{i}]: unknown citation source {:?}",
+                c.source
+            )));
+        }
+        let mut obj: serde_json::Map<String, serde_json::Value> =
+            serde_json::from_str(&c.value).map_err(|e| Error::new(e.to_string()))?;
+        if let Some(fid) = obj.remove("file_id")
+            && !fid.is_null()
+        {
+            losses.push(Loss {
+                path: format!("{path}[{i}].file_id"),
+                field: "file_id".to_string(),
+                reason: LossReason::UnmappedField,
+                detail: "response citation file_id has no request-side representation".to_string(),
+            });
+        }
+        items.push(serde_json::Value::Object(obj));
+    }
+    Ok((Some(serde_json::Value::Array(items)), losses))
+}
+
+pub(crate) fn encode_response_citations(
+    cites: &[oxa_ir::TextCitation],
+) -> Result<serde_json::Value, Error> {
+    let mut items = Vec::new();
+    for (i, c) in cites.iter().enumerate() {
+        if c.source != "anthropic" {
+            return Err(Error::new(format!(
+                "anthropic: citations[{i}]: unknown citation source {:?}",
+                c.source
+            )));
+        }
+        let val: serde_json::Value =
+            serde_json::from_str(&c.value).map_err(|e| Error::new(e.to_string()))?;
+        items.push(val);
+    }
+    Ok(serde_json::Value::Array(items))
 }
 
 fn encode_request_blocks(
@@ -333,6 +397,7 @@ fn encode_request_blocks(
             let native = match block {
                 Block::Text { native, .. }
                 | Block::Thinking { native, .. }
+                | Block::RedactedThinking { native, .. }
                 | Block::Image { native, .. }
                 | Block::Document { native, .. }
                 | Block::ToolUse { native, .. }
@@ -355,10 +420,29 @@ fn encode_request_blocks(
 /// Returns (wire block, losses, mapped).
 fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
     match block {
-        Block::Text { text, .. } => Ok((
+        Block::Text {
+            text, citations, ..
+        } => {
+            let (wire_cites, cite_losses) = if let Some(cites) = citations {
+                encode_request_citations(cites, &format!("{path}.citations"))?
+            } else {
+                (None, Vec::new())
+            };
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    text: text.clone(),
+                    citations: wire_cites,
+                    ..BlockWire::default()
+                },
+                cite_losses,
+                true,
+            ))
+        }
+        Block::RedactedThinking { data, .. } => Ok((
             BlockWire {
-                kind: BLOCK_TYPE_TEXT.to_string(),
-                text: text.clone(),
+                kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
+                data: Some(data.clone()),
                 ..BlockWire::default()
             },
             Vec::new(),
@@ -739,12 +823,28 @@ fn encode_tool_result_block(
     for (index, inner) in content.iter().enumerate() {
         let content_path = format!("{path}.content[{index}]");
         match inner {
-            Block::Text { text, native } => wire_content.push(BlockWire {
-                kind: BLOCK_TYPE_TEXT.to_string(),
-                cache_control: crate::native::get_block_cache_control(native),
-                text: text.clone(),
-                ..BlockWire::default()
-            }),
+            Block::RedactedThinking { .. } => {
+                return Err(Error::new(format!(
+                    "anthropic: {content_path}: redacted_thinking is not permitted in tool_result"
+                )));
+            }
+            Block::Text {
+                text,
+                native,
+                citations,
+            } => {
+                if citations.as_ref().is_some_and(|c| !c.is_empty()) {
+                    return Err(Error::new(format!(
+                        "anthropic: {content_path}.citations: citations are not permitted in tool_result"
+                    )));
+                }
+                wire_content.push(BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    cache_control: crate::native::get_block_cache_control(native),
+                    text: text.clone(),
+                    ..BlockWire::default()
+                })
+            }
             Block::Image {
                 media_type,
                 data,
@@ -885,10 +985,28 @@ pub(crate) fn encode_stop_reason(
 /// Returns (wire block, losses, mapped).
 fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
     match block {
-        Block::Text { text, .. } => Ok((
+        Block::Text {
+            text, citations, ..
+        } => {
+            let wire_cites = citations
+                .as_ref()
+                .map(|cites| encode_response_citations(cites))
+                .transpose()?;
+            Ok((
+                BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    text: text.clone(),
+                    citations: wire_cites,
+                    ..BlockWire::default()
+                },
+                Vec::new(),
+                true,
+            ))
+        }
+        Block::RedactedThinking { data, .. } => Ok((
             BlockWire {
-                kind: BLOCK_TYPE_TEXT.to_string(),
-                text: text.clone(),
+                kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
+                data: Some(data.clone()),
                 ..BlockWire::default()
             },
             Vec::new(),

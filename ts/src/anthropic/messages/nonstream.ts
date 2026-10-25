@@ -15,7 +15,11 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { parseUsageInteger, validateRequest } from "../../ir/index.js";
+import {
+  parseUsageInteger,
+  validateCitationValue,
+  validateRequest,
+} from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
 import {
@@ -48,6 +52,9 @@ import type {
   Request,
   Response,
   TextBlock,
+  TextCitation,
+  ThinkingBlock,
+  RedactedThinkingBlock,
   Tool,
   ToolChoice,
 } from "../../ir/index.js";
@@ -353,6 +360,24 @@ function decodeRequestObject(
       true,
     );
     if (content.length === 0) content.push({ type: "text", text: "" });
+    if (normalizedRole === "user") {
+      content.forEach((b, bIdx) => {
+        if (b.type === "redacted_thinking") {
+          fail(
+            `messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`,
+          );
+        }
+        if (
+          b.type === "text" &&
+          (b as TextBlock).citations &&
+          ((b as TextBlock).citations?.length ?? 0) > 0
+        ) {
+          fail(
+            `messages[${index}].content[${bIdx}].citations: citations are not permitted on user text blocks`,
+          );
+        }
+      });
+    }
     messages.push({ role: normalizedRole, content });
   }
   const params = {
@@ -492,8 +517,23 @@ export function encodeRequest(
     request.messages.length === 1 &&
     request.messages[0]!.content.length === 1 &&
     firstBlock?.type === "text" &&
+    (firstBlock.citations === undefined || firstBlock.citations.length === 0) &&
     (firstBlock.native === undefined || firstBlock.native.length === 0);
   const messages = request.messages.map((message, index) => {
+    if (message.role === "user") {
+      message.content.forEach((b, bIdx) => {
+        if (b.type === "redacted_thinking") {
+          fail(
+            `messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`,
+          );
+        }
+        if (b.type === "text" && b.citations && b.citations.length > 0) {
+          fail(
+            `messages[${index}].content[${bIdx}].citations: citations are not permitted on user text blocks`,
+          );
+        }
+      });
+    }
     const encoded = shorthand
       ? (message.content[0] as { readonly text: string }).text
       : encodeContent(
@@ -762,9 +802,28 @@ function decodeContent(
       ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
       : undefined;
     if (type === "text") {
+      let cites: TextCitation[] | undefined;
+      if (block.citations !== undefined) {
+        cites = decodeAnthropicTextCitations(
+          block.citations,
+          `${path}[${index}].citations`,
+          losses,
+          isRequest,
+        );
+      }
       blocks.push({
         type: "text",
         text: string(block.text, `${path}[${index}].text`),
+        ...(cites && cites.length > 0 ? { citations: cites } : {}),
+        ...(native ? { native } : {}),
+      });
+    } else if (type === "redacted_thinking") {
+      if (block.data === undefined || typeof block.data !== "string") {
+        fail(`${path}[${index}].data is required`);
+      }
+      blocks.push({
+        type: "redacted_thinking",
+        data: block.data,
         ...(native ? { native } : {}),
       });
     } else if (type === "image") {
@@ -969,39 +1028,78 @@ function decodeContent(
         `${path}[${index}].tool_use_id`,
       );
       if (customCallIds?.has(toolUseId)) {
+        const decoded =
+          typeof block.content === "string"
+            ? block.content
+            : decodeContent(
+                block.content,
+                `${path}[${index}].content`,
+                losses,
+                customTools,
+                customCallIds,
+                declaredTools,
+                isRequest,
+              );
+        if (Array.isArray(decoded)) {
+          decoded.forEach((cb, cIdx) => {
+            if (cb.type === "redacted_thinking") {
+              fail(
+                `${path}[${index}].content[${cIdx}]: redacted_thinking is not permitted in tool_result`,
+              );
+            }
+            if (
+              cb.type === "text" &&
+              (cb as TextBlock).citations &&
+              ((cb as TextBlock).citations?.length ?? 0) > 0
+            ) {
+              fail(
+                `${path}[${index}].content[${cIdx}].citations: citations are not permitted in tool_result`,
+              );
+            }
+          });
+        }
         blocks.push({
           type: "custom_tool_result",
           tool_use_id: toolUseId,
           output:
-            typeof block.content === "string"
-              ? block.content
-              : (decodeContent(
-                  block.content,
-                  `${path}[${index}].content`,
-                  losses,
-                  customTools,
-                  customCallIds,
-                  declaredTools,
-                  isRequest,
-                ).filter(
+            typeof decoded === "string"
+              ? decoded
+              : (decoded.filter(
                   (b): b is TextBlock | ImageBlock =>
                     b.type === "text" || b.type === "image",
                 ) as readonly (TextBlock | ImageBlock)[]),
           ...(native ? { native } : {}),
         });
       } else {
+        const decoded = decodeContent(
+          block.content,
+          `${path}[${index}].content`,
+          losses,
+          customTools,
+          customCallIds,
+          declaredTools,
+          isRequest,
+        );
+        decoded.forEach((cb, cIdx) => {
+          if (cb.type === "redacted_thinking") {
+            fail(
+              `${path}[${index}].content[${cIdx}]: redacted_thinking is not permitted in tool_result`,
+            );
+          }
+          if (
+            cb.type === "text" &&
+            (cb as TextBlock).citations &&
+            ((cb as TextBlock).citations?.length ?? 0) > 0
+          ) {
+            fail(
+              `${path}[${index}].content[${cIdx}].citations: citations are not permitted in tool_result`,
+            );
+          }
+        });
         blocks.push({
           type: "tool_result",
           tool_use_id: toolUseId,
-          content: decodeContent(
-            block.content,
-            `${path}[${index}].content`,
-            losses,
-            customTools,
-            customCallIds,
-            declaredTools,
-            isRequest,
-          ),
+          content: decoded,
           ...(block.is_error === undefined
             ? {}
             : {
@@ -1029,13 +1127,59 @@ function encodeContent(
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
     const cc = getBlockCacheControl(block);
-    if (block.type === "text")
+    if (block.type === "text") {
+      let rawCitations: JsonValue[] | undefined;
+      if (block.citations && block.citations.length > 0) {
+        if (isRequest) {
+          rawCitations = block.citations.map((c, cIdx) => {
+            if (c.source !== "anthropic") {
+              throw new OxaError(
+                "invalid-input",
+                `unknown citation source: ${c.source}`,
+              );
+            }
+            validateCitationValue(c.value);
+            const parsed = { ...(parseJson(c.value) as JsonObject) };
+            if (parsed.file_id !== undefined && parsed.file_id !== null) {
+              losses.push({
+                path: `${path}[${index}].citations[${cIdx}].file_id`,
+                field: "file_id",
+                reason: "unmapped-field",
+                detail:
+                  "response citation file_id has no request-side representation",
+              });
+            }
+            delete (parsed as Record<string, JsonValue>).file_id;
+            return parsed;
+          });
+        } else {
+          rawCitations = block.citations.map((c) => {
+            if (c.source !== "anthropic") {
+              throw new OxaError(
+                "invalid-input",
+                `unknown citation source: ${c.source}`,
+              );
+            }
+            validateCitationValue(c.value);
+            return parseJson(c.value);
+          });
+        }
+      }
       output.push({
         type: "text",
         text: block.text,
+        ...(rawCitations && rawCitations.length > 0
+          ? { citations: rawCitations }
+          : {}),
         ...(cc ? { cache_control: cc } : {}),
       });
-    else if (block.type === "thinking") {
+    } else if (block.type === "redacted_thinking") {
+      output.push({
+        type: "redacted_thinking",
+        data: block.data,
+        ...(cc ? { cache_control: cc } : {}),
+      });
+    } else if (block.type === "thinking") {
       output.push({
         type: "thinking",
         thinking: block.thinking,
@@ -1082,13 +1226,23 @@ function encodeContent(
       for (let child = 0; child < block.content.length; child += 1) {
         const nested = block.content[child]!;
         const nestedCc = getBlockCacheControl(nested);
-        if (nested.type === "text")
+        if (nested.type === "redacted_thinking") {
+          fail(
+            `${path}[${index}].content[${child}]: redacted_thinking is not permitted in tool_result`,
+          );
+        }
+        if (nested.type === "text") {
+          if (nested.citations && nested.citations.length > 0) {
+            fail(
+              `${path}[${index}].content[${child}].citations: citations are not permitted in tool_result`,
+            );
+          }
           content.push({
             type: "text",
             text: nested.text,
             ...(nestedCc ? { cache_control: nestedCc } : {}),
           });
-        else if (nested.type === "image") {
+        } else if (nested.type === "image") {
           const image = encodeImage(nested);
           if (image === undefined)
             losses.push(
@@ -1257,15 +1411,17 @@ function decodeToolChoice(
 ): ToolChoice | undefined {
   if (value === undefined || value === null) return undefined;
   const choice = object(value, "tool_choice");
-  if (choice.disable_parallel_tool_use !== undefined)
-    losses.push(
-      loss(
-        "tool_choice.disable_parallel_tool_use",
-        "disable_parallel_tool_use",
-        "unmapped-field",
-      ),
-    );
   const type = string(choice.type, "tool_choice.type");
+  if (choice.disable_parallel_tool_use !== undefined) {
+    if (typeof choice.disable_parallel_tool_use !== "boolean") {
+      fail("tool_choice.disable_parallel_tool_use must be a boolean");
+    }
+    if (type === "none") {
+      fail(
+        "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
+      );
+    }
+  }
   if (type === "auto" || type === "any" || type === "none")
     return { mode: type };
   if (type === "tool") {
@@ -1383,4 +1539,234 @@ function objectOrThrow(value: JsonValue, name: string): JsonObject {
   )
     fail(`${name} must be an object`);
   return value as JsonObject;
+}
+
+export function decodeAnthropicTextCitations(
+  value: JsonValue | undefined,
+  path: string,
+  losses: Loss[],
+  isRequest: boolean,
+): TextCitation[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!Array.isArray(value)) {
+    fail(`${path} must be an array`);
+  }
+  if (value.length === 0) return undefined;
+  const cites: TextCitation[] = [];
+  for (let i = 0; i < value.length; i++) {
+    const itemPath = `${path}[${i}]`;
+    const obj = object(value[i], itemPath);
+    const rawType = obj.type;
+    if (rawType === undefined || rawType === null) {
+      fail(`${itemPath}.type is required`);
+    }
+    if (typeof rawType !== "string") {
+      fail(`${itemPath}.type must be a string`);
+    }
+
+    const cleanObj: Record<string, any> = { type: rawType };
+    switch (rawType) {
+      case "char_location": {
+        const text = string(obj.cited_text, `${itemPath}.cited_text`);
+        const docIdx = integerNumber(
+          obj.document_index,
+          `${itemPath}.document_index`,
+        );
+        if (docIdx < 0) fail(`${itemPath}.document_index must be non-negative`);
+        const title = nullableString(
+          obj.document_title,
+          `${itemPath}.document_title`,
+        );
+        const start = integerNumber(
+          obj.start_char_index,
+          `${itemPath}.start_char_index`,
+        );
+        if (start < 0)
+          fail(`${itemPath}.start_char_index must be non-negative`);
+        const end = integerNumber(
+          obj.end_char_index,
+          `${itemPath}.end_char_index`,
+        );
+        if (end <= start)
+          fail(
+            `${itemPath}.end_char_index must be greater than start_char_index`,
+          );
+        let fid: string | null | undefined;
+        if (obj.file_id !== undefined) {
+          fid = nullableString(obj.file_id, `${itemPath}.file_id`);
+        }
+        cleanObj.cited_text = text;
+        cleanObj.document_index = docIdx;
+        cleanObj.document_title = title;
+        cleanObj.start_char_index = start;
+        cleanObj.end_char_index = end;
+        if (fid !== undefined) cleanObj.file_id = fid;
+        break;
+      }
+      case "page_location": {
+        const text = string(obj.cited_text, `${itemPath}.cited_text`);
+        const docIdx = integerNumber(
+          obj.document_index,
+          `${itemPath}.document_index`,
+        );
+        if (docIdx < 0) fail(`${itemPath}.document_index must be non-negative`);
+        const title = nullableString(
+          obj.document_title,
+          `${itemPath}.document_title`,
+        );
+        const start = integerNumber(
+          obj.start_page_number,
+          `${itemPath}.start_page_number`,
+        );
+        if (start < 1) fail(`${itemPath}.start_page_number must be at least 1`);
+        const end = integerNumber(
+          obj.end_page_number,
+          `${itemPath}.end_page_number`,
+        );
+        if (end < start)
+          fail(`${itemPath}.end_page_number must be >= start_page_number`);
+        let fid: string | null | undefined;
+        if (obj.file_id !== undefined) {
+          fid = nullableString(obj.file_id, `${itemPath}.file_id`);
+        }
+        cleanObj.cited_text = text;
+        cleanObj.document_index = docIdx;
+        cleanObj.document_title = title;
+        cleanObj.start_page_number = start;
+        cleanObj.end_page_number = end;
+        if (fid !== undefined) cleanObj.file_id = fid;
+        break;
+      }
+      case "content_block_location": {
+        const text = string(obj.cited_text, `${itemPath}.cited_text`);
+        const docIdx = integerNumber(
+          obj.document_index,
+          `${itemPath}.document_index`,
+        );
+        if (docIdx < 0) fail(`${itemPath}.document_index must be non-negative`);
+        const title = nullableString(
+          obj.document_title,
+          `${itemPath}.document_title`,
+        );
+        const start = integerNumber(
+          obj.start_block_index,
+          `${itemPath}.start_block_index`,
+        );
+        if (start < 0)
+          fail(`${itemPath}.start_block_index must be non-negative`);
+        const end = integerNumber(
+          obj.end_block_index,
+          `${itemPath}.end_block_index`,
+        );
+        if (end <= start)
+          fail(
+            `${itemPath}.end_block_index must be greater than start_block_index`,
+          );
+        let fid: string | null | undefined;
+        if (obj.file_id !== undefined) {
+          fid = nullableString(obj.file_id, `${itemPath}.file_id`);
+        }
+        cleanObj.cited_text = text;
+        cleanObj.document_index = docIdx;
+        cleanObj.document_title = title;
+        cleanObj.start_block_index = start;
+        cleanObj.end_block_index = end;
+        if (fid !== undefined) cleanObj.file_id = fid;
+        break;
+      }
+      case "web_search_result_location": {
+        cleanObj.cited_text = string(obj.cited_text, `${itemPath}.cited_text`);
+        cleanObj.encrypted_index = string(
+          obj.encrypted_index,
+          `${itemPath}.encrypted_index`,
+        );
+        cleanObj.title = nullableString(obj.title, `${itemPath}.title`);
+        cleanObj.url = string(obj.url, `${itemPath}.url`);
+        break;
+      }
+      case "search_result_location": {
+        cleanObj.cited_text = string(obj.cited_text, `${itemPath}.cited_text`);
+        const sIdx = integerNumber(
+          obj.search_result_index,
+          `${itemPath}.search_result_index`,
+        );
+        if (sIdx < 0)
+          fail(`${itemPath}.search_result_index must be non-negative`);
+        cleanObj.search_result_index = sIdx;
+        cleanObj.source = string(obj.source, `${itemPath}.source`);
+        cleanObj.title = nullableString(obj.title, `${itemPath}.title`);
+        const start = integerNumber(
+          obj.start_block_index,
+          `${itemPath}.start_block_index`,
+        );
+        if (start < 0)
+          fail(`${itemPath}.start_block_index must be non-negative`);
+        const end = integerNumber(
+          obj.end_block_index,
+          `${itemPath}.end_block_index`,
+        );
+        if (end <= start)
+          fail(
+            `${itemPath}.end_block_index must be greater than start_block_index`,
+          );
+        cleanObj.start_block_index = start;
+        cleanObj.end_block_index = end;
+        break;
+      }
+      default:
+        losses.push({
+          path: itemPath,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail: `unsupported citation type "${rawType}"`,
+        });
+        continue;
+    }
+
+    const extraKeys = Object.keys(obj)
+      .filter((k) => !(k in cleanObj))
+      .sort();
+    for (const k of extraKeys) {
+      losses.push({
+        path: `${itemPath}.${k}`,
+        field: k,
+        reason: "unmapped-field",
+      });
+    }
+
+    const sortedKeys = Object.keys(cleanObj).sort();
+    const sortedObj: Record<string, any> = {};
+    for (const k of sortedKeys) {
+      sortedObj[k] = cleanObj[k];
+    }
+
+    cites.push({
+      source: "anthropic",
+      value: JSON.stringify(sortedObj),
+    });
+  }
+  return cites.length > 0 ? cites : undefined;
+}
+
+function nullableString(
+  value: JsonValue | undefined,
+  path: string,
+): string | null {
+  if (value === undefined) fail(`${path} is required`);
+  if (value === null) return null;
+  if (typeof value !== "string") fail(`${path} must be a string or null`);
+  return value;
+}
+
+function integerNumber(value: JsonValue | undefined, path: string): number {
+  if (value === undefined || value === null) fail(`${path} is required`);
+  if (typeof value === "number") {
+    if (!Number.isInteger(value)) fail(`${path} must be an integer`);
+    return value;
+  }
+  if (isJsonNumber(value)) {
+    if (!value.isInteger) fail(`${path} must be an integer`);
+    return Number(value.token);
+  }
+  fail(`${path} must be an integer`);
 }

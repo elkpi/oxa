@@ -26,11 +26,13 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    RedactedThinkingBlock,
     SignatureDelta,
     TextBlock,
     TextDelta,
     ThinkingBlock,
     ThinkingDelta,
+    CitationDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -94,6 +96,7 @@ class _StreamEncodeBlock:
     fragments: list[str] = field(default_factory=list)
     signature: str = ""
     signature_seen: bool = False
+    citation_loss_seen: bool = False
 
 
 def _stream_generated_item_id(prefix: str, ordinal: int) -> str:
@@ -123,6 +126,7 @@ class StreamEncoder:
         "_active_apply_patch_call",
         "_active_apply_patch_result",
         "_completed",
+        "_event_ordinal",
     )
 
     def __init__(self, table: Table | None = None) -> None:
@@ -145,11 +149,15 @@ class StreamEncoder:
         self._active_apply_patch_call: ApplyPatchToolUseBlock | None = None
         self._active_apply_patch_result: ApplyPatchToolResultBlock | None = None
         self._completed: list[dict[str, Any]] = []
+        self._event_ordinal = 0
 
     def apply(self, ev: Event) -> tuple[list[dict[str, Any]], list[Loss]]:
         """Pushes one IR event and returns the emitted wire events and losses."""
         if self._done or (self._delta and not isinstance(ev, MessageDone)):
             raise ValueError("responses: event applied after stream termination")
+
+        ordinal = self._event_ordinal
+        self._event_ordinal += 1
 
         if isinstance(ev, MessageStart):
             if self._started:
@@ -179,7 +187,17 @@ class StreamEncoder:
                 )
             self._next_block_index += 1
             if isinstance(ev.block, TextBlock):
-                return self._start_text_block(ev.index, ev.block.text)
+                return self._start_text_block(ev.index, ev.block.text, ordinal, ev.block.citations)
+            if isinstance(ev.block, RedactedThinkingBlock):
+                self._active_block = _StreamEncodeBlock(index=ev.index, kind="redacted", content_index=0)
+                return [], [
+                    loss(
+                        f"events[{ordinal}].block",
+                        "type",
+                        "unsupported-semantic",
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                    )
+                ]
             if isinstance(ev.block, ThinkingBlock):
                 return self._start_thinking_block(ev.index, ev.block)
             if isinstance(ev.block, ApplyPatchToolUseBlock):
@@ -201,7 +219,22 @@ class StreamEncoder:
             if self._active_block.kind in ("apply_patch_call", "apply_patch_call_output"):
                 raise ValueError("responses: apply patch item does not accept deltas")
 
+            if self._active_block.kind == "redacted":
+                raise ValueError("responses: RedactedThinkingBlock received unexpected delta")
+
             if self._active_block.kind == "message":
+                if isinstance(ev.delta, CitationDelta):
+                    if not self._active_block.citation_loss_seen:
+                        self._active_block.citation_loss_seen = True
+                        return [], [
+                            loss(
+                                f"events[{ordinal}].delta.citation",
+                                "citations",
+                                "unsupported-semantic",
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                            )
+                        ]
+                    return [], []
                 if not isinstance(ev.delta, TextDelta):
                     raise ValueError("responses: TextBlock received non-text delta")
                 self._active_block.text += ev.delta.text
@@ -253,6 +286,9 @@ class StreamEncoder:
         if isinstance(ev, ContentBlockStop):
             if self._active_block is None or ev.index != self._active_block.index:
                 raise ValueError("responses: ContentBlockStop out of grammar order")
+            if self._active_block.kind == "redacted":
+                self._active_block = None
+                return [], []
             if self._active_block.kind == "message":
                 return self._stop_text_block()
             if self._active_block.kind == "reasoning":
@@ -299,6 +335,8 @@ class StreamEncoder:
         self,
         index: int,
         text: str,
+        ordinal: int = 0,
+        citations: Any = None,
     ) -> tuple[list[dict[str, Any]], list[Loss]]:
         out: list[dict[str, Any]] = []
         if self._active_item is not None:
@@ -339,7 +377,18 @@ class StreamEncoder:
                 "part": dict(part),
             }
         )
-        return out, []
+        losses: list[Loss] = []
+        if citations:
+            self._active_block.citation_loss_seen = True
+            losses.append(
+                loss(
+                    f"events[{ordinal}].block.citations",
+                    "citations",
+                    "unsupported-semantic",
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                )
+            )
+        return out, losses
 
     def _start_thinking_block(
         self,

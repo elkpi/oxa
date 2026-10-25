@@ -48,12 +48,14 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             content: vec![
                 Block::Text {
                     text: "Use the tool result.".to_string(),
+                    citations: None,
                     native: Vec::new(),
                 },
                 Block::ToolResult {
                     tool_use_id: "call_1".to_string(),
                     content: vec![Block::Text {
                         text: "Sunny".to_string(),
+                        citations: None,
                         native: Vec::new(),
                     }],
                     is_error: None,
@@ -301,6 +303,7 @@ fn encodes_reasoning_summary_and_usage_details() {
             },
             Block::Text {
                 text: "Answer.".to_string(),
+                citations: None,
                 native: Vec::new(),
             },
         ],
@@ -377,6 +380,7 @@ fn encodes_refusal_with_the_required_empty_error_message() {
         model: "gpt-4o-mini".to_string(),
         content: vec![Block::Text {
             text: "I cannot help with that.".to_string(),
+            citations: None,
             native: Vec::new(),
         }],
         stop_reason: StopReason::Refusal,

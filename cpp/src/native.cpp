@@ -45,8 +45,22 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                     return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
                 }
                 std::string s = parsed->is_string() ? parsed->as_string() : "";
-                if (s != "adaptive" && s != "enabled" && s != "disabled") {
+                if (s != "adaptive" && s != "enabled" && s != "disabled" && s != "between_tools") {
                     return invalid_argument("invalid thinking_mode \"" + s + "\"");
+                }
+            } else if (ann.kind == NATIVE_KIND_TOP_K) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_int() || parsed->as_int() < 0 || parsed->as_int() > 9007199254740991LL) {
+                    return invalid_argument("invalid top_k " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_bool()) {
+                    return invalid_argument("invalid disable_parallel_tool_use " + ann.value);
                 }
             } else if (ann.kind == NATIVE_KIND_THINKING_BUDGET) {
                 if (host != HostType::Request) {
@@ -193,6 +207,9 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ThinkingBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const RedactedThinkingBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ImageBlock& b) const {
@@ -442,6 +459,22 @@ void append_omission_loss(std::vector<Loss>& losses,
         return;
     }
 
+    if (ann.kind == NATIVE_KIND_TOP_K) {
+        std::string field = (ann.omission.has_value() && !ann.omission->field.empty()) ? ann.omission->field : "top_k";
+        std::string reason = ann.omission.has_value() ? ann.omission->reason : std::string(LOSS_UNMAPPED_FIELD);
+        std::string detail = (ann.omission.has_value() && ann.omission->detail.has_value()) ? *ann.omission->detail : "";
+        losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+        std::string field = (ann.omission.has_value() && !ann.omission->field.empty()) ? ann.omission->field : "disable_parallel_tool_use";
+        std::string reason = ann.omission.has_value() ? ann.omission->reason : std::string(LOSS_UNMAPPED_FIELD);
+        std::string detail = (ann.omission.has_value() && ann.omission->detail.has_value()) ? *ann.omission->detail : "";
+        losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+        return;
+    }
+
     if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
         ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
         if (ann.omission.has_value()) {
@@ -492,6 +525,10 @@ struct BlockOmissionCollector {
         // N-AN-16: a document block crossing to a face without document
         // support is dropped as one whole-block loss; its annotations are
         // part of it and are not reported a second time.
+    }
+    void operator()(const RedactedThinkingBlock& /*b*/) const {
+        // Whole-block drop; annotations are part of it and are not reported
+        // a second time.
     }
     void operator()(const ToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
@@ -659,6 +696,29 @@ Status validate_native_request(const Request& req) {
 
     if (budget_proj > 0 && explicit_proj > 0) {
         return invalid_argument("ir: conflicting effort projections on request");
+    }
+
+    bool has_between_tools = false;
+    bool has_budget_or_display = false;
+    bool has_disable_parallel = false;
+    for (const auto& n : req.native) {
+        if (n.source == NATIVE_SOURCE_ANTHROPIC) {
+            if (n.kind == NATIVE_KIND_THINKING_MODE && n.value == "\"between_tools\"") {
+                has_between_tools = true;
+            } else if (n.kind == NATIVE_KIND_THINKING_BUDGET || n.kind == NATIVE_KIND_THINKING_DISPLAY) {
+                has_budget_or_display = true;
+            } else if (n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+                has_disable_parallel = true;
+            }
+        }
+    }
+    if (has_between_tools && has_budget_or_display) {
+        return invalid_argument("anthropic: cannot specify budget_tokens or display with thinking.type between_tools");
+    }
+    if (has_disable_parallel) {
+        if (!req.tool_choice.has_value() || req.tool_choice->mode == TOOL_CHOICE_NONE) {
+            return invalid_argument("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified");
+        }
     }
 
     for (std::size_t i = 0; i < req.system.size(); ++i) {

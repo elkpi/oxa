@@ -325,6 +325,7 @@ fn test_defer_loading_tool_native_option() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![],
             }],
         }],
@@ -368,6 +369,7 @@ fn test_defer_loading_tool_native_option() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![],
             }],
         }],
@@ -498,6 +500,7 @@ fn test_eager_input_streaming_32_tools_and_validation() {
             role: oxa_ir::Role::User,
             content: vec![oxa_ir::Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![],
             }],
         }],

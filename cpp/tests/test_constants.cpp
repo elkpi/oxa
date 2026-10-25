@@ -22,6 +22,7 @@ int main() {
 
     assert(oxa::ir::BLOCK_TYPE_TEXT == "text");
     assert(oxa::ir::BLOCK_TYPE_THINKING == "thinking");
+    assert(oxa::ir::BLOCK_TYPE_REDACTED_THINKING == "redacted_thinking");
     assert(oxa::ir::BLOCK_TYPE_IMAGE == "image");
     assert(oxa::ir::BLOCK_TYPE_TOOL_USE == "tool_use");
     assert(oxa::ir::BLOCK_TYPE_TOOL_RESULT == "tool_result");
@@ -49,6 +50,9 @@ int main() {
     assert(oxa::ir::DELTA_TYPE_INPUT_JSON_DELTA == "input_json_delta");
     assert(oxa::ir::DELTA_TYPE_THINKING_DELTA == "thinking_delta");
     assert(oxa::ir::DELTA_TYPE_SIGNATURE_DELTA == "signature_delta");
+    assert(oxa::ir::DELTA_TYPE_CITATION_DELTA == "citation_delta");
+    assert(oxa::ir::NATIVE_KIND_TOP_K == "top_k");
+    assert(oxa::ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE == "disable_parallel_tool_use");
 
     assert(oxa::ir::LOSS_UNMAPPED_FIELD == "unmapped-field");
     assert(oxa::ir::LOSS_UNMAPPED_VALUE == "unmapped-value");
@@ -114,6 +118,7 @@ int main() {
     assert(oxa::anthropic::messages::ROLE_USER == "user");
     assert(oxa::anthropic::messages::ROLE_ASSISTANT == "assistant");
     assert(oxa::anthropic::messages::BLOCK_TYPE_TEXT == "text");
+    assert(oxa::anthropic::messages::BLOCK_TYPE_REDACTED_THINKING == "redacted_thinking");
     assert(oxa::anthropic::messages::BLOCK_TYPE_IMAGE == "image");
     assert(oxa::anthropic::messages::BLOCK_TYPE_TOOL_USE == "tool_use");
     assert(oxa::anthropic::messages::BLOCK_TYPE_TOOL_RESULT == "tool_result");
@@ -136,6 +141,7 @@ int main() {
     assert(oxa::anthropic::messages::EVENT_TYPE_MESSAGE_STOP == "message_stop");
     assert(oxa::anthropic::messages::DELTA_TYPE_TEXT_DELTA == "text_delta");
     assert(oxa::anthropic::messages::DELTA_TYPE_INPUT_JSON_DELTA == "input_json_delta");
+    assert(oxa::anthropic::messages::DELTA_TYPE_CITATIONS == "citations_delta");
     assert(oxa::anthropic::messages::TYPE_MESSAGE == "message");
 
     std::cout << "All C++ constants verified successfully.\n";

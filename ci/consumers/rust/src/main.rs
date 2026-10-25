@@ -85,6 +85,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             role: oxa::ir::Role::User,
             content: vec![oxa::ir::Block::Text {
                 text: "hi".to_string(),
+                citations: None,
                 native: Vec::new(),
             }],
         }],

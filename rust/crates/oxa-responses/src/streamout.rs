@@ -27,6 +27,7 @@ use crate::types::{
 enum StreamOutputItemKind {
     Message,
     Reasoning,
+    Redacted,
     FunctionCall,
     CustomToolCall,
     ApplyPatchCall,
@@ -51,6 +52,7 @@ struct StreamEncodeBlock {
     text: String,
     tool_input: String,
     fragments: Vec<String>,
+    citation_loss_seen: bool,
 }
 
 /// Incrementally converts an IR event stream into OpenAI Responses streaming events.
@@ -74,6 +76,7 @@ pub struct StreamEncoder {
     active_apply_patch_call: Option<Block>,
     active_apply_patch_result: Option<Block>,
     completed: Vec<OutputItem>,
+    event_ordinal: usize,
 }
 
 impl StreamEncoder {
@@ -99,6 +102,7 @@ impl StreamEncoder {
             active_apply_patch_call: None,
             active_apply_patch_result: None,
             completed: Vec::new(),
+            event_ordinal: 0,
         }
     }
 
@@ -109,6 +113,9 @@ impl StreamEncoder {
                 "responses: event applied after stream termination",
             ));
         }
+
+        let ordinal = self.event_ordinal;
+        self.event_ordinal += 1;
 
         match ev {
             Event::MessageStart { id, model } => {
@@ -148,12 +155,32 @@ impl StreamEncoder {
                 }
                 self.next_block_index += 1;
                 match block {
-                    Block::Text { text, .. } => self.start_text_block(*index, text),
+                    Block::Text {
+                        text, citations, ..
+                    } => self.start_text_block(*index, text, citations.as_deref(), ordinal),
+                    Block::RedactedThinking { .. } => {
+                        self.active_block = Some(StreamEncodeBlock {
+                            index: *index,
+                            kind: StreamOutputItemKind::Redacted,
+                            content_index: 0,
+                            text: String::new(),
+                            tool_input: String::new(),
+                            fragments: Vec::new(),
+                            citation_loss_seen: false,
+                        });
+                        let l = loss(
+                            format!("events[{ordinal}].block"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                        );
+                        Ok((Vec::new(), vec![l]))
+                    }
                     Block::Thinking {
                         thinking,
                         signature,
                         ..
-                    } => self.start_thinking_block(*index, thinking, signature.as_deref()),
+                    } => self.start_thinking_block(*index, thinking, signature.as_deref(), ordinal),
                     Block::ToolUse {
                         id, name, input, ..
                     } => self.start_function_call_block(*index, id, name, input),
@@ -182,25 +209,45 @@ impl StreamEncoder {
                         "responses: ContentBlockDelta out of grammar order",
                     ));
                 }
+                if active_block.kind == StreamOutputItemKind::Redacted {
+                    return Err(Error::new(
+                        "responses: RedactedThinkingBlock received unexpected delta",
+                    ));
+                }
                 let active_item = self.active_item.as_ref().expect("active item");
                 match active_block.kind {
-                    StreamOutputItemKind::Message => {
-                        let Delta::TextDelta { text } = delta else {
-                            return Err(Error::new("responses: TextBlock received non-text delta"));
-                        };
-                        active_block.text.push_str(text);
-                        Ok((
-                            vec![StreamEvent {
-                                kind: EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA.to_string(),
-                                item_id: Some(active_item.id.clone()),
-                                output_index: Some(active_item.output_index),
-                                content_index: Some(active_block.content_index),
-                                delta: Some(text.clone()),
-                                ..Default::default()
-                            }],
-                            Vec::new(),
-                        ))
-                    }
+                    StreamOutputItemKind::Redacted => unreachable!(),
+                    StreamOutputItemKind::Message => match delta {
+                        Delta::TextDelta { text } => {
+                            active_block.text.push_str(text);
+                            Ok((
+                                vec![StreamEvent {
+                                    kind: EVENT_TYPE_RESPONSE_OUTPUT_TEXT_DELTA.to_string(),
+                                    item_id: Some(active_item.id.clone()),
+                                    output_index: Some(active_item.output_index),
+                                    content_index: Some(active_block.content_index),
+                                    delta: Some(text.clone()),
+                                    ..Default::default()
+                                }],
+                                Vec::new(),
+                            ))
+                        }
+                        Delta::CitationDelta { .. } => {
+                            if !active_block.citation_loss_seen {
+                                active_block.citation_loss_seen = true;
+                                let l = loss(
+                                    format!("events[{ordinal}].delta.citation"),
+                                    "citations",
+                                    LossReason::UnsupportedSemantic,
+                                    "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                                );
+                                Ok((Vec::new(), vec![l]))
+                            } else {
+                                Ok((Vec::new(), Vec::new()))
+                            }
+                        }
+                        _ => Err(Error::new("responses: TextBlock received non-text delta")),
+                    },
                     StreamOutputItemKind::Reasoning => match delta {
                         Delta::ThinkingDelta { text } => {
                             active_block.text.push_str(text);
@@ -220,7 +267,7 @@ impl StreamEncoder {
                         Delta::SignatureDelta { .. } => Ok((
                             Vec::new(),
                             vec![loss(
-                                format!("events[{index}].delta.signature"),
+                                format!("events[{ordinal}].delta.signature"),
                                 "signature",
                                 LossReason::UnmappedField,
                                 "Responses carries no signature delta in streaming reasoning",
@@ -284,6 +331,10 @@ impl StreamEncoder {
                     ));
                 }
                 match active_block.kind {
+                    StreamOutputItemKind::Redacted => {
+                        self.active_block = None;
+                        Ok((Vec::new(), Vec::new()))
+                    }
                     StreamOutputItemKind::Message => self.stop_text_block(),
                     StreamOutputItemKind::Reasoning => self.stop_thinking_block(),
                     StreamOutputItemKind::FunctionCall => self.stop_function_call_block(),
@@ -309,6 +360,7 @@ impl StreamEncoder {
                                 "responses: MessageDelta with an uncompleted tool-call item",
                             ));
                         }
+                        StreamOutputItemKind::Redacted => {}
                     }
                 }
                 let (mut terminal, losses) = self.terminal(ev)?;
@@ -333,8 +385,23 @@ impl StreamEncoder {
         &mut self,
         index: i64,
         text: &str,
+        citations: Option<&[oxa_ir::TextCitation]>,
+        ordinal: usize,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let mut out = Vec::new();
+        let mut losses = Vec::new();
+        let mut citation_loss_seen = false;
+        if let Some(cites) = citations
+            && !cites.is_empty()
+        {
+            citation_loss_seen = true;
+            losses.push(loss(
+                format!("events[{ordinal}].block.citations"),
+                "citations",
+                LossReason::UnsupportedSemantic,
+                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+            ));
+        }
         if let Some(active) = &self.active_item {
             match active.kind {
                 StreamOutputItemKind::Message => {}
@@ -347,6 +414,7 @@ impl StreamEncoder {
                         "responses: TextBlock cannot open before the active tool item completes",
                     ));
                 }
+                StreamOutputItemKind::Redacted => {}
             }
         }
         if self.active_item.is_none() {
@@ -370,6 +438,7 @@ impl StreamEncoder {
             text: text.to_string(),
             tool_input: String::new(),
             fragments: Vec::new(),
+            citation_loss_seen,
         });
         out.push(StreamEvent {
             kind: EVENT_TYPE_RESPONSE_CONTENT_PART_ADDED.to_string(),
@@ -379,7 +448,7 @@ impl StreamEncoder {
             part: Some(part),
             ..Default::default()
         });
-        Ok((out, Vec::new()))
+        Ok((out, losses))
     }
 
     fn start_thinking_block(
@@ -387,6 +456,7 @@ impl StreamEncoder {
         index: i64,
         thinking: &str,
         signature: Option<&str>,
+        ordinal: usize,
     ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
         let mut out = Vec::new();
         if let Some(active) = &self.active_item {
@@ -403,6 +473,7 @@ impl StreamEncoder {
                         "responses: ThinkingBlock cannot open before the active tool item completes",
                     ));
                 }
+                StreamOutputItemKind::Redacted => {}
             }
         }
         if self.active_item.is_none() {
@@ -426,6 +497,7 @@ impl StreamEncoder {
             text: thinking.to_string(),
             tool_input: String::new(),
             fragments: Vec::new(),
+            citation_loss_seen: false,
         });
         out.push(StreamEvent {
             kind: EVENT_TYPE_RESPONSE_REASONING_SUMMARY_PART_ADDED.to_string(),
@@ -439,7 +511,7 @@ impl StreamEncoder {
             .filter(|signature| !signature.is_empty())
             .map(|_| {
                 vec![loss(
-                    format!("events[{index}].block.signature"),
+                    format!("events[{ordinal}].block.signature"),
                     "signature",
                     LossReason::UnmappedField,
                     "Responses carries no signature in reasoning summary",
@@ -474,6 +546,7 @@ impl StreamEncoder {
                         "responses: ToolUseBlock cannot open before the active tool item completes",
                     ));
                 }
+                StreamOutputItemKind::Redacted => {}
             }
         }
         let (item, added) = self.open_function_call_item(id, name);
@@ -485,6 +558,7 @@ impl StreamEncoder {
             text: String::new(),
             tool_input: input.to_string(),
             fragments: Vec::new(),
+            citation_loss_seen: false,
         });
         out.push(added);
         Ok((out, Vec::new()))
@@ -620,6 +694,7 @@ impl StreamEncoder {
             text: String::new(),
             tool_input: input.to_string(),
             fragments: Vec::new(),
+            citation_loss_seen: false,
         });
         out.push(StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -811,6 +886,7 @@ impl StreamEncoder {
             text: String::new(),
             tool_input: String::new(),
             fragments: Vec::new(),
+            citation_loss_seen: false,
         });
         self.active_apply_patch_call = Some(block.clone());
         let op_wire = crate::normalize::encode_apply_patch_operation(operation);
@@ -922,6 +998,7 @@ impl StreamEncoder {
             text: String::new(),
             tool_input: String::new(),
             fragments: Vec::new(),
+            citation_loss_seen: false,
         });
         self.active_apply_patch_result = Some(block.clone());
         let status_str = match status {

@@ -8,6 +8,7 @@ ROLE_SYSTEM: Final = "system"
 
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"
+BLOCK_TYPE_REDACTED_THINKING: Final = "redacted_thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
@@ -39,6 +40,7 @@ DELTA_TYPE_TEXT_DELTA: Final = "text_delta"
 DELTA_TYPE_INPUT_JSON_DELTA: Final = "input_json_delta"
 DELTA_TYPE_THINKING_DELTA: Final = "thinking_delta"
 DELTA_TYPE_SIGNATURE_DELTA: Final = "signature_delta"
+DELTA_TYPE_CITATIONS: Final = "citations_delta"
 
 TYPE_MESSAGE: Final = "message"
 
@@ -47,6 +49,7 @@ __all__ = [
     "ROLE_ASSISTANT",
     "BLOCK_TYPE_TEXT",
     "BLOCK_TYPE_THINKING",
+    "BLOCK_TYPE_REDACTED_THINKING",
     "BLOCK_TYPE_DOCUMENT",
     "BLOCK_TYPE_IMAGE",
     "BLOCK_TYPE_TOOL_USE",
@@ -73,5 +76,6 @@ __all__ = [
     "DELTA_TYPE_INPUT_JSON_DELTA",
     "DELTA_TYPE_THINKING_DELTA",
     "DELTA_TYPE_SIGNATURE_DELTA",
+    "DELTA_TYPE_CITATIONS",
     "TYPE_MESSAGE",
 ]

@@ -9,9 +9,9 @@ use oxa_ir::{Block, Loss, LossReason, SystemBlock, ToolChoice, ToolChoiceMode};
 
 use crate::error::Error;
 use crate::types::{
-    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING,
-    BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue, SOURCE_TYPE_BASE64,
-    SOURCE_TYPE_FILE, SOURCE_TYPE_URL, SystemBlockWire, TOOL_CHOICE_TYPE_ANY,
+    BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_IMAGE, BLOCK_TYPE_REDACTED_THINKING, BLOCK_TYPE_TEXT,
+    BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_RESULT, BLOCK_TYPE_TOOL_USE, BlockWire, ContentValue,
+    SOURCE_TYPE_BASE64, SOURCE_TYPE_FILE, SOURCE_TYPE_URL, SystemBlockWire, TOOL_CHOICE_TYPE_ANY,
     TOOL_CHOICE_TYPE_AUTO, TOOL_CHOICE_TYPE_NONE, TOOL_CHOICE_TYPE_TOOL, ToolChoiceWire,
 };
 
@@ -144,6 +144,451 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
         .collect()
 }
 
+pub(crate) fn decode_text_citations(
+    raw: Option<&serde_json::Value>,
+    path: &str,
+    _is_request: bool,
+) -> Result<(Option<Vec<oxa_ir::TextCitation>>, Vec<Loss>), Error> {
+    let Some(raw_val) = raw else {
+        return Ok((None, Vec::new()));
+    };
+    if raw_val.is_null() {
+        return Ok((None, Vec::new()));
+    }
+    let Some(arr) = raw_val.as_array() else {
+        return Err(Error::new(format!("anthropic: {path} must be an array")));
+    };
+    if arr.is_empty() {
+        return Ok((None, Vec::new()));
+    }
+    let mut cites = Vec::new();
+    let mut losses = Vec::new();
+    for (i, elem) in arr.iter().enumerate() {
+        let item_path = format!("{path}[{i}]");
+        let Some(obj) = elem.as_object() else {
+            return Err(Error::new(format!(
+                "anthropic: {item_path} must be an object"
+            )));
+        };
+        let Some(type_val) = obj.get("type") else {
+            return Err(Error::new(format!(
+                "anthropic: {item_path}.type is required"
+            )));
+        };
+        if type_val.is_null() {
+            return Err(Error::new(format!(
+                "anthropic: {item_path}.type is required"
+            )));
+        }
+        let Some(cite_type) = type_val.as_str() else {
+            return Err(Error::new(format!(
+                "anthropic: {item_path}.type must be a string"
+            )));
+        };
+        let mut clean = serde_json::Map::new();
+        clean.insert(
+            "type".to_string(),
+            serde_json::Value::String(cite_type.to_string()),
+        );
+
+        match cite_type {
+            "char_location" => {
+                let cited_text =
+                    obj.get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            Error::new(format!(
+                                "anthropic: {item_path}.cited_text must be a string"
+                            ))
+                        })?;
+                clean.insert(
+                    "cited_text".to_string(),
+                    serde_json::Value::String(cited_text.to_string()),
+                );
+
+                let doc_idx = obj
+                    .get("document_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.document_index must be a non-negative integer"
+                        ))
+                    })?;
+                if doc_idx < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "document_index".to_string(),
+                    serde_json::Value::Number(doc_idx.into()),
+                );
+
+                let doc_title = obj.get("document_title").ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.document_title is required"))
+                })?;
+                if !doc_title.is_null() && !doc_title.is_string() {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_title must be null or string"
+                    )));
+                }
+                clean.insert("document_title".to_string(), doc_title.clone());
+
+                let start = obj
+                    .get("start_char_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.start_char_index must be a non-negative integer"
+                        ))
+                    })?;
+                if start < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.start_char_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "start_char_index".to_string(),
+                    serde_json::Value::Number(start.into()),
+                );
+
+                let end = obj
+                    .get("end_char_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.end_char_index must be an integer"
+                        ))
+                    })?;
+                if end <= start {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.end_char_index must be > start_char_index"
+                    )));
+                }
+                clean.insert(
+                    "end_char_index".to_string(),
+                    serde_json::Value::Number(end.into()),
+                );
+
+                if let Some(fid) = obj.get("file_id") {
+                    clean.insert("file_id".to_string(), fid.clone());
+                }
+            }
+            "page_location" => {
+                let cited_text =
+                    obj.get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            Error::new(format!(
+                                "anthropic: {item_path}.cited_text must be a string"
+                            ))
+                        })?;
+                clean.insert(
+                    "cited_text".to_string(),
+                    serde_json::Value::String(cited_text.to_string()),
+                );
+
+                let doc_idx = obj
+                    .get("document_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.document_index must be a non-negative integer"
+                        ))
+                    })?;
+                if doc_idx < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "document_index".to_string(),
+                    serde_json::Value::Number(doc_idx.into()),
+                );
+
+                let doc_title = obj.get("document_title").ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.document_title is required"))
+                })?;
+                if !doc_title.is_null() && !doc_title.is_string() {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_title must be null or string"
+                    )));
+                }
+                clean.insert("document_title".to_string(), doc_title.clone());
+
+                let start = obj
+                    .get("start_page_number")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.start_page_number must be an integer >= 1"
+                        ))
+                    })?;
+                if start < 1 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.start_page_number must be >= 1"
+                    )));
+                }
+                clean.insert(
+                    "start_page_number".to_string(),
+                    serde_json::Value::Number(start.into()),
+                );
+
+                let end = obj
+                    .get("end_page_number")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.end_page_number must be an integer"
+                        ))
+                    })?;
+                if end < start {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.end_page_number must be >= start_page_number"
+                    )));
+                }
+                clean.insert(
+                    "end_page_number".to_string(),
+                    serde_json::Value::Number(end.into()),
+                );
+
+                if let Some(fid) = obj.get("file_id") {
+                    clean.insert("file_id".to_string(), fid.clone());
+                }
+            }
+            "content_block_location" => {
+                let cited_text =
+                    obj.get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            Error::new(format!(
+                                "anthropic: {item_path}.cited_text must be a string"
+                            ))
+                        })?;
+                clean.insert(
+                    "cited_text".to_string(),
+                    serde_json::Value::String(cited_text.to_string()),
+                );
+
+                let doc_idx = obj
+                    .get("document_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.document_index must be a non-negative integer"
+                        ))
+                    })?;
+                if doc_idx < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "document_index".to_string(),
+                    serde_json::Value::Number(doc_idx.into()),
+                );
+
+                let doc_title = obj.get("document_title").ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.document_title is required"))
+                })?;
+                if !doc_title.is_null() && !doc_title.is_string() {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.document_title must be null or string"
+                    )));
+                }
+                clean.insert("document_title".to_string(), doc_title.clone());
+
+                let start = obj.get("start_block_index").and_then(|v| v.as_i64()).ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.start_block_index must be a non-negative integer"))
+                })?;
+                if start < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.start_block_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "start_block_index".to_string(),
+                    serde_json::Value::Number(start.into()),
+                );
+
+                let end = obj
+                    .get("end_block_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.end_block_index must be an integer"
+                        ))
+                    })?;
+                if end <= start {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.end_block_index must be > start_block_index"
+                    )));
+                }
+                clean.insert(
+                    "end_block_index".to_string(),
+                    serde_json::Value::Number(end.into()),
+                );
+
+                if let Some(fid) = obj.get("file_id") {
+                    clean.insert("file_id".to_string(), fid.clone());
+                }
+            }
+            "web_search_result_location" => {
+                let cited_text =
+                    obj.get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            Error::new(format!(
+                                "anthropic: {item_path}.cited_text must be a string"
+                            ))
+                        })?;
+                clean.insert(
+                    "cited_text".to_string(),
+                    serde_json::Value::String(cited_text.to_string()),
+                );
+
+                let enc_idx = obj
+                    .get("encrypted_index")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.encrypted_index must be a string"
+                        ))
+                    })?;
+                clean.insert(
+                    "encrypted_index".to_string(),
+                    serde_json::Value::String(enc_idx.to_string()),
+                );
+
+                let title = obj.get("title").ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.title is required"))
+                })?;
+                if !title.is_null() && !title.is_string() {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.title must be null or string"
+                    )));
+                }
+                clean.insert("title".to_string(), title.clone());
+
+                let url = obj.get("url").and_then(|v| v.as_str()).ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.url must be a string"))
+                })?;
+                clean.insert(
+                    "url".to_string(),
+                    serde_json::Value::String(url.to_string()),
+                );
+            }
+            "search_result_location" => {
+                let cited_text =
+                    obj.get("cited_text")
+                        .and_then(|v| v.as_str())
+                        .ok_or_else(|| {
+                            Error::new(format!(
+                                "anthropic: {item_path}.cited_text must be a string"
+                            ))
+                        })?;
+                clean.insert(
+                    "cited_text".to_string(),
+                    serde_json::Value::String(cited_text.to_string()),
+                );
+
+                let sr_idx = obj.get("search_result_index").and_then(|v| v.as_i64()).ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.search_result_index must be a non-negative integer"))
+                })?;
+                if sr_idx < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.search_result_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "search_result_index".to_string(),
+                    serde_json::Value::Number(sr_idx.into()),
+                );
+
+                let source = obj.get("source").and_then(|v| v.as_str()).ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.source must be a string"))
+                })?;
+                clean.insert(
+                    "source".to_string(),
+                    serde_json::Value::String(source.to_string()),
+                );
+
+                let title = obj.get("title").ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.title is required"))
+                })?;
+                if !title.is_null() && !title.is_string() {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.title must be null or string"
+                    )));
+                }
+                clean.insert("title".to_string(), title.clone());
+
+                let start = obj.get("start_block_index").and_then(|v| v.as_i64()).ok_or_else(|| {
+                    Error::new(format!("anthropic: {item_path}.start_block_index must be a non-negative integer"))
+                })?;
+                if start < 0 {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.start_block_index must be a non-negative integer"
+                    )));
+                }
+                clean.insert(
+                    "start_block_index".to_string(),
+                    serde_json::Value::Number(start.into()),
+                );
+
+                let end = obj
+                    .get("end_block_index")
+                    .and_then(|v| v.as_i64())
+                    .ok_or_else(|| {
+                        Error::new(format!(
+                            "anthropic: {item_path}.end_block_index must be an integer"
+                        ))
+                    })?;
+                if end <= start {
+                    return Err(Error::new(format!(
+                        "anthropic: {item_path}.end_block_index must be > start_block_index"
+                    )));
+                }
+                clean.insert(
+                    "end_block_index".to_string(),
+                    serde_json::Value::Number(end.into()),
+                );
+            }
+            other => {
+                losses.push(Loss {
+                    path: item_path,
+                    field: "type".to_string(),
+                    reason: LossReason::UnsupportedSemantic,
+                    detail: format!("unsupported citation type {other:?}"),
+                });
+                continue;
+            }
+        }
+
+        let mut extra_keys: Vec<_> = obj
+            .keys()
+            .filter(|k| !clean.contains_key(*k))
+            .cloned()
+            .collect();
+        extra_keys.sort();
+        for k in extra_keys {
+            losses.push(Loss {
+                path: format!("{item_path}.{k}"),
+                field: k,
+                reason: LossReason::UnmappedField,
+                detail: String::new(),
+            });
+        }
+
+        let compact = serde_json::to_string(&clean).map_err(|e| Error::new(e.to_string()))?;
+        cites.push(oxa_ir::TextCitation {
+            source: "anthropic".to_string(),
+            value: compact,
+        });
+    }
+    Ok((Some(cites), losses))
+}
+
 /// Decodes wire message content: string or block array; a missing content is
 /// a structural error.
 pub(crate) fn decode_content(
@@ -153,6 +598,7 @@ pub(crate) fn decode_content(
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
     is_request: bool,
+    in_tool_result: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Err(Error::new(format!("anthropic: {path} is missing")));
@@ -161,6 +607,7 @@ pub(crate) fn decode_content(
         ContentValue::Text(text) => Ok((
             vec![Block::Text {
                 text: text.clone(),
+                citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
@@ -176,6 +623,7 @@ pub(crate) fn decode_content(
                     custom_call_ids,
                     declared_tools,
                     is_request,
+                    in_tool_result,
                 )?;
                 if mapped {
                     out.extend(decoded);
@@ -197,13 +645,44 @@ pub(crate) fn decode_block(
     custom_call_ids: &mut BTreeSet<String>,
     declared_tools: &BTreeSet<String>,
     is_request: bool,
+    in_tool_result: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>, bool), Error> {
     let mut block: Option<Block> = None;
     let mut losses: Vec<Loss> = Vec::new();
     match wire.kind.as_str() {
         BLOCK_TYPE_TEXT => {
+            if in_tool_result
+                && let Some(c) = &wire.citations
+                && !c.is_null()
+                && c.as_array().is_some_and(|a| !a.is_empty())
+            {
+                return Err(Error::new(format!(
+                    "anthropic: {path}.citations: citations are not permitted in tool_result"
+                )));
+            }
+            let (citations, cite_losses) = decode_text_citations(
+                wire.citations.as_ref(),
+                &format!("{path}.citations"),
+                is_request,
+            )?;
+            losses.extend(cite_losses);
             block = Some(Block::Text {
                 text: wire.text.clone(),
+                citations,
+                native: Vec::new(),
+            });
+        }
+        BLOCK_TYPE_REDACTED_THINKING => {
+            if in_tool_result {
+                return Err(Error::new(format!(
+                    "anthropic: {path}: redacted_thinking is not permitted in tool_result"
+                )));
+            }
+            let Some(ref data) = wire.data else {
+                return Err(Error::new(format!("anthropic: {path}.data is required")));
+            };
+            block = Some(Block::RedactedThinking {
+                data: data.clone(),
                 native: Vec::new(),
             });
         }
@@ -473,6 +952,7 @@ pub(crate) fn decode_block(
                             custom_call_ids,
                             declared_tools,
                             is_request,
+                            true,
                         )?;
                         losses.extend(content_losses);
                         oxa_ir::CustomToolOutput::Content(content)
@@ -491,6 +971,7 @@ pub(crate) fn decode_block(
                     custom_call_ids,
                     declared_tools,
                     is_request,
+                    true,
                 )?;
                 losses.extend(content_losses);
                 block = Some(Block::ToolResult {
@@ -535,6 +1016,7 @@ pub(crate) fn decode_block(
                 match b {
                     Block::Text { native, .. }
                     | Block::Thinking { native, .. }
+                    | Block::RedactedThinking { native, .. }
                     | Block::Image { native, .. }
                     | Block::Document { native, .. }
                     | Block::ToolUse { native, .. }
@@ -625,12 +1107,9 @@ pub(crate) fn decode_tool_choice(
             format!("Anthropic tool_choice type {other:?} has no IR equivalent"),
         )),
     }
-    if choice.disable_parallel_tool_use {
-        losses.push(loss(
-            "tool_choice.disable_parallel_tool_use",
-            "disable_parallel_tool_use",
-            LossReason::UnmappedField,
-            "Anthropic disable_parallel_tool_use has no IR equivalent in v1.",
+    if choice.disable_parallel_tool_use.is_some() && choice.kind == TOOL_CHOICE_TYPE_NONE {
+        return Err(Error::new(
+            "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
         ));
     }
     Ok((decoded, losses))
@@ -676,7 +1155,7 @@ pub(crate) fn encode_tool_choice(
             ToolChoiceWire {
                 kind: TOOL_CHOICE_TYPE_TOOL.to_string(),
                 name: name.to_string(),
-                disable_parallel_tool_use: false,
+                disable_parallel_tool_use: None,
             }
         }
     };

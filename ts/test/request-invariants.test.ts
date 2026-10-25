@@ -488,5 +488,10 @@ function blockDocument(block: Block): JsonObject {
         status: block.status,
         ...(block.output !== undefined ? { output: block.output } : {}),
       };
+    case "redacted_thinking":
+      return {
+        type: "redacted_thinking",
+        data: block.data,
+      };
   }
 }

@@ -111,7 +111,7 @@ private:
     std::size_t next_native_tool_ = 0;
 
     struct ActiveBlock {
-        enum class Kind { Text, Thinking, Tool, CustomTool, SkippedCustom, SkippedAtomic } kind;
+        enum class Kind { Text, Thinking, Redacted, Tool, CustomTool, SkippedCustom, SkippedAtomic } kind;
         std::int64_t index = 0;
         std::string tool_id;
         std::string tool_name;
@@ -119,11 +119,13 @@ private:
         std::vector<std::string> fragments;
         std::size_t native_index = 0;
         bool tool_started = false;
+        bool citation_loss_seen = false;
     };
     std::optional<ActiveBlock> active_;
     std::vector<json::Value> pending_tools_;
     bool finished_ = false;
     bool done_ = false;
+    std::size_t event_ordinal_ = 0;
 };
 
 }  // namespace oxa::openai::chatcompletions

@@ -95,6 +95,7 @@
         { "$ref": "#/$defs/requestToolUseBlock" },
         { "$ref": "#/$defs/requestToolResultBlock" },
         { "$ref": "#/$defs/requestThinkingBlock" },
+        { "$ref": "#/$defs/requestRedactedThinkingBlock" },
         { "$ref": "#/$defs/requestCustomToolUseBlock" },
         { "$ref": "#/$defs/requestCustomToolResultBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
@@ -106,6 +107,10 @@
       "properties": {
         "type": { "const": "text" },
         "text": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/textCitation" }
+        },
         "native": {
           "type": "array",
           "items": { "$ref": "#/$defs/nativeAnnotation" }
@@ -223,6 +228,20 @@
       "required": ["type", "thinking"],
       "additionalProperties": false
     },
+    "requestRedactedThinkingBlock": {
+      "type": "object",
+      "description": "Anthropic encrypted thinking replay content block in request history (spec/01 s3.4, since 2.4.11).",
+      "properties": {
+        "type": { "const": "redacted_thinking" },
+        "data": { "type": "string" },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
+        }
+      },
+      "required": ["type", "data"],
+      "additionalProperties": false
+    },
     "requestCustomToolUseBlock": {
       "type": "object",
       "properties": {
@@ -303,6 +322,7 @@
         { "$ref": "#/$defs/toolUseBlock" },
         { "$ref": "#/$defs/toolResultBlock" },
         { "$ref": "#/$defs/thinkingBlock" },
+        { "$ref": "#/$defs/redactedThinkingBlock" },
         { "$ref": "#/$defs/customToolUseBlock" },
         { "$ref": "#/$defs/customToolResultBlock" },
         { "$ref": "#/$defs/applyPatchToolUseBlock" },
@@ -410,9 +430,23 @@
       "type": "object",
       "properties": {
         "type": { "const": "text" },
-        "text": { "type": "string" }
+        "text": { "type": "string" },
+        "citations": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/textCitation" }
+        }
       },
       "required": ["type", "text"],
+      "additionalProperties": false
+    },
+    "textCitation": {
+      "type": "object",
+      "description": "Provider text citation reference (spec/01 s3.4, since 2.4.11).",
+      "properties": {
+        "source": { "const": "anthropic" },
+        "value": { "type": "string" }
+      },
+      "required": ["source", "value"],
       "additionalProperties": false
     },
     "thinkingBlock": {
@@ -424,6 +458,16 @@
         "signature": { "type": "string", "minLength": 1 }
       },
       "required": ["type", "thinking"],
+      "additionalProperties": false
+    },
+    "redactedThinkingBlock": {
+      "type": "object",
+      "description": "Anthropic encrypted thinking replay content block (spec/01 s3.4, since 2.4.11).",
+      "properties": {
+        "type": { "const": "redacted_thinking" },
+        "data": { "type": "string" }
+      },
+      "required": ["type", "data"],
       "additionalProperties": false
     },
     "imageBlock": {
@@ -813,8 +857,19 @@
         { "$ref": "#/$defs/inputJSONDelta" },
         { "$ref": "#/$defs/thinkingDelta" },
         { "$ref": "#/$defs/signatureDelta" },
-        { "$ref": "#/$defs/customToolInputDelta" }
+        { "$ref": "#/$defs/customToolInputDelta" },
+        { "$ref": "#/$defs/citationDelta" }
       ]
+    },
+    "citationDelta": {
+      "type": "object",
+      "description": "Provider text citation delta (spec/01 s5.2, since 2.4.11).",
+      "properties": {
+        "type": { "const": "citation_delta" },
+        "citation": { "$ref": "#/$defs/textCitation" }
+      },
+      "required": ["type", "citation"],
+      "additionalProperties": false
     },
     "textDelta": {
       "type": "object",

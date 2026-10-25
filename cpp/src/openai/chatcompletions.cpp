@@ -835,6 +835,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 const auto& b = m.content[bi];
                 if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     text += tb->text;
+                    if (tb->citations.has_value() && !tb->citations->empty()) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                    }
+                } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
                 } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
                     has_reasoning = true;
                     reasoning += thinking->thinking;
@@ -903,7 +914,19 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "IR ir.DocumentBlock cannot be rendered in a Chat Completions user message"));
+                } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
                 } else {
+                    if (const auto* utb = std::get_if<ir::TextBlock>(&b);
+                        utb && utb->citations.has_value() && !utb->citations->empty()) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                    }
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);
                 }
@@ -1223,6 +1246,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         const auto& b = resp.content[i];
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
+            if (tb->citations.has_value() && !tb->citations->empty()) {
+                losses.push_back(make_cc_loss(
+                    "content[" + std::to_string(i) + "].citations", "citations",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+            }
+        } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+            losses.push_back(make_cc_loss(
+                "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
         } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
             has_reasoning = true;
             reasoning += thinking->thinking;
@@ -1542,6 +1575,8 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         return chunk;
     };
 
+    std::size_t ordinal = event_ordinal_++;
+
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
         if (started_) return invalid_argument("chatcompletions: duplicate MessageStart");
         id_ = ms->id;
@@ -1562,14 +1597,30 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                                     ", want " + std::to_string(next_ir_index_));
         }
         next_ir_index_++;
-        if (std::holds_alternative<ir::TextBlock>(cbs->block)) {
+        if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
             if (tool_seen_) {
                 ordering_degrade_ = true;
             }
             ActiveBlock act;
             act.kind = ActiveBlock::Kind::Text;
             act.index = cbs->index;
+            if (tb->citations.has_value() && !tb->citations->empty()) {
+                act.citation_loss_seen = true;
+                losses.push_back(make_cc_loss(
+                    "events[" + std::to_string(ordinal) + "].block.citations",
+                    "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+            }
             active_ = std::move(act);
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
+            ActiveBlock act;
+            act.kind = ActiveBlock::Kind::Redacted;
+            act.index = cbs->index;
+            active_ = std::move(act);
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (std::holds_alternative<ir::ThinkingBlock>(cbs->block)) {
@@ -1611,7 +1662,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
             (void)ap;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools are not implemented by this profile"));
             ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
             active_ = std::move(act);
@@ -1619,7 +1670,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
             (void)apr;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
             ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
             active_ = std::move(act);
@@ -1658,13 +1709,27 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             pending_tools_.push_back(make_base_chunk(std::move(delta)));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
+        if (active_->kind == ActiveBlock::Kind::Redacted) {
+            return invalid_argument("chatcompletions: RedactedThinkingBlock received unexpected delta");
+        }
         if (active_->kind == ActiveBlock::Kind::Text) {
-            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
-            if (!td) return invalid_argument("chatcompletions: TextBlock received non-text delta");
-            json::Value delta = json::Value::object();
-            delta.set("content", json::Value::string(td->text));
-            chunks.push_back(make_base_chunk(std::move(delta)));
-            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+            if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
+                json::Value delta = json::Value::object();
+                delta.set("content", json::Value::string(td->text));
+                chunks.push_back(make_base_chunk(std::move(delta)));
+                return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+            }
+            if (std::holds_alternative<ir::CitationDelta>(cbd->delta)) {
+                if (!active_->citation_loss_seen) {
+                    active_->citation_loss_seen = true;
+                    losses.push_back(make_cc_loss(
+                        "events[" + std::to_string(ordinal) + "].delta.citation",
+                        "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                }
+                return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+            }
+            return invalid_argument("chatcompletions: TextBlock received non-text delta");
         }
         if (active_->kind == ActiveBlock::Kind::Thinking) {
             if (const auto* td = std::get_if<ir::ThinkingDelta>(&cbd->delta)) {
@@ -1675,7 +1740,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             }
             if (std::holds_alternative<ir::SignatureDelta>(cbd->delta)) {
                 losses.push_back(make_cc_loss(
-                    "events[" + std::to_string(cbd->index) + "].delta.signature",
+                    "events[" + std::to_string(ordinal) + "].delta.signature",
                     "signature", ir::LOSS_UNMAPPED_FIELD,
                     "Chat Completions carries no signature delta"));
                 return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
@@ -1715,7 +1780,8 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (!active_.has_value() || cst->index != active_->index) {
             return invalid_argument("chatcompletions: ContentBlockStop out of grammar order");
         }
-        if (active_->kind == ActiveBlock::Kind::SkippedCustom || active_->kind == ActiveBlock::Kind::SkippedAtomic) {
+        if (active_->kind == ActiveBlock::Kind::SkippedCustom || active_->kind == ActiveBlock::Kind::SkippedAtomic ||
+            active_->kind == ActiveBlock::Kind::Redacted) {
             active_.reset();
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }

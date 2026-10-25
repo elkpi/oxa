@@ -946,6 +946,23 @@ function encodeUserContent(
     if (block.type === "text") {
       text += block.text;
       parts.push({ type: "text", text: block.text });
+      if (block.citations && block.citations.length > 0) {
+        losses.push({
+          path: `${path}[${index}].citations`,
+          field: "citations",
+          reason: "unsupported-semantic",
+          detail:
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+        });
+      }
+    } else if (block.type === "redacted_thinking") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+      });
     } else if (block.type === "image") {
       const image = encodeImage(block, `${path}[${index}]`);
       if (image === undefined)
@@ -973,8 +990,26 @@ function encodeAssistant(
   const toolCalls: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
-    if (block.type === "text") content += block.text;
-    else if (block.type === "thinking") {
+    if (block.type === "text") {
+      content += block.text;
+      if (block.citations && block.citations.length > 0) {
+        losses.push({
+          path: `${path}[${index}].citations`,
+          field: "citations",
+          reason: "unsupported-semantic",
+          detail:
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+        });
+      }
+    } else if (block.type === "redacted_thinking") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+      });
+    } else if (block.type === "thinking") {
       reasoning = (reasoning ?? "") + block.thinking;
       if (block.signature !== undefined)
         losses.push(

@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.4.9 (v2.4.10 prepared).** Implements Spec 2.4.10 across Go,
-TypeScript, Rust, Python, and C++, and validates all 389 shared golden vectors.
+**Latest coordinated release: v2.4.10 (v2.4.11 prepared).** Implements Spec 2.4.11 across Go,
+TypeScript, Rust, Python, and C++, and validates all 406 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,30 +54,30 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.4.10 | 2.4.9            |
-| TypeScript | `ts/`     | 2.4.10 | 2.4.9            |
-| Rust       | `rust/`   | 2.4.10 | 2.4.9            |
-| Python     | `python/` | 2.4.10 | 2.4.9            |
-| C++        | `cpp/`    | 2.4.10 | 2.4.9            |
+| Go         | `go/`     | 2.4.11 | 2.4.10           |
+| TypeScript | `ts/`     | 2.4.11 | 2.4.10           |
+| Rust       | `rust/`   | 2.4.11 | 2.4.10           |
+| Python     | `python/` | 2.4.11 | 2.4.10           |
+| C++        | `cpp/`    | 2.4.11 | 2.4.10           |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.4.10 prepared)
-ts/        TypeScript implementation (v2.4.10 prepared)
+go/        Go reference implementation (v2.4.11 prepared)
+ts/        TypeScript implementation (v2.4.11 prepared)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.4.10 prepared)
-python/    Python implementation (v2.4.10 prepared)
-cpp/       C++ implementation (v2.4.10 prepared)
+rust/      Rust implementation (v2.4.11 prepared)
+python/    Python implementation (v2.4.11 prepared)
+cpp/       C++ implementation (v2.4.11 prepared)
 ```
 
 ## Current capabilities
 
-The current source tree implements Spec 2.4.10 across Go, TypeScript, Rust,
+The current source tree implements Spec 2.4.11 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). Coordinated release v2.4.10 is prepared.
+representation (IR). Coordinated release v2.4.11 is prepared.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |

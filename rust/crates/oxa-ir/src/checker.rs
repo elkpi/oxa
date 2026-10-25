@@ -97,6 +97,7 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                             signature_seen: false,
                         },
                     ),
+                    Block::RedactedThinking { .. } => (*index, OpenBlock::Atomic),
                     Block::ToolUse { input, .. } => (
                         *index,
                         OpenBlock::Tool(OpenTool {
@@ -162,7 +163,7 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                     ));
                 }
                 match (kind, delta) {
-                    (OpenBlock::Text, Delta::TextDelta { .. }) => {}
+                    (OpenBlock::Text, Delta::TextDelta { .. } | Delta::CitationDelta { .. }) => {}
                     (OpenBlock::Thinking { signature_seen }, Delta::ThinkingDelta { .. }) => {
                         if *signature_seen {
                             return Err(violate(i, "thinking delta after signature_delta"));
@@ -300,6 +301,7 @@ fn block_kind(block: &Block) -> &'static str {
     match block {
         Block::Text { .. } => "text",
         Block::Thinking { .. } => "thinking",
+        Block::RedactedThinking { .. } => "redacted_thinking",
         Block::Image { .. } => "image",
         Block::Document { .. } => "document",
         Block::ToolUse { .. } => "tool_use",
@@ -318,5 +320,6 @@ fn delta_kind(delta: &Delta) -> &'static str {
         Delta::CustomToolInputDelta { .. } => "custom_tool_input_delta",
         Delta::ThinkingDelta { .. } => "thinking_delta",
         Delta::SignatureDelta { .. } => "signature_delta",
+        Delta::CitationDelta { .. } => "citation_delta",
     }
 }

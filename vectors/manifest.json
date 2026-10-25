@@ -146,17 +146,6 @@
       "sha256": "79b8f72874d466a5d1fc10bc0f297dd72ac317779f654009bd2812c5764979b5"
     },
     {
-      "name": "anthropic.nonstream.loss-disable-parallel-tool-use-to-ir",
-      "file": "anthropic/nonstream/loss-disable-parallel-tool-use-to-ir.json",
-      "tags": [
-        "loss",
-        "request",
-        "tools",
-        "n-an-6"
-      ],
-      "sha256": "c992d8a887a0399a4d3fbe7bc5a9218a3eafdb96c18887c6ecbeee04e73dd345"
-    },
-    {
       "name": "anthropic.nonstream.loss-unknown-block-to-ir",
       "file": "anthropic/nonstream/loss-unknown-block-to-ir.json",
       "tags": [
@@ -411,6 +400,30 @@
       "sha256": "bdc3a2e30416454963b75b1da0b21246f819c64a729757268b981550748ad142"
     },
     {
+      "name": "anthropic.nonstream.native-disable-parallel-tool-use-request-from-ir",
+      "file": "anthropic/nonstream/native-disable-parallel-tool-use-request-from-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "native",
+        "disable_parallel_tool_use",
+        "n-an-19"
+      ],
+      "sha256": "309c1aa53189a4e93ca18dbe453371758fc376dd283a0ae0ea4d821dba8129be"
+    },
+    {
+      "name": "anthropic.nonstream.native-disable-parallel-tool-use-request-to-ir",
+      "file": "anthropic/nonstream/native-disable-parallel-tool-use-request-to-ir.json",
+      "tags": [
+        "request",
+        "tools",
+        "native",
+        "disable_parallel_tool_use",
+        "n-an-19"
+      ],
+      "sha256": "a22fc8a6e40a05eb2628cf9fdfa6c245aaa86b00345d88d9c3867695040e86d8"
+    },
+    {
       "name": "anthropic.nonstream.native-output-format-still-audited-request-to-ir",
       "file": "anthropic/nonstream/native-output-format-still-audited-request-to-ir.json",
       "tags": [
@@ -484,6 +497,30 @@
         "native"
       ],
       "sha256": "c85f670f0aa775957888afce608fa07f96051d655317a406eacece7acb7fdfac"
+    },
+    {
+      "name": "anthropic.nonstream.native-thinking-between-tools-request-from-ir",
+      "file": "anthropic/nonstream/native-thinking-between-tools-request-from-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "native",
+        "between_tools",
+        "n-an-19"
+      ],
+      "sha256": "abe8196041773afe674c2ff66c34574390727b8c51c4e1b49cc21aa9ae855333"
+    },
+    {
+      "name": "anthropic.nonstream.native-thinking-between-tools-request-to-ir",
+      "file": "anthropic/nonstream/native-thinking-between-tools-request-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "native",
+        "between_tools",
+        "n-an-19"
+      ],
+      "sha256": "d327896b1a8523a7ae033c739156c3fc3f802fbb3b2292b4e442c7572b8c4d7d"
     },
     {
       "name": "anthropic.nonstream.native-thinking-budget-explicit-high-request-from-ir",
@@ -759,6 +796,28 @@
       "sha256": "4521f1ed900f2fe2caa6bc00cc6023117c8ff552b7183f937f2ced2b6a0d5e63"
     },
     {
+      "name": "anthropic.nonstream.native-top-k-request-from-ir",
+      "file": "anthropic/nonstream/native-top-k-request-from-ir.json",
+      "tags": [
+        "request",
+        "native",
+        "top_k",
+        "n-an-19"
+      ],
+      "sha256": "160b92a30bac834983a23a8f335f51133ef0f6962e72223d6bbc5c67472bac68"
+    },
+    {
+      "name": "anthropic.nonstream.native-top-k-request-to-ir",
+      "file": "anthropic/nonstream/native-top-k-request-to-ir.json",
+      "tags": [
+        "request",
+        "native",
+        "top_k",
+        "n-an-19"
+      ],
+      "sha256": "95abae1bf9ae698fe1856424cd643cab5f7d60e9683c764292e42949139acf0f"
+    },
+    {
       "name": "anthropic.nonstream.params-request-from-ir",
       "file": "anthropic/nonstream/params-request-from-ir.json",
       "tags": [
@@ -813,6 +872,30 @@
       "sha256": "ef4b93c085f2b0ba49373844d2c9191c2a7958b008b932e0cae3d0be8ee86154"
     },
     {
+      "name": "anthropic.nonstream.redacted-thinking-from-ir",
+      "file": "anthropic/nonstream/redacted-thinking-from-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "redacted_thinking",
+        "multiturn",
+        "n-an-17"
+      ],
+      "sha256": "7bed02c16fb2209c16a2c9b8457ed11480fc05ab35389b3223407037088c2891"
+    },
+    {
+      "name": "anthropic.nonstream.redacted-thinking-to-ir",
+      "file": "anthropic/nonstream/redacted-thinking-to-ir.json",
+      "tags": [
+        "request",
+        "thinking",
+        "redacted_thinking",
+        "multiturn",
+        "n-an-17"
+      ],
+      "sha256": "2af41eb1c2ce86b415bad6cbb427ada426c74682a66d40d22f20deeaa5d22700"
+    },
+    {
       "name": "anthropic.nonstream.response-format-dropped-request-from-ir",
       "file": "anthropic/nonstream/response-format-dropped-request-from-ir.json",
       "tags": [
@@ -841,6 +924,28 @@
         "request"
       ],
       "sha256": "2859f115b54ec003dedd151f9302edd0a8244c80c9b1e56bdaca76e8f4729416"
+    },
+    {
+      "name": "anthropic.nonstream.text-citations-response-from-ir",
+      "file": "anthropic/nonstream/text-citations-response-from-ir.json",
+      "tags": [
+        "response",
+        "citations",
+        "text",
+        "n-an-18"
+      ],
+      "sha256": "5b782497d3783ef94c93105aa2cac53e274f41cfefffc8640f1c6f6618dc5810"
+    },
+    {
+      "name": "anthropic.nonstream.text-citations-response-to-ir",
+      "file": "anthropic/nonstream/text-citations-response-to-ir.json",
+      "tags": [
+        "response",
+        "citations",
+        "text",
+        "n-an-18"
+      ],
+      "sha256": "aa836bd54dc318f6f94ffefec0f15d222654b63250ffc7a09fe8a613d7675d62"
     },
     {
       "name": "anthropic.nonstream.text-response-from-ir",
@@ -1090,6 +1195,28 @@
       "sha256": "8dea8ed40add19442ee85c06390c244ed712acf90c85ad824c201a72105e1c9f"
     },
     {
+      "name": "anthropic.stream.citations-delta-from-ir",
+      "file": "anthropic/stream/citations-delta-from-ir.json",
+      "tags": [
+        "stream",
+        "citations",
+        "text",
+        "n-s-11"
+      ],
+      "sha256": "9b83476bff79f5843ee68fa825184fe455300fdc66546b7e7b56722cf9ff0237"
+    },
+    {
+      "name": "anthropic.stream.citations-delta-to-ir",
+      "file": "anthropic/stream/citations-delta-to-ir.json",
+      "tags": [
+        "stream",
+        "citations",
+        "text",
+        "n-s-11"
+      ],
+      "sha256": "016ccb91deb12641b8fb4dd609bb925c036fdda470bd2c9884bf7b18576fcfe0"
+    },
+    {
       "name": "anthropic.stream.custom-tool-call-from-ir",
       "file": "anthropic/stream/custom-tool-call-from-ir.json",
       "tags": [
@@ -1169,6 +1296,28 @@
         "n-s-11"
       ],
       "sha256": "000b1711c237dc62e71333033dbf74c82a10e7ae4c49d3df38c586a7dacca3dd"
+    },
+    {
+      "name": "anthropic.stream.redacted-thinking-from-ir",
+      "file": "anthropic/stream/redacted-thinking-from-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "redacted_thinking",
+        "n-s-11"
+      ],
+      "sha256": "33759bc18916516c725842dc74954a9ca17b35cf13c86a57c8f58f3ceae96ab3"
+    },
+    {
+      "name": "anthropic.stream.redacted-thinking-to-ir",
+      "file": "anthropic/stream/redacted-thinking-to-ir.json",
+      "tags": [
+        "stream",
+        "thinking",
+        "redacted_thinking",
+        "n-s-11"
+      ],
+      "sha256": "5e979b075dac254b6d5910bac8c960fa66c8efa8ea7eaa1de99eabe0c21487a4"
     },
     {
       "name": "anthropic.stream.unknown-event-field-to-ir",
@@ -2003,6 +2152,18 @@
       "sha256": "f749edcd11e42d7953b342af071e4396d1c8cba536073f8837eadc002f987dfe"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-redacted-thinking-request",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-redacted-thinking-request.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "redacted_thinking",
+        "request",
+        "n-an-17"
+      ],
+      "sha256": "1d245628c2d6aa275c50a86824dfde0f0126fe71ff34751967712b43d907db49"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-request.json",
       "tags": [
@@ -2024,6 +2185,18 @@
         "usage"
       ],
       "sha256": "a97b004e316b5611afc8b7403f5696d4212db8f2b62740a5058dd7814282d826"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-text-citations-response",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-text-citations-response.json",
+      "tags": [
+        "cross",
+        "citations",
+        "text",
+        "response",
+        "n-an-18"
+      ],
+      "sha256": "647d0be809e7173862334c126104a678b873a81b5c924f938d9743cc9355cf67"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-thinking-response",
@@ -2113,6 +2286,18 @@
       "sha256": "e845cc4f5da5f9d0c4c705b4259b9cfe14a8d0ac89ce31c1b805b223ce7ecb64"
     },
     {
+      "name": "cross.nonstream.anthropic-to-responses-redacted-thinking-request",
+      "file": "cross/nonstream/anthropic-to-responses-redacted-thinking-request.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "redacted_thinking",
+        "request",
+        "n-an-17"
+      ],
+      "sha256": "8893438e09b9826080da9d0fc2c198ab608034a0e23bf107fbd22b9a8b9de86d"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-responses-request",
       "file": "cross/nonstream/anthropic-to-responses-request.json",
       "tags": [
@@ -2134,6 +2319,18 @@
         "usage"
       ],
       "sha256": "fd6c3e4131ad83b11eab0dfb53702477fef60e24469650f01acb6bd97f4fa1cd"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-text-citations-response",
+      "file": "cross/nonstream/anthropic-to-responses-text-citations-response.json",
+      "tags": [
+        "cross",
+        "citations",
+        "text",
+        "response",
+        "n-an-18"
+      ],
+      "sha256": "42a7c2e2e095dedba81e6580161c3d3621f12de60892c41a84c17d1d6a837875"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",

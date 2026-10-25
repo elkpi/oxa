@@ -72,6 +72,7 @@ import {
   type ApplyPatchOperation,
   type Block,
   type TextBlock,
+  type TextCitation,
   type ImageBlock,
   type Message,
   type Params,
@@ -536,7 +537,18 @@ function encodeBlockBase(
 ): JsonObject {
   switch (block.type) {
     case "text":
-      return { type: "text", text: block.text };
+      return {
+        type: "text",
+        text: block.text,
+        ...(block.citations && block.citations.length > 0
+          ? {
+              citations: block.citations.map((c) => ({
+                source: c.source,
+                value: c.value,
+              })),
+            }
+          : {}),
+      };
     case "thinking":
       return {
         type: "thinking",
@@ -544,6 +556,11 @@ function encodeBlockBase(
         ...(block.signature === undefined
           ? {}
           : { signature: block.signature }),
+      };
+    case "redacted_thinking":
+      return {
+        type: "redacted_thinking",
+        data: block.data,
       };
     case "image":
       return {
@@ -650,8 +667,26 @@ function decodeBlockBase(
 ): Block {
   const block = object(value, "block");
   switch (block.type) {
-    case "text":
-      return { type: "text", text: string(block.text, "block.text") };
+    case "text": {
+      let cites: TextCitation[] | undefined;
+      if (block.citations !== undefined) {
+        if (!Array.isArray(block.citations)) fail("citations must be an array");
+        cites = block.citations.map((c) => {
+          const obj = object(c, "citation");
+          const source = string(obj.source, "citation.source");
+          if (source !== "anthropic")
+            fail(`unknown citation source: ${source}`);
+          const val = string(obj.value, "citation.value");
+          validateCitationValue(val);
+          return { source: "anthropic" as const, value: val };
+        });
+      }
+      return {
+        type: "text",
+        text: string(block.text, "block.text"),
+        ...(cites && cites.length > 0 ? { citations: cites } : {}),
+      };
+    }
     case "thinking":
       return {
         type: "thinking",
@@ -659,6 +694,11 @@ function decodeBlockBase(
         ...(block.signature === undefined
           ? {}
           : { signature: nonEmptyString(block.signature, "block.signature") }),
+      };
+    case "redacted_thinking":
+      return {
+        type: "redacted_thinking",
+        data: string(block.data, "block.data"),
       };
     case "image":
       return {
@@ -1224,4 +1264,202 @@ function fail(message: string): never {
 
 function invalid(message: string): never {
   throw new OxaError("invalid-input", message);
+}
+
+export function validateCitationValue(val: string): void {
+  if (!val) {
+    fail("ir: citation value cannot be empty");
+  }
+  let obj: any;
+  try {
+    obj = JSON.parse(val);
+  } catch {
+    fail("ir: citation value must be a JSON object");
+  }
+  if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+    fail("ir: citation value must be a JSON object");
+  }
+  const type = obj.type;
+  if (typeof type !== "string") {
+    fail("ir: citation value requires type field");
+  }
+  switch (type) {
+    case "char_location": {
+      for (const k of Object.keys(obj)) {
+        if (
+          ![
+            "type",
+            "cited_text",
+            "document_index",
+            "document_title",
+            "start_char_index",
+            "end_char_index",
+            "file_id",
+          ].includes(k)
+        ) {
+          fail(`ir: unknown property "${k}" on char_location citation`);
+        }
+      }
+      if (typeof obj.cited_text !== "string")
+        fail("ir: char_location requires cited_text");
+      if (!Number.isInteger(obj.document_index) || obj.document_index < 0)
+        fail("ir: char_location requires document_index >= 0");
+      if (obj.document_title !== null && typeof obj.document_title !== "string")
+        fail("ir: char_location requires document_title");
+      if (!Number.isInteger(obj.start_char_index) || obj.start_char_index < 0)
+        fail("ir: char_location requires start_char_index >= 0");
+      if (
+        !Number.isInteger(obj.end_char_index) ||
+        obj.end_char_index <= obj.start_char_index
+      )
+        fail("ir: char_location requires end_char_index > start_char_index");
+      if (
+        obj.file_id !== undefined &&
+        obj.file_id !== null &&
+        typeof obj.file_id !== "string"
+      )
+        fail("ir: char_location file_id must be string or null");
+      break;
+    }
+    case "page_location": {
+      for (const k of Object.keys(obj)) {
+        if (
+          ![
+            "type",
+            "cited_text",
+            "document_index",
+            "document_title",
+            "start_page_number",
+            "end_page_number",
+            "file_id",
+          ].includes(k)
+        ) {
+          fail(`ir: unknown property "${k}" on page_location citation`);
+        }
+      }
+      if (typeof obj.cited_text !== "string")
+        fail("ir: page_location requires cited_text");
+      if (!Number.isInteger(obj.document_index) || obj.document_index < 0)
+        fail("ir: page_location requires document_index >= 0");
+      if (obj.document_title !== null && typeof obj.document_title !== "string")
+        fail("ir: page_location requires document_title");
+      if (!Number.isInteger(obj.start_page_number) || obj.start_page_number < 1)
+        fail("ir: page_location requires start_page_number >= 1");
+      if (
+        !Number.isInteger(obj.end_page_number) ||
+        obj.end_page_number < obj.start_page_number
+      )
+        fail("ir: page_location requires end_page_number >= start_page_number");
+      if (
+        obj.file_id !== undefined &&
+        obj.file_id !== null &&
+        typeof obj.file_id !== "string"
+      )
+        fail("ir: page_location file_id must be string or null");
+      break;
+    }
+    case "content_block_location": {
+      for (const k of Object.keys(obj)) {
+        if (
+          ![
+            "type",
+            "cited_text",
+            "document_index",
+            "document_title",
+            "start_block_index",
+            "end_block_index",
+            "file_id",
+          ].includes(k)
+        ) {
+          fail(
+            `ir: unknown property "${k}" on content_block_location citation`,
+          );
+        }
+      }
+      if (typeof obj.cited_text !== "string")
+        fail("ir: content_block_location requires cited_text");
+      if (!Number.isInteger(obj.document_index) || obj.document_index < 0)
+        fail("ir: content_block_location requires document_index >= 0");
+      if (obj.document_title !== null && typeof obj.document_title !== "string")
+        fail("ir: content_block_location requires document_title");
+      if (!Number.isInteger(obj.start_block_index) || obj.start_block_index < 0)
+        fail("ir: content_block_location requires start_block_index >= 0");
+      if (
+        !Number.isInteger(obj.end_block_index) ||
+        obj.end_block_index <= obj.start_block_index
+      )
+        fail(
+          "ir: content_block_location requires end_block_index > start_block_index",
+        );
+      if (
+        obj.file_id !== undefined &&
+        obj.file_id !== null &&
+        typeof obj.file_id !== "string"
+      )
+        fail("ir: content_block_location file_id must be string or null");
+      break;
+    }
+    case "web_search_result_location": {
+      for (const k of Object.keys(obj)) {
+        if (
+          !["type", "cited_text", "encrypted_index", "title", "url"].includes(k)
+        ) {
+          fail(
+            `ir: unknown property "${k}" on web_search_result_location citation`,
+          );
+        }
+      }
+      if (typeof obj.cited_text !== "string")
+        fail("ir: web_search_result_location requires cited_text");
+      if (typeof obj.encrypted_index !== "string")
+        fail("ir: web_search_result_location requires encrypted_index");
+      if (obj.title !== null && typeof obj.title !== "string")
+        fail("ir: web_search_result_location requires title");
+      if (typeof obj.url !== "string")
+        fail("ir: web_search_result_location requires url");
+      break;
+    }
+    case "search_result_location": {
+      for (const k of Object.keys(obj)) {
+        if (
+          ![
+            "type",
+            "cited_text",
+            "search_result_index",
+            "source",
+            "title",
+            "start_block_index",
+            "end_block_index",
+          ].includes(k)
+        ) {
+          fail(
+            `ir: unknown property "${k}" on search_result_location citation`,
+          );
+        }
+      }
+      if (typeof obj.cited_text !== "string")
+        fail("ir: search_result_location requires cited_text");
+      if (
+        !Number.isInteger(obj.search_result_index) ||
+        obj.search_result_index < 0
+      )
+        fail("ir: search_result_location requires search_result_index >= 0");
+      if (typeof obj.source !== "string")
+        fail("ir: search_result_location requires source");
+      if (obj.title !== null && typeof obj.title !== "string")
+        fail("ir: search_result_location requires title");
+      if (!Number.isInteger(obj.start_block_index) || obj.start_block_index < 0)
+        fail("ir: search_result_location requires start_block_index >= 0");
+      if (
+        !Number.isInteger(obj.end_block_index) ||
+        obj.end_block_index <= obj.start_block_index
+      )
+        fail(
+          "ir: search_result_location requires end_block_index > start_block_index",
+        );
+      break;
+    }
+    default:
+      fail(`ir: unknown citation type "${type}"`);
+  }
 }

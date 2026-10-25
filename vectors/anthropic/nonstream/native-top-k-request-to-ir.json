@@ -1,0 +1,50 @@
+{
+  "name": "anthropic.nonstream.native-top-k-request-to-ir",
+  "description": "Anthropic top_k request parameter is preserved as native IR option without decode loss (N-AN-19).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-opus-4-6",
+    "max_tokens": 1024,
+    "top_k": 40,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Tell me a story."
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-4-6",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Tell me a story."
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "top_k",
+        "value": "40",
+        "omission": {
+          "field": "top_k",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "native", "top_k", "n-an-19"]
+}

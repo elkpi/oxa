@@ -24,6 +24,8 @@ from oxa.ir.native import (
     NATIVE_KIND_THINKING_BUDGET,
     NATIVE_KIND_THINKING_DISPLAY,
     NATIVE_KIND_THINKING_MODE,
+    NATIVE_KIND_TOP_K,
+    NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
     NATIVE_SOURCE_ANTHROPIC,
     CACHE_CONTROL_LOSS_DETAIL,
     DEFER_LOADING_LOSS_DETAIL,
@@ -196,7 +198,18 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
     thinking = wire.get("thinking")
     if isinstance(thinking, dict):
         kind = thinking.get("type")
-        if kind in ("adaptive", "disabled"):
+        if kind == "between_tools":
+            if "budget_tokens" in thinking or "display" in thinking:
+                raise ValueError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+            req_native.append(
+                NativeAnnotation(
+                    source=NATIVE_SOURCE_ANTHROPIC,
+                    kind=NATIVE_KIND_THINKING_MODE,
+                    value='"between_tools"',
+                    omission=NativeOmission(field="type", reason=LOSS_UNMAPPED_FIELD),
+                )
+            )
+        elif kind in ("adaptive", "disabled"):
             req_native.append(
                 NativeAnnotation(
                     source=NATIVE_SOURCE_ANTHROPIC,
@@ -345,6 +358,37 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
                 )
             )
 
+    # 5. TopK
+    if "top_k" in wire and wire["top_k"] is not None:
+        k_val = wire["top_k"]
+        if not (isinstance(k_val, int) and not isinstance(k_val, bool) and 0 <= k_val <= 9007199254740991):
+            raise ValueError("anthropic: top_k must be a non-negative safe integer")
+        req_native.append(
+            NativeAnnotation(
+                source=NATIVE_SOURCE_ANTHROPIC,
+                kind=NATIVE_KIND_TOP_K,
+                value=str(k_val),
+                omission=NativeOmission(field="top_k", reason=LOSS_UNMAPPED_FIELD),
+            )
+        )
+
+    # 6. DisableParallelToolUse
+    tc = wire.get("tool_choice")
+    if isinstance(tc, dict) and "disable_parallel_tool_use" in tc:
+        flag = tc["disable_parallel_tool_use"]
+        if not isinstance(flag, bool):
+            raise ValueError("anthropic: tool_choice.disable_parallel_tool_use must be a boolean")
+        if tc.get("type") == "none":
+            raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
+        req_native.append(
+            NativeAnnotation(
+                source=NATIVE_SOURCE_ANTHROPIC,
+                kind=NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
+                value="true" if flag else "false",
+                omission=NativeOmission(field="disable_parallel_tool_use", reason=LOSS_UNMAPPED_FIELD),
+            )
+        )
+
     req = dataclasses.replace(req, native=tuple(req_native))
     return req, losses
 
@@ -467,6 +511,25 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                 wire["context_management"] = json.loads(n.value)
             except Exception:
                 pass
+        elif n.kind == NATIVE_KIND_TOP_K:
+            try:
+                wire["top_k"] = int(json.loads(n.value))
+            except Exception:
+                pass
+        elif n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+            try:
+                flag = json.loads(n.value) is True
+                if (
+                    "tool_choice" in wire
+                    and isinstance(wire["tool_choice"], dict)
+                    and wire["tool_choice"].get("type") != "none"
+                ):
+                    wire["tool_choice"]["disable_parallel_tool_use"] = flag
+                else:
+                    raise ValueError("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
+            except Exception as e:
+                if "cannot specify disable_parallel_tool_use" in str(e):
+                    raise
         else:
             losses.append(
                 Loss(
@@ -480,7 +543,13 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
     current_effort = req.params.reasoning_effort if req.params else None
 
     if native_mode is not None or native_effort is not None or current_effort is not None:
-        if native_mode == "disabled":
+        if native_mode == "between_tools":
+            if native_budget is not None or native_display is not None:
+                raise ValueError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+            wire["thinking"] = {"type": "between_tools"}
+            if current_effort is not None:
+                wire["output_config"] = {"effort": current_effort}
+        elif native_mode == "disabled":
             wire["thinking"] = {"type": "disabled"}
             if native_effort is not None or native_effort_proj is not None:
                 if current_effort is not None:

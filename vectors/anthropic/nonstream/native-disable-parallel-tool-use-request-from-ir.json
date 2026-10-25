@@ -1,0 +1,79 @@
+{
+  "name": "anthropic.nonstream.native-disable-parallel-tool-use-request-from-ir",
+  "description": "IR native disable_parallel_tool_use restores tool_choice disable_parallel_tool_use on Anthropic encode with zero loss (N-AN-19).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet-4-5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Weather in Paris?"
+          }
+        ]
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "tool_choice": {
+      "mode": "auto"
+    },
+    "params": {
+      "max_tokens": 1024
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "disable_parallel_tool_use",
+        "value": "true",
+        "omission": {
+          "field": "disable_parallel_tool_use",
+          "reason": "unmapped-field"
+        }
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-sonnet-4-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Weather in Paris?"
+      }
+    ],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "city": { "type": "string" }
+          }
+        }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto",
+      "disable_parallel_tool_use": true
+    }
+  },
+  "expected_losses": [],
+  "tags": ["request", "tools", "native", "disable_parallel_tool_use", "n-an-19"]
+}

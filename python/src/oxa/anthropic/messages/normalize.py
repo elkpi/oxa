@@ -12,6 +12,7 @@ from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     SOURCE_TYPE_BASE64,
@@ -42,7 +43,9 @@ from oxa.ir import (
     Loss,
     SystemBlock,
     TextBlock,
+    TextCitation,
     ThinkingBlock,
+    RedactedThinkingBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -157,6 +160,172 @@ def decode_content(
     raise ValueError(f"anthropic: {path} must be a string or list of blocks")
 
 
+def decode_anthropic_text_citations(
+    raw: Any, path: str, losses: list[Loss], is_request: bool
+) -> tuple[TextCitation, ...] | None:
+    if raw is None:
+        return None
+    if not isinstance(raw, list):
+        raise ValueError(f"anthropic: {path} must be an array")
+    if not raw:
+        return None
+    cites: list[TextCitation] = []
+    for i, item in enumerate(raw):
+        item_path = f"{path}[{i}]"
+        if not isinstance(item, dict):
+            raise ValueError(f"anthropic: {item_path} must be an object")
+        cite_type = item.get("type")
+        if cite_type is None:
+            raise ValueError(f"anthropic: {item_path}.type is required")
+        if not isinstance(cite_type, str):
+            raise ValueError(f"anthropic: {item_path}.type must be a string")
+
+        clean_obj: dict[str, Any] = {"type": cite_type}
+        if cite_type == "char_location":
+            text = item.get("cited_text")
+            if not isinstance(text, str):
+                raise ValueError(f"anthropic: {item_path}.cited_text is required")
+            doc_idx = item.get("document_index")
+            if not isinstance(doc_idx, int) or isinstance(doc_idx, bool) or doc_idx < 0:
+                raise ValueError(f"anthropic: {item_path}.document_index must be non-negative")
+            title = item.get("document_title")
+            if title is not None and not isinstance(title, str):
+                raise ValueError(f"anthropic: {item_path}.document_title must be string or null")
+            start = item.get("start_char_index")
+            if not isinstance(start, int) or isinstance(start, bool) or start < 0:
+                raise ValueError(f"anthropic: {item_path}.start_char_index must be non-negative")
+            end = item.get("end_char_index")
+            if not isinstance(end, int) or isinstance(end, bool) or end <= start:
+                raise ValueError(f"anthropic: {item_path}.end_char_index must be greater than start_char_index")
+            clean_obj["cited_text"] = text
+            clean_obj["document_index"] = doc_idx
+            clean_obj["document_title"] = title
+            clean_obj["start_char_index"] = start
+            clean_obj["end_char_index"] = end
+            if "file_id" in item:
+                fid = item["file_id"]
+                if fid is not None and not isinstance(fid, str):
+                    raise ValueError(f"anthropic: {item_path}.file_id must be string or null")
+                clean_obj["file_id"] = fid
+        elif cite_type == "page_location":
+            text = item.get("cited_text")
+            if not isinstance(text, str):
+                raise ValueError(f"anthropic: {item_path}.cited_text is required")
+            doc_idx = item.get("document_index")
+            if not isinstance(doc_idx, int) or isinstance(doc_idx, bool) or doc_idx < 0:
+                raise ValueError(f"anthropic: {item_path}.document_index must be non-negative")
+            title = item.get("document_title")
+            if title is not None and not isinstance(title, str):
+                raise ValueError(f"anthropic: {item_path}.document_title must be string or null")
+            start = item.get("start_page_number")
+            if not isinstance(start, int) or isinstance(start, bool) or start < 1:
+                raise ValueError(f"anthropic: {item_path}.start_page_number must be at least 1")
+            end = item.get("end_page_number")
+            if not isinstance(end, int) or isinstance(end, bool) or end < start:
+                raise ValueError(f"anthropic: {item_path}.end_page_number must be >= start_page_number")
+            clean_obj["cited_text"] = text
+            clean_obj["document_index"] = doc_idx
+            clean_obj["document_title"] = title
+            clean_obj["start_page_number"] = start
+            clean_obj["end_page_number"] = end
+            if "file_id" in item:
+                fid = item["file_id"]
+                if fid is not None and not isinstance(fid, str):
+                    raise ValueError(f"anthropic: {item_path}.file_id must be string or null")
+                clean_obj["file_id"] = fid
+        elif cite_type == "content_block_location":
+            text = item.get("cited_text")
+            if not isinstance(text, str):
+                raise ValueError(f"anthropic: {item_path}.cited_text is required")
+            doc_idx = item.get("document_index")
+            if not isinstance(doc_idx, int) or isinstance(doc_idx, bool) or doc_idx < 0:
+                raise ValueError(f"anthropic: {item_path}.document_index must be non-negative")
+            title = item.get("document_title")
+            if title is not None and not isinstance(title, str):
+                raise ValueError(f"anthropic: {item_path}.document_title must be string or null")
+            start = item.get("start_block_index")
+            if not isinstance(start, int) or isinstance(start, bool) or start < 0:
+                raise ValueError(f"anthropic: {item_path}.start_block_index must be non-negative")
+            end = item.get("end_block_index")
+            if not isinstance(end, int) or isinstance(end, bool) or end <= start:
+                raise ValueError(f"anthropic: {item_path}.end_block_index must be greater than start_block_index")
+            clean_obj["cited_text"] = text
+            clean_obj["document_index"] = doc_idx
+            clean_obj["document_title"] = title
+            clean_obj["start_block_index"] = start
+            clean_obj["end_block_index"] = end
+            if "file_id" in item:
+                fid = item["file_id"]
+                if fid is not None and not isinstance(fid, str):
+                    raise ValueError(f"anthropic: {item_path}.file_id must be string or null")
+                clean_obj["file_id"] = fid
+        elif cite_type == "web_search_result_location":
+            text = item.get("cited_text")
+            if not isinstance(text, str):
+                raise ValueError(f"anthropic: {item_path}.cited_text is required")
+            enc_idx = item.get("encrypted_index")
+            if not isinstance(enc_idx, str):
+                raise ValueError(f"anthropic: {item_path}.encrypted_index is required")
+            title = item.get("title")
+            if title is not None and not isinstance(title, str):
+                raise ValueError(f"anthropic: {item_path}.title must be string or null")
+            url = item.get("url")
+            if not isinstance(url, str):
+                raise ValueError(f"anthropic: {item_path}.url is required")
+            clean_obj["cited_text"] = text
+            clean_obj["encrypted_index"] = enc_idx
+            clean_obj["title"] = title
+            clean_obj["url"] = url
+        elif cite_type == "search_result_location":
+            text = item.get("cited_text")
+            if not isinstance(text, str):
+                raise ValueError(f"anthropic: {item_path}.cited_text is required")
+            s_idx = item.get("search_result_index")
+            if not isinstance(s_idx, int) or isinstance(s_idx, bool) or s_idx < 0:
+                raise ValueError(f"anthropic: {item_path}.search_result_index must be non-negative")
+            source = item.get("source")
+            if not isinstance(source, str):
+                raise ValueError(f"anthropic: {item_path}.source is required")
+            title = item.get("title")
+            if title is not None and not isinstance(title, str):
+                raise ValueError(f"anthropic: {item_path}.title must be string or null")
+            start = item.get("start_block_index")
+            if not isinstance(start, int) or isinstance(start, bool) or start < 0:
+                raise ValueError(f"anthropic: {item_path}.start_block_index must be non-negative")
+            end = item.get("end_block_index")
+            if not isinstance(end, int) or isinstance(end, bool) or end <= start:
+                raise ValueError(f"anthropic: {item_path}.end_block_index must be greater than start_block_index")
+            clean_obj["cited_text"] = text
+            clean_obj["search_result_index"] = s_idx
+            clean_obj["source"] = source
+            clean_obj["title"] = title
+            clean_obj["start_block_index"] = start
+            clean_obj["end_block_index"] = end
+        else:
+            losses.append(
+                loss(
+                    item_path,
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    f"unsupported citation type {cite_type!r}",
+                )
+            )
+            continue
+
+        extra_keys = sorted(k for k in item if k not in clean_obj)
+        for k in extra_keys:
+            losses.append(Loss(path=f"{item_path}.{k}", field=k, reason="unmapped-field"))
+
+        sorted_clean = {k: clean_obj[k] for k in sorted(clean_obj.keys())}
+        cites.append(
+            TextCitation(
+                source="anthropic",
+                value=json.dumps(sorted_clean, separators=(",", ":"), ensure_ascii=False),
+            )
+        )
+    return tuple(cites) if cites else None
+
+
 def extract_tool_input_raw(raw_text, path: str) -> str | None:
     return raw_field(raw_text, path)
 
@@ -179,7 +348,16 @@ def decode_block(
         text_val = wire.get("text")
         if not isinstance(text_val, str):
             raise ValueError(f"anthropic: {path}.text must be a string")
-        block = TextBlock(text=text_val)
+        cites = None
+        if "citations" in wire:
+            cites = decode_anthropic_text_citations(wire["citations"], f"{path}.citations", losses, is_request)
+        block = TextBlock(text=text_val, citations=cites)
+
+    elif kind == BLOCK_TYPE_REDACTED_THINKING:
+        data_val = wire.get("data")
+        if data_val is None or not isinstance(data_val, str):
+            raise ValueError(f"anthropic: {path}.data is required")
+        block = RedactedThinkingBlock(data=data_val)
 
     elif kind == BLOCK_TYPE_THINKING:
         block = ThinkingBlock(
@@ -380,6 +558,11 @@ def decode_block(
                 content_blocks, c_losses = decode_content(
                     inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools, is_request=is_request
                 )
+                for cb_idx, cb in enumerate(content_blocks):
+                    if getattr(cb, "type", "") == "redacted_thinking":
+                        raise ValueError(f"anthropic: {path}.content[{cb_idx}]: redacted_thinking is not permitted in tool_result")
+                    if getattr(cb, "type", "") == "text" and getattr(cb, "citations", None):
+                        raise ValueError(f"anthropic: {path}.content[{cb_idx}].citations: citations are not permitted in tool_result")
                 losses.extend(c_losses)
                 block = CustomToolResultBlock(tool_use_id=tool_use_id, output=content_blocks)
         else:
@@ -390,6 +573,11 @@ def decode_block(
                 content_blocks, c_losses = decode_content(
                     inner_content, f"{path}.content", raw_text, custom_tools, custom_call_ids, declared_tools, is_request=is_request
                 )
+                for cb_idx, cb in enumerate(content_blocks):
+                    if getattr(cb, "type", "") == "redacted_thinking":
+                        raise ValueError(f"anthropic: {path}.content[{cb_idx}]: redacted_thinking is not permitted in tool_result")
+                    if getattr(cb, "type", "") == "text" and getattr(cb, "citations", None):
+                        raise ValueError(f"anthropic: {path}.content[{cb_idx}].citations: citations are not permitted in tool_result")
                 losses.extend(c_losses)
             is_error = bool(wire.get("is_error", False))
             block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
@@ -463,14 +651,10 @@ def decode_tool_choice(
         )
 
     if "disable_parallel_tool_use" in choice:
-        losses.append(
-            loss(
-                "tool_choice.disable_parallel_tool_use",
-                "disable_parallel_tool_use",
-                LOSS_UNMAPPED_FIELD,
-                "Anthropic disable_parallel_tool_use has no IR equivalent in v1.",
-            )
-        )
+        if not isinstance(choice["disable_parallel_tool_use"], bool):
+            raise ValueError("tool_choice.disable_parallel_tool_use must be a boolean")
+        if kind == TOOL_CHOICE_TYPE_NONE:
+            raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
 
     return decoded, losses
 

@@ -18,6 +18,7 @@ const (
 	streamCustomCallOutputItem
 	streamApplyPatchCallOutputItem
 	streamApplyPatchResultOutputItem
+	streamRedactedBlock
 )
 
 // streamOutputItem retains one native Responses output-item lifecycle. A message
@@ -45,6 +46,7 @@ type streamEncodeBlock struct {
 	signatureSeen    bool
 	applyPatchCall   *ir.ApplyPatchToolUseBlock
 	applyPatchResult *ir.ApplyPatchToolResultBlock
+	citationLossSeen bool
 }
 
 // StreamEncoder incrementally converts an IR event stream into OpenAI
@@ -71,6 +73,7 @@ type StreamEncoder struct {
 	activeItem               *streamOutputItem
 	activeBlock              *streamEncodeBlock
 	completed                []OutputItem
+	eventOrdinal             int
 }
 
 // NewStreamEncoder returns a Responses event-stream encoder. The variadic
@@ -91,6 +94,9 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 	if e.done || (e.delta && !isMessageDone(ev)) {
 		return nil, nil, fmt.Errorf("responses: event applied after stream termination (%T)", ev)
 	}
+
+	ordinal := e.eventOrdinal
+	e.eventOrdinal++
 
 	switch event := ev.(type) {
 	case ir.MessageStart:
@@ -121,6 +127,17 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			out, losses, err = e.startTextBlock(event.Index, block)
 		case ir.ThinkingBlock:
 			out, losses, err = e.startThinkingBlock(event.Index, block)
+		case ir.RedactedThinkingBlock:
+			e.activeBlock = &streamEncodeBlock{
+				index: event.Index,
+				kind:  streamRedactedBlock,
+			}
+			losses = append(losses, loss(
+				fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic,
+				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
+			))
+			e.nextBlockIndex++
+			return nil, losses, nil
 		case ir.ApplyPatchToolUseBlock:
 			out, losses, err = e.startApplyPatchCallBlock(event.Index, block)
 		case ir.ApplyPatchToolResultBlock:
@@ -144,18 +161,31 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		}
 		switch e.activeBlock.kind {
 		case streamMessageOutputItem:
-			delta, ok := event.Delta.(ir.TextDelta)
-			if !ok {
+			switch d := event.Delta.(type) {
+			case ir.TextDelta:
+				e.activeBlock.text += d.Text
+				return []*StreamEvent{{
+					Type:         EventTypeResponseOutputTextDelta,
+					ItemID:       e.activeItem.id,
+					OutputIndex:  e.activeItem.outputIndex,
+					ContentIndex: e.activeBlock.contentIndex,
+					Delta:        d.Text,
+				}}, nil, nil
+			case ir.CitationDelta:
+				if !e.activeBlock.citationLossSeen {
+					e.activeBlock.citationLossSeen = true
+					l := loss(
+						fmt.Sprintf("events[%d].delta.citation", ordinal), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					)
+					return nil, []ir.Loss{l}, nil
+				}
+				return nil, nil, nil
+			default:
 				return nil, nil, fmt.Errorf("responses: TextBlock received non-text delta %T", event.Delta)
 			}
-			e.activeBlock.text += delta.Text
-			return []*StreamEvent{{
-				Type:         EventTypeResponseOutputTextDelta,
-				ItemID:       e.activeItem.id,
-				OutputIndex:  e.activeItem.outputIndex,
-				ContentIndex: e.activeBlock.contentIndex,
-				Delta:        delta.Text,
-			}}, nil, nil
+		case streamRedactedBlock:
+			return nil, nil, fmt.Errorf("responses: RedactedThinkingBlock received unexpected delta %T", event.Delta)
 		case streamReasoningOutputItem:
 			switch delta := event.Delta.(type) {
 			case ir.ThinkingDelta:
@@ -216,6 +246,9 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("responses: ContentBlockStop out of grammar order")
 		}
 		switch e.activeBlock.kind {
+		case streamRedactedBlock:
+			e.activeBlock = nil
+			return nil, nil, nil
 		case streamMessageOutputItem:
 			return e.stopTextBlock()
 		case streamReasoningOutputItem:
@@ -299,7 +332,15 @@ func (e *StreamEncoder) startTextBlock(index int, block ir.TextBlock) ([]*Stream
 		ContentIndex: contentIndex,
 		Part:         &part,
 	})
-	return out, nil, nil
+	var losses []ir.Loss
+	if len(block.Citations) > 0 {
+		e.activeBlock.citationLossSeen = true
+		losses = append(losses, loss(
+			fmt.Sprintf("events[%d].block.citations", e.eventOrdinal-1), "citations", ir.LossUnsupportedSemantic,
+			"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+		))
+	}
+	return out, losses, nil
 }
 
 func (e *StreamEncoder) startThinkingBlock(index int, block ir.ThinkingBlock) ([]*StreamEvent, []ir.Loss, error) {

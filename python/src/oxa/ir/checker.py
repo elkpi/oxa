@@ -24,11 +24,13 @@ from oxa.ir.types import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    RedactedThinkingBlock,
     SignatureDelta,
     TextBlock,
     TextDelta,
     ThinkingBlock,
     ThinkingDelta,
+    CitationDelta,
     ToolUseBlock,
 )
 
@@ -112,6 +114,8 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                 open_block = (event.index, "text")
             elif isinstance(event.block, ThinkingBlock):
                 open_block = (event.index, _OpenThinking())
+            elif isinstance(event.block, RedactedThinkingBlock):
+                open_block = (event.index, "redacted")
             elif isinstance(event.block, (ToolUseBlock, CustomToolUseBlock)):
                 open_block = (
                     event.index,
@@ -137,11 +141,13 @@ def _validate_with(stream: EventStream, allow_synthesized: bool) -> None:
                     f"content_block_delta index {event.index} does not match the open block {open_idx}",
                 )
             if kind == "text":
-                if not isinstance(event.delta, TextDelta):
+                if not isinstance(event.delta, (TextDelta, CitationDelta)):
                     raise Violation(
                         i,
                         f"delta type {getattr(event.delta, 'type', type(event.delta).__name__)} does not match the open block kind",
                     )
+            elif kind == "redacted":
+                raise Violation(i, "redacted_thinking block does not accept deltas")
             elif isinstance(kind, _OpenThinking):
                 if isinstance(event.delta, ThinkingDelta):
                     if kind.signature_seen:

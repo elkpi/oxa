@@ -437,6 +437,19 @@ replaced by full conversion under M9. Unsupported reasoning forms
 (`encrypted_content`, provider signatures on CC encode) record losses per
 N-CC-12, N-R-13, and N-AN-11.
 
+### 11.3 Redacted thinking stream profile (规范 2.4.11)
+
+Anthropic 流式响应中出现的 `content_block_start(type: "redacted_thinking")` 携带完整的 `data` 字符串，映射为 `ContentBlockStart` 且 `Block` 为 `RedactedThinkingBlock{Data: data}`。
+- `RedactedThinkingBlock` 在流中不产生、不接受任何 delta；随后的 `content_block_stop` 直接映射为 `ContentBlockStop`。在此块生命周期内收到任何 delta 均属于结构错误（structural error）。
+- 编码至 OpenAI 目标面（CC / RE）时：省略该块，并在遇到 `ContentBlockStart` 时记录一条 `unsupported-semantic` 损失（`path: "events[e].block"`, `field: "type"`, `detail: "anthropic encrypted thinking replay state; the target face cannot preserve this block"`）。编码器保持内部 IR 索引与原生输出索引的映射与单调递增，不生成原生事件，也不破坏后续有效块的流式语法。
+
+### 11.4 Text citations stream profile (规范 2.4.11)
+
+Anthropic 流式响应中的 `citations_delta` 映射为 `ContentBlockDelta` 且 `Delta` 为 `CitationDelta{Citation: TextCitation{Source: "anthropic", Value: ...}}`。
+- `CitationDelta` 仅允许出现在已打开的 `TextBlock` 中，可与 `TextDelta` 依实际到达顺序交错出现。
+- 流式聚合器将累积的 `TextDelta.text` 拼接为最终的 `TextBlock.Text`，并将所有 `CitationDelta.citation` 收集为最终的 `TextBlock.Citations`。
+- 编码至 OpenAI 目标面（CC / RE）时：省略引文数据并照常转发 `TextDelta`；在打开该文本块并首次遇到引文（无论在 start 上预带还是在首个 `CitationDelta` 遇到）时记录恰好一条 `unsupported-semantic` 损失（`detail: "anthropic text citations; the target face cannot preserve source locations and replay metadata"`），同一块后续引文增量被吸收，不重复记录损失。
+
 ## 12. References
 
 - [00 — Scope and Architecture](00-scope-and-architecture.md)

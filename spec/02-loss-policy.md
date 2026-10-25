@@ -132,7 +132,7 @@ unordered-set comparison rule used by vectors is unaffected by the
 concatenation.
 
 When an inbound request option (e.g. Anthropic `cache_control`, `thinking` mode,
-or `context_management`) is preserved in the IR as a `NativeAnnotation` (spec/15,
+`top_k`, `disable_parallel_tool_use`, or `context_management`) is preserved in the IR as a `NativeAnnotation` (spec/15,
 since 2.4), no loss is emitted on Decode because the information is retained.
 When the IR request is encoded to a target face that lacks an equivalent, the
 loss is emitted during Encode, rooted at the corresponding IR construct.

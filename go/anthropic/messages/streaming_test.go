@@ -189,7 +189,7 @@ func TestStreamDecoderUnknownBlockSkipped(t *testing.T) {
 	var got []ir.Event
 	for _, ev := range []*StreamEvent{
 		eventMessageStart("msg_3", "claude-3"),
-		eventBlockStart(0, "redacted_thinking"),
+		eventBlockStart(0, "mystery_block"),
 		eventTextDelta(0, "secret"),
 		eventBlockStop(0),
 		eventBlockStart(1, "text"),
@@ -234,7 +234,7 @@ func TestStreamDecoderRequiresSkippedBlockStop(t *testing.T) {
 	d := NewStreamDecoder()
 	for _, ev := range []*StreamEvent{
 		eventMessageStart("msg_open_skip", "claude-3"),
-		eventBlockStart(0, "redacted_thinking"),
+		eventBlockStart(0, "server_tool_use"),
 	} {
 		if _, err := d.Feed(ev); err != nil {
 			t.Fatalf("Feed(%s): %v", ev.Type, err)
@@ -259,9 +259,9 @@ func TestStreamDecoderUnknownEventsAndDeltas(t *testing.T) {
 	if _, err := d.Feed(&StreamEvent{Type: "content_block_delta", Index: 0, Delta: &StreamDelta{Type: "input_json_delta", PartialJSON: `{"a"`}}); err == nil {
 		t.Fatal("input_json_delta on text: want error")
 	}
-	events, err := d.Feed(&StreamEvent{Type: "content_block_delta", Index: 0, Delta: &StreamDelta{Type: "citations_delta"}})
+	events, err := d.Feed(&StreamEvent{Type: "content_block_delta", Index: 0, Delta: &StreamDelta{Type: "unknown_delta"}})
 	if err != nil || len(events) != 0 {
-		t.Fatalf("citations_delta: events=%#v err=%v", events, err)
+		t.Fatalf("unknown_delta: events=%#v err=%v", events, err)
 	}
 	if _, err := d.Feed(eventBlockStop(0)); err != nil {
 		t.Fatalf("Feed block stop: %v", err)

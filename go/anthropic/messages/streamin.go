@@ -30,6 +30,7 @@ type StreamDecoder struct {
 	blockOpen    bool
 	openTool     bool
 	openThinking bool
+	openRedacted bool
 	toolID       string
 	toolName     string
 	toolInput    json.RawMessage
@@ -126,10 +127,25 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			d.blockOpen = true
 			d.openTool = false
 			d.openThinking = true
+			d.openRedacted = false
 			d.openIndex = ev.Index
 			d.openIRIndex = d.nextIRIndex
 			d.nextIRIndex++
 			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.ThinkingBlock{Thinking: ev.ContentBlock.Thinking, Signature: ev.ContentBlock.Signature}}}, nil
+		}
+		if ev.ContentBlock.Type == BlockTypeRedactedThinking {
+			if !ev.ContentBlock.hasData {
+				return nil, fmt.Errorf("anthropic: content_block_start[%d].content_block.data is required", ev.Index)
+			}
+			d.nextIndex++
+			d.blockOpen = true
+			d.openTool = false
+			d.openThinking = false
+			d.openRedacted = true
+			d.openIndex = ev.Index
+			d.openIRIndex = d.nextIRIndex
+			d.nextIRIndex++
+			return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.RedactedThinkingBlock{Data: ev.ContentBlock.Data}}}, nil
 		}
 		if ev.ContentBlock.Type != BlockTypeText {
 			d.nextIndex++
@@ -150,7 +166,17 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		d.openIndex = ev.Index
 		d.openIRIndex = d.nextIRIndex
 		d.nextIRIndex++
-		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text}}}, nil
+		var cites []ir.TextCitation
+		if len(ev.ContentBlock.Citations) > 0 {
+			var citeLosses []ir.Loss
+			var err error
+			cites, citeLosses, err = decodeTextCitations(ev.ContentBlock.Citations, fmt.Sprintf("content_block_start[%d].content_block.citations", ev.Index), false)
+			if err != nil {
+				return nil, err
+			}
+			d.losses = append(d.losses, citeLosses...)
+		}
+		return []ir.Event{ir.ContentBlockStart{Index: d.openIRIndex, Block: ir.TextBlock{Text: ev.ContentBlock.Text, Citations: cites}}}, nil
 	case EventTypeContentBlockDelta:
 		if !d.started {
 			return nil, fmt.Errorf("anthropic: content_block_delta before message_start")
@@ -165,6 +191,9 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		if !d.blockOpen || ev.Index != d.openIndex {
 			return nil, fmt.Errorf("anthropic: content_block_delta index %d does not match the open block", ev.Index)
+		}
+		if d.openRedacted {
+			return nil, fmt.Errorf("anthropic: content_block_delta on redacted_thinking block")
 		}
 		if d.openTool {
 			switch ev.Delta.Type {
@@ -188,6 +217,23 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		switch ev.Delta.Type {
 		case DeltaTypeTextDelta:
 			return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.TextDelta{Text: ev.Delta.Text}}}, nil
+		case DeltaTypeCitations:
+			if ev.Delta.Citation == nil {
+				return nil, fmt.Errorf("anthropic: citations_delta without citation")
+			}
+			raw, err := json.Marshal(ev.Delta.Citation)
+			if err != nil {
+				return nil, err
+			}
+			cites, citeLosses, err := decodeTextCitations(json.RawMessage("["+string(raw)+"]"), fmt.Sprintf("content_block_delta[%d].delta.citation", ev.Index), false)
+			if err != nil {
+				return nil, err
+			}
+			d.losses = append(d.losses, citeLosses...)
+			if len(cites) > 0 {
+				return []ir.Event{ir.ContentBlockDelta{Index: d.openIRIndex, Delta: ir.CitationDelta{Citation: cites[0]}}}, nil
+			}
+			return nil, nil
 		case DeltaTypeInputJSONDelta:
 			return nil, fmt.Errorf("anthropic: input_json_delta on non-tool block")
 		default:
@@ -284,6 +330,7 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 		}
 		d.blockOpen = false
 		d.openThinking = false
+		d.openRedacted = false
 		return []ir.Event{ir.ContentBlockStop{Index: d.openIRIndex}}, nil
 	case EventTypeMessageDelta:
 		if !d.started {

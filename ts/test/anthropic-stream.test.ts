@@ -744,7 +744,7 @@ test("records unknown event, delta, and stop values as ordered losses", () => {
     decoder.Feed({
       type: "content_block_delta",
       index: 0,
-      delta: { type: "citations_delta" },
+      delta: { type: "unknown_delta" },
     }),
     [],
   );

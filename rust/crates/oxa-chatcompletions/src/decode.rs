@@ -213,6 +213,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             });
         }

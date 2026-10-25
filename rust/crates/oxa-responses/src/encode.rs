@@ -242,9 +242,31 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let mut apco_index = 0usize;
     for (index, block) in resp.content.iter().enumerate() {
         match block {
-            Block::Text { text: value, .. } => {
+            Block::Text {
+                text: value,
+                citations,
+                ..
+            } => {
                 text.push_str(value);
                 has_text = true;
+                if let Some(cites) = citations
+                    && !cites.is_empty()
+                {
+                    losses.push(loss(
+                        format!("content[{index}].citations"),
+                        "citations",
+                        LossReason::UnsupportedSemantic,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    ));
+                }
+            }
+            Block::RedactedThinking { .. } => {
+                losses.push(loss(
+                    format!("content[{index}]"),
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                ));
             }
             Block::Thinking {
                 thinking,

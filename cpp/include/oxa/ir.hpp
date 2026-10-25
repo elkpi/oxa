@@ -50,6 +50,8 @@ inline constexpr std::string_view NATIVE_KIND_STORE = "store";
 inline constexpr std::string_view NATIVE_KIND_STREAM = "stream";
 inline constexpr std::string_view NATIVE_KIND_STREAM_OPTIONS = "stream_options";
 inline constexpr std::string_view NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
+inline constexpr std::string_view NATIVE_KIND_TOP_K = "top_k";
+inline constexpr std::string_view NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE = "disable_parallel_tool_use";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
@@ -75,6 +77,7 @@ inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
 inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
+inline constexpr std::string_view BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
@@ -106,6 +109,7 @@ inline constexpr std::string_view DELTA_TYPE_INPUT_JSON_DELTA = "input_json_delt
 inline constexpr std::string_view DELTA_TYPE_THINKING_DELTA = "thinking_delta";
 inline constexpr std::string_view DELTA_TYPE_SIGNATURE_DELTA = "signature_delta";
 inline constexpr std::string_view DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA = "custom_tool_input_delta";
+inline constexpr std::string_view DELTA_TYPE_CITATION_DELTA = "citation_delta";
 
 inline constexpr std::string_view LOSS_UNMAPPED_FIELD = "unmapped-field";
 inline constexpr std::string_view LOSS_UNMAPPED_VALUE = "unmapped-value";
@@ -149,8 +153,18 @@ struct NativeAnnotation {
 
 // ---- blocks (spec/01 §3.4) ------------------------------------------------
 
+// A citation reference attached to a TextBlock (since 2.4.11). `value` is the
+// canonical citation JSON object (char_location, page_location,
+// content_block_location, web_search_result_location, or
+// search_result_location) serialized as opaque text.
+struct TextCitation {
+    std::string source;
+    std::string value;  // canonical citation JSON object text
+};
+
 struct TextBlock {
     std::string text;
+    std::optional<std::vector<TextCitation>> citations;
     std::vector<NativeAnnotation> native;
 
     TextBlock() = default;
@@ -166,6 +180,17 @@ struct ThinkingBlock {
     ThinkingBlock() = default;
     ThinkingBlock(std::string th, std::optional<std::string> sig = std::nullopt, std::vector<NativeAnnotation> nat = {})
         : thinking(std::move(th)), signature(std::move(sig)), native(std::move(nat)) {}
+};
+
+// Encrypted thinking replay state (spec/01 §3.4). `data` is opaque: oxa never
+// inspects or transforms it.
+struct RedactedThinkingBlock {
+    std::string data;
+    std::vector<NativeAnnotation> native;
+
+    RedactedThinkingBlock() = default;
+    explicit RedactedThinkingBlock(std::string d, std::vector<NativeAnnotation> nat = {})
+        : data(std::move(d)), native(std::move(nat)) {}
 };
 
 struct ImageBlock {
@@ -272,7 +297,8 @@ struct ApplyPatchToolResultBlock {
         : tool_use_id(std::move(tid)), status(std::move(st)), output(std::move(out)), native(std::move(nat)) {}
 };
 
-using Block = std::variant<TextBlock, ThinkingBlock, ImageBlock, DocumentBlock, ToolUseBlock, ToolResultBlock,
+using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, ImageBlock, DocumentBlock,
+                           ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
                            ApplyPatchToolUseBlock, ApplyPatchToolResultBlock>;
 
@@ -411,7 +437,11 @@ struct SignatureDelta {
     std::string signature;
 };
 
-using Delta = std::variant<TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta, CustomToolInputDelta>;
+struct CitationDelta {
+    TextCitation citation;
+};
+
+using Delta = std::variant<TextDelta, InputJsonDelta, ThinkingDelta, SignatureDelta, CustomToolInputDelta, CitationDelta>;
 
 struct MessageStart {
     std::string id;
@@ -456,6 +486,7 @@ StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v);
 
 Status validate_native_request(const Request& req);
 StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
+Status validate_citation_value(std::string_view val);
 
 json::Value dump_request(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);

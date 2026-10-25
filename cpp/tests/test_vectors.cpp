@@ -94,7 +94,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 100);
+        CHECK(r->executed == 109);
     }
 
     // 3. Responses nonstream
@@ -121,7 +121,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 43);
+        CHECK(r->executed == 47);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

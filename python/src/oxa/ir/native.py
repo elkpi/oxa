@@ -9,6 +9,7 @@ from typing import Any, Sequence
 
 from oxa.ir.constants import (
     BLOCK_TYPE_DOCUMENT,
+    BLOCK_TYPE_REDACTED_THINKING,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     ReasoningEffort,
@@ -33,6 +34,8 @@ NATIVE_KIND_STORE = "store"
 NATIVE_KIND_STREAM = "stream"
 NATIVE_KIND_STREAM_OPTIONS = "stream_options"
 NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens"
+NATIVE_KIND_TOP_K = "top_k"
+NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE = "disable_parallel_tool_use"
 
 DEFER_LOADING_LOSS_DETAIL = (
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
@@ -130,6 +133,25 @@ def validate_native_request(req: Any) -> None:
     if budget_proj > 0 and explicit_proj > 0:
         raise CodecError("ir: conflicting effort projections on request")
 
+    has_between_tools = False
+    has_budget_or_display = False
+    has_disable_parallel = False
+    for n in getattr(req, "native", ()) or ():
+        if n.source == NATIVE_SOURCE_ANTHROPIC:
+            if n.kind == NATIVE_KIND_THINKING_MODE and n.value == '"between_tools"':
+                has_between_tools = True
+            elif n.kind in (NATIVE_KIND_THINKING_BUDGET, NATIVE_KIND_THINKING_DISPLAY):
+                has_budget_or_display = True
+            elif n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+                has_disable_parallel = True
+
+    if has_between_tools and has_budget_or_display:
+        raise CodecError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+    if has_disable_parallel:
+        tc = getattr(req, "tool_choice", None)
+        if tc is None or tc.mode == "none":
+            raise CodecError("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
+
     for i, sb in enumerate(getattr(req, "system", ()) or ()):
         validate_annotations(getattr(sb, "native", ()), HostType.SYSTEM, f"system[{i}]")
 
@@ -186,8 +208,18 @@ def validate_annotations(
             if ann.kind == NATIVE_KIND_THINKING_MODE:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
-                if parsed_json not in ("adaptive", "enabled", "disabled"):
+                if parsed_json not in ("adaptive", "enabled", "disabled", "between_tools"):
                     raise CodecError(f"invalid thinking_mode {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_TOP_K:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if not (isinstance(parsed_json, int) and not isinstance(parsed_json, bool) and 0 <= parsed_json <= 9007199254740991):
+                    raise CodecError(f"invalid top_k {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, bool):
+                    raise CodecError(f"invalid disable_parallel_tool_use {parsed_json!r}")
             elif ann.kind == NATIVE_KIND_THINKING_BUDGET:
                 if host != HostType.REQUEST:
                     raise CodecError(f"{path}: anthropic {ann.kind} is only allowed on Request")
@@ -348,10 +380,8 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
 
 
 def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: str) -> None:
-    if getattr(blk, "type", "") == BLOCK_TYPE_DOCUMENT:
-        # N-AN-16: a document block crossing to a face without document
-        # support is dropped as one whole-block loss; its annotations are
-        # part of it and are not reported a second time.
+    if getattr(blk, "type", "") in (BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_REDACTED_THINKING):
+        # whole-block drop; annotations are part of it and are not reported a second time.
         return
     for i, ann in enumerate(getattr(blk, "native", ())):
         _append_omission_loss(losses, ann, f"{path}.native[{i}]", False, None, target)
@@ -552,6 +582,34 @@ def _append_omission_loss(
                     detail=detail,
                 )
             )
+        return
+
+    if ann.kind == NATIVE_KIND_TOP_K:
+        field = "top_k"
+        reason = LOSS_UNMAPPED_FIELD
+        detail = ""
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+        return
+
+    if ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+        field = "disable_parallel_tool_use"
+        reason = LOSS_UNMAPPED_FIELD
+        detail = ""
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
         return
 
     if ann.kind in (

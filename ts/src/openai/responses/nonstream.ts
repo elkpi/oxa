@@ -1008,6 +1008,23 @@ export function encodeRequest(
         if (block.type === "text") {
           text += block.text;
           hasText = true;
+          if (block.citations && block.citations.length > 0) {
+            losses.push({
+              path: `messages[${index}].content[${child}].citations`,
+              field: "citations",
+              reason: "unsupported-semantic",
+              detail:
+                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+            });
+          }
+        } else if (block.type === "redacted_thinking") {
+          losses.push({
+            path: `messages[${index}].content[${child}]`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail:
+              "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+          });
         } else if (block.type === "thinking") {
           thinking.push(block.thinking);
           if (block.signature !== undefined)
@@ -1179,6 +1196,23 @@ export function encodeResponse(
     if (block.type === "text") {
       text += block.text;
       hasText = true;
+      if (block.citations && block.citations.length > 0) {
+        losses.push({
+          path: `content[${index}].citations`,
+          field: "citations",
+          reason: "unsupported-semantic",
+          detail:
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+        });
+      }
+    } else if (block.type === "redacted_thinking") {
+      losses.push({
+        path: `content[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+      });
     } else if (block.type === "thinking") {
       thinking.push(block.thinking);
       if (block.signature !== undefined)
@@ -1559,6 +1593,24 @@ function encodeUserContent(
       text += block.text;
       textBlocks += 1;
       parts.push({ type: "input_text", text: block.text });
+      if (block.citations && block.citations.length > 0) {
+        losses.push({
+          path: `${path}[${index}].citations`,
+          field: "citations",
+          reason: "unsupported-semantic",
+          detail:
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+        });
+      }
+    } else if (block.type === "redacted_thinking") {
+      otherBlocks += 1;
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+      });
     } else if (block.type === "image") {
       const image = encodeImage(block);
       if (image === undefined)

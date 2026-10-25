@@ -15,18 +15,43 @@ type Block interface {
 }
 
 const (
-	BlockTypeText       = "text"
-	BlockTypeImage      = "image"
-	BlockTypeToolUse    = "tool_use"
-	BlockTypeToolResult = "tool_result"
-	BlockTypeThinking   = "thinking"
-	BlockTypeDocument   = "document"
+	BlockTypeText             = "text"
+	BlockTypeImage            = "image"
+	BlockTypeToolUse          = "tool_use"
+	BlockTypeToolResult       = "tool_result"
+	BlockTypeThinking         = "thinking"
+	BlockTypeRedactedThinking = "redacted_thinking"
+	BlockTypeDocument         = "document"
 )
+
+// TextCitation is a citation reference attached to a TextBlock (since 2.4.11).
+type TextCitation struct {
+	Source string
+	Value  string
+}
 
 // TextBlock is a run of text.
 type TextBlock struct {
-	Text   string
+	Text      string
+	Citations []TextCitation
+	Native    []NativeAnnotation
+}
+
+// RedactedThinkingBlock is Anthropic encrypted thinking replay state (since 2.4.11).
+// Data is opaque provider payload and MUST NOT be logged or inspected (INV-1).
+type RedactedThinkingBlock struct {
+	Data   string
 	Native []NativeAnnotation
+}
+
+func (RedactedThinkingBlock) isBlock() {}
+
+func (r RedactedThinkingBlock) String() string {
+	return "[RedactedThinkingBlock]"
+}
+
+func (r RedactedThinkingBlock) GoString() string {
+	return "ir.RedactedThinkingBlock{Data: [REDACTED]}"
 }
 
 // ThinkingBlock is the model's reasoning content with optional opaque provider signature (since 2.0).

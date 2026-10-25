@@ -100,6 +100,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             role: Role::User,
             content: vec![Block::Text {
                 text: text.clone(),
+                citations: None,
                 native: Vec::new(),
             }],
         }),
@@ -139,6 +140,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             if content.is_empty() {
                                 content.push(Block::Text {
                                     text: String::new(),
+                                    citations: None,
                                     native: Vec::new(),
                                 });
                             }
@@ -237,6 +239,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             role: Role::User,
             content: vec![Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             }],
         });
@@ -295,6 +298,7 @@ fn decode_custom_output(
                         }
                         blocks.push(Block::Text {
                             text: p.text.clone(),
+                            citations: None,
                             native: Vec::new(),
                         });
                     }
@@ -659,6 +663,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     }
                     text.push(Block::Text {
                         text: part.text.clone(),
+                        citations: None,
                         native: Vec::new(),
                     });
                 }

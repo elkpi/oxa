@@ -390,7 +390,12 @@ export interface ChatCompletionsStreamEncoderOptions {
 }
 
 type EncoderBlock =
-  | { readonly kind: "text"; readonly index: number }
+  | {
+      readonly kind: "text";
+      readonly index: number;
+      citationLossSeen?: boolean;
+    }
+  | { readonly kind: "redacted_thinking"; readonly index: number }
   | {
       readonly kind: "custom";
       readonly index: number;
@@ -430,6 +435,7 @@ export class ChatCompletionsStreamEncoder {
   #toolSeen = false;
   #orderingDegrade = false;
   #pendingTools: ChatCompletionsChunk[] = [];
+  #eventOrdinal = 0;
 
   constructor(options: ChatCompletionsStreamEncoderOptions = {}) {
     this.#modelMapper = options.modelMapper;
@@ -438,6 +444,7 @@ export class ChatCompletionsStreamEncoder {
   Apply(event: Event): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (this.#done || (this.#finished && event.type !== "message_done"))
       this.#lifecycle("event applied after stream termination");
+    const ordinal = this.#eventOrdinal++;
     switch (event.type) {
       case "message_start":
         if (this.#started) this.#lifecycle("duplicate message_start");
@@ -446,9 +453,9 @@ export class ChatCompletionsStreamEncoder {
         this.#model = mapModel(this.#modelMapper, event.model);
         return this.#result([this.#chunk({ role: "assistant" })]);
       case "content_block_start":
-        return this.#startBlock(event);
+        return this.#startBlock(event, ordinal);
       case "content_block_delta":
-        return this.#delta(event);
+        return this.#delta(event, ordinal);
       case "content_block_stop":
         return this.#stopBlock(event.index);
       case "message_delta":
@@ -463,6 +470,7 @@ export class ChatCompletionsStreamEncoder {
 
   #startBlock(
     event: Extract<Event, { type: "content_block_start" }>,
+    ordinal: number,
   ): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (!this.#started || this.#active !== undefined)
       this.#lifecycle("content_block_start out of grammar order");
@@ -473,8 +481,38 @@ export class ChatCompletionsStreamEncoder {
     this.#nextIrIndex += 1;
     if (event.block.type === "text") {
       if (this.#toolSeen) this.#orderingDegrade = true;
-      this.#active = { kind: "text", index: event.index };
-      return this.#result([]);
+      this.#active = {
+        kind: "text",
+        index: event.index,
+        citationLossSeen: false,
+      };
+      const losses: Loss[] = [];
+      if (event.block.citations && event.block.citations.length > 0) {
+        this.#active.citationLossSeen = true;
+        losses.push({
+          path: `events[${ordinal}].block.citations`,
+          field: "citations",
+          reason: "unsupported-semantic",
+          detail:
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+        });
+      }
+      return { value: [], losses };
+    }
+    if (event.block.type === "redacted_thinking") {
+      this.#active = { kind: "redacted_thinking", index: event.index };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${ordinal}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail:
+              "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+          },
+        ],
+      };
     }
     if (event.block.type === "thinking") {
       this.#active = {
@@ -559,13 +597,36 @@ export class ChatCompletionsStreamEncoder {
 
   #delta(
     event: Extract<Event, { type: "content_block_delta" }>,
+    ordinal: number,
   ): ConversionResult<readonly ChatCompletionsChunk[]> {
     if (this.#active === undefined || event.index !== this.#active.index)
       this.#lifecycle("content_block_delta out of grammar order");
     if (this.#active.kind === "text") {
-      if (event.delta.type !== "text_delta")
-        this.#lifecycle("text block received non-text delta");
-      return this.#result([this.#chunk({ content: event.delta.text })]);
+      if (event.delta.type === "text_delta") {
+        return this.#result([this.#chunk({ content: event.delta.text })]);
+      }
+      if (event.delta.type === "citation_delta") {
+        if (!this.#active.citationLossSeen) {
+          this.#active.citationLossSeen = true;
+          return {
+            value: [],
+            losses: [
+              {
+                path: `events[${ordinal}].delta.citation`,
+                field: "citations",
+                reason: "unsupported-semantic",
+                detail:
+                  "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+              },
+            ],
+          };
+        }
+        return this.#result([]);
+      }
+      this.#lifecycle("text block received non-text delta");
+    }
+    if (this.#active.kind === "redacted_thinking") {
+      this.#lifecycle("RedactedThinkingBlock received unexpected delta");
     }
     if (this.#active.kind === "custom") {
       this.#lifecycle("delta does not match skipped custom block");
@@ -620,6 +681,10 @@ export class ChatCompletionsStreamEncoder {
     if (this.#active === undefined || index !== this.#active.index)
       this.#lifecycle("content_block_stop out of grammar order");
     if (this.#active.kind === "custom") {
+      this.#active = undefined;
+      return this.#result([]);
+    }
+    if (this.#active.kind === "redacted_thinking") {
       this.#active = undefined;
       return this.#result([]);
     }

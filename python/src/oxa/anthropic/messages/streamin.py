@@ -9,11 +9,13 @@ from oxa._wire import RawDocument, audit_feed
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
     DELTA_TYPE_THINKING_DELTA,
+    DELTA_TYPE_CITATIONS,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -22,10 +24,15 @@ from oxa.anthropic.messages.constants import (
     EVENT_TYPE_MESSAGE_STOP,
 )
 from oxa.anthropic.messages.decode import decode_stop_reason
-from oxa.anthropic.messages.normalize import extract_tool_input_raw, loss
+from oxa.anthropic.messages.normalize import (
+    decode_anthropic_text_citations,
+    extract_tool_input_raw,
+    loss,
+)
 from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     STOP_END_TURN,
+    CitationDelta,
     ContentBlockDelta,
     ContentBlockStart,
     ContentBlockStop,
@@ -37,6 +44,7 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    RedactedThinkingBlock,
     SignatureDelta,
     TextBlock,
     TextDelta,
@@ -62,6 +70,7 @@ class StreamDecoder:
         "_block_open",
         "_open_tool",
         "_open_thinking",
+        "_open_redacted",
         "_thinking_signature_seen",
         "_tool_id",
         "_tool_name",
@@ -88,6 +97,7 @@ class StreamDecoder:
         self._block_open = False
         self._open_tool = False
         self._open_thinking = False
+        self._open_redacted = False
         self._thinking_signature_seen = False
         self._tool_id = ""
         self._tool_name = ""
@@ -198,6 +208,7 @@ class StreamDecoder:
                 self._block_open = True
                 self._open_tool = False
                 self._open_thinking = True
+                self._open_redacted = False
                 self._thinking_signature_seen = False
                 self._open_index = index
                 self._open_ir_index = self._next_ir_index
@@ -209,6 +220,25 @@ class StreamDecoder:
                             thinking=block.get("thinking", ""),
                             signature=block.get("signature"),
                         ),
+                    )
+                ]
+
+            if b_kind == BLOCK_TYPE_REDACTED_THINKING:
+                data_val = block.get("data")
+                if data_val is None or not isinstance(data_val, str):
+                    raise ValueError(f"anthropic: content_block_start[{index}].content_block.data is required")
+                self._next_index += 1
+                self._block_open = True
+                self._open_tool = False
+                self._open_thinking = False
+                self._open_redacted = True
+                self._open_index = index
+                self._open_ir_index = self._next_ir_index
+                self._next_ir_index += 1
+                return [
+                    ContentBlockStart(
+                        index=self._open_ir_index,
+                        block=RedactedThinkingBlock(data=data_val),
                     )
                 ]
 
@@ -230,12 +260,24 @@ class StreamDecoder:
             self._block_open = True
             self._open_tool = False
             self._open_thinking = False
+            self._open_redacted = False
             self._open_index = index
             self._open_ir_index = self._next_ir_index
             self._next_ir_index += 1
+            cites = None
+            if "citations" in block:
+                raw_cites = decode_anthropic_text_citations(
+                    block.get("citations"),
+                    f"content_block_start[{index}].content_block.citations",
+                    self._losses,
+                    False,
+                )
+                if raw_cites:
+                    cites = tuple(raw_cites)
             return [
                 ContentBlockStart(
-                    index=self._open_ir_index, block=TextBlock(text=block.get("text", ""))
+                    index=self._open_ir_index,
+                    block=TextBlock(text=block.get("text", ""), citations=cites),
                 )
             ]
 
@@ -252,6 +294,9 @@ class StreamDecoder:
                 raise ValueError(
                     f"anthropic: content_block_delta index {index} does not match the open block"
                 )
+
+            if self._open_redacted:
+                raise ValueError("anthropic: content_block_delta on redacted_thinking block")
 
             d_kind = delta.get("type", "")
             if self._open_tool:
@@ -288,6 +333,19 @@ class StreamDecoder:
                             index=self._open_ir_index, delta=TextDelta(text=delta.get("text", ""))
                         )
                     ]
+                if d_kind == DELTA_TYPE_CITATIONS:
+                    cite_raw = delta.get("citation")
+                    if cite_raw is None:
+                        raise ValueError("anthropic: citations_delta without citation")
+                    cites = decode_anthropic_text_citations([cite_raw], f"content_block_delta[{index}].delta.citation", self._losses, False)
+                    if cites:
+                        return [
+                            ContentBlockDelta(
+                                index=self._open_ir_index,
+                                delta=CitationDelta(citation=cites[0]),
+                            )
+                        ]
+                    return []
                 if d_kind == DELTA_TYPE_INPUT_JSON_DELTA:
                     raise ValueError("anthropic: input_json_delta on non-tool block")
                 if d_kind in (DELTA_TYPE_THINKING_DELTA, DELTA_TYPE_SIGNATURE_DELTA):
@@ -393,6 +451,7 @@ class StreamDecoder:
 
             self._block_open = False
             self._open_thinking = False
+            self._open_redacted = False
             self._thinking_signature_seen = False
             return [ContentBlockStop(index=self._open_ir_index)]
 

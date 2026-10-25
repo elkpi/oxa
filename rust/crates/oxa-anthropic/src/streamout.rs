@@ -8,12 +8,12 @@ use crate::encode::encode_stop_reason;
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE, BlockWire,
-    DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_SIGNATURE_DELTA, DELTA_TYPE_TEXT_DELTA,
-    DELTA_TYPE_THINKING_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START,
-    EVENT_TYPE_CONTENT_BLOCK_STOP, EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START,
-    EVENT_TYPE_MESSAGE_STOP, MessageStartWire, ROLE_ASSISTANT, StreamDelta, StreamEvent,
-    TYPE_MESSAGE, UsageWire,
+    BLOCK_TYPE_REDACTED_THINKING, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE,
+    BlockWire, DELTA_TYPE_CITATIONS, DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_SIGNATURE_DELTA,
+    DELTA_TYPE_TEXT_DELTA, DELTA_TYPE_THINKING_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA,
+    EVENT_TYPE_CONTENT_BLOCK_START, EVENT_TYPE_CONTENT_BLOCK_STOP, EVENT_TYPE_MESSAGE_DELTA,
+    EVENT_TYPE_MESSAGE_START, EVENT_TYPE_MESSAGE_STOP, MessageStartWire, ROLE_ASSISTANT,
+    StreamDelta, StreamEvent, TYPE_MESSAGE, UsageWire,
 };
 
 /// Incrementally converts an IR event stream into Anthropic Messages wire events.
@@ -29,6 +29,7 @@ pub struct StreamEncoder {
     block_open: bool,
     open_tool: bool,
     open_thinking: bool,
+    open_redacted: bool,
     open_custom: bool,
     open_atomic: bool,
     custom_seen: bool,
@@ -58,6 +59,7 @@ impl StreamEncoder {
             block_open: false,
             open_tool: false,
             open_thinking: false,
+            open_redacted: false,
             open_custom: false,
             open_atomic: false,
             custom_seen: false,
@@ -121,7 +123,9 @@ impl StreamEncoder {
                     )));
                 }
                 match block {
-                    Block::Text { text, .. } => {
+                    Block::Text {
+                        text, citations, ..
+                    } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
@@ -130,6 +134,10 @@ impl StreamEncoder {
                         self.open_ir_index = *index;
                         self.open_index = self.next_wire_index;
                         self.next_wire_index += 1;
+                        let wire_cites = citations
+                            .as_ref()
+                            .map(|cites| crate::encode::encode_response_citations(cites))
+                            .transpose()?;
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
@@ -137,6 +145,7 @@ impl StreamEncoder {
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_TEXT.to_string(),
                                     text: text.clone(),
+                                    citations: wire_cites,
                                     ..Default::default()
                                 }),
                                 ..Default::default()
@@ -153,6 +162,7 @@ impl StreamEncoder {
                         self.block_open = true;
                         self.open_tool = false;
                         self.open_thinking = true;
+                        self.open_redacted = false;
                         self.open_custom = false;
                         self.open_ir_index = *index;
                         self.open_index = self.next_wire_index;
@@ -168,6 +178,31 @@ impl StreamEncoder {
                                 content_block: Some(BlockWire {
                                     kind: BLOCK_TYPE_THINKING.to_string(),
                                     thinking: None,
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
+                    Block::RedactedThinking { data, .. } => {
+                        self.next_index += 1;
+                        self.block_open = true;
+                        self.open_tool = false;
+                        self.open_thinking = false;
+                        self.open_custom = false;
+                        self.open_atomic = false;
+                        self.open_redacted = true;
+                        self.open_ir_index = *index;
+                        self.open_index = self.next_wire_index;
+                        self.next_wire_index += 1;
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
+                                index: Some(self.open_index),
+                                content_block: Some(BlockWire {
+                                    kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
+                                    data: Some(data.clone()),
                                     ..Default::default()
                                 }),
                                 ..Default::default()
@@ -295,6 +330,11 @@ impl StreamEncoder {
                         "anthropic: ContentBlockDelta out of grammar order",
                     ));
                 }
+                if self.open_redacted {
+                    return Err(Error::new(
+                        "anthropic: ContentBlockDelta on redacted_thinking block",
+                    ));
+                }
                 if self.open_atomic {
                     return Err(Error::new("anthropic: atomic block does not accept deltas"));
                 }
@@ -376,6 +416,26 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
+                    Delta::CitationDelta { citation } => {
+                        if self.open_tool || self.open_thinking {
+                            return Err(Error::new("anthropic: CitationDelta on non-text block"));
+                        }
+                        let cite_val: serde_json::Value = serde_json::from_str(&citation.value)
+                            .map_err(|e| Error::new(e.to_string()))?;
+                        Ok((
+                            vec![StreamEvent {
+                                kind: EVENT_TYPE_CONTENT_BLOCK_DELTA.to_string(),
+                                index: Some(self.open_index),
+                                delta: Some(StreamDelta {
+                                    kind: DELTA_TYPE_CITATIONS.to_string(),
+                                    citation: Some(cite_val),
+                                    ..Default::default()
+                                }),
+                                ..Default::default()
+                            }],
+                            Vec::new(),
+                        ))
+                    }
                     Delta::InputJsonDelta { partial_json } => {
                         if !self.open_tool {
                             return Err(Error::new("anthropic: InputJSONDelta on text block"));
@@ -402,6 +462,18 @@ impl StreamEncoder {
                 if !self.block_open || *index != self.open_ir_index {
                     return Err(Error::new(
                         "anthropic: ContentBlockStop out of grammar order",
+                    ));
+                }
+                if self.open_redacted {
+                    self.block_open = false;
+                    self.open_redacted = false;
+                    return Ok((
+                        vec![StreamEvent {
+                            kind: EVENT_TYPE_CONTENT_BLOCK_STOP.to_string(),
+                            index: Some(self.open_index),
+                            ..Default::default()
+                        }],
+                        Vec::new(),
                     ));
                 }
                 if self.open_atomic {

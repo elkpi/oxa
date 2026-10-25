@@ -38,7 +38,7 @@ func TestRawReviewKnownDroppedPresence(t *testing.T) {
 	for i, c := range cases {
 		_, losses, err := c.decode([]byte(c.raw))
 		expected := 2
-		if i == 1 {
+		if i == 1 || i == 2 {
 			expected = 1
 		}
 		if err != nil || len(losses) != expected {

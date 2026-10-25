@@ -1,0 +1,124 @@
+{
+  "name": "anthropic.stream.redacted-thinking-from-ir",
+  "description": "IR EventStream with RedactedThinkingBlock encodes to Anthropic stream events with zero loss (spec/20 §11.3).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "events": [
+      {
+        "type": "message_start",
+        "id": "msg_redacted_stream",
+        "model": "claude-opus-5-5"
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "block": {
+          "type": "redacted_thinking",
+          "data": "OPAQUE_STREAM_PAYLOAD"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "content_block_start",
+        "index": 1,
+        "block": {
+          "type": "text",
+          "text": ""
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Answer."
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      {
+        "type": "message_delta",
+        "stop_reason": "end_turn",
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 12
+        }
+      },
+      {
+        "type": "message_done"
+      }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      {
+        "type": "message_start",
+        "message": {
+          "id": "msg_redacted_stream",
+          "type": "message",
+          "role": "assistant",
+          "model": "claude-opus-5-5",
+          "content": [],
+          "stop_reason": null,
+          "usage": { "input_tokens": 0, "output_tokens": 0 }
+        }
+      },
+      {
+        "type": "content_block_start",
+        "index": 0,
+        "content_block": {
+          "type": "redacted_thinking",
+          "data": "OPAQUE_STREAM_PAYLOAD"
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 0
+      },
+      {
+        "type": "content_block_start",
+        "index": 1,
+        "content_block": {
+          "type": "text"
+        }
+      },
+      {
+        "type": "content_block_delta",
+        "index": 1,
+        "delta": {
+          "type": "text_delta",
+          "text": "Answer."
+        }
+      },
+      {
+        "type": "content_block_stop",
+        "index": 1
+      },
+      {
+        "type": "message_delta",
+        "delta": {
+          "stop_reason": "end_turn"
+        },
+        "usage": {
+          "input_tokens": 10,
+          "output_tokens": 12
+        }
+      },
+      {
+        "type": "message_stop"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "thinking", "redacted_thinking", "n-s-11"]
+}

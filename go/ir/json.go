@@ -14,9 +14,20 @@ const SpecVersion = "0.2.0"
 
 // ---- blocks ---------------------------------------------------------------
 
+type wireTextCitation struct {
+	Source string `json:"source"`
+	Value  string `json:"value"`
+}
+
 type wireTextBlock struct {
+	Type      string             `json:"type"`
+	Text      string             `json:"text"`
+	Citations []wireTextCitation `json:"citations,omitempty"`
+}
+
+type wireRedactedThinkingBlock struct {
 	Type string `json:"type"`
-	Text string `json:"text"`
+	Data string `json:"data"`
 }
 
 type wireImageBlock struct {
@@ -51,6 +62,8 @@ func hasNative(b Block) bool {
 	case TextBlock:
 		return len(v.Native) > 0
 	case ThinkingBlock:
+		return len(v.Native) > 0
+	case RedactedThinkingBlock:
 		return len(v.Native) > 0
 	case ImageBlock:
 		return len(v.Native) > 0
@@ -116,10 +129,18 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 			CustomToolResultBlock
 		}{BlockTypeCustomToolResult, v})
 	case TextBlock:
-		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text})
+		var cites []wireTextCitation
+		for _, c := range v.Citations {
+			cites = append(cites, wireTextCitation(c))
+		}
+		return json.Marshal(wireTextBlock{Type: BlockTypeText, Text: v.Text, Citations: cites})
 	case ThinkingBlock:
 		return json.Marshal(wireThinkingBlock{
 			Type: BlockTypeThinking, Thinking: v.Thinking, Signature: v.Signature,
+		})
+	case RedactedThinkingBlock:
+		return json.Marshal(wireRedactedThinkingBlock{
+			Type: BlockTypeRedactedThinking, Data: v.Data,
 		})
 	case ImageBlock:
 		return json.Marshal(wireImageBlock{
@@ -210,13 +231,29 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
-		return TextBlock{Text: w.Text}, nil
+		var cites []TextCitation
+		for _, c := range w.Citations {
+			if c.Source != "anthropic" {
+				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
+			}
+			if err := ValidateCitationValue(c.Value); err != nil {
+				return nil, err
+			}
+			cites = append(cites, TextCitation(c))
+		}
+		return TextBlock{Text: w.Text, Citations: cites}, nil
 	case BlockTypeThinking:
 		var w wireThinkingBlock
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
 		return ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature}, nil
+	case BlockTypeRedactedThinking:
+		var w wireRedactedThinkingBlock
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return RedactedThinkingBlock{Data: w.Data}, nil
 	case BlockTypeImage:
 		var w wireImageBlock
 		if err := json.Unmarshal(data, &w); err != nil {
@@ -347,11 +384,16 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			Native    []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeCustomToolResult, v.ToolUseID, outputRaw, v.Native})
 	case TextBlock:
+		var cites []wireTextCitation
+		for _, c := range v.Citations {
+			cites = append(cites, wireTextCitation(c))
+		}
 		return json.Marshal(struct {
-			Type   string             `json:"type"`
-			Text   string             `json:"text"`
-			Native []NativeAnnotation `json:"native,omitempty"`
-		}{BlockTypeText, v.Text, v.Native})
+			Type      string             `json:"type"`
+			Text      string             `json:"text"`
+			Citations []wireTextCitation `json:"citations,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeText, v.Text, cites, v.Native})
 	case ThinkingBlock:
 		return json.Marshal(struct {
 			Type      string             `json:"type"`
@@ -359,6 +401,12 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			Signature string             `json:"signature,omitempty"`
 			Native    []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeThinking, v.Thinking, v.Signature, v.Native})
+	case RedactedThinkingBlock:
+		return json.Marshal(struct {
+			Type   string             `json:"type"`
+			Data   string             `json:"data"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeRedactedThinking, v.Data, v.Native})
 	case ImageBlock:
 		return json.Marshal(struct {
 			Type      string             `json:"type"`
@@ -490,13 +538,24 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 		return CustomToolResultBlock{ToolUseID: w.ToolUseID, Output: output, Native: w.Native}, nil
 	case BlockTypeText:
 		var w struct {
-			Text   string             `json:"text"`
-			Native []NativeAnnotation `json:"native,omitempty"`
+			Text      string             `json:"text"`
+			Citations []wireTextCitation `json:"citations,omitempty"`
+			Native    []NativeAnnotation `json:"native,omitempty"`
 		}
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
-		return TextBlock{Text: w.Text, Native: w.Native}, nil
+		var cites []TextCitation
+		for _, c := range w.Citations {
+			if c.Source != "anthropic" {
+				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
+			}
+			if err := ValidateCitationValue(c.Value); err != nil {
+				return nil, err
+			}
+			cites = append(cites, TextCitation(c))
+		}
+		return TextBlock{Text: w.Text, Citations: cites, Native: w.Native}, nil
 	case BlockTypeThinking:
 		var w struct {
 			Thinking  string             `json:"thinking"`
@@ -507,6 +566,15 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return ThinkingBlock{Thinking: w.Thinking, Signature: w.Signature, Native: w.Native}, nil
+	case BlockTypeRedactedThinking:
+		var w struct {
+			Data   string             `json:"data"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return RedactedThinkingBlock{Data: w.Data, Native: w.Native}, nil
 	case BlockTypeImage:
 		var w struct {
 			MediaType string             `json:"media_type,omitempty"`
@@ -928,6 +996,134 @@ type wireSignatureDelta struct {
 	Signature string `json:"signature"`
 }
 
+func ValidateCitationValue(val string) error {
+	if val == "" {
+		return fmt.Errorf("ir: citation value cannot be empty")
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(val), &obj); err != nil {
+		return fmt.Errorf("ir: citation value must be a JSON object: %w", err)
+	}
+	rawType, ok := obj["type"]
+	if !ok {
+		return fmt.Errorf("ir: citation value requires type field")
+	}
+	var citeType string
+	if err := json.Unmarshal(rawType, &citeType); err != nil {
+		return fmt.Errorf("ir: citation type must be a string: %w", err)
+	}
+	switch citeType {
+	case "char_location":
+		for k := range obj {
+			if k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" && k != "start_char_index" && k != "end_char_index" && k != "file_id" {
+				return fmt.Errorf("ir: unknown property %q on char_location citation", k)
+			}
+		}
+		if _, ok := obj["cited_text"]; !ok {
+			return fmt.Errorf("ir: char_location citation requires cited_text")
+		}
+		if _, ok := obj["document_index"]; !ok {
+			return fmt.Errorf("ir: char_location citation requires document_index")
+		}
+		if _, ok := obj["document_title"]; !ok {
+			return fmt.Errorf("ir: char_location citation requires document_title")
+		}
+		if _, ok := obj["start_char_index"]; !ok {
+			return fmt.Errorf("ir: char_location citation requires start_char_index")
+		}
+		if _, ok := obj["end_char_index"]; !ok {
+			return fmt.Errorf("ir: char_location citation requires end_char_index")
+		}
+	case "page_location":
+		for k := range obj {
+			if k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" && k != "start_page_number" && k != "end_page_number" && k != "file_id" {
+				return fmt.Errorf("ir: unknown property %q on page_location citation", k)
+			}
+		}
+		if _, ok := obj["cited_text"]; !ok {
+			return fmt.Errorf("ir: page_location citation requires cited_text")
+		}
+		if _, ok := obj["document_index"]; !ok {
+			return fmt.Errorf("ir: page_location citation requires document_index")
+		}
+		if _, ok := obj["document_title"]; !ok {
+			return fmt.Errorf("ir: page_location citation requires document_title")
+		}
+		if _, ok := obj["start_page_number"]; !ok {
+			return fmt.Errorf("ir: page_location citation requires start_page_number")
+		}
+		if _, ok := obj["end_page_number"]; !ok {
+			return fmt.Errorf("ir: page_location citation requires end_page_number")
+		}
+	case "content_block_location":
+		for k := range obj {
+			if k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" && k != "start_block_index" && k != "end_block_index" && k != "file_id" {
+				return fmt.Errorf("ir: unknown property %q on content_block_location citation", k)
+			}
+		}
+		if _, ok := obj["cited_text"]; !ok {
+			return fmt.Errorf("ir: content_block_location citation requires cited_text")
+		}
+		if _, ok := obj["document_index"]; !ok {
+			return fmt.Errorf("ir: content_block_location citation requires document_index")
+		}
+		if _, ok := obj["document_title"]; !ok {
+			return fmt.Errorf("ir: content_block_location citation requires document_title")
+		}
+		if _, ok := obj["start_block_index"]; !ok {
+			return fmt.Errorf("ir: content_block_location citation requires start_block_index")
+		}
+		if _, ok := obj["end_block_index"]; !ok {
+			return fmt.Errorf("ir: content_block_location citation requires end_block_index")
+		}
+	case "web_search_result_location":
+		for k := range obj {
+			if k != "type" && k != "cited_text" && k != "encrypted_index" && k != "title" && k != "url" {
+				return fmt.Errorf("ir: unknown property %q on web_search_result_location citation", k)
+			}
+		}
+		if _, ok := obj["cited_text"]; !ok {
+			return fmt.Errorf("ir: web_search_result_location citation requires cited_text")
+		}
+		if _, ok := obj["encrypted_index"]; !ok {
+			return fmt.Errorf("ir: web_search_result_location citation requires encrypted_index")
+		}
+		if _, ok := obj["title"]; !ok {
+			return fmt.Errorf("ir: web_search_result_location citation requires title")
+		}
+		if _, ok := obj["url"]; !ok {
+			return fmt.Errorf("ir: web_search_result_location citation requires url")
+		}
+	case "search_result_location":
+		for k := range obj {
+			if k != "type" && k != "cited_text" && k != "search_result_index" && k != "source" && k != "title" && k != "start_block_index" && k != "end_block_index" {
+				return fmt.Errorf("ir: unknown property %q on search_result_location citation", k)
+			}
+		}
+		if _, ok := obj["cited_text"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires cited_text")
+		}
+		if _, ok := obj["search_result_index"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires search_result_index")
+		}
+		if _, ok := obj["source"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires source")
+		}
+		if _, ok := obj["title"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires title")
+		}
+		if _, ok := obj["start_block_index"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires start_block_index")
+		}
+		if _, ok := obj["end_block_index"]; !ok {
+			return fmt.Errorf("ir: search_result_location citation requires end_block_index")
+		}
+	default:
+		return fmt.Errorf("ir: unknown citation type %q", citeType)
+	}
+	return nil
+}
+
 // MarshalDelta renders one delta in its canonical type-discriminated form.
 func MarshalDelta(d Delta) (json.RawMessage, error) {
 	switch v := d.(type) {
@@ -952,6 +1148,17 @@ func MarshalDelta(d Delta) (json.RawMessage, error) {
 			return nil, fmt.Errorf("ir: signature is required in signature_delta")
 		}
 		return json.Marshal(wireSignatureDelta{Type: DeltaTypeSignature, Signature: v.Signature})
+	case CitationDelta:
+		if v.Citation.Source != "anthropic" {
+			return nil, fmt.Errorf("ir: unknown citation source %q", v.Citation.Source)
+		}
+		if err := ValidateCitationValue(v.Citation.Value); err != nil {
+			return nil, err
+		}
+		return json.Marshal(struct {
+			Type     string           `json:"type"`
+			Citation wireTextCitation `json:"citation"`
+		}{DeltaTypeCitation, wireTextCitation{Source: v.Citation.Source, Value: v.Citation.Value}})
 	default:
 		return nil, fmt.Errorf("ir: unknown delta type %T", d)
 	}
@@ -1002,6 +1209,20 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 			return nil, fmt.Errorf("ir: signature is required in signature_delta")
 		}
 		return SignatureDelta{Signature: w.Signature}, nil
+	case DeltaTypeCitation:
+		var w struct {
+			Citation wireTextCitation `json:"citation"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.Citation.Source != "anthropic" {
+			return nil, fmt.Errorf("ir: unknown citation source %q", w.Citation.Source)
+		}
+		if err := ValidateCitationValue(w.Citation.Value); err != nil {
+			return nil, err
+		}
+		return CitationDelta{Citation: TextCitation{Source: w.Citation.Source, Value: w.Citation.Value}}, nil
 	default:
 		return nil, fmt.Errorf("ir: unknown delta type %q", head.Type)
 	}

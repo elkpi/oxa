@@ -41,6 +41,7 @@ pub(crate) fn decode_content(
         return (
             vec![Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
@@ -50,6 +51,7 @@ pub(crate) fn decode_content(
         ContentValue::Text(text) => (
             vec![Block::Text {
                 text: text.clone(),
+                citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
@@ -72,6 +74,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
         PART_TYPE_INPUT_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
+                citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
@@ -669,6 +672,7 @@ pub(crate) fn decode_output_run(
                 tool_use_id: item.call_id.clone(),
                 content: vec![Block::Text {
                     text: text.clone(),
+                    citations: None,
                     native: Vec::new(),
                 }],
                 is_error: None,
@@ -698,6 +702,7 @@ pub(crate) fn decode_output_run(
                                 }
                                 blocks.push(Block::Text {
                                     text: p.text.clone(),
+                                    citations: None,
                                     native: Vec::new(),
                                 });
                             }
@@ -956,20 +961,52 @@ pub(crate) fn encode_image_block(
 /// N-R-3 and N-R-4 render user content as string shorthand only for exactly
 /// one text block; otherwise the supported content parts array is used.
 pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue, Vec<Loss>) {
-    if let [Block::Text { text, .. }] = blocks {
-        return (ContentValue::Text(text.clone()), Vec::new());
+    if let [
+        Block::Text {
+            text, citations, ..
+        },
+    ] = blocks
+    {
+        let mut losses = Vec::new();
+        if let Some(cites) = citations
+            && !cites.is_empty()
+        {
+            losses.push(loss(
+                format!("{path}[0].citations"),
+                "citations",
+                LossReason::UnsupportedSemantic,
+                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+            ));
+        }
+        return (ContentValue::Text(text.clone()), losses);
     }
     let mut parts = Vec::new();
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text, .. } => parts.push(ContentPart {
-                kind: PART_TYPE_INPUT_TEXT.to_string(),
-                text: text.clone(),
-                image_url: String::new(),
-                detail: None,
-                file_id: None,
-            }),
+            Block::Text { text, citations, .. } => {
+                parts.push(ContentPart {
+                    kind: PART_TYPE_INPUT_TEXT.to_string(),
+                    text: text.clone(),
+                    image_url: String::new(),
+                    detail: None,
+                    file_id: None,
+                });
+                if let Some(cites) = citations && !cites.is_empty() {
+                    losses.push(loss(
+                        format!("{path}[{index}].citations"),
+                        "citations",
+                        LossReason::UnsupportedSemantic,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    ));
+                }
+            }
+            Block::RedactedThinking { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+            )),
             Block::Image {
                 media_type,
                 data,
@@ -1159,10 +1196,24 @@ pub(crate) fn encode_assistant_message(
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text: value, .. } => {
+            Block::Text { text: value, citations, .. } => {
                 text.push_str(value);
                 has_text = true;
+                if let Some(cites) = citations && !cites.is_empty() {
+                    losses.push(loss(
+                        format!("{path}[{index}].citations"),
+                        "citations",
+                        LossReason::UnsupportedSemantic,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    ));
+                }
             }
+            Block::RedactedThinking { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+            )),
             Block::Thinking {
                 thinking,
                 signature,

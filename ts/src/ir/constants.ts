@@ -13,6 +13,7 @@ export const BLOCK_TYPE_DOCUMENT = "document" as const;
 export const BLOCK_TYPE_TOOL_USE = "tool_use" as const;
 export const BLOCK_TYPE_TOOL_RESULT = "tool_result" as const;
 export const BLOCK_TYPE_THINKING = "thinking" as const;
+export const BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result" as const;
 export const BLOCK_TYPE_APPLY_PATCH_TOOL_USE = "apply_patch_tool_use" as const;
@@ -48,6 +49,7 @@ export const DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA =
   "custom_tool_input_delta" as const;
 export const DELTA_TYPE_THINKING_DELTA = "thinking_delta" as const;
 export const DELTA_TYPE_SIGNATURE_DELTA = "signature_delta" as const;
+export const DELTA_TYPE_CITATION = "citation_delta" as const;
 
 // Loss reasons (spec/02 §3)
 export const LOSS_UNMAPPED_FIELD = "unmapped-field" as const;

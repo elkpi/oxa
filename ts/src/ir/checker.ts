@@ -99,7 +99,8 @@ export function assertEventSequence(events: readonly Event[]): void {
 
 function matches(block: Block, delta: Delta): boolean {
   return (
-    (block.type === "text" && delta.type === "text_delta") ||
+    (block.type === "text" &&
+      (delta.type === "text_delta" || delta.type === "citation_delta")) ||
     (block.type === "thinking" &&
       (delta.type === "thinking_delta" || delta.type === "signature_delta")) ||
     (block.type === "tool_use" && delta.type === "input_json_delta") ||

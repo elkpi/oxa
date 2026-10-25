@@ -1,0 +1,110 @@
+{
+  "name": "anthropic.nonstream.text-citations-response-to-ir",
+  "description": "Anthropic response text block with citations maps to IR TextBlock citations array with zero loss (N-AN-18).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "id": "msg_cite_resp",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-6",
+    "content": [
+      {
+        "type": "text",
+        "text": "Based on the documents, here is the factual summary.",
+        "citations": [
+          {
+            "type": "char_location",
+            "cited_text": "According to chapter 1",
+            "document_index": 0,
+            "document_title": "Manual",
+            "start_char_index": 10,
+            "end_char_index": 35,
+            "file_id": "file_doc_123"
+          },
+          {
+            "type": "page_location",
+            "cited_text": "On page 4",
+            "document_index": 1,
+            "document_title": null,
+            "start_page_number": 4,
+            "end_page_number": 5,
+            "file_id": null
+          },
+          {
+            "type": "content_block_location",
+            "cited_text": "Block content",
+            "document_index": 0,
+            "document_title": "Spec",
+            "start_block_index": 2,
+            "end_block_index": 3,
+            "file_id": null
+          },
+          {
+            "type": "web_search_result_location",
+            "cited_text": "Paris weather",
+            "encrypted_index": "enc_idx_999",
+            "title": "Weather Service",
+            "url": "https://weather.example.com"
+          },
+          {
+            "type": "search_result_location",
+            "cited_text": "Search snippet",
+            "search_result_index": 0,
+            "source": "kb_articles",
+            "title": "Article 1",
+            "start_block_index": 0,
+            "end_block_index": 1
+          }
+        ]
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 50,
+      "output_tokens": 40
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "msg_cite_resp",
+    "model": "claude-sonnet-4-6",
+    "content": [
+      {
+        "type": "text",
+        "text": "Based on the documents, here is the factual summary.",
+        "citations": [
+          {
+            "source": "anthropic",
+            "value": "{\"cited_text\":\"According to chapter 1\",\"document_index\":0,\"document_title\":\"Manual\",\"end_char_index\":35,\"file_id\":\"file_doc_123\",\"start_char_index\":10,\"type\":\"char_location\"}"
+          },
+          {
+            "source": "anthropic",
+            "value": "{\"cited_text\":\"On page 4\",\"document_index\":1,\"document_title\":null,\"end_page_number\":5,\"file_id\":null,\"start_page_number\":4,\"type\":\"page_location\"}"
+          },
+          {
+            "source": "anthropic",
+            "value": "{\"cited_text\":\"Block content\",\"document_index\":0,\"document_title\":\"Spec\",\"end_block_index\":3,\"file_id\":null,\"start_block_index\":2,\"type\":\"content_block_location\"}"
+          },
+          {
+            "source": "anthropic",
+            "value": "{\"cited_text\":\"Paris weather\",\"encrypted_index\":\"enc_idx_999\",\"title\":\"Weather Service\",\"type\":\"web_search_result_location\",\"url\":\"https://weather.example.com\"}"
+          },
+          {
+            "source": "anthropic",
+            "value": "{\"cited_text\":\"Search snippet\",\"end_block_index\":1,\"search_result_index\":0,\"source\":\"kb_articles\",\"start_block_index\":0,\"title\":\"Article 1\",\"type\":\"search_result_location\"}"
+          }
+        ]
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 50,
+      "output_tokens": 40
+    }
+  },
+  "expected_losses": [],
+  "tags": ["response", "citations", "text", "n-an-18"]
+}

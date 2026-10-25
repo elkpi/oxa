@@ -23,6 +23,7 @@ from oxa.ir import (
     SystemBlock,
     TextBlock,
     ThinkingBlock,
+    RedactedThinkingBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -367,6 +368,24 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
         if isinstance(block, TextBlock):
             parts.append({"type": CONTENT_PART_TYPE_TEXT, "text": block.text})
             text_chunks.append(block.text)
+            if block.citations:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].citations",
+                        "citations",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    )
+                )
+        elif isinstance(block, RedactedThinkingBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                )
+            )
         elif isinstance(block, ImageBlock):
             part, img_loss = encode_image_block(
                 block.media_type, block.data, block.url, f"{path}[{index}]"
@@ -403,6 +422,24 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
     for index, block in enumerate(blocks):
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
+            if block.citations:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].citations",
+                        "citations",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    )
+                )
+        elif isinstance(block, RedactedThinkingBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                )
+            )
         elif isinstance(block, ThinkingBlock):
             has_reasoning = True
             reasoning_chunks.append(block.thinking)

@@ -8,11 +8,13 @@ from typing import Any
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
     DELTA_TYPE_THINKING_DELTA,
+    DELTA_TYPE_CITATIONS,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -47,6 +49,8 @@ from oxa.ir import (
     TextDelta,
     ThinkingBlock,
     ThinkingDelta,
+    RedactedThinkingBlock,
+    CitationDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -64,6 +68,7 @@ class StreamEncoder:
         "_open_tool",
         "_open_custom",
         "_open_apply_patch",
+        "_open_redacted",
         "_custom_input",
         "_custom_parts",
         "_tool_seen",
@@ -89,6 +94,7 @@ class StreamEncoder:
         self._open_tool = False
         self._open_custom = False
         self._open_apply_patch = False
+        self._open_redacted = False
         self._custom_input = ""
         self._custom_parts: list[str] = []
         self._tool_seen = False
@@ -142,6 +148,8 @@ class StreamEncoder:
                 content_block = {"type": BLOCK_TYPE_TEXT}
                 if ev.block.text:
                     content_block["text"] = ev.block.text
+                if ev.block.citations:
+                    content_block["citations"] = [json.loads(c.value) for c in ev.block.citations]
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
@@ -165,6 +173,22 @@ class StreamEncoder:
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
                         "index": self._native_index,
                         "content_block": {"type": BLOCK_TYPE_THINKING},
+                    }
+                ], []
+
+            if isinstance(ev.block, RedactedThinkingBlock):
+                self._open_index = ev.index
+                self._native_index = self._next_native_index
+                self._next_native_index += 1
+                self._open_redacted = True
+                return [
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_START,
+                        "index": self._native_index,
+                        "content_block": {
+                            "type": BLOCK_TYPE_REDACTED_THINKING,
+                            "data": ev.block.data,
+                        },
                     }
                 ], []
 
@@ -229,6 +253,9 @@ class StreamEncoder:
             if self._open_apply_patch:
                 raise ValueError("anthropic: apply patch block does not accept deltas")
 
+            if self._open_redacted:
+                raise ValueError("anthropic: redacted_thinking block does not accept deltas")
+
             if self._open_custom:
                 if not isinstance(ev.delta, CustomToolInputDelta):
                     raise ValueError("anthropic: CustomToolUseBlock received non-custom-input delta")
@@ -281,6 +308,22 @@ class StreamEncoder:
                     ], []
                 raise ValueError("anthropic: ThinkingBlock received non-thinking delta")
 
+            if isinstance(ev.delta, CitationDelta):
+                try:
+                    cite_obj = json.loads(ev.delta.citation.value)
+                except Exception as e:
+                    raise ValueError(f"anthropic: citation value is not valid JSON: {e}") from e
+                return [
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_DELTA,
+                        "index": self._native_index,
+                        "delta": {
+                            "type": DELTA_TYPE_CITATIONS,
+                            "citation": cite_obj,
+                        },
+                    }
+                ], []
+
             if not isinstance(ev.delta, TextDelta):
                 raise ValueError("anthropic: TextBlock received non-text delta")
             return [
@@ -297,6 +340,18 @@ class StreamEncoder:
         if isinstance(ev, ContentBlockStop):
             if self._open_index != ev.index:
                 raise ValueError("anthropic: ContentBlockStop out of grammar order")
+
+            if self._open_redacted:
+                self._open_redacted = False
+                self._open_index = -1
+                idx = self._native_index
+                self._native_index = -1
+                return [
+                    {
+                        "type": EVENT_TYPE_CONTENT_BLOCK_STOP,
+                        "index": idx,
+                    }
+                ], []
 
             events: list[dict[str, Any]] = []
             if self._open_thinking:

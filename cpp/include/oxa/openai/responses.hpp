@@ -195,7 +195,7 @@ public:
     StatusOr<Conversion<std::vector<json::Value>>> apply(const ir::Event& event);
 
 private:
-    enum class OutputItemKind { Message, Reasoning, FunctionCall, CustomToolCall, ApplyPatchCall, ApplyPatchResult };
+    enum class OutputItemKind { Message, Reasoning, Redacted, FunctionCall, CustomToolCall, ApplyPatchCall, ApplyPatchResult };
 
     struct StreamOutputItem {
         OutputItemKind kind;
@@ -217,6 +217,8 @@ private:
         std::vector<std::string> fragments;
         std::string signature;
         bool signature_seen = false;
+        bool citation_loss_seen = false;
+        std::size_t ordinal = 0;
     };
 
     Options opts_;
@@ -238,6 +240,7 @@ private:
     std::optional<StreamOutputItem> active_item_;
     std::optional<StreamEncodeBlock> active_block_;
     std::vector<json::Value> completed_;
+    std::size_t event_ordinal_ = 0;
 
     std::pair<StreamOutputItem, json::Value> open_message_item();
     std::pair<StreamOutputItem, json::Value> open_reasoning_item();
@@ -245,8 +248,9 @@ private:
     std::pair<StreamOutputItem, json::Value> open_custom_tool_call_item(std::string_view call_id, std::string_view name);
     json::Value close_message_item();
     json::Value close_reasoning_item();
-    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_text_block(std::int64_t index, const ir::TextBlock& block);
-    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_text_block(std::int64_t index, const ir::TextBlock& block, std::size_t ordinal);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_redacted_block(std::int64_t index, std::size_t ordinal);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block, std::size_t ordinal);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_function_call_block(std::int64_t index, const ir::ToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_custom_tool_call_block(std::int64_t index, const ir::CustomToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_apply_patch_call_block(std::int64_t index, const ir::ApplyPatchToolUseBlock& block);

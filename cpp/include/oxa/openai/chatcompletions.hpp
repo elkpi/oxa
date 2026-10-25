@@ -125,6 +125,7 @@ private:
     std::vector<json::Value> pending_tools_;
     bool finished_ = false;
     bool done_ = false;
+    std::size_t event_ordinal_ = 0;
 };
 
 }  // namespace oxa::openai::chatcompletions

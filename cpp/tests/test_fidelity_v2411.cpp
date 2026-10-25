@@ -327,11 +327,152 @@ static void test_cross_face_redacted_losses() {
     }
 }
 
+static void test_redacted_thinking_data_validation() {
+    anthropic::messages::Options opts;
+    const char* raw_empty = R"({
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": [{"type": "redacted_thinking", "data": ""}, {"type": "text", "text": "Ok"}]}
+        ]
+    })";
+    auto dec = anthropic::messages::decode_request(raw_empty, opts);
+    CHECK(dec.ok());
+    if (dec.ok()) {
+        auto enc = anthropic::messages::encode_request(dec->value, opts);
+        CHECK(enc.ok());
+        if (enc.ok()) {
+            std::string serialized = json::serialize(enc->value);
+            CHECK(serialized.find("\"data\":\"\"") != std::string::npos);
+        }
+    }
+
+    const char* raw_null = R"({
+        "model": "claude-opus-5-5",
+        "max_tokens": 1024,
+        "messages": [
+            {"role": "user", "content": "Hi"},
+            {"role": "assistant", "content": [{"type": "redacted_thinking", "data": null}, {"type": "text", "text": "Ok"}]}
+        ]
+    })";
+    auto dec_null = anthropic::messages::decode_request(raw_null, opts);
+    CHECK(!dec_null.ok());
+}
+
+static void test_top_k_null_accepted() {
+    anthropic::messages::Options opts;
+    const char* raw = R"({
+        "model": "claude-opus-4-6",
+        "max_tokens": 1024,
+        "top_k": null,
+        "messages": [{"role": "user", "content": "Hi"}]
+    })";
+    auto dec = anthropic::messages::decode_request(raw, opts);
+    CHECK(dec.ok());
+    if (dec.ok()) {
+        for (const auto& ann : dec->value.native) {
+            CHECK(ann.kind != ir::NATIVE_KIND_TOP_K);
+        }
+    }
+}
+
+static void test_disable_parallel_tool_use_null_and_conflict() {
+    anthropic::messages::Options opts;
+    const char* raw_null = R"({
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 1024,
+        "messages": [{"role": "user", "content": "Hi"}],
+        "tools": [{"name": "t1", "input_schema": {"type": "object"}}],
+        "tool_choice": {"type": "auto", "disable_parallel_tool_use": null}
+    })";
+    auto dec_null = anthropic::messages::decode_request(raw_null, opts);
+    CHECK(!dec_null.ok());
+
+    ir::Request req_conflict;
+    req_conflict.model = "claude-sonnet-4-5";
+    req_conflict.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_NONE), std::nullopt};
+    req_conflict.messages.push_back(ir::Message{"user", {ir::TextBlock{"Hi"}}});
+    req_conflict.native.push_back(ir::NativeAnnotation{
+        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE),
+        "true",
+        std::nullopt,
+        std::nullopt,
+    });
+    auto enc = anthropic::messages::encode_request(req_conflict, opts);
+    CHECK(!enc.ok());
+}
+
+static void test_between_tools_encode_conflict() {
+    anthropic::messages::Options opts;
+    ir::Request req_conflict;
+    req_conflict.model = "claude-sonnet-5-5";
+    req_conflict.messages.push_back(ir::Message{"user", {ir::TextBlock{"Hi"}}});
+    req_conflict.native.push_back(ir::NativeAnnotation{
+        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(ir::NATIVE_KIND_THINKING_MODE),
+        "\"between_tools\"",
+        std::nullopt,
+        std::nullopt,
+    });
+    req_conflict.native.push_back(ir::NativeAnnotation{
+        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(ir::NATIVE_KIND_THINKING_BUDGET),
+        "2048",
+        std::nullopt,
+        std::nullopt,
+    });
+    auto enc = anthropic::messages::encode_request(req_conflict, opts);
+    CHECK(!enc.ok());
+}
+
+static void test_omitted_native_losses_default_fallback() {
+    ir::Request req;
+    req.model = "claude-opus-4-6";
+    req.messages.push_back(ir::Message{"user", {ir::TextBlock{"Hi"}}});
+    req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_AUTO), std::nullopt};
+    req.native.push_back(ir::NativeAnnotation{
+        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(ir::NATIVE_KIND_TOP_K),
+        "40",
+        std::nullopt,
+        std::nullopt,
+    });
+    req.native.push_back(ir::NativeAnnotation{
+        std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+        std::string(ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE),
+        "true",
+        std::nullopt,
+        std::nullopt,
+    });
+    auto losses = ir::omitted_native_request_losses(req, "chatcompletions");
+    CHECK(losses.ok());
+    if (losses.ok()) {
+        bool has_top_k = false;
+        bool has_dpu = false;
+        for (const auto& l : *losses) {
+            if (l.field == "top_k" && l.reason == ir::LOSS_UNMAPPED_FIELD) has_top_k = true;
+            if (l.field == "disable_parallel_tool_use" && l.reason == ir::LOSS_UNMAPPED_FIELD) has_dpu = true;
+        }
+        CHECK(has_top_k);
+        CHECK(has_dpu);
+    }
+}
+
 int main() {
     test_redacted_thinking_roundtrip();
+    test_redacted_thinking_data_validation();
     test_between_tools_roundtrip_and_conflict();
+    test_between_tools_encode_conflict();
     test_top_k_roundtrip();
+    test_top_k_null_accepted();
     test_disable_parallel_tool_use_roundtrip_and_none();
+    test_disable_parallel_tool_use_null_and_conflict();
+    test_text_citations_roundtrip();
+    test_ir_citation_delta_roundtrip();
+    test_cross_face_redacted_losses();
+    test_omitted_native_losses_default_fallback();
     test_text_citations_roundtrip();
     test_ir_citation_delta_roundtrip();
     test_cross_face_redacted_losses();

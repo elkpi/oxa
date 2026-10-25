@@ -3022,14 +3022,14 @@ json::Value StreamEncoder::close_message_item() {
 }
 
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_text_block(
-    std::int64_t index, const ir::TextBlock& block) {
+    std::int64_t index, const ir::TextBlock& block, std::size_t ordinal) {
     std::vector<json::Value> out;
     std::vector<ir::Loss> losses;
     bool citation_loss_seen = false;
     if (block.citations.has_value() && !block.citations->empty()) {
         citation_loss_seen = true;
         losses.push_back(make_resp_loss(
-            "events[" + std::to_string(index) + "].block.citations", "citations",
+            "events[" + std::to_string(ordinal) + "].block.citations", "citations",
             ir::LOSS_UNSUPPORTED_SEMANTIC,
             "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
     }
@@ -3059,6 +3059,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     eb.content_index = content_index;
     eb.text = block.text;
     eb.citation_loss_seen = citation_loss_seen;
+    eb.ordinal = ordinal;
     active_block_ = std::move(eb);
 
     json::Value added_part = json::Value::object();
@@ -3073,7 +3074,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
 }
 
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_thinking_block(
-    std::int64_t index, const ir::ThinkingBlock& block) {
+    std::int64_t index, const ir::ThinkingBlock& block, std::size_t ordinal) {
     std::vector<json::Value> out;
     if (active_item_.has_value()) {
         if (active_item_->kind == OutputItemKind::Message) {
@@ -3100,6 +3101,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     encoded.content_index = content_index;
     encoded.text = block.thinking;
     encoded.signature = block.signature.value_or("");
+    encoded.ordinal = ordinal;
     active_block_ = std::move(encoded);
 
     json::Value part_added = json::Value::object();
@@ -3116,15 +3118,16 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
 // tracked only to keep the event grammar, and the whole block is dropped with
 // a single unsupported-semantic loss.
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_redacted_block(
-    std::int64_t index) {
+    std::int64_t index, std::size_t ordinal) {
     StreamEncodeBlock eb;
     eb.index = index;
     eb.kind = OutputItemKind::Redacted;
+    eb.ordinal = ordinal;
     active_block_ = std::move(eb);
     return std::make_pair(
         std::vector<json::Value>{},
         std::vector<ir::Loss>{make_resp_loss(
-            "events[" + std::to_string(index) + "].block", "type",
+            "events[" + std::to_string(ordinal) + "].block", "type",
             ir::LOSS_UNSUPPORTED_SEMANTIC,
             "anthropic encrypted thinking replay state; the target face cannot preserve this block")});
 }
@@ -3228,7 +3231,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     std::vector<ir::Loss> losses;
     if (!block.signature.empty() && !block.signature_seen) {
         losses.push_back(make_resp_loss(
-            "events[" + std::to_string(block.index) + "].block.signature", "signature",
+            "events[" + std::to_string(block.ordinal) + "].block.signature", "signature",
             ir::LOSS_UNMAPPED_FIELD,
             "Responses carries no signature in reasoning summary"));
     }
@@ -3543,6 +3546,8 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         return invalid_argument("responses: event applied after stream termination");
     }
 
+    std::size_t ordinal = event_ordinal_++;
+
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
         if (started_) return invalid_argument("responses: duplicate MessageStart");
         started_ = true;
@@ -3571,15 +3576,15 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         next_block_index_++;
         if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
-            OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb));
+            OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb, ordinal));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
-            OXA_ASSIGN_OR_RETURN(auto res, start_redacted_block(cbs->index));
+            OXA_ASSIGN_OR_RETURN(auto res, start_redacted_block(cbs->index, ordinal));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
-            OXA_ASSIGN_OR_RETURN(auto res, start_thinking_block(cbs->index, *thinking));
+            OXA_ASSIGN_OR_RETURN(auto res, start_thinking_block(cbs->index, *thinking, ordinal));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (const auto* tu = std::get_if<ir::ToolUseBlock>(&cbs->block)) {
@@ -3627,7 +3632,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                 if (!active_block_->citation_loss_seen) {
                     active_block_->citation_loss_seen = true;
                     return Conversion<std::vector<json::Value>>{{}, {make_resp_loss(
-                        "events[" + std::to_string(cbd->index) + "].delta.citation", "citations",
+                        "events[" + std::to_string(ordinal) + "].delta.citation", "citations",
                         ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic text citations; the target face cannot preserve source locations and replay metadata")}};
                 }
@@ -3649,7 +3654,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             if (std::holds_alternative<ir::SignatureDelta>(cbd->delta)) {
                 active_block_->signature_seen = true;
                 return Conversion<std::vector<json::Value>>{{}, {make_resp_loss(
-                    "events[" + std::to_string(cbd->index) + "].delta.signature", "signature",
+                    "events[" + std::to_string(ordinal) + "].delta.signature", "signature",
                     ir::LOSS_UNMAPPED_FIELD,
                     "Responses carries no signature delta in streaming reasoning")}};
             }

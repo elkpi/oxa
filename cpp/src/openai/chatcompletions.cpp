@@ -1575,6 +1575,8 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         return chunk;
     };
 
+    std::size_t ordinal = event_ordinal_++;
+
     if (const auto* ms = std::get_if<ir::MessageStart>(&event)) {
         if (started_) return invalid_argument("chatcompletions: duplicate MessageStart");
         id_ = ms->id;
@@ -1605,7 +1607,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             if (tb->citations.has_value() && !tb->citations->empty()) {
                 act.citation_loss_seen = true;
                 losses.push_back(make_cc_loss(
-                    "events[" + std::to_string(cbs->index) + "].block.citations",
+                    "events[" + std::to_string(ordinal) + "].block.citations",
                     "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
             }
@@ -1617,7 +1619,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             act.kind = ActiveBlock::Kind::Redacted;
             act.index = cbs->index;
             active_ = std::move(act);
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
@@ -1660,7 +1662,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {
             (void)ap;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools are not implemented by this profile"));
             ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
             active_ = std::move(act);
@@ -1668,7 +1670,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         }
         if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
             (void)apr;
-            losses.push_back(make_cc_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+            losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
             ActiveBlock act; act.kind = ActiveBlock::Kind::SkippedAtomic; act.index = cbs->index;
             active_ = std::move(act);
@@ -1721,7 +1723,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                 if (!active_->citation_loss_seen) {
                     active_->citation_loss_seen = true;
                     losses.push_back(make_cc_loss(
-                        "events[" + std::to_string(cbd->index) + "].delta.citation",
+                        "events[" + std::to_string(ordinal) + "].delta.citation",
                         "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
                 }
@@ -1738,7 +1740,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             }
             if (std::holds_alternative<ir::SignatureDelta>(cbd->delta)) {
                 losses.push_back(make_cc_loss(
-                    "events[" + std::to_string(cbd->index) + "].delta.signature",
+                    "events[" + std::to_string(ordinal) + "].delta.signature",
                     "signature", ir::LOSS_UNMAPPED_FIELD,
                     "Chat Completions carries no signature delta"));
                 return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};

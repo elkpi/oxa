@@ -459,10 +459,24 @@ void append_omission_loss(std::vector<Loss>& losses,
         return;
     }
 
+    if (ann.kind == NATIVE_KIND_TOP_K) {
+        std::string field = (ann.omission.has_value() && !ann.omission->field.empty()) ? ann.omission->field : "top_k";
+        std::string reason = ann.omission.has_value() ? ann.omission->reason : std::string(LOSS_UNMAPPED_FIELD);
+        std::string detail = (ann.omission.has_value() && ann.omission->detail.has_value()) ? *ann.omission->detail : "";
+        losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+        return;
+    }
+
+    if (ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+        std::string field = (ann.omission.has_value() && !ann.omission->field.empty()) ? ann.omission->field : "disable_parallel_tool_use";
+        std::string reason = ann.omission.has_value() ? ann.omission->reason : std::string(LOSS_UNMAPPED_FIELD);
+        std::string detail = (ann.omission.has_value() && ann.omission->detail.has_value()) ? *ann.omission->detail : "";
+        losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+        return;
+    }
+
     if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
-        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT ||
-        ann.kind == NATIVE_KIND_TOP_K ||
-        ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
         if (ann.omission.has_value()) {
             losses.push_back(Loss{
                 std::string(path),
@@ -682,6 +696,29 @@ Status validate_native_request(const Request& req) {
 
     if (budget_proj > 0 && explicit_proj > 0) {
         return invalid_argument("ir: conflicting effort projections on request");
+    }
+
+    bool has_between_tools = false;
+    bool has_budget_or_display = false;
+    bool has_disable_parallel = false;
+    for (const auto& n : req.native) {
+        if (n.source == NATIVE_SOURCE_ANTHROPIC) {
+            if (n.kind == NATIVE_KIND_THINKING_MODE && n.value == "\"between_tools\"") {
+                has_between_tools = true;
+            } else if (n.kind == NATIVE_KIND_THINKING_BUDGET || n.kind == NATIVE_KIND_THINKING_DISPLAY) {
+                has_budget_or_display = true;
+            } else if (n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+                has_disable_parallel = true;
+            }
+        }
+    }
+    if (has_between_tools && has_budget_or_display) {
+        return invalid_argument("anthropic: cannot specify budget_tokens or display with thinking.type between_tools");
+    }
+    if (has_disable_parallel) {
+        if (!req.tool_choice.has_value() || req.tool_choice->mode == TOOL_CHOICE_NONE) {
+            return invalid_argument("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified");
+        }
     }
 
     for (std::size_t i = 0; i < req.system.size(); ++i) {

@@ -486,6 +486,7 @@ StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v);
 
 Status validate_native_request(const Request& req);
 StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
+Status validate_citation_value(std::string_view val);
 
 json::Value dump_request(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);

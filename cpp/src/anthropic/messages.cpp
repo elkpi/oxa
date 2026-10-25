@@ -197,7 +197,8 @@ StatusOr<std::optional<std::vector<ir::TextCitation>>> decode_text_citations(
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
     const json::Value* content, const std::string& path, bool keep_raw_input = true,
     const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
-    const std::set<std::string>& declared_tools = {}, bool is_request = false) {
+    const std::set<std::string>& declared_tools = {}, bool is_request = false,
+    bool in_tool_result = false) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -228,8 +229,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             }
             ir::TextBlock text_block{txt->as_string()};
             if (const auto* cites_val = item.find("citations")) {
-                if (!cites_val->is_null() && is_request &&
-                    (path.find("tool_result") != std::string::npos) &&
+                if (!cites_val->is_null() && is_request && in_tool_result &&
                     cites_val->is_array() && !cites_val->as_array().empty()) {
                     return invalid_argument("anthropic: " + block_path + ".citations: citations are not permitted in tool_result");
                 }
@@ -238,8 +238,11 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             }
             blocks.push_back(std::move(text_block));
         } else if (kind == BLOCK_TYPE_REDACTED_THINKING) {
+            if (in_tool_result) {
+                return invalid_argument("anthropic: " + block_path + ": redacted_thinking is not permitted in tool_result");
+            }
             const auto* data_val = item.find("data");
-            if (!data_val || !data_val->is_string() || data_val->as_string().empty()) {
+            if (!data_val || !data_val->is_string()) {
                 return invalid_argument("anthropic: " + block_path + ".data is required");
             }
             blocks.push_back(ir::RedactedThinkingBlock{data_val->as_string()});
@@ -435,7 +438,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 if (c_val && c_val->is_string()) {
                     ctr.output = c_val->as_string();
                 } else if (c_val) {
-                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request));
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request, true));
                     losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
                     std::vector<ir::BlockHolder> holders;
                     for (auto& b : inner_res.first) holders.push_back(ir::BlockHolder{std::move(b)});
@@ -450,7 +453,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 }
                 const auto* c_val = item.find("content");
                 if (c_val) {
-                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request));
+                    OXA_ASSIGN_OR_RETURN(auto inner_res, decode_content_blocks(c_val, block_path + ".content", keep_raw_input, custom_tools, custom_call_ids, declared_tools, is_request, true));
                     losses.insert(losses.end(), inner_res.second.begin(), inner_res.second.end());
                     for (auto& b : inner_res.first) {
                         tr.content.push_back(ir::BlockHolder{std::move(b)});
@@ -519,6 +522,10 @@ StatusOr<json::Value> encode_request_citations(const std::vector<ir::TextCitatio
                                                std::vector<ir::Loss>& losses) {
     json::Value out = json::Value::array();
     for (std::size_t i = 0; i < cites.size(); ++i) {
+        if (cites[i].source != "anthropic") {
+            return invalid_argument("anthropic: " + path + "[" + std::to_string(i) + "]: unknown citation source \"" + cites[i].source + "\"");
+        }
+        OXA_RETURN_IF_ERROR(ir::validate_citation_value(cites[i].value));
         auto parsed = json::parse(cites[i].value);
         if (!parsed.ok() || !parsed->is_object()) {
             return invalid_argument("anthropic: " + path + "[" + std::to_string(i) + "] must be a JSON object");
@@ -541,8 +548,12 @@ StatusOr<json::Value> encode_request_citations(const std::vector<ir::TextCitatio
 // Renders IR citations verbatim for a response-side text block.
 StatusOr<json::Value> encode_response_citations(const std::vector<ir::TextCitation>& cites) {
     json::Value out = json::Value::array();
-    for (const auto& c : cites) {
-        auto parsed = json::parse(c.value);
+    for (std::size_t i = 0; i < cites.size(); ++i) {
+        if (cites[i].source != "anthropic") {
+            return invalid_argument("anthropic: citations[" + std::to_string(i) + "]: unknown citation source \"" + cites[i].source + "\"");
+        }
+        OXA_RETURN_IF_ERROR(ir::validate_citation_value(cites[i].value));
+        auto parsed = json::parse(cites[i].value);
         if (!parsed.ok()) {
             return invalid_argument("anthropic: citation value must be a JSON object");
         }
@@ -1115,9 +1126,6 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                     content_arr.push_back(std::move(bw));
                 } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
-                    if (rtb->data.empty()) {
-                        return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].data is required");
-                    }
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("redacted_thinking"));
                     bw.set("data", json::Value::string(rtb->data));
@@ -1288,7 +1296,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     json::Value inner_arr = json::Value::array();
                     for (std::size_t ci = 0; ci < tr->content.size(); ++ci) {
                         const auto& inner = tr->content[ci];
+                        if (std::holds_alternative<ir::RedactedThinkingBlock>(inner.block)) {
+                            return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "]: redacted_thinking is not permitted in tool_result");
+                        }
                         if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
+                            if (itb->citations.has_value() && !itb->citations->empty()) {
+                                return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "].citations: citations are not permitted in tool_result");
+                            }
                             json::Value ibw = json::Value::object();
                             ibw.set("type", json::Value::string("text"));
                             ibw.set("text", json::Value::string(itb->text));
@@ -1488,9 +1502,6 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             }
             content_arr.push_back(std::move(bw));
         } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
-            if (rtb->data.empty()) {
-                return invalid_argument("anthropic: content[" + std::to_string(i) + "].data is required");
-            }
             json::Value bw = json::Value::object();
             bw.set("type", json::Value::string("redacted_thinking"));
             bw.set("data", json::Value::string(rtb->data));
@@ -1692,10 +1703,11 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         }
 
         if (btype == BLOCK_TYPE_REDACTED_THINKING) {
-            std::string data;
-            if (const auto* dv = cb->find("data"); dv && dv->is_string()) {
-                data = dv->as_string();
+            const auto* dv = cb->find("data");
+            if (!dv || !dv->is_string()) {
+                return invalid_argument("anthropic: content_block_start[" + std::to_string(idx) + "].content_block.data is required");
             }
+            std::string data = dv->as_string();
             block_open_ = true;
             open_tool_ = false;
             open_thinking_ = false;
@@ -1715,7 +1727,15 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             open_ir_index_ = next_ir_index_++;
             std::string text;
             if (const auto* tv = cb->find("text"); tv && tv->is_string()) text = tv->as_string();
-            events.push_back(ir::ContentBlockStart{open_ir_index_, ir::TextBlock{std::move(text)}});
+            std::optional<std::vector<ir::TextCitation>> cites;
+            if (const auto* cv = cb->find("citations")) {
+                std::vector<ir::Loss> cite_losses;
+                OXA_ASSIGN_OR_RETURN(cites, decode_text_citations(cv, "content_block_start[" + std::to_string(idx) + "].content_block.citations", cite_losses));
+                for (auto& l : cite_losses) losses_.push_back(std::move(l));
+            }
+            ir::TextBlock tb{std::move(text)};
+            tb.citations = std::move(cites);
+            events.push_back(ir::ContentBlockStart{open_ir_index_, std::move(tb)});
             return events;
         }
 
@@ -2065,6 +2085,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             open_redacted_ = false;
             cb.set("type", json::Value::string("text"));
             if (!tb->text.empty()) cb.set("text", json::Value::string(tb->text));
+            if (tb->citations.has_value() && !tb->citations->empty()) {
+                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations));
+                cb.set("citations", std::move(cites));
+            }
         } else {
             return invalid_argument("anthropic: ContentBlockStart carries an unsupported block");
         }

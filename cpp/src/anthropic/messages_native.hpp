@@ -502,7 +502,7 @@ inline Status decode_request_native(
     }
 
     // 5. TopK
-    if (const auto* tk = wire.find("top_k"); tk != nullptr) {
+    if (const auto* tk = wire.find("top_k"); tk != nullptr && !tk->is_null()) {
         if (!tk->is_int() || tk->as_int() < 0 || tk->as_int() > 9007199254740991LL) {
             return invalid_argument("anthropic: top_k must be a non-negative safe integer");
         }
@@ -625,7 +625,11 @@ inline Status encode_request_native(
             if (parsed.ok() && parsed->is_bool()) {
                 json::Value* tc = wire.find("tool_choice");
                 if (tc == nullptr || !tc->is_object()) {
-                    return invalid_argument("anthropic: disable_parallel_tool_use requires tool_choice");
+                    return invalid_argument("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified");
+                }
+                const auto* type_val = tc->find("type");
+                if (type_val != nullptr && type_val->is_string() && type_val->as_string() == "none") {
+                    return invalid_argument("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified");
                 }
                 tc->set("disable_parallel_tool_use", json::Value::boolean(parsed->as_bool()));
             }
@@ -643,6 +647,9 @@ inline Status encode_request_native(
 
     if (native_mode.has_value() || native_effort.has_value() || current_effort.has_value()) {
         if (native_mode == "between_tools") {
+            if (native_budget.has_value() || native_display.has_value()) {
+                return invalid_argument("anthropic: cannot specify budget_tokens or display with thinking.type between_tools");
+            }
             auto th = json::Value::object();
             th.set("type", json::Value::string("between_tools"));
             wire.set("thinking", std::move(th));

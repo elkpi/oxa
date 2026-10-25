@@ -74,17 +74,36 @@ bool has(const json::Value& v, std::string_view key) {
     return f != nullptr && !f->is_null();
 }
 
-Status require_member(const json::Value& obj, std::string_view key, const char* ctx) {
-    if (obj.find(key) == nullptr) {
-        return invalid_argument(std::string(ctx) + ": citation requires \"" + std::string(key) + "\"");
+Status require_string_field(const json::Value& obj, std::string_view key, const char* ctx) {
+    const auto* v = obj.find(key);
+    if (!v || !v->is_string()) {
+        return invalid_argument(std::string(ctx) + ": citation requires string \"" + std::string(key) + "\"");
     }
     return ok_status();
 }
 
+Status require_nonneg_int(const json::Value& obj, std::string_view key, const char* ctx) {
+    const auto* v = obj.find(key);
+    if (!v || !v->is_int() || v->as_int() < 0) {
+        return invalid_argument(std::string(ctx) + ": citation requires non-negative integer \"" + std::string(key) + "\"");
+    }
+    return ok_status();
+}
+
+Status require_nullable_string(const json::Value& obj, std::string_view key, const char* ctx) {
+    const auto* v = obj.find(key);
+    if (!v || (!v->is_null() && !v->is_string())) {
+        return invalid_argument(std::string(ctx) + ": citation field \"" + std::string(key) + "\" must be string or null");
+    }
+    return ok_status();
+}
+
+}  // namespace
+
 // Validates the canonical citation JSON object carried in TextCitation::value
 // (spec/01 §3.4): one of the five locked location shapes with no extra
 // properties.
-Status validate_citation_value(const std::string& val) {
+Status validate_citation_value(std::string_view val) {
     if (val.empty()) {
         return invalid_argument("ir: citation value cannot be empty");
     }
@@ -105,8 +124,16 @@ Status validate_citation_value(const std::string& val) {
                 return invalid_argument("ir: unknown property \"" + k + "\" on char_location citation");
             }
         }
-        for (const char* key : {"cited_text", "document_index", "document_title", "start_char_index", "end_char_index"}) {
-            OXA_RETURN_IF_ERROR(require_member(obj, key, "char_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "cited_text", "char_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "document_index", "char_location"));
+        OXA_RETURN_IF_ERROR(require_nullable_string(obj, "document_title", "char_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "start_char_index", "char_location"));
+        const auto* end_val = obj.find("end_char_index");
+        if (!end_val || !end_val->is_int() || end_val->as_int() <= obj.find("start_char_index")->as_int()) {
+            return invalid_argument("char_location: end_char_index must be > start_char_index");
+        }
+        if (const auto* fid = obj.find("file_id"); fid && !fid->is_null() && !fid->is_string()) {
+            return invalid_argument("char_location: file_id must be string or null");
         }
     } else if (cite_type == "page_location") {
         for (const auto& [k, _] : obj.as_object()) {
@@ -115,8 +142,19 @@ Status validate_citation_value(const std::string& val) {
                 return invalid_argument("ir: unknown property \"" + k + "\" on page_location citation");
             }
         }
-        for (const char* key : {"cited_text", "document_index", "document_title", "start_page_number", "end_page_number"}) {
-            OXA_RETURN_IF_ERROR(require_member(obj, key, "page_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "cited_text", "page_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "document_index", "page_location"));
+        OXA_RETURN_IF_ERROR(require_nullable_string(obj, "document_title", "page_location"));
+        const auto* start_val = obj.find("start_page_number");
+        if (!start_val || !start_val->is_int() || start_val->as_int() < 1) {
+            return invalid_argument("page_location: start_page_number must be integer >= 1");
+        }
+        const auto* end_val = obj.find("end_page_number");
+        if (!end_val || !end_val->is_int() || end_val->as_int() < start_val->as_int()) {
+            return invalid_argument("page_location: end_page_number must be >= start_page_number");
+        }
+        if (const auto* fid = obj.find("file_id"); fid && !fid->is_null() && !fid->is_string()) {
+            return invalid_argument("page_location: file_id must be string or null");
         }
     } else if (cite_type == "content_block_location") {
         for (const auto& [k, _] : obj.as_object()) {
@@ -125,8 +163,16 @@ Status validate_citation_value(const std::string& val) {
                 return invalid_argument("ir: unknown property \"" + k + "\" on content_block_location citation");
             }
         }
-        for (const char* key : {"cited_text", "document_index", "document_title", "start_block_index", "end_block_index"}) {
-            OXA_RETURN_IF_ERROR(require_member(obj, key, "content_block_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "cited_text", "content_block_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "document_index", "content_block_location"));
+        OXA_RETURN_IF_ERROR(require_nullable_string(obj, "document_title", "content_block_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "start_block_index", "content_block_location"));
+        const auto* end_val = obj.find("end_block_index");
+        if (!end_val || !end_val->is_int() || end_val->as_int() <= obj.find("start_block_index")->as_int()) {
+            return invalid_argument("content_block_location: end_block_index must be > start_block_index");
+        }
+        if (const auto* fid = obj.find("file_id"); fid && !fid->is_null() && !fid->is_string()) {
+            return invalid_argument("content_block_location: file_id must be string or null");
         }
     } else if (cite_type == "web_search_result_location") {
         for (const auto& [k, _] : obj.as_object()) {
@@ -134,9 +180,10 @@ Status validate_citation_value(const std::string& val) {
                 return invalid_argument("ir: unknown property \"" + k + "\" on web_search_result_location citation");
             }
         }
-        for (const char* key : {"cited_text", "encrypted_index", "title", "url"}) {
-            OXA_RETURN_IF_ERROR(require_member(obj, key, "web_search_result_location"));
-        }
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "cited_text", "web_search_result_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "encrypted_index", "web_search_result_location"));
+        OXA_RETURN_IF_ERROR(require_nullable_string(obj, "title", "web_search_result_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "url", "web_search_result_location"));
     } else if (cite_type == "search_result_location") {
         for (const auto& [k, _] : obj.as_object()) {
             if (k != "type" && k != "cited_text" && k != "search_result_index" && k != "source" &&
@@ -144,16 +191,20 @@ Status validate_citation_value(const std::string& val) {
                 return invalid_argument("ir: unknown property \"" + k + "\" on search_result_location citation");
             }
         }
-        for (const char* key : {"cited_text", "search_result_index", "source", "title", "start_block_index", "end_block_index"}) {
-            OXA_RETURN_IF_ERROR(require_member(obj, key, "search_result_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "cited_text", "search_result_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "search_result_index", "search_result_location"));
+        OXA_RETURN_IF_ERROR(require_string_field(obj, "source", "search_result_location"));
+        OXA_RETURN_IF_ERROR(require_nullable_string(obj, "title", "search_result_location"));
+        OXA_RETURN_IF_ERROR(require_nonneg_int(obj, "start_block_index", "search_result_location"));
+        const auto* end_val = obj.find("end_block_index");
+        if (!end_val || !end_val->is_int() || end_val->as_int() <= obj.find("start_block_index")->as_int()) {
+            return invalid_argument("search_result_location: end_block_index must be > start_block_index");
         }
     } else {
         return invalid_argument("ir: unknown citation type \"" + cite_type + "\"");
     }
     return ok_status();
 }
-
-}  // namespace
 
 // ---- blocks ----------------------------------------------------------------
 

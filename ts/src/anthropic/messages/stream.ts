@@ -4,6 +4,7 @@ import {
   parseUsageInteger,
   type Event,
   type StopReason,
+  type TextCitation,
   type Usage,
 } from "../../ir/index.js";
 import {
@@ -184,6 +185,11 @@ export class AnthropicStreamDecoder {
       ];
     }
     if (block.type === "redacted_thinking") {
+      if (block.data === undefined || typeof block.data !== "string") {
+        this.#lifecycle(
+          `content_block_start[${nativeIndex}].content_block.data is required`,
+        );
+      }
       this.#openKind = "redacted_thinking";
       this.#openIrIndex = this.#nextIrIndex++;
       return [
@@ -192,7 +198,7 @@ export class AnthropicStreamDecoder {
           index: this.#openIrIndex,
           block: {
             type: "redacted_thinking",
-            data: block.data ?? "",
+            data: block.data,
           },
         },
       ];
@@ -209,11 +215,27 @@ export class AnthropicStreamDecoder {
     }
     this.#openKind = "text";
     this.#openIrIndex = this.#nextIrIndex++;
+    let cites: TextCitation[] | undefined;
+    if (block.citations !== undefined) {
+      const rawCites = decodeAnthropicTextCitations(
+        block.citations as readonly JsonValue[],
+        `content_block_start[${nativeIndex}].content_block.citations`,
+        this.#losses,
+        false,
+      );
+      if (rawCites && rawCites.length > 0) {
+        cites = rawCites;
+      }
+    }
     return [
       {
         type: "content_block_start",
         index: this.#openIrIndex,
-        block: { type: "text", text: block.text ?? "" },
+        block: {
+          type: "text",
+          text: block.text ?? "",
+          ...(cites ? { citations: cites } : {}),
+        },
       },
     ];
   }
@@ -668,6 +690,10 @@ export class AnthropicStreamEncoder {
         index: nativeIndex,
         irIndex: event.index,
       };
+      const cites =
+        event.block.citations && event.block.citations.length > 0
+          ? event.block.citations.map((c) => JSON.parse(c.value))
+          : undefined;
       return this.#result([
         {
           type: "content_block_start",
@@ -675,6 +701,7 @@ export class AnthropicStreamEncoder {
           content_block: {
             type: "text",
             ...(event.block.text === "" ? {} : { text: event.block.text }),
+            ...(cites ? { citations: cites } : {}),
           },
         },
       ]);

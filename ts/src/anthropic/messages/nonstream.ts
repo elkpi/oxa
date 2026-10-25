@@ -15,7 +15,11 @@ import {
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
-import { parseUsageInteger, validateRequest } from "../../ir/index.js";
+import {
+  parseUsageInteger,
+  validateCitationValue,
+  validateRequest,
+} from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
 import {
@@ -513,8 +517,19 @@ export function encodeRequest(
     request.messages.length === 1 &&
     request.messages[0]!.content.length === 1 &&
     firstBlock?.type === "text" &&
+    (firstBlock.citations === undefined || firstBlock.citations.length === 0) &&
     (firstBlock.native === undefined || firstBlock.native.length === 0);
   const messages = request.messages.map((message, index) => {
+    if (message.role === "user") {
+      message.content.forEach((b, bIdx) => {
+        if (b.type === "redacted_thinking") {
+          fail(`messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`);
+        }
+        if (b.type === "text" && b.citations && b.citations.length > 0) {
+          fail(`messages[${index}].content[${bIdx}].citations: citations are not permitted on user text blocks`);
+        }
+      });
+    }
     const encoded = shorthand
       ? (message.content[0] as { readonly text: string }).text
       : encodeContent(
@@ -1113,6 +1128,13 @@ function encodeContent(
       if (block.citations && block.citations.length > 0) {
         if (isRequest) {
           rawCitations = block.citations.map((c, cIdx) => {
+            if (c.source !== "anthropic") {
+              throw new OxaError(
+                "invalid-input",
+                `unknown citation source: ${c.source}`,
+              );
+            }
+            validateCitationValue(c.value);
             const parsed = { ...(parseJson(c.value) as JsonObject) };
             if (parsed.file_id !== undefined && parsed.file_id !== null) {
               losses.push({
@@ -1127,7 +1149,16 @@ function encodeContent(
             return parsed;
           });
         } else {
-          rawCitations = block.citations.map((c) => parseJson(c.value));
+          rawCitations = block.citations.map((c) => {
+            if (c.source !== "anthropic") {
+              throw new OxaError(
+                "invalid-input",
+                `unknown citation source: ${c.source}`,
+              );
+            }
+            validateCitationValue(c.value);
+            return parseJson(c.value);
+          });
         }
       }
       output.push({
@@ -1191,12 +1222,23 @@ function encodeContent(
       for (let child = 0; child < block.content.length; child += 1) {
         const nested = block.content[child]!;
         const nestedCc = getBlockCacheControl(nested);
-        if (nested.type === "text")
+        if (nested.type === "redacted_thinking") {
+          fail(
+            `${path}[${index}].content[${child}]: redacted_thinking is not permitted in tool_result`,
+          );
+        }
+        if (nested.type === "text") {
+          if (nested.citations && nested.citations.length > 0) {
+            fail(
+              `${path}[${index}].content[${child}].citations: citations are not permitted in tool_result`,
+            );
+          }
           content.push({
             type: "text",
             text: nested.text,
             ...(nestedCc ? { cache_control: nestedCc } : {}),
           });
+        }
         else if (nested.type === "image") {
           const image = encodeImage(nested);
           if (image === undefined)
@@ -1367,17 +1409,14 @@ function decodeToolChoice(
   if (value === undefined || value === null) return undefined;
   const choice = object(value, "tool_choice");
   const type = string(choice.type, "tool_choice.type");
-  if (
-    choice.disable_parallel_tool_use !== undefined &&
-    choice.disable_parallel_tool_use !== null
-  ) {
+  if (choice.disable_parallel_tool_use !== undefined) {
+    if (typeof choice.disable_parallel_tool_use !== "boolean") {
+      fail("tool_choice.disable_parallel_tool_use must be a boolean");
+    }
     if (type === "none") {
       fail(
         "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
       );
-    }
-    if (typeof choice.disable_parallel_tool_use !== "boolean") {
-      fail("tool_choice.disable_parallel_tool_use must be a boolean");
     }
   }
   if (type === "auto" || type === "any" || type === "none")

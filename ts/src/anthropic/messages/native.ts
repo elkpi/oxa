@@ -455,11 +455,8 @@ export function decodeRequestNative(
     const tType = thinking.type;
     if (tType === "between_tools") {
       if (
-        (thinking.budget_tokens !== undefined &&
-          thinking.budget_tokens !== null) ||
-        (thinking.display !== undefined &&
-          thinking.display !== null &&
-          thinking.display !== "")
+        thinking.budget_tokens !== undefined ||
+        thinking.display !== undefined
       ) {
         throw new OxaError(
           "invalid-input",
@@ -677,11 +674,14 @@ export function decodeRequestNative(
     !Array.isArray(wire.tool_choice)
   ) {
     const tc = wire.tool_choice as Record<string, JsonValue>;
-    if (
-      tc.disable_parallel_tool_use !== undefined &&
-      tc.disable_parallel_tool_use !== null
-    ) {
-      const flag = tc.disable_parallel_tool_use === true;
+    if (tc.disable_parallel_tool_use !== undefined) {
+      if (typeof tc.disable_parallel_tool_use !== "boolean") {
+        throw new OxaError(
+          "invalid-input",
+          "anthropic: tool_choice.disable_parallel_tool_use must be a boolean",
+        );
+      }
+      const flag = tc.disable_parallel_tool_use;
       reqNative.push({
         source: NATIVE_SOURCE_ANTHROPIC,
         kind: NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
@@ -833,13 +833,14 @@ export function encodeRequestNative(
         if (
           wire.tool_choice &&
           typeof wire.tool_choice === "object" &&
-          !Array.isArray(wire.tool_choice)
+          !Array.isArray(wire.tool_choice) &&
+          (wire.tool_choice as any).type !== "none"
         ) {
           (wire.tool_choice as any).disable_parallel_tool_use = flag;
         } else {
           throw new OxaError(
             "invalid-input",
-            "anthropic: disable_parallel_tool_use requires tool_choice",
+            "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified",
           );
         }
         break;
@@ -863,6 +864,12 @@ export function encodeRequestNative(
     currentEffort !== undefined
   ) {
     if (nativeMode === "between_tools") {
+      if (nativeBudget !== undefined || nativeDisplay !== undefined) {
+        throw new OxaError(
+          "invalid-input",
+          "anthropic: cannot specify budget_tokens or display with thinking.type between_tools",
+        );
+      }
       wire.thinking = { type: "between_tools" };
       if (currentEffort !== undefined) {
         wire.output_config = { effort: currentEffort };

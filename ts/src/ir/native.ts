@@ -145,6 +145,40 @@ export function validateNativeRequest(request: Request): void {
     );
   }
 
+  let hasBetweenTools = false;
+  let hasBudgetOrDisplay = false;
+  let hasDisableParallel = false;
+  if (request.native) {
+    for (const n of request.native) {
+      if (n.source === NATIVE_SOURCE_ANTHROPIC) {
+        if (n.kind === NATIVE_KIND_THINKING_MODE && n.value === '"between_tools"') {
+          hasBetweenTools = true;
+        } else if (
+          n.kind === NATIVE_KIND_THINKING_BUDGET ||
+          n.kind === NATIVE_KIND_THINKING_DISPLAY
+        ) {
+          hasBudgetOrDisplay = true;
+        } else if (n.kind === NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+          hasDisableParallel = true;
+        }
+      }
+    }
+  }
+  if (hasBetweenTools && hasBudgetOrDisplay) {
+    throw new OxaError(
+      "invalid-input",
+      "anthropic: cannot specify budget_tokens or display with thinking.type between_tools",
+    );
+  }
+  if (hasDisableParallel) {
+    if (!request.tool_choice || request.tool_choice.mode === "none") {
+      throw new OxaError(
+        "invalid-input",
+        "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified",
+      );
+    }
+  }
+
   request.system?.forEach((sb, i) => {
     if (sb.native) {
       validateAnnotations(sb.native, "system", `system[${i}]`);
@@ -883,10 +917,30 @@ function appendOmissionLoss(
       }
       return;
     }
+    case NATIVE_KIND_TOP_K: {
+      const field = ann.omission?.field || "top_k";
+      const reason = ann.omission?.reason || "unmapped-field";
+      losses.push({
+        path,
+        field,
+        reason,
+        ...(ann.omission?.detail ? { detail: ann.omission.detail } : {}),
+      });
+      return;
+    }
+    case NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE: {
+      const field = ann.omission?.field || "disable_parallel_tool_use";
+      const reason = ann.omission?.reason || "unmapped-field";
+      losses.push({
+        path,
+        field,
+        reason,
+        ...(ann.omission?.detail ? { detail: ann.omission.detail } : {}),
+      });
+      return;
+    }
     case NATIVE_KIND_THINKING_DISPLAY:
     case NATIVE_KIND_CONTEXT_MANAGEMENT:
-    case NATIVE_KIND_TOP_K:
-    case NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
       if (ann.omission) {
         losses.push({
           path,

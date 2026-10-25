@@ -211,3 +211,103 @@ test("v2.4.11: Cross-face conversion drops redacted_thinking with unsupported-se
     ),
   );
 });
+
+test("v2.4.11: RedactedThinking data validation and empty string preservation", () => {
+  const decoded = decodeAnthropicJSON(
+    JSON.stringify({
+      model: "claude-opus-5-5",
+      max_tokens: 1024,
+      messages: [
+        { role: "user", content: "Hi" },
+        {
+          role: "assistant",
+          content: [
+            { type: "redacted_thinking", data: "" },
+            { type: "text", text: "Ok" },
+          ],
+        },
+      ],
+    }),
+  );
+  const encoded = encodeAnthropic(decoded.value);
+  assert.equal(((encoded.value as any).messages[1] as any).content[0].data, "");
+
+  assert.throws(
+    () =>
+      decodeAnthropicJSON(
+        JSON.stringify({
+          model: "claude-opus-5-5",
+          max_tokens: 1024,
+          messages: [
+            { role: "user", content: "Hi" },
+            {
+              role: "assistant",
+              content: [
+                { type: "redacted_thinking", data: null },
+                { type: "text", text: "Ok" },
+              ],
+            },
+          ],
+        }),
+      ),
+    /data is required/,
+  );
+});
+
+test("v2.4.11: Disable parallel tool use null rejection and encode conflict", () => {
+  assert.throws(
+    () =>
+      decodeAnthropicJSON(
+        JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: 1024,
+          messages: [{ role: "user", content: "Hi" }],
+          tools: [{ name: "t1", input_schema: { type: "object" } }],
+          tool_choice: { type: "auto", disable_parallel_tool_use: null },
+        }),
+      ),
+    /boolean/,
+  );
+
+  const reqConflict: Request = {
+    model: "claude-sonnet-4-5",
+    messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    tool_choice: { mode: "none" },
+    native: [
+      {
+        source: "anthropic",
+        kind: "disable_parallel_tool_use",
+        value: "true",
+      },
+    ],
+  };
+  assert.throws(() => encodeAnthropic(reqConflict), /disable_parallel_tool_use/);
+});
+
+test("v2.4.11: between_tools encode conflict with budget", () => {
+  const reqConflict: Request = {
+    model: "claude-sonnet-5-5",
+    messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    native: [
+      { source: "anthropic", kind: "thinking_mode", value: '"between_tools"' },
+      { source: "anthropic", kind: "thinking_budget", value: "2048" },
+    ],
+  };
+  assert.throws(() => encodeAnthropic(reqConflict), /between_tools/);
+});
+
+test("v2.4.11: omittedNativeRequestLosses default fallback for top_k and disable_parallel_tool_use", async () => {
+  const req: Request = {
+    model: "claude-opus-4-6",
+    messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    tool_choice: { mode: "auto" },
+    native: [
+      { source: "anthropic", kind: "top_k", value: "40" },
+      { source: "anthropic", kind: "disable_parallel_tool_use", value: "true" },
+    ],
+  };
+  const { omittedNativeRequestLosses } = await import("../src/ir/index.js");
+  const losses = omittedNativeRequestLosses(req, "chatcompletions");
+  assert.ok(losses.some((l: any) => l.field === "top_k" && l.reason === "unmapped-field"));
+  assert.ok(losses.some((l: any) => l.field === "disable_parallel_tool_use" && l.reason === "unmapped-field"));
+});

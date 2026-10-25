@@ -151,7 +151,10 @@ export function validateNativeRequest(request: Request): void {
   if (request.native) {
     for (const n of request.native) {
       if (n.source === NATIVE_SOURCE_ANTHROPIC) {
-        if (n.kind === NATIVE_KIND_THINKING_MODE && n.value === '"between_tools"') {
+        if (
+          n.kind === NATIVE_KIND_THINKING_MODE &&
+          n.value === '"between_tools"'
+        ) {
           hasBetweenTools = true;
         } else if (
           n.kind === NATIVE_KIND_THINKING_BUDGET ||

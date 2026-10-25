@@ -523,10 +523,14 @@ export function encodeRequest(
     if (message.role === "user") {
       message.content.forEach((b, bIdx) => {
         if (b.type === "redacted_thinking") {
-          fail(`messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`);
+          fail(
+            `messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`,
+          );
         }
         if (b.type === "text" && b.citations && b.citations.length > 0) {
-          fail(`messages[${index}].content[${bIdx}].citations: citations are not permitted on user text blocks`);
+          fail(
+            `messages[${index}].content[${bIdx}].citations: citations are not permitted on user text blocks`,
+          );
         }
       });
     }
@@ -1238,8 +1242,7 @@ function encodeContent(
             text: nested.text,
             ...(nestedCc ? { cache_control: nestedCc } : {}),
           });
-        }
-        else if (nested.type === "image") {
+        } else if (nested.type === "image") {
           const image = encodeImage(nested);
           if (image === undefined)
             losses.push(

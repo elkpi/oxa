@@ -281,7 +281,10 @@ test("v2.4.11: Disable parallel tool use null rejection and encode conflict", ()
       },
     ],
   };
-  assert.throws(() => encodeAnthropic(reqConflict), /disable_parallel_tool_use/);
+  assert.throws(
+    () => encodeAnthropic(reqConflict),
+    /disable_parallel_tool_use/,
+  );
 });
 
 test("v2.4.11: between_tools encode conflict with budget", () => {
@@ -308,6 +311,16 @@ test("v2.4.11: omittedNativeRequestLosses default fallback for top_k and disable
   };
   const { omittedNativeRequestLosses } = await import("../src/ir/index.js");
   const losses = omittedNativeRequestLosses(req, "chatcompletions");
-  assert.ok(losses.some((l: any) => l.field === "top_k" && l.reason === "unmapped-field"));
-  assert.ok(losses.some((l: any) => l.field === "disable_parallel_tool_use" && l.reason === "unmapped-field"));
+  assert.ok(
+    losses.some(
+      (l: any) => l.field === "top_k" && l.reason === "unmapped-field",
+    ),
+  );
+  assert.ok(
+    losses.some(
+      (l: any) =>
+        l.field === "disable_parallel_tool_use" &&
+        l.reason === "unmapped-field",
+    ),
+  );
 });

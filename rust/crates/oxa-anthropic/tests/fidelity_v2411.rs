@@ -347,6 +347,13 @@ fn test_omitted_native_losses_default_fallback() {
         ],
     };
     let losses = oxa_ir::omitted_native_request_losses(&req, "chatcompletions").expect("losses");
-    assert!(losses.iter().any(|l| l.field == "top_k" && l.reason == oxa_ir::LossReason::UnmappedField));
-    assert!(losses.iter().any(|l| l.field == "disable_parallel_tool_use" && l.reason == oxa_ir::LossReason::UnmappedField));
+    assert!(
+        losses
+            .iter()
+            .any(|l| l.field == "top_k" && l.reason == oxa_ir::LossReason::UnmappedField)
+    );
+    assert!(
+        losses.iter().any(|l| l.field == "disable_parallel_tool_use"
+            && l.reason == oxa_ir::LossReason::UnmappedField)
+    );
 }

@@ -366,7 +366,9 @@ fn encode_request_citations(
     Ok((Some(serde_json::Value::Array(items)), losses))
 }
 
-pub(crate) fn encode_response_citations(cites: &[oxa_ir::TextCitation]) -> Result<serde_json::Value, Error> {
+pub(crate) fn encode_response_citations(
+    cites: &[oxa_ir::TextCitation],
+) -> Result<serde_json::Value, Error> {
     let mut items = Vec::new();
     for (i, c) in cites.iter().enumerate() {
         if c.source != "anthropic" {
@@ -437,17 +439,15 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 true,
             ))
         }
-        Block::RedactedThinking { data, .. } => {
-            Ok((
-                BlockWire {
-                    kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
-                    data: Some(data.clone()),
-                    ..BlockWire::default()
-                },
-                Vec::new(),
-                true,
-            ))
-        }
+        Block::RedactedThinking { data, .. } => Ok((
+            BlockWire {
+                kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
+                data: Some(data.clone()),
+                ..BlockWire::default()
+            },
+            Vec::new(),
+            true,
+        )),
         Block::Thinking {
             thinking,
             signature,
@@ -828,7 +828,11 @@ fn encode_tool_result_block(
                     "anthropic: {content_path}: redacted_thinking is not permitted in tool_result"
                 )));
             }
-            Block::Text { text, native, citations } => {
+            Block::Text {
+                text,
+                native,
+                citations,
+            } => {
                 if citations.as_ref().is_some_and(|c| !c.is_empty()) {
                     return Err(Error::new(format!(
                         "anthropic: {content_path}.citations: citations are not permitted in tool_result"
@@ -999,17 +1003,15 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 true,
             ))
         }
-        Block::RedactedThinking { data, .. } => {
-            Ok((
-                BlockWire {
-                    kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
-                    data: Some(data.clone()),
-                    ..BlockWire::default()
-                },
-                Vec::new(),
-                true,
-            ))
-        }
+        Block::RedactedThinking { data, .. } => Ok((
+            BlockWire {
+                kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
+                data: Some(data.clone()),
+                ..BlockWire::default()
+            },
+            Vec::new(),
+            true,
+        )),
         Block::Thinking {
             thinking,
             signature,

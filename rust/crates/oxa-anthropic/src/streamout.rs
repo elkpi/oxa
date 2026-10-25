@@ -123,7 +123,9 @@ impl StreamEncoder {
                     )));
                 }
                 match block {
-                    Block::Text { text, citations, .. } => {
+                    Block::Text {
+                        text, citations, ..
+                    } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;

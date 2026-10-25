@@ -910,7 +910,11 @@ fn append_omission_loss(
                 };
                 (f, om.reason, om.detail.clone().unwrap_or_default())
             } else {
-                ("top_k".to_string(), LossReason::UnmappedField, String::new())
+                (
+                    "top_k".to_string(),
+                    LossReason::UnmappedField,
+                    String::new(),
+                )
             };
             losses.push(Loss {
                 path: path.into(),

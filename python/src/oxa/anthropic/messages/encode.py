@@ -38,6 +38,7 @@ from oxa.anthropic.messages.normalize import (
     loss,
     require_json_object,
 )
+from oxa.ir.codec import validate_citation_value
 from oxa.ir.native import (
     NATIVE_KIND_DOCUMENT_CITATIONS,
     NATIVE_KIND_DOCUMENT_CONTEXT,
@@ -266,6 +267,12 @@ def encode_request(
     )
 
     for index, message in enumerate(req.messages):
+        if message.role == IR_ROLE_USER:
+            for b_idx, blk in enumerate(message.content):
+                if isinstance(blk, RedactedThinkingBlock):
+                    raise ValueError(f"anthropic: messages[{index}].content[{b_idx}]: redacted_thinking is not permitted in user messages")
+                if isinstance(blk, TextBlock) and blk.citations:
+                    raise ValueError(f"anthropic: messages[{index}].content[{b_idx}].citations: citations are not permitted on user text blocks")
         role = ROLE_USER if message.role == IR_ROLE_USER else ROLE_ASSISTANT
         blocks_wire, b_losses = encode_request_blocks(message.content, f"messages[{index}].content")
         losses.extend(b_losses)
@@ -350,21 +357,21 @@ def encode_request_block(
         if block.citations:
             raw_cites = []
             for c_idx, c in enumerate(block.citations):
-                try:
-                    c_obj = json.loads(c.value)
-                    if c_obj.get("file_id") is not None:
-                        losses.append(
-                            loss(
-                                f"{path}.citations[{c_idx}].file_id",
-                                "file_id",
-                                LOSS_UNMAPPED_FIELD,
-                                "response citation file_id has no request-side representation",
-                            )
+                if c.source != "anthropic":
+                    raise ValueError(f"anthropic: unknown citation source {c.source!r}")
+                validate_citation_value(c.value)
+                c_obj = json.loads(c.value)
+                if c_obj.get("file_id") is not None:
+                    losses.append(
+                        loss(
+                            f"{path}.citations[{c_idx}].file_id",
+                            "file_id",
+                            LOSS_UNMAPPED_FIELD,
+                            "response citation file_id has no request-side representation",
                         )
-                    c_obj.pop("file_id", None)
-                    raw_cites.append(c_obj)
-                except Exception:
-                    pass
+                    )
+                c_obj.pop("file_id", None)
+                raw_cites.append(c_obj)
             if raw_cites:
                 encoded["citations"] = raw_cites
 
@@ -686,7 +693,11 @@ def encode_tool_result_block(
 
     for index, inner in enumerate(block.content):
         content_path = f"{path}.content[{index}]"
+        if isinstance(inner, RedactedThinkingBlock):
+            raise ValueError(f"anthropic: {content_path}: redacted_thinking is not permitted in tool_result")
         if isinstance(inner, TextBlock):
+            if inner.citations:
+                raise ValueError(f"anthropic: {content_path}.citations: citations are not permitted in tool_result")
             item: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": inner.text}
             cc = get_block_cache_control(inner.native)
             if cc is not None:
@@ -788,10 +799,10 @@ def encode_response_block(
         if block.citations:
             raw_cites = []
             for c in block.citations:
-                try:
-                    raw_cites.append(json.loads(c.value))
-                except Exception:
-                    pass
+                if c.source != "anthropic":
+                    raise ValueError(f"anthropic: unknown citation source {c.source!r}")
+                validate_citation_value(c.value)
+                raw_cites.append(json.loads(c.value))
             if raw_cites:
                 encoded["citations"] = raw_cites
         return encoded, [], True

@@ -190,6 +190,88 @@ class AnthropicFidelityV2411Test(unittest.TestCase):
             )
         )
 
+    def test_text_block_positional_args(self) -> None:
+        from oxa.ir import NativeAnnotation
+        ann = NativeAnnotation(source="anthropic", kind="cache_control", value='{"type":"ephemeral"}')
+        blk = TextBlock("hi", (ann,))
+        self.assertEqual(blk.text, "hi")
+        self.assertEqual(blk.native, (ann,))
+        self.assertIsNone(blk.citations)
+
+    def test_redacted_thinking_data_validation(self) -> None:
+        raw_empty = json.dumps({
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": [{"type": "redacted_thinking", "data": ""}, {"type": "text", "text": "Ok"}]},
+            ],
+        })
+        req, _ = decode_request_json(raw_empty)
+        encoded, _ = encode_request(req)
+        self.assertEqual(encoded["messages"][1]["content"][0]["data"], "")
+
+        raw_null = json.dumps({
+            "model": "claude-opus-5-5",
+            "max_tokens": 1024,
+            "messages": [
+                {"role": "user", "content": "Hi"},
+                {"role": "assistant", "content": [{"type": "redacted_thinking", "data": None}, {"type": "text", "text": "Ok"}]},
+            ],
+        })
+        with self.assertRaises(ValueError):
+            decode_request_json(raw_null)
+
+    def test_disable_parallel_tool_use_null_and_conflict(self) -> None:
+        raw_null = json.dumps({
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 1024,
+            "messages": [{"role": "user", "content": "Hi"}],
+            "tools": [{"name": "t1", "input_schema": {"type": "object"}}],
+            "tool_choice": {"type": "auto", "disable_parallel_tool_use": None},
+        })
+        with self.assertRaises(ValueError):
+            decode_request_json(raw_null)
+
+        from oxa.ir import NativeAnnotation, ToolChoice
+        req_conflict = Request(
+            model="claude-sonnet-4-5",
+            messages=[Message(role="user", content=[TextBlock(text="Hi")])],
+            tool_choice=ToolChoice(mode="none"),
+            native=(NativeAnnotation(source="anthropic", kind="disable_parallel_tool_use", value="true"),),
+        )
+        with self.assertRaises(ValueError):
+            encode_request(req_conflict)
+
+    def test_between_tools_encode_conflict(self) -> None:
+        from oxa.ir import NativeAnnotation
+        req_conflict = Request(
+            model="claude-sonnet-5-5",
+            messages=[Message(role="user", content=[TextBlock(text="Hi")])],
+            native=(
+                NativeAnnotation(source="anthropic", kind="thinking_mode", value='"between_tools"'),
+                NativeAnnotation(source="anthropic", kind="thinking_budget", value="2048"),
+            ),
+        )
+        with self.assertRaises(ValueError):
+            encode_request(req_conflict)
+
+    def test_omitted_native_losses_default_fallback(self) -> None:
+        from oxa.ir import NativeAnnotation, ToolChoice
+        from oxa.ir.native import omitted_native_request_losses
+        req = Request(
+            model="claude-opus-4-6",
+            messages=[Message(role="user", content=[TextBlock(text="Hi")])],
+            tool_choice=ToolChoice(mode="auto"),
+            native=(
+                NativeAnnotation(source="anthropic", kind="top_k", value="40"),
+                NativeAnnotation(source="anthropic", kind="disable_parallel_tool_use", value="true"),
+            ),
+        )
+        losses = omitted_native_request_losses(req, "chatcompletions")
+        self.assertTrue(any(l.field == "top_k" and l.reason == "unmapped-field" for l in losses))
+        self.assertTrue(any(l.field == "disable_parallel_tool_use" and l.reason == "unmapped-field" for l in losses))
+
 
 if __name__ == "__main__":
     unittest.main()

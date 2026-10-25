@@ -650,11 +650,11 @@ def decode_tool_choice(
             )
         )
 
-    if "disable_parallel_tool_use" in choice and choice["disable_parallel_tool_use"] is not None:
-        if kind == TOOL_CHOICE_TYPE_NONE:
-            raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
+    if "disable_parallel_tool_use" in choice:
         if not isinstance(choice["disable_parallel_tool_use"], bool):
             raise ValueError("tool_choice.disable_parallel_tool_use must be a boolean")
+        if kind == TOOL_CHOICE_TYPE_NONE:
+            raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
 
     return decoded, losses
 

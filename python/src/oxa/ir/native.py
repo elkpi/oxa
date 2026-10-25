@@ -133,6 +133,25 @@ def validate_native_request(req: Any) -> None:
     if budget_proj > 0 and explicit_proj > 0:
         raise CodecError("ir: conflicting effort projections on request")
 
+    has_between_tools = False
+    has_budget_or_display = False
+    has_disable_parallel = False
+    for n in getattr(req, "native", ()) or ():
+        if n.source == NATIVE_SOURCE_ANTHROPIC:
+            if n.kind == NATIVE_KIND_THINKING_MODE and n.value == '"between_tools"':
+                has_between_tools = True
+            elif n.kind in (NATIVE_KIND_THINKING_BUDGET, NATIVE_KIND_THINKING_DISPLAY):
+                has_budget_or_display = True
+            elif n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+                has_disable_parallel = True
+
+    if has_between_tools and has_budget_or_display:
+        raise CodecError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
+    if has_disable_parallel:
+        tc = getattr(req, "tool_choice", None)
+        if tc is None or tc.mode == "none":
+            raise CodecError("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
+
     for i, sb in enumerate(getattr(req, "system", ()) or ()):
         validate_annotations(getattr(sb, "native", ()), HostType.SYSTEM, f"system[{i}]")
 
@@ -565,11 +584,37 @@ def _append_omission_loss(
             )
         return
 
+    if ann.kind == NATIVE_KIND_TOP_K:
+        field = "top_k"
+        reason = LOSS_UNMAPPED_FIELD
+        detail = ""
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+        return
+
+    if ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
+        field = "disable_parallel_tool_use"
+        reason = LOSS_UNMAPPED_FIELD
+        detail = ""
+        if ann.omission is not None:
+            if ann.omission.field:
+                field = ann.omission.field
+            if ann.omission.reason:
+                reason = ann.omission.reason
+            if ann.omission.detail:
+                detail = ann.omission.detail
+        losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+        return
+
     if ann.kind in (
         NATIVE_KIND_THINKING_DISPLAY,
         NATIVE_KIND_CONTEXT_MANAGEMENT,
-        NATIVE_KIND_TOP_K,
-        NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
     ):
         if ann.omission is not None:
             losses.append(

@@ -148,6 +148,8 @@ class StreamEncoder:
                 content_block = {"type": BLOCK_TYPE_TEXT}
                 if ev.block.text:
                     content_block["text"] = ev.block.text
+                if ev.block.citations:
+                    content_block["citations"] = [json.loads(c.value) for c in ev.block.citations]
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,

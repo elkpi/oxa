@@ -302,6 +302,10 @@ def dump_block(block: Block) -> dict[str, Any]:
     if isinstance(block, TextBlock):
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
+            for c in block.citations:
+                if c.source != "anthropic":
+                    raise CodecError(f"ir: unknown citation source {c.source!r}")
+                validate_citation_value(c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
         return out
     if isinstance(block, RedactedThinkingBlock):
@@ -394,6 +398,10 @@ def dump_request_block(block: Block) -> dict[str, Any]:
     if isinstance(block, TextBlock):
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
+            for c in block.citations:
+                if c.source != "anthropic":
+                    raise CodecError(f"ir: unknown citation source {c.source!r}")
+                validate_citation_value(c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
     elif isinstance(block, RedactedThinkingBlock):
         out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}

@@ -199,10 +199,7 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
     if isinstance(thinking, dict):
         kind = thinking.get("type")
         if kind == "between_tools":
-            if (
-                thinking.get("budget_tokens") is not None
-                or (thinking.get("display") is not None and thinking.get("display") != "")
-            ):
+            if "budget_tokens" in thinking or "display" in thinking:
                 raise ValueError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
             req_native.append(
                 NativeAnnotation(
@@ -377,8 +374,12 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
 
     # 6. DisableParallelToolUse
     tc = wire.get("tool_choice")
-    if isinstance(tc, dict) and tc.get("disable_parallel_tool_use") is not None:
+    if isinstance(tc, dict) and "disable_parallel_tool_use" in tc:
         flag = tc["disable_parallel_tool_use"]
+        if not isinstance(flag, bool):
+            raise ValueError("anthropic: tool_choice.disable_parallel_tool_use must be a boolean")
+        if tc.get("type") == "none":
+            raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
         req_native.append(
             NativeAnnotation(
                 source=NATIVE_SOURCE_ANTHROPIC,
@@ -518,12 +519,16 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
         elif n.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE:
             try:
                 flag = json.loads(n.value) is True
-                if "tool_choice" in wire and isinstance(wire["tool_choice"], dict):
+                if (
+                    "tool_choice" in wire
+                    and isinstance(wire["tool_choice"], dict)
+                    and wire["tool_choice"].get("type") != "none"
+                ):
                     wire["tool_choice"]["disable_parallel_tool_use"] = flag
                 else:
-                    raise ValueError("anthropic: disable_parallel_tool_use requires tool_choice")
+                    raise ValueError("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
             except Exception as e:
-                if "disable_parallel_tool_use requires tool_choice" in str(e):
+                if "cannot specify disable_parallel_tool_use" in str(e):
                     raise
         else:
             losses.append(
@@ -539,6 +544,8 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
 
     if native_mode is not None or native_effort is not None or current_effort is not None:
         if native_mode == "between_tools":
+            if native_budget is not None or native_display is not None:
+                raise ValueError("anthropic: cannot specify budget_tokens or display with thinking.type between_tools")
             wire["thinking"] = {"type": "between_tools"}
             if current_effort is not None:
                 wire["output_config"] = {"effort": current_effort}

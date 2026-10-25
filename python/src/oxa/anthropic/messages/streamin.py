@@ -224,6 +224,9 @@ class StreamDecoder:
                 ]
 
             if b_kind == BLOCK_TYPE_REDACTED_THINKING:
+                data_val = block.get("data")
+                if data_val is None or not isinstance(data_val, str):
+                    raise ValueError(f"anthropic: content_block_start[{index}].content_block.data is required")
                 self._next_index += 1
                 self._block_open = True
                 self._open_tool = False
@@ -235,7 +238,7 @@ class StreamDecoder:
                 return [
                     ContentBlockStart(
                         index=self._open_ir_index,
-                        block=RedactedThinkingBlock(data=block.get("data", "")),
+                        block=RedactedThinkingBlock(data=data_val),
                     )
                 ]
 
@@ -261,9 +264,20 @@ class StreamDecoder:
             self._open_index = index
             self._open_ir_index = self._next_ir_index
             self._next_ir_index += 1
+            cites = None
+            if "citations" in block:
+                raw_cites = decode_anthropic_text_citations(
+                    block.get("citations"),
+                    f"content_block_start[{index}].content_block.citations",
+                    self._losses,
+                    False,
+                )
+                if raw_cites:
+                    cites = tuple(raw_cites)
             return [
                 ContentBlockStart(
-                    index=self._open_ir_index, block=TextBlock(text=block.get("text", ""))
+                    index=self._open_ir_index,
+                    block=TextBlock(text=block.get("text", ""), citations=cites),
                 )
             ]
 

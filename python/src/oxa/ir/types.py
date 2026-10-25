@@ -58,8 +58,8 @@ class TextBlock:
     """A run of text (spec/01 §3.4)."""
 
     text: str
-    citations: tuple[TextCitation, ...] | None = None
     native: tuple[NativeAnnotation, ...] = ()
+    citations: tuple[TextCitation, ...] | None = None
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
 
     def __post_init__(self) -> None:

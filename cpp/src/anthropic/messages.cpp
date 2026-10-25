@@ -35,6 +35,165 @@ std::optional<std::string> extract_custom_input(const json::Value& input) {
     return std::nullopt;
 }
 
+// Decodes one wire citation object into the canonical IR citation JSON text
+// (spec/12 N-AN-18). Returns nullopt when the citation type is unsupported
+// (a loss is recorded instead).
+StatusOr<std::optional<std::string>> decode_citation_object(
+    const json::Value& item, const std::string& item_path, std::vector<ir::Loss>& losses) {
+    if (!item.is_object()) {
+        return invalid_argument("anthropic: " + item_path + " must be an object");
+    }
+    const auto* type_val = item.find("type");
+    if (!type_val || !type_val->is_string()) {
+        return invalid_argument("anthropic: " + item_path + ".type is required");
+    }
+    const std::string& cite_type = type_val->as_string();
+
+    auto require_str = [&](std::string_view key) -> StatusOr<std::string> {
+        const auto* v = item.find(key);
+        if (!v || !v->is_string()) {
+            return invalid_argument("anthropic: " + item_path + "." + std::string(key) + " must be a string");
+        }
+        return v->as_string();
+    };
+    auto require_int_field = [&](std::string_view key) -> StatusOr<std::int64_t> {
+        const auto* v = item.find(key);
+        if (!v || !v->is_int()) {
+            return invalid_argument("anthropic: " + item_path + "." + std::string(key) + " must be an integer");
+        }
+        return v->as_int();
+    };
+    auto require_title = [&](std::string_view key) -> StatusOr<json::Value> {
+        const auto* v = item.find(key);
+        if (!v) {
+            return invalid_argument("anthropic: " + item_path + "." + std::string(key) + " is required");
+        }
+        if (!v->is_null() && !v->is_string()) {
+            return invalid_argument("anthropic: " + item_path + "." + std::string(key) + " must be null or a string");
+        }
+        return *v;
+    };
+
+    json::Value clean = json::Value::object();
+    clean.set("type", json::Value::string(cite_type));
+
+    if (cite_type == "char_location" || cite_type == "page_location" || cite_type == "content_block_location") {
+        OXA_ASSIGN_OR_RETURN(std::string cited_text, require_str("cited_text"));
+        clean.set("cited_text", json::Value::string(std::move(cited_text)));
+        OXA_ASSIGN_OR_RETURN(std::int64_t doc_index, require_int_field("document_index"));
+        if (doc_index < 0) {
+            return invalid_argument("anthropic: " + item_path + ".document_index must be a non-negative integer");
+        }
+        clean.set("document_index", json::Value::integer(doc_index));
+        OXA_ASSIGN_OR_RETURN(json::Value title, require_title("document_title"));
+        clean.set("document_title", std::move(title));
+        if (cite_type == "char_location") {
+            OXA_ASSIGN_OR_RETURN(std::int64_t start, require_int_field("start_char_index"));
+            if (start < 0) {
+                return invalid_argument("anthropic: " + item_path + ".start_char_index must be a non-negative integer");
+            }
+            OXA_ASSIGN_OR_RETURN(std::int64_t end, require_int_field("end_char_index"));
+            if (end <= start) {
+                return invalid_argument("anthropic: " + item_path + ".end_char_index must be > start_char_index");
+            }
+            clean.set("start_char_index", json::Value::integer(start));
+            clean.set("end_char_index", json::Value::integer(end));
+        } else if (cite_type == "page_location") {
+            OXA_ASSIGN_OR_RETURN(std::int64_t start, require_int_field("start_page_number"));
+            if (start < 1) {
+                return invalid_argument("anthropic: " + item_path + ".start_page_number must be >= 1");
+            }
+            OXA_ASSIGN_OR_RETURN(std::int64_t end, require_int_field("end_page_number"));
+            if (end < start) {
+                return invalid_argument("anthropic: " + item_path + ".end_page_number must be >= start_page_number");
+            }
+            clean.set("start_page_number", json::Value::integer(start));
+            clean.set("end_page_number", json::Value::integer(end));
+        } else {
+            OXA_ASSIGN_OR_RETURN(std::int64_t start, require_int_field("start_block_index"));
+            if (start < 0) {
+                return invalid_argument("anthropic: " + item_path + ".start_block_index must be a non-negative integer");
+            }
+            OXA_ASSIGN_OR_RETURN(std::int64_t end, require_int_field("end_block_index"));
+            if (end <= start) {
+                return invalid_argument("anthropic: " + item_path + ".end_block_index must be > start_block_index");
+            }
+            clean.set("start_block_index", json::Value::integer(start));
+            clean.set("end_block_index", json::Value::integer(end));
+        }
+        if (const auto* fid = item.find("file_id")) {
+            clean.set("file_id", *fid);
+        }
+    } else if (cite_type == "web_search_result_location") {
+        OXA_ASSIGN_OR_RETURN(std::string cited_text, require_str("cited_text"));
+        clean.set("cited_text", json::Value::string(std::move(cited_text)));
+        OXA_ASSIGN_OR_RETURN(std::string encrypted_index, require_str("encrypted_index"));
+        clean.set("encrypted_index", json::Value::string(std::move(encrypted_index)));
+        OXA_ASSIGN_OR_RETURN(json::Value title, require_title("title"));
+        clean.set("title", std::move(title));
+        OXA_ASSIGN_OR_RETURN(std::string url, require_str("url"));
+        clean.set("url", json::Value::string(std::move(url)));
+    } else if (cite_type == "search_result_location") {
+        OXA_ASSIGN_OR_RETURN(std::string cited_text, require_str("cited_text"));
+        clean.set("cited_text", json::Value::string(std::move(cited_text)));
+        OXA_ASSIGN_OR_RETURN(std::int64_t sr_index, require_int_field("search_result_index"));
+        if (sr_index < 0) {
+            return invalid_argument("anthropic: " + item_path + ".search_result_index must be a non-negative integer");
+        }
+        clean.set("search_result_index", json::Value::integer(sr_index));
+        OXA_ASSIGN_OR_RETURN(std::string source, require_str("source"));
+        clean.set("source", json::Value::string(std::move(source)));
+        OXA_ASSIGN_OR_RETURN(json::Value title, require_title("title"));
+        clean.set("title", std::move(title));
+        OXA_ASSIGN_OR_RETURN(std::int64_t start, require_int_field("start_block_index"));
+        if (start < 0) {
+            return invalid_argument("anthropic: " + item_path + ".start_block_index must be a non-negative integer");
+        }
+        OXA_ASSIGN_OR_RETURN(std::int64_t end, require_int_field("end_block_index"));
+        if (end <= start) {
+            return invalid_argument("anthropic: " + item_path + ".end_block_index must be > start_block_index");
+        }
+        clean.set("start_block_index", json::Value::integer(start));
+        clean.set("end_block_index", json::Value::integer(end));
+    } else {
+        losses.push_back(make_ant_loss(
+            item_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "unsupported citation type \"" + cite_type + "\""));
+        return std::optional<std::string>(std::nullopt);
+    }
+
+    // Extra wire keys are unknown fields.
+    for (const auto& [key, value] : item.as_object()) {
+        if (!clean.find(key)) {
+            losses.push_back(make_ant_loss(
+                item_path + "." + key, key, ir::LOSS_UNMAPPED_FIELD, ""));
+        }
+    }
+    return std::optional<std::string>(json::serialize(clean));
+}
+
+// Decodes a wire text-block citations array into IR citations.
+StatusOr<std::optional<std::vector<ir::TextCitation>>> decode_text_citations(
+    const json::Value* raw, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (raw == nullptr || raw->is_null()) return std::optional<std::vector<ir::TextCitation>>(std::nullopt);
+    if (!raw->is_array()) {
+        return invalid_argument("anthropic: " + path + " must be an array");
+    }
+    if (raw->as_array().empty()) {
+        return std::optional<std::vector<ir::TextCitation>>(std::nullopt);
+    }
+    std::vector<ir::TextCitation> cites;
+    const auto& arr = raw->as_array();
+    for (std::size_t i = 0; i < arr.size(); ++i) {
+        std::string item_path = path + "[" + std::to_string(i) + "]";
+        OXA_ASSIGN_OR_RETURN(auto canonical, decode_citation_object(arr[i], item_path, losses));
+        if (canonical.has_value()) {
+            cites.push_back(ir::TextCitation{"anthropic", *canonical});
+        }
+    }
+    return std::optional<std::vector<ir::TextCitation>>(std::move(cites));
+}
+
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
     const json::Value* content, const std::string& path, bool keep_raw_input = true,
     const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
@@ -67,7 +226,23 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             if (!txt || !txt->is_string()) {
                 return invalid_argument(block_path + ".text must be a string");
             }
-            blocks.push_back(ir::TextBlock{txt->as_string()});
+            ir::TextBlock text_block{txt->as_string()};
+            if (const auto* cites_val = item.find("citations")) {
+                if (!cites_val->is_null() && is_request &&
+                    (path.find("tool_result") != std::string::npos) &&
+                    cites_val->is_array() && !cites_val->as_array().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".citations: citations are not permitted in tool_result");
+                }
+                OXA_ASSIGN_OR_RETURN(auto cites, decode_text_citations(cites_val, block_path + ".citations", losses));
+                text_block.citations = std::move(cites);
+            }
+            blocks.push_back(std::move(text_block));
+        } else if (kind == BLOCK_TYPE_REDACTED_THINKING) {
+            const auto* data_val = item.find("data");
+            if (!data_val || !data_val->is_string() || data_val->as_string().empty()) {
+                return invalid_argument("anthropic: " + block_path + ".data is required");
+            }
+            blocks.push_back(ir::RedactedThinkingBlock{data_val->as_string()});
         } else if (kind == BLOCK_TYPE_THINKING) {
             const auto* thinking_value = item.find("thinking");
             std::string thinking = thinking_value && thinking_value->is_string()
@@ -337,6 +512,45 @@ StatusOr<std::string> encode_stop_reason(std::string_view stop_reason) {
                             "\" has no Anthropic equivalent");
 }
 
+// Renders IR citations for a request-side text block: response-citation
+// file_id has no request-side representation and is stripped with a loss.
+StatusOr<json::Value> encode_request_citations(const std::vector<ir::TextCitation>& cites,
+                                               const std::string& path,
+                                               std::vector<ir::Loss>& losses) {
+    json::Value out = json::Value::array();
+    for (std::size_t i = 0; i < cites.size(); ++i) {
+        auto parsed = json::parse(cites[i].value);
+        if (!parsed.ok() || !parsed->is_object()) {
+            return invalid_argument("anthropic: " + path + "[" + std::to_string(i) + "] must be a JSON object");
+        }
+        json::Value obj = std::move(*parsed);
+        if (const auto* fid = obj.find("file_id")) {
+            if (!fid->is_null()) {
+                losses.push_back(make_ant_loss(
+                    path + "[" + std::to_string(i) + "].file_id", "file_id",
+                    ir::LOSS_UNMAPPED_FIELD,
+                    "response citation file_id has no request-side representation"));
+            }
+            obj.as_object().erase("file_id");
+        }
+        out.push_back(std::move(obj));
+    }
+    return out;
+}
+
+// Renders IR citations verbatim for a response-side text block.
+StatusOr<json::Value> encode_response_citations(const std::vector<ir::TextCitation>& cites) {
+    json::Value out = json::Value::array();
+    for (const auto& c : cites) {
+        auto parsed = json::parse(c.value);
+        if (!parsed.ok()) {
+            return invalid_argument("anthropic: citation value must be a JSON object");
+        }
+        out.push_back(std::move(*parsed));
+    }
+    return out;
+}
+
 }  // namespace
 
 static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Value& wire,
@@ -481,11 +695,20 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     : std::nullopt;
             req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_TOOL), name, tt};
         }
-        if (tc_val->find("disable_parallel_tool_use") != nullptr) {
-            losses.push_back(make_ant_loss(
-                "tool_choice.disable_parallel_tool_use", "disable_parallel_tool_use",
-                ir::LOSS_UNMAPPED_FIELD,
-                "Anthropic disable_parallel_tool_use has no IR equivalent in v1."));
+        if (const auto* dpu = tc_val->find("disable_parallel_tool_use"); dpu != nullptr) {
+            if (!dpu->is_bool()) {
+                return invalid_argument("anthropic: tool_choice.disable_parallel_tool_use must be a boolean");
+            }
+            if (kind == ir::TOOL_CHOICE_NONE) {
+                return invalid_argument("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none");
+            }
+            req.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                std::string(ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE),
+                dpu->as_bool() ? "true" : "false",
+                ir::NativeOmission{"disable_parallel_tool_use", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                std::nullopt,
+            });
         }
     }
 
@@ -610,6 +833,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         std::string content_path = "messages[" + std::to_string(i) + "].content";
         OXA_ASSIGN_OR_RETURN(auto c_res, decode_content_blocks(m.find("content"), content_path, true, custom_tools, &custom_call_ids, declared_tools, true));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
+        if (role == "user") {
+            for (std::size_t j = 0; j < c_res.first.size(); ++j) {
+                if (std::holds_alternative<ir::RedactedThinkingBlock>(c_res.first[j])) {
+                    return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "]: redacted_thinking is not permitted in user messages");
+                }
+                if (const auto* utb = std::get_if<ir::TextBlock>(&c_res.first[j])) {
+                    if (utb->citations.has_value() && !utb->citations->empty()) {
+                        return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "].citations: citations are not permitted on user text blocks");
+                    }
+                }
+            }
+        }
         req.messages.push_back(ir::Message{role, std::move(c_res.first)});
     }
     if (req.messages.empty()) {
@@ -632,7 +867,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         if (!stops.empty()) params.stop_sequences = std::move(stops);
     }
     req.params = std::move(params);
-    decode_request_native(wire, req, losses);
+    OXA_RETURN_IF_ERROR(decode_request_native(wire, req, losses));
 
     return Conversion<ir::Request>{std::move(req), std::move(losses)};
 }
@@ -849,7 +1084,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     bool shorthand = req.system.empty() && req.messages.size() == 1 &&
                      req.messages[0].content.size() == 1 &&
                      std::holds_alternative<ir::TextBlock>(req.messages[0].content[0]) &&
-                     std::get<ir::TextBlock>(req.messages[0].content[0]).native.empty();
+                     std::get<ir::TextBlock>(req.messages[0].content[0]).native.empty() &&
+                     !(std::get<ir::TextBlock>(req.messages[0].content[0]).citations.has_value());
 
     json::Value messages_arr = json::Value::array();
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
@@ -868,7 +1104,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("text"));
                     bw.set("text", json::Value::string(tb->text));
+                    if (tb->citations.has_value()) {
+                        OXA_ASSIGN_OR_RETURN(json::Value cites, encode_request_citations(*tb->citations, "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations", losses));
+                        if (cites.is_array() && !cites.as_array().empty()) {
+                            bw.set("citations", std::move(cites));
+                        }
+                    }
                     if (auto cc = get_block_cache_control(tb->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
+                    content_arr.push_back(std::move(bw));
+                } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
+                    if (rtb->data.empty()) {
+                        return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].data is required");
+                    }
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("redacted_thinking"));
+                    bw.set("data", json::Value::string(rtb->data));
+                    if (auto cc = get_block_cache_control(rtb->native)) {
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
@@ -1153,7 +1406,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
-    encode_request_native(req, out, losses);
+    OXA_RETURN_IF_ERROR(encode_request_native(req, out, losses));
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }
@@ -1229,6 +1482,18 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             json::Value bw = json::Value::object();
             bw.set("type", json::Value::string("text"));
             bw.set("text", json::Value::string(tb->text));
+            if (tb->citations.has_value() && !tb->citations->empty()) {
+                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations));
+                bw.set("citations", std::move(cites));
+            }
+            content_arr.push_back(std::move(bw));
+        } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
+            if (rtb->data.empty()) {
+                return invalid_argument("anthropic: content[" + std::to_string(i) + "].data is required");
+            }
+            json::Value bw = json::Value::object();
+            bw.set("type", json::Value::string("redacted_thinking"));
+            bw.set("data", json::Value::string(rtb->data));
             content_arr.push_back(std::move(bw));
         } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
             json::Value bw = json::Value::object();
@@ -1387,6 +1652,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             block_open_ = true;
             open_tool_ = true;
             open_thinking_ = false;
+            open_redacted_ = false;
             open_index_ = idx;
             open_ir_index_ = next_ir_index_++;
             tool_id_ = std::move(id);
@@ -1408,6 +1674,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             block_open_ = true;
             open_tool_ = false;
             open_thinking_ = true;
+            open_redacted_ = false;
             thinking_signature_seen_ = false;
             open_index_ = idx;
             open_ir_index_ = next_ir_index_++;
@@ -1424,10 +1691,26 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             return events;
         }
 
+        if (btype == BLOCK_TYPE_REDACTED_THINKING) {
+            std::string data;
+            if (const auto* dv = cb->find("data"); dv && dv->is_string()) {
+                data = dv->as_string();
+            }
+            block_open_ = true;
+            open_tool_ = false;
+            open_thinking_ = false;
+            open_redacted_ = true;
+            open_index_ = idx;
+            open_ir_index_ = next_ir_index_++;
+            events.push_back(ir::ContentBlockStart{open_ir_index_, ir::RedactedThinkingBlock{std::move(data)}});
+            return events;
+        }
+
         if (btype == "text") {
             block_open_ = true;
             open_tool_ = false;
             open_thinking_ = false;
+            open_redacted_ = false;
             open_index_ = idx;
             open_ir_index_ = next_ir_index_++;
             std::string text;
@@ -1458,6 +1741,9 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         if (!block_open_ || idx != open_index_) {
             return invalid_argument("anthropic: content_block_delta index " + std::to_string(idx) +
                                     " does not match the open block");
+        }
+        if (open_redacted_) {
+            return invalid_argument("anthropic: content_block_delta on redacted_thinking block");
         }
 
         const auto* dt = d->find("type");
@@ -1503,6 +1789,20 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
                 events.push_back(ir::ContentBlockDelta{open_ir_index_, ir::TextDelta{std::move(t)}});
                 return events;
             }
+            if (dtype == DELTA_TYPE_CITATIONS) {
+                const auto* cite = d->find("citation");
+                if (!cite || !cite->is_object()) {
+                    return invalid_argument("anthropic: citations_delta without citation");
+                }
+                std::vector<ir::Loss> cite_losses;
+                OXA_ASSIGN_OR_RETURN(auto canonical, decode_citation_object(*cite, "content_block_delta[" + std::to_string(idx) + "].delta.citation", cite_losses));
+                for (auto& l : cite_losses) losses_.push_back(std::move(l));
+                if (canonical.has_value()) {
+                    events.push_back(ir::ContentBlockDelta{
+                        open_ir_index_, ir::CitationDelta{ir::TextCitation{"anthropic", *canonical}}});
+                }
+                return events;
+            }
             if (dtype == "input_json_delta") {
                 return invalid_argument("anthropic: input_json_delta on non-tool block");
             }
@@ -1530,6 +1830,13 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         if (!block_open_ || idx != open_index_) {
             return invalid_argument("anthropic: content_block_stop index " + std::to_string(idx) +
                                     " does not match the open block");
+        }
+
+        if (open_redacted_) {
+            open_redacted_ = false;
+            block_open_ = false;
+            events.push_back(ir::ContentBlockStop{open_ir_index_});
+            return events;
         }
 
         if (open_tool_) {
@@ -1685,6 +1992,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             }
             open_tool_ = false;
             open_thinking_ = false;
+            open_redacted_ = false;
             open_custom_ = true;
             tool_seen_ = true;
             tool_input_ = custom->input;
@@ -1708,8 +2016,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic Messages streaming does not support apply_patch tools"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
-        }
-        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
+        }        if (const auto* apr = std::get_if<ir::ApplyPatchToolResultBlock>(&cbs->block)) {
             (void)apr;
             skipped_atomic_ = true; skipped_custom_ = false; open_tool_ = false; open_thinking_ = false;
             losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
@@ -1728,6 +2035,7 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             if (tu->name.empty()) return invalid_argument("anthropic: ContentBlockStart tool_use name is required");
             open_tool_ = true;
             open_thinking_ = false;
+            open_redacted_ = false;
             tool_seen_ = true;
             tool_input_ = tu->input;
             tool_parts_.clear();
@@ -1738,14 +2046,23 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
             open_tool_ = false;
             open_thinking_ = true;
+            open_redacted_ = false;
             thinking_input_ = thinking->thinking;
             thinking_signature_ = thinking->signature;
             thinking_parts_.clear();
             signature_seen_ = false;
             cb.set("type", json::Value::string(std::string(BLOCK_TYPE_THINKING)));
+        } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&cbs->block)) {
+            open_tool_ = false;
+            open_thinking_ = false;
+            open_custom_ = false;
+            open_redacted_ = true;
+            cb.set("type", json::Value::string(std::string(BLOCK_TYPE_REDACTED_THINKING)));
+            cb.set("data", json::Value::string(rtb->data));
         } else if (const auto* tb = std::get_if<ir::TextBlock>(&cbs->block)) {
             open_tool_ = false;
             open_thinking_ = false;
+            open_redacted_ = false;
             cb.set("type", json::Value::string("text"));
             if (!tb->text.empty()) cb.set("text", json::Value::string(tb->text));
         } else {
@@ -1759,6 +2076,9 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cbd = std::get_if<ir::ContentBlockDelta>(&event)) {
         if (!block_open_ || cbd->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockDelta out of grammar order");
+        }
+        if (open_redacted_) {
+            return invalid_argument("anthropic: ContentBlockDelta on redacted_thinking block");
         }
         if (skipped_atomic_) {
             return invalid_argument("anthropic: atomic block does not accept deltas");
@@ -1796,10 +2116,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                 return invalid_argument("anthropic: ThinkingBlock received non-thinking delta");
             }
         } else {
-            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
-            if (!td) return invalid_argument("anthropic: TextBlock received non-text delta");
-            delta.set("type", json::Value::string("text_delta"));
-            delta.set("text", json::Value::string(td->text));
+            if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
+                delta.set("type", json::Value::string("text_delta"));
+                delta.set("text", json::Value::string(td->text));
+            } else if (const auto* cite = std::get_if<ir::CitationDelta>(&cbd->delta)) {
+                auto parsed = json::parse(cite->citation.value);
+                if (!parsed.ok() || !parsed->is_object()) {
+                    return invalid_argument("anthropic: citation value must be a JSON object");
+                }
+                delta.set("type", json::Value::string(std::string(DELTA_TYPE_CITATIONS)));
+                delta.set("citation", std::move(*parsed));
+            } else {
+                return invalid_argument("anthropic: TextBlock received non-text delta");
+            }
         }
         chunk.set("delta", std::move(delta));
         chunks.push_back(std::move(chunk));
@@ -1809,6 +2138,15 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cst = std::get_if<ir::ContentBlockStop>(&event)) {
         if (!block_open_ || cst->index != open_ir_index_) {
             return invalid_argument("anthropic: ContentBlockStop out of grammar order");
+        }
+        if (open_redacted_) {
+            open_redacted_ = false;
+            block_open_ = false;
+            json::Value chunk = json::Value::object();
+            chunk.set("type", json::Value::string("content_block_stop"));
+            chunk.set("index", json::Value::integer(open_index_));
+            chunks.push_back(std::move(chunk));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (skipped_atomic_) {
             block_open_ = false; skipped_atomic_ = false;

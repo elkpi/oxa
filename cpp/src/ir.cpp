@@ -74,6 +74,85 @@ bool has(const json::Value& v, std::string_view key) {
     return f != nullptr && !f->is_null();
 }
 
+Status require_member(const json::Value& obj, std::string_view key, const char* ctx) {
+    if (obj.find(key) == nullptr) {
+        return invalid_argument(std::string(ctx) + ": citation requires \"" + std::string(key) + "\"");
+    }
+    return ok_status();
+}
+
+// Validates the canonical citation JSON object carried in TextCitation::value
+// (spec/01 §3.4): one of the five locked location shapes with no extra
+// properties.
+Status validate_citation_value(const std::string& val) {
+    if (val.empty()) {
+        return invalid_argument("ir: citation value cannot be empty");
+    }
+    auto parsed = json::parse(val);
+    if (!parsed.ok() || !parsed->is_object()) {
+        return invalid_argument("ir: citation value must be a JSON object");
+    }
+    const json::Value& obj = *parsed;
+    const auto* type_val = obj.find("type");
+    if (type_val == nullptr || !type_val->is_string()) {
+        return invalid_argument("ir: citation value requires type field");
+    }
+    const std::string& cite_type = type_val->as_string();
+    if (cite_type == "char_location") {
+        for (const auto& [k, _] : obj.as_object()) {
+            if (k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" &&
+                k != "start_char_index" && k != "end_char_index" && k != "file_id") {
+                return invalid_argument("ir: unknown property \"" + k + "\" on char_location citation");
+            }
+        }
+        for (const char* key : {"cited_text", "document_index", "document_title", "start_char_index", "end_char_index"}) {
+            OXA_RETURN_IF_ERROR(require_member(obj, key, "char_location"));
+        }
+    } else if (cite_type == "page_location") {
+        for (const auto& [k, _] : obj.as_object()) {
+            if (k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" &&
+                k != "start_page_number" && k != "end_page_number" && k != "file_id") {
+                return invalid_argument("ir: unknown property \"" + k + "\" on page_location citation");
+            }
+        }
+        for (const char* key : {"cited_text", "document_index", "document_title", "start_page_number", "end_page_number"}) {
+            OXA_RETURN_IF_ERROR(require_member(obj, key, "page_location"));
+        }
+    } else if (cite_type == "content_block_location") {
+        for (const auto& [k, _] : obj.as_object()) {
+            if (k != "type" && k != "cited_text" && k != "document_index" && k != "document_title" &&
+                k != "start_block_index" && k != "end_block_index" && k != "file_id") {
+                return invalid_argument("ir: unknown property \"" + k + "\" on content_block_location citation");
+            }
+        }
+        for (const char* key : {"cited_text", "document_index", "document_title", "start_block_index", "end_block_index"}) {
+            OXA_RETURN_IF_ERROR(require_member(obj, key, "content_block_location"));
+        }
+    } else if (cite_type == "web_search_result_location") {
+        for (const auto& [k, _] : obj.as_object()) {
+            if (k != "type" && k != "cited_text" && k != "encrypted_index" && k != "title" && k != "url") {
+                return invalid_argument("ir: unknown property \"" + k + "\" on web_search_result_location citation");
+            }
+        }
+        for (const char* key : {"cited_text", "encrypted_index", "title", "url"}) {
+            OXA_RETURN_IF_ERROR(require_member(obj, key, "web_search_result_location"));
+        }
+    } else if (cite_type == "search_result_location") {
+        for (const auto& [k, _] : obj.as_object()) {
+            if (k != "type" && k != "cited_text" && k != "search_result_index" && k != "source" &&
+                k != "title" && k != "start_block_index" && k != "end_block_index") {
+                return invalid_argument("ir: unknown property \"" + k + "\" on search_result_location citation");
+            }
+        }
+        for (const char* key : {"cited_text", "search_result_index", "source", "title", "start_block_index", "end_block_index"}) {
+            OXA_RETURN_IF_ERROR(require_member(obj, key, "search_result_location"));
+        }
+    } else {
+        return invalid_argument("ir: unknown citation type \"" + cite_type + "\"");
+    }
+    return ok_status();
+}
+
 }  // namespace
 
 // ---- blocks ----------------------------------------------------------------
@@ -94,6 +173,21 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
         out.set("text", json::Value::string(t->text));
+        if (t->citations.has_value() && !t->citations->empty()) {
+            json::Value cites = json::Value::array();
+            for (const auto& c : *t->citations) {
+                json::Value cw = json::Value::object();
+                cw.set("source", json::Value::string(c.source));
+                cw.set("value", json::Value::string(c.value));
+                cites.push_back(std::move(cw));
+            }
+            out.set("citations", std::move(cites));
+        }
+        return out;
+    }
+    if (const auto* rt = std::get_if<RedactedThinkingBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_REDACTED_THINKING)));
+        out.set("data", json::Value::string(rt->data));
         return out;
     }
     if (const auto* t = std::get_if<ThinkingBlock>(&b)) {
@@ -228,7 +322,29 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
     OXA_ASSIGN_OR_RETURN(std::string kind, kind_of(v));
     if (kind == BLOCK_TYPE_TEXT) {
         OXA_ASSIGN_OR_RETURN(std::string txt, require_string(v, "text", "text block"));
-        return Block(TextBlock{std::move(txt), std::move(native)});
+        TextBlock block{std::move(txt), std::move(native)};
+        if (const auto* cites_val = v.find("citations")) {
+            if (!cites_val->is_array()) {
+                return invalid_argument("text block citations must be an array");
+            }
+            std::vector<TextCitation> cites;
+            for (const auto& c : cites_val->as_array()) {
+                if (!c.is_object()) return invalid_argument("citation must be an object");
+                OXA_ASSIGN_OR_RETURN(std::string source, require_string(c, "source", "citation"));
+                if (source != "anthropic") {
+                    return invalid_argument("ir: unknown citation source \"" + source + "\"");
+                }
+                OXA_ASSIGN_OR_RETURN(std::string value, require_string(c, "value", "citation"));
+                OXA_RETURN_IF_ERROR(validate_citation_value(value));
+                cites.push_back(TextCitation{std::move(source), std::move(value)});
+            }
+            if (!cites.empty()) block.citations = std::move(cites);
+        }
+        return Block(std::move(block));
+    }
+    if (kind == BLOCK_TYPE_REDACTED_THINKING) {
+        OXA_ASSIGN_OR_RETURN(std::string data, require_string(v, "data", "redacted_thinking block"));
+        return Block(RedactedThinkingBlock{std::move(data), std::move(native)});
     }
     if (kind == BLOCK_TYPE_THINKING) {
         OXA_ASSIGN_OR_RETURN(std::string thinking, require_string(v, "thinking", "thinking block"));
@@ -929,6 +1045,12 @@ json::Value dump_event(const Event& e) {
         } else if (const auto* custom = std::get_if<CustomToolInputDelta>(&cbd->delta)) {
             d.set("type", json::Value::string(std::string(DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA)));
             d.set("text", json::Value::string(custom->text));
+        } else if (const auto* cite = std::get_if<CitationDelta>(&cbd->delta)) {
+            d.set("type", json::Value::string(std::string(DELTA_TYPE_CITATION_DELTA)));
+            json::Value cw = json::Value::object();
+            cw.set("source", json::Value::string(cite->citation.source));
+            cw.set("value", json::Value::string(cite->citation.value));
+            d.set("citation", std::move(cw));
         } else {
             const auto& signature = std::get<SignatureDelta>(cbd->delta);
             d.set("type", json::Value::string(std::string(DELTA_TYPE_SIGNATURE_DELTA)));
@@ -991,6 +1113,16 @@ StatusOr<Event> load_event(const json::Value& v) {
         } else if (dkind == DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA) {
             OXA_ASSIGN_OR_RETURN(std::string text, require_string(d, "text", "custom_tool_input_delta"));
             delta = CustomToolInputDelta{std::move(text)};
+        } else if (dkind == DELTA_TYPE_CITATION_DELTA) {
+            OXA_ASSIGN_OR_RETURN(auto cite_val, require_object(d, "citation", "citation_delta"));
+            const json::Value& c = cite_val.get();
+            OXA_ASSIGN_OR_RETURN(std::string source, require_string(c, "source", "citation"));
+            if (source != "anthropic") {
+                return invalid_argument("ir: unknown citation source \"" + source + "\"");
+            }
+            OXA_ASSIGN_OR_RETURN(std::string value, require_string(c, "value", "citation"));
+            OXA_RETURN_IF_ERROR(validate_citation_value(value));
+            delta = CitationDelta{TextCitation{std::move(source), std::move(value)}};
         } else {
             return invalid_argument("unknown delta discriminant: " + dkind);
         }
@@ -1133,6 +1265,11 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                 open_is_thinking = true;
                 open_is_atomic = false;
                 signature_seen = false;
+            } else if (std::holds_alternative<RedactedThinkingBlock>(cbs->block)) {
+                open_is_tool = false;
+                open_is_custom_tool = false;
+                open_is_thinking = false;
+                open_is_atomic = true;
             } else if (const auto* tu = std::get_if<ToolUseBlock>(&cbs->block)) {
                 open_is_tool = true; open_is_custom_tool = false; open_is_thinking = false; open_is_atomic = false;
                 tool = OpenTool{tu->input, "", 0, false};
@@ -1194,7 +1331,10 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                         ": delta type does not match the open thinking block kind");
                 }
             } else {
-                if (!std::holds_alternative<TextDelta>(cbd->delta)) {
+                if (std::holds_alternative<TextDelta>(cbd->delta) ||
+                    std::holds_alternative<CitationDelta>(cbd->delta)) {
+                    // ok on text blocks
+                } else {
                     return invalid_argument(
                         "event " + std::to_string(i) +
                         ": delta type input_json_delta does not match the open block kind");

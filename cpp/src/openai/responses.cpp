@@ -1479,7 +1479,20 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "IR ir.DocumentBlock cannot be rendered in a Responses user message item"));
                     normal.push_back(&b);
+                } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
+                    normal.push_back(&b);
                 } else {
+                    if (const auto* utb = std::get_if<ir::TextBlock>(&b);
+                        utb && utb->citations.has_value() && !utb->citations->empty()) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                    }
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);
                 }
@@ -1592,6 +1605,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     a_txt += tb->text;
                     has_text = true;
+                    if (tb->citations.has_value() && !tb->citations->empty()) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                    }
+                } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
                 } else if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&b)) {
                     json::Value item = json::Value::object();
                     item.set("type", json::Value::string("apply_patch_call"));
@@ -1897,6 +1921,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
             has_text = true;
+            if (tb->citations.has_value() && !tb->citations->empty()) {
+                losses.push_back(make_resp_loss(
+                    "content[" + std::to_string(i) + "].citations", "citations",
+                    ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+            }
+        } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
+            losses.push_back(make_resp_loss(
+                "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
         } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
             json::Value part = json::Value::object();
             part.set("type", json::Value::string("output_text"));
@@ -2990,6 +3024,15 @@ json::Value StreamEncoder::close_message_item() {
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_text_block(
     std::int64_t index, const ir::TextBlock& block) {
     std::vector<json::Value> out;
+    std::vector<ir::Loss> losses;
+    bool citation_loss_seen = false;
+    if (block.citations.has_value() && !block.citations->empty()) {
+        citation_loss_seen = true;
+        losses.push_back(make_resp_loss(
+            "events[" + std::to_string(index) + "].block.citations", "citations",
+            ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+    }
     if (active_item_.has_value()) {
         if (active_item_->kind == OutputItemKind::Reasoning) {
             out.push_back(close_reasoning_item());
@@ -3015,6 +3058,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     eb.kind = OutputItemKind::Message;
     eb.content_index = content_index;
     eb.text = block.text;
+    eb.citation_loss_seen = citation_loss_seen;
     active_block_ = std::move(eb);
 
     json::Value added_part = json::Value::object();
@@ -3025,7 +3069,7 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     added_part.set("part", std::move(part));
     out.push_back(std::move(added_part));
 
-    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+    return std::make_pair(std::move(out), std::move(losses));
 }
 
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_thinking_block(
@@ -3066,6 +3110,23 @@ StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncod
     part_added.set("part", std::move(part));
     out.push_back(std::move(part_added));
     return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+// Encrypted thinking replay state has no Responses output item: the block is
+// tracked only to keep the event grammar, and the whole block is dropped with
+// a single unsupported-semantic loss.
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_redacted_block(
+    std::int64_t index) {
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::Redacted;
+    active_block_ = std::move(eb);
+    return std::make_pair(
+        std::vector<json::Value>{},
+        std::vector<ir::Loss>{make_resp_loss(
+            "events[" + std::to_string(index) + "].block", "type",
+            ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "anthropic encrypted thinking replay state; the target face cannot preserve this block")});
 }
 
 StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_function_call_block(
@@ -3513,6 +3574,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_redacted_block(cbs->index));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
         if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
             OXA_ASSIGN_OR_RETURN(auto res, start_thinking_block(cbs->index, *thinking));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
@@ -3543,18 +3608,32 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (active_block_->kind == OutputItemKind::ApplyPatchCall || active_block_->kind == OutputItemKind::ApplyPatchResult) {
             return invalid_argument("responses: apply patch item does not accept deltas");
         }
+        if (active_block_->kind == OutputItemKind::Redacted) {
+            return invalid_argument("responses: RedactedThinkingBlock received unexpected delta");
+        }
         if (active_block_->kind == OutputItemKind::Message) {
-            const auto* td = std::get_if<ir::TextDelta>(&cbd->delta);
-            if (!td) return invalid_argument("responses: TextBlock received non-text delta");
-            active_block_->text += td->text;
+            if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
+                active_block_->text += td->text;
 
-            json::Value chunk = json::Value::object();
-            chunk.set("type", json::Value::string("response.output_text.delta"));
-            chunk.set("item_id", json::Value::string(active_item_->id));
-            chunk.set("output_index", json::Value::integer(active_item_->output_index));
-            chunk.set("content_index", json::Value::integer(active_block_->content_index));
-            chunk.set("delta", json::Value::string(td->text));
-            return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+                json::Value chunk = json::Value::object();
+                chunk.set("type", json::Value::string("response.output_text.delta"));
+                chunk.set("item_id", json::Value::string(active_item_->id));
+                chunk.set("output_index", json::Value::integer(active_item_->output_index));
+                chunk.set("content_index", json::Value::integer(active_block_->content_index));
+                chunk.set("delta", json::Value::string(td->text));
+                return Conversion<std::vector<json::Value>>{{std::move(chunk)}, {}};
+            }
+            if (std::holds_alternative<ir::CitationDelta>(cbd->delta)) {
+                if (!active_block_->citation_loss_seen) {
+                    active_block_->citation_loss_seen = true;
+                    return Conversion<std::vector<json::Value>>{{}, {make_resp_loss(
+                        "events[" + std::to_string(cbd->index) + "].delta.citation", "citations",
+                        ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata")}};
+                }
+                return Conversion<std::vector<json::Value>>{{}, {}};
+            }
+            return invalid_argument("responses: TextBlock received non-text delta");
         }
         if (active_block_->kind == OutputItemKind::Reasoning) {
             if (const auto* thinking = std::get_if<ir::ThinkingDelta>(&cbd->delta)) {
@@ -3605,6 +3684,10 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     if (const auto* cbs = std::get_if<ir::ContentBlockStop>(&event)) {
         if (!active_block_.has_value() || cbs->index != active_block_->index) {
             return invalid_argument("responses: ContentBlockStop out of grammar order");
+        }
+        if (active_block_->kind == OutputItemKind::Redacted) {
+            active_block_ = std::nullopt;
+            return Conversion<std::vector<json::Value>>{{}, {}};
         }
         if (active_block_->kind == OutputItemKind::Message) {
             OXA_ASSIGN_OR_RETURN(auto res, stop_text_block());

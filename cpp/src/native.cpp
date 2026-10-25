@@ -45,8 +45,22 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                     return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
                 }
                 std::string s = parsed->is_string() ? parsed->as_string() : "";
-                if (s != "adaptive" && s != "enabled" && s != "disabled") {
+                if (s != "adaptive" && s != "enabled" && s != "disabled" && s != "between_tools") {
                     return invalid_argument("invalid thinking_mode \"" + s + "\"");
+                }
+            } else if (ann.kind == NATIVE_KIND_TOP_K) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_int() || parsed->as_int() < 0 || parsed->as_int() > 9007199254740991LL) {
+                    return invalid_argument("invalid top_k " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": anthropic " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_bool()) {
+                    return invalid_argument("invalid disable_parallel_tool_use " + ann.value);
                 }
             } else if (ann.kind == NATIVE_KIND_THINKING_BUDGET) {
                 if (host != HostType::Request) {
@@ -193,6 +207,9 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ThinkingBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
+    Status operator()(const RedactedThinkingBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ImageBlock& b) const {
@@ -443,7 +460,9 @@ void append_omission_loss(std::vector<Loss>& losses,
     }
 
     if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
-        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT ||
+        ann.kind == NATIVE_KIND_TOP_K ||
+        ann.kind == NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
         if (ann.omission.has_value()) {
             losses.push_back(Loss{
                 std::string(path),
@@ -492,6 +511,10 @@ struct BlockOmissionCollector {
         // N-AN-16: a document block crossing to a face without document
         // support is dropped as one whole-block loss; its annotations are
         // part of it and are not reported a second time.
+    }
+    void operator()(const RedactedThinkingBlock& /*b*/) const {
+        // Whole-block drop; annotations are part of it and are not reported
+        // a second time.
     }
     void operator()(const ToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {

@@ -106,7 +106,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 9);
+        CHECK(r->executed == 13);
         std::printf("test_stream (anthropic): all %zu vectors passed\n", r->executed);
     }
 

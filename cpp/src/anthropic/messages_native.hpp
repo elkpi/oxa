@@ -346,7 +346,7 @@ inline std::optional<bool> get_tool_eager_input_streaming(
     return std::nullopt;
 }
 
-inline void decode_request_native(
+inline Status decode_request_native(
     const json::Value& wire,
     ir::Request& req,
     std::vector<ir::Loss>& losses) {
@@ -354,7 +354,20 @@ inline void decode_request_native(
     if (const auto* thinking = wire.find("thinking"); thinking != nullptr && thinking->is_object()) {
         const auto* type_val = thinking->find("type");
         std::string kind = (type_val != nullptr && type_val->is_string()) ? type_val->as_string() : "";
-        if (kind == "adaptive" || kind == "disabled") {
+        if (kind == "between_tools") {
+            const auto* budget_check = thinking->find("budget_tokens");
+            const auto* display_check = thinking->find("display");
+            if (budget_check != nullptr || display_check != nullptr) {
+                return invalid_argument("anthropic: cannot specify budget_tokens or display with thinking.type between_tools");
+            }
+            req.native.push_back(ir::NativeAnnotation{
+                std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+                std::string(ir::NATIVE_KIND_THINKING_MODE),
+                "\"between_tools\"",
+                ir::NativeOmission{"type", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+                std::nullopt,
+            });
+        } else if (kind == "adaptive" || kind == "disabled") {
             req.native.push_back(ir::NativeAnnotation{
                 std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                 std::string(ir::NATIVE_KIND_THINKING_MODE),
@@ -487,9 +500,25 @@ inline void decode_request_native(
             });
         }
     }
+
+    // 5. TopK
+    if (const auto* tk = wire.find("top_k"); tk != nullptr) {
+        if (!tk->is_int() || tk->as_int() < 0 || tk->as_int() > 9007199254740991LL) {
+            return invalid_argument("anthropic: top_k must be a non-negative safe integer");
+        }
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_ANTHROPIC),
+            std::string(ir::NATIVE_KIND_TOP_K),
+            std::to_string(tk->as_int()),
+            ir::NativeOmission{"top_k", std::string(ir::LOSS_UNMAPPED_FIELD), std::nullopt},
+            std::nullopt,
+        });
+    }
+
+    return ok_status();
 }
 
-inline void encode_request_native(
+inline Status encode_request_native(
     const ir::Request& req,
     json::Value& wire,
     std::vector<ir::Loss>& losses) {
@@ -586,6 +615,20 @@ inline void encode_request_native(
             if (parsed.ok()) {
                 wire.set("context_management", std::move(*parsed));
             }
+        } else if (n.kind == ir::NATIVE_KIND_TOP_K) {
+            auto parsed = json::parse(n.value);
+            if (parsed.ok() && parsed->is_int()) {
+                wire.set("top_k", json::Value::integer(parsed->as_int()));
+            }
+        } else if (n.kind == ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE) {
+            auto parsed = json::parse(n.value);
+            if (parsed.ok() && parsed->is_bool()) {
+                json::Value* tc = wire.find("tool_choice");
+                if (tc == nullptr || !tc->is_object()) {
+                    return invalid_argument("anthropic: disable_parallel_tool_use requires tool_choice");
+                }
+                tc->set("disable_parallel_tool_use", json::Value::boolean(parsed->as_bool()));
+            }
         } else {
             losses.push_back(ir::Loss{
                 "native[" + std::to_string(i) + "]",
@@ -599,7 +642,16 @@ inline void encode_request_native(
     std::optional<std::string> current_effort = req.params.has_value() ? req.params->reasoning_effort : std::nullopt;
 
     if (native_mode.has_value() || native_effort.has_value() || current_effort.has_value()) {
-        if (native_mode == "disabled") {
+        if (native_mode == "between_tools") {
+            auto th = json::Value::object();
+            th.set("type", json::Value::string("between_tools"));
+            wire.set("thinking", std::move(th));
+            if (current_effort.has_value()) {
+                auto oc = json::Value::object();
+                oc.set("effort", json::Value::string(*current_effort));
+                wire.set("output_config", std::move(oc));
+            }
+        } else if (native_mode == "disabled") {
             auto th = json::Value::object();
             th.set("type", json::Value::string("disabled"));
             wire.set("thinking", std::move(th));
@@ -726,6 +778,8 @@ inline void encode_request_native(
             }
         }
     }
+
+    return ok_status();
 }
 
 }  // namespace oxa::anthropic::messages

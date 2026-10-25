@@ -74,7 +74,7 @@ install(FILES
 
 enable_testing()
 
-foreach(t test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools)
+foreach(t test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools test_fidelity_v2411)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE oxa oxa_vectest)
   add_test(NAME ${t} COMMAND ${t})

@@ -20,6 +20,8 @@ pub const NATIVE_KIND_STORE: &str = "store";
 pub const NATIVE_KIND_STREAM: &str = "stream";
 pub const NATIVE_KIND_STREAM_OPTIONS: &str = "stream_options";
 pub const NATIVE_KIND_MAX_COMPLETION_TOKENS: &str = "max_completion_tokens";
+pub const NATIVE_KIND_TOP_K: &str = "top_k";
+pub const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE: &str = "disable_parallel_tool_use";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 pub const NATIVE_SOURCE_OPENAI: &str = "openai";
 
@@ -204,8 +206,35 @@ fn validate_annotations(
                         )));
                     }
                     let s = parsed_json.as_str().unwrap_or_default();
-                    if s != "adaptive" && s != "enabled" && s != "disabled" {
+                    if s != "adaptive" && s != "enabled" && s != "disabled" && s != "between_tools"
+                    {
                         return Err(Error::Custom(format!("invalid thinking_mode {s:?}")));
+                    }
+                }
+                NATIVE_KIND_TOP_K => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    let n = parsed_json.as_i64();
+                    if n.is_none() || n.unwrap() < 0 || n.unwrap() > 9007199254740991 {
+                        return Err(Error::Custom(format!("invalid top_k {:?}", parsed_json)));
+                    }
+                }
+                NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: anthropic {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if parsed_json.as_bool().is_none() {
+                        return Err(Error::Custom(format!(
+                            "invalid disable_parallel_tool_use {:?}",
+                            parsed_json
+                        )));
                     }
                 }
                 NATIVE_KIND_THINKING_BUDGET => {
@@ -441,6 +470,7 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
     match blk {
         Block::Text { native, .. }
         | Block::Thinking { native, .. }
+        | Block::RedactedThinking { native, .. }
         | Block::Image { native, .. }
         | Block::Document { native, .. }
         | Block::ToolUse { native, .. }
@@ -550,10 +580,8 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),
-        Block::Document { .. } => {
-            // N-AN-16: a document block crossing to a face without document
-            // support is dropped as one whole-block loss; its annotations are
-            // part of it and are not reported a second time.
+        Block::Document { .. } | Block::RedactedThinking { .. } => {
+            // Whole-block drop; annotations are part of it and are not reported a second time.
             static EMPTY: Vec<NativeAnnotation> = Vec::new();
             (&EMPTY, None)
         }
@@ -835,7 +863,10 @@ fn append_omission_loss(
                 });
             }
         }
-        NATIVE_KIND_THINKING_DISPLAY | NATIVE_KIND_CONTEXT_MANAGEMENT => {
+        NATIVE_KIND_THINKING_DISPLAY
+        | NATIVE_KIND_CONTEXT_MANAGEMENT
+        | NATIVE_KIND_TOP_K
+        | NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
             if let Some(ref om) = ann.omission {
                 losses.push(Loss {
                     path: path.into(),

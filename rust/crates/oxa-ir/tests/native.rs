@@ -25,6 +25,7 @@ fn test_native_portable_round_trip() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "Hello".into(),
+                citations: None,
                 native: vec![NativeAnnotation {
                     source: "anthropic".into(),
                     kind: "cache_control".into(),
@@ -92,6 +93,7 @@ fn test_validate_native_request() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![],
             }],
         }],
@@ -131,6 +133,7 @@ fn test_cache_control_omission_loss_detail() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![NativeAnnotation {
                     source: "anthropic".into(),
                     kind: "cache_control".into(),
@@ -164,6 +167,7 @@ fn test_cache_control_omission_loss_detail() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![NativeAnnotation {
                     source: "anthropic".into(),
                     kind: "cache_control".into(),
@@ -193,6 +197,7 @@ fn test_cache_control_omission_loss_detail() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![NativeAnnotation {
                     source: "anthropic".into(),
                     kind: "cache_control".into(),
@@ -269,6 +274,7 @@ fn test_validate_native_request_new_kinds() {
             role: oxa_ir::Role::User,
             content: vec![Block::Text {
                 text: "hi".into(),
+                citations: None,
                 native: vec![],
             }],
         }],

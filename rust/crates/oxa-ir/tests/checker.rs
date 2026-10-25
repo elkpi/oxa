@@ -13,6 +13,7 @@ fn text_block_start(index: i64, text: &str) -> Event {
         index,
         block: Block::Text {
             text: text.to_string(),
+            citations: None,
             native: Vec::new(),
         },
     }

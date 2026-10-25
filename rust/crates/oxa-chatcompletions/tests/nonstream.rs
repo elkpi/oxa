@@ -184,6 +184,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
                 role: Role::User,
                 content: vec![Block::Text {
                     text: "question".to_string(),
+                    citations: None,
                     native: Vec::new(),
                 }],
             },
@@ -197,6 +198,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
                     },
                     Block::Text {
                         text: "answer".to_string(),
+                        citations: None,
                         native: Vec::new(),
                     },
                 ],
@@ -661,6 +663,7 @@ fn test_custom_tool_result_array_preserved() {
                 role: oxa_ir::Role::User,
                 content: vec![Block::Text {
                     text: "hi".to_string(),
+                    citations: None,
                     native: Vec::new(),
                 }],
             },
@@ -680,10 +683,12 @@ fn test_custom_tool_result_array_preserved() {
                     output: oxa_ir::CustomToolOutput::Content(vec![
                         Block::Text {
                             text: "line 1".to_string(),
+                            citations: None,
                             native: Vec::new(),
                         },
                         Block::Text {
                             text: "line 2".to_string(),
+                            citations: None,
                             native: Vec::new(),
                         },
                     ]),

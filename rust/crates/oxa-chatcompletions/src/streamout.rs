@@ -16,6 +16,7 @@ use crate::types::{
 enum StreamBlockKind {
     Text,
     Thinking,
+    Redacted,
     Tool,
     CustomTool,
     Custom,
@@ -32,6 +33,7 @@ struct StreamEncodeBlock {
     native_index: usize,
     tool_started: bool,
     signature_seen: bool,
+    citation_loss_seen: bool,
 }
 
 /// Incrementally converts an IR event stream into Chat Completions chunks.
@@ -109,9 +111,22 @@ impl StreamEncoder {
                 }
                 self.next_ir_index += 1;
                 match block {
-                    Block::Text { .. } => {
+                    Block::Text { citations, .. } => {
                         if self.tool_seen {
                             self.ordering_degrade = true;
+                        }
+                        let mut start_losses = Vec::new();
+                        let mut citation_loss_seen = false;
+                        if let Some(cites) = citations
+                            && !cites.is_empty()
+                        {
+                            citation_loss_seen = true;
+                            start_losses.push(loss(
+                                format!("events[{index}].block.citations"),
+                                "citations",
+                                LossReason::UnsupportedSemantic,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                            ));
                         }
                         self.active = Some(StreamEncodeBlock {
                             kind: StreamBlockKind::Text,
@@ -123,8 +138,30 @@ impl StreamEncoder {
                             native_index: 0,
                             tool_started: false,
                             signature_seen: false,
+                            citation_loss_seen,
                         });
-                        Ok((Vec::new(), Vec::new()))
+                        Ok((Vec::new(), start_losses))
+                    }
+                    Block::RedactedThinking { .. } => {
+                        self.active = Some(StreamEncodeBlock {
+                            kind: StreamBlockKind::Redacted,
+                            index: *index,
+                            tool_id: String::new(),
+                            tool_name: String::new(),
+                            tool_input: String::new(),
+                            fragments: Vec::new(),
+                            native_index: 0,
+                            tool_started: false,
+                            signature_seen: false,
+                            citation_loss_seen: false,
+                        });
+                        let l = loss(
+                            format!("events[{index}].block"),
+                            "type",
+                            LossReason::UnsupportedSemantic,
+                            "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                        );
+                        Ok((Vec::new(), vec![l]))
                     }
                     Block::Thinking { signature, .. } => {
                         self.active = Some(StreamEncodeBlock {
@@ -137,6 +174,7 @@ impl StreamEncoder {
                             native_index: 0,
                             tool_started: false,
                             signature_seen: false,
+                            citation_loss_seen: false,
                         });
                         let losses = signature
                             .as_ref()
@@ -172,6 +210,7 @@ impl StreamEncoder {
                             native_index,
                             tool_started: false,
                             signature_seen: false,
+                            citation_loss_seen: false,
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
@@ -196,6 +235,7 @@ impl StreamEncoder {
                             native_index,
                             tool_started: false,
                             signature_seen: false,
+                            citation_loss_seen: false,
                         });
                         Ok((Vec::new(), Vec::new()))
                     }
@@ -210,6 +250,7 @@ impl StreamEncoder {
                             native_index: 0,
                             tool_started: false,
                             signature_seen: false,
+                            citation_loss_seen: false,
                         });
                         self.custom_seen = true;
                         let loss_detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
@@ -247,6 +288,9 @@ impl StreamEncoder {
                     StreamBlockKind::Atomic => Err(Error::new(
                         "chatcompletions: atomic block does not accept deltas",
                     )),
+                    StreamBlockKind::Redacted => Err(Error::new(
+                        "chatcompletions: RedactedThinkingBlock received unexpected delta",
+                    )),
                     StreamBlockKind::Custom => Err(Error::new(
                         "chatcompletions: custom block does not accept deltas",
                     )),
@@ -262,20 +306,32 @@ impl StreamEncoder {
                         self.pending_tools.push(chunk);
                         Ok((Vec::new(), Vec::new()))
                     }
-                    StreamBlockKind::Text => {
-                        let Delta::TextDelta { text } = delta else {
-                            return Err(Error::new(
-                                "chatcompletions: TextBlock received non-text delta",
-                            ));
-                        };
-                        Ok((
+                    StreamBlockKind::Text => match delta {
+                        Delta::TextDelta { text } => Ok((
                             vec![self.chunk(DeltaPayload {
                                 content: Some(text.clone()),
                                 ..Default::default()
                             })],
                             Vec::new(),
-                        ))
-                    }
+                        )),
+                        Delta::CitationDelta { .. } => {
+                            if !active.citation_loss_seen {
+                                active.citation_loss_seen = true;
+                                let l = loss(
+                                    format!("events[{index}].delta.citation"),
+                                    "citations",
+                                    LossReason::UnsupportedSemantic,
+                                    "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                                );
+                                Ok((Vec::new(), vec![l]))
+                            } else {
+                                Ok((Vec::new(), Vec::new()))
+                            }
+                        }
+                        _ => Err(Error::new(
+                            "chatcompletions: TextBlock received non-text delta",
+                        )),
+                    },
                     StreamBlockKind::Thinking => match delta {
                         Delta::ThinkingDelta { text } => {
                             if active.signature_seen {
@@ -337,7 +393,9 @@ impl StreamEncoder {
                         "chatcompletions: ContentBlockStop out of grammar order",
                     ));
                 }
-                if active.kind == StreamBlockKind::Custom || active.kind == StreamBlockKind::Atomic
+                if active.kind == StreamBlockKind::Custom
+                    || active.kind == StreamBlockKind::Atomic
+                    || active.kind == StreamBlockKind::Redacted
                 {
                     return Ok((Vec::new(), Vec::new()));
                 }

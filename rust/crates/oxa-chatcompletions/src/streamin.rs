@@ -158,6 +158,7 @@ impl StreamDecoder {
                     index: self.text_index,
                     block: Block::Text {
                         text: String::new(),
+                        citations: None,
                         native: Vec::new(),
                     },
                 });

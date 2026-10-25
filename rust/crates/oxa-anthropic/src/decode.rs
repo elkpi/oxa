@@ -200,6 +200,21 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         decode_tool_choice(wire.tool_choice.as_ref(), &custom_tools, &native_tools)?;
     req.tool_choice = choice;
     losses.extend(choice_losses);
+    if let Some(ref tc) = wire.tool_choice
+        && let Some(dpu) = tc.disable_parallel_tool_use
+    {
+        req.native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
+            kind: oxa_ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE.into(),
+            value: if dpu { "true".into() } else { "false".into() },
+            omission: Some(oxa_ir::NativeOmission {
+                field: "disable_parallel_tool_use".into(),
+                reason: LossReason::UnmappedField,
+                detail: None,
+            }),
+            projection: None,
+        });
+    }
 
     let (system, system_losses) = decode_system(wire.system.as_ref())?;
     losses.extend(system_losses);
@@ -307,6 +322,21 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 )));
             }
         };
+        if role == oxa_ir::Role::User
+            && let Some(crate::types::ContentValue::Blocks(blocks)) = &message.content
+        {
+            for (j, b) in blocks.iter().enumerate() {
+                if b.kind == crate::types::BLOCK_TYPE_TEXT
+                    && b.citations.as_ref().is_some_and(|c| {
+                        !c.is_null() && c.as_array().is_some_and(|a| !a.is_empty())
+                    })
+                {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}].citations: citations are not permitted on user text blocks"
+                    )));
+                }
+            }
+        }
         let (blocks, block_losses) = decode_content(
             message.content.as_ref(),
             &format!("messages[{index}].content"),
@@ -338,7 +368,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         response_format: None,
     };
     req.params = Some(params);
-    let nat_losses = crate::native::decode_request_native(wire, &mut req);
+    let nat_losses = crate::native::decode_request_native(wire, &mut req)?;
     losses.extend(nat_losses);
     Ok((req, losses))
 }

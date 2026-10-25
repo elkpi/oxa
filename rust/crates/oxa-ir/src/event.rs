@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::request::Block;
+use crate::request::{Block, TextCitation};
 use crate::response::{StopReason, Usage};
 
 /// One streaming event (spec/01 §5.1). Sealed; exactly six variants in v1,
@@ -84,6 +84,11 @@ pub enum Delta {
     SignatureDelta {
         #[serde(rename = "signature")]
         signature: String,
+    },
+    #[serde(rename = "citation_delta")]
+    CitationDelta {
+        #[serde(rename = "citation")]
+        citation: TextCitation,
     },
 }
 

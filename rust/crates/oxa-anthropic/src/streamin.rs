@@ -9,10 +9,11 @@ use crate::decode::decode_stop_reason;
 use crate::error::Error;
 use crate::normalize::loss;
 use crate::types::{
-    BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE, DELTA_TYPE_INPUT_JSON_DELTA,
-    DELTA_TYPE_SIGNATURE_DELTA, DELTA_TYPE_TEXT_DELTA, DELTA_TYPE_THINKING_DELTA,
-    EVENT_TYPE_CONTENT_BLOCK_DELTA, EVENT_TYPE_CONTENT_BLOCK_START, EVENT_TYPE_CONTENT_BLOCK_STOP,
-    EVENT_TYPE_MESSAGE_DELTA, EVENT_TYPE_MESSAGE_START, EVENT_TYPE_MESSAGE_STOP, StreamEvent,
+    BLOCK_TYPE_REDACTED_THINKING, BLOCK_TYPE_TEXT, BLOCK_TYPE_THINKING, BLOCK_TYPE_TOOL_USE,
+    DELTA_TYPE_CITATIONS, DELTA_TYPE_INPUT_JSON_DELTA, DELTA_TYPE_SIGNATURE_DELTA,
+    DELTA_TYPE_TEXT_DELTA, DELTA_TYPE_THINKING_DELTA, EVENT_TYPE_CONTENT_BLOCK_DELTA,
+    EVENT_TYPE_CONTENT_BLOCK_START, EVENT_TYPE_CONTENT_BLOCK_STOP, EVENT_TYPE_MESSAGE_DELTA,
+    EVENT_TYPE_MESSAGE_START, EVENT_TYPE_MESSAGE_STOP, StreamEvent,
 };
 
 /// Incrementally converts an Anthropic Messages event stream into IR events.
@@ -27,6 +28,7 @@ pub struct StreamDecoder {
     block_open: bool,
     open_tool: bool,
     open_thinking: bool,
+    open_redacted: bool,
     thinking_signature_seen: bool,
     tool_id: String,
     tool_name: String,
@@ -70,6 +72,7 @@ impl StreamDecoder {
             block_open: false,
             open_tool: false,
             open_thinking: false,
+            open_redacted: false,
             thinking_signature_seen: false,
             tool_id: String::new(),
             tool_name: String::new(),
@@ -187,6 +190,24 @@ impl StreamDecoder {
                         },
                     }]);
                 }
+                if block.kind == BLOCK_TYPE_REDACTED_THINKING {
+                    let data = block.data.as_deref().unwrap_or_default();
+                    self.next_index += 1;
+                    self.block_open = true;
+                    self.open_tool = false;
+                    self.open_thinking = false;
+                    self.open_redacted = true;
+                    self.open_index = index;
+                    self.open_ir_index = self.next_ir_index;
+                    self.next_ir_index += 1;
+                    return Ok(vec![Event::ContentBlockStart {
+                        index: self.open_ir_index,
+                        block: Block::RedactedThinking {
+                            data: data.to_string(),
+                            native: Vec::new(),
+                        },
+                    }]);
+                }
                 if block.kind != BLOCK_TYPE_TEXT {
                     self.next_index += 1;
                     self.skipped.insert(index);
@@ -206,6 +227,7 @@ impl StreamDecoder {
                 self.block_open = true;
                 self.open_tool = false;
                 self.open_thinking = false;
+                self.open_redacted = false;
                 self.open_index = index;
                 self.open_ir_index = self.next_ir_index;
                 self.next_ir_index += 1;
@@ -213,6 +235,7 @@ impl StreamDecoder {
                     index: self.open_ir_index,
                     block: Block::Text {
                         text: block.text.clone(),
+                        citations: None,
                         native: Vec::new(),
                     },
                 }])
@@ -235,6 +258,11 @@ impl StreamDecoder {
                         "anthropic: content_block_delta index {} does not match the open block",
                         index
                     )));
+                }
+                if self.open_redacted {
+                    return Err(Error::new(
+                        "anthropic: content_block_delta on redacted_thinking block",
+                    ));
                 }
                 if self.open_tool {
                     match delta.kind.as_str() {
@@ -298,6 +326,30 @@ impl StreamDecoder {
                             text: delta.text.clone(),
                         },
                     }]),
+                    DELTA_TYPE_CITATIONS => {
+                        let Some(ref raw_cite) = delta.citation else {
+                            return Err(Error::new("anthropic: citations_delta without citation"));
+                        };
+                        let cite_arr = serde_json::Value::Array(vec![raw_cite.clone()]);
+                        let (cites, cite_losses) = crate::normalize::decode_text_citations(
+                            Some(&cite_arr),
+                            &format!("content_block_delta[{index}].delta.citation"),
+                            false,
+                        )?;
+                        self.losses.extend(cite_losses);
+                        if let Some(cites) = cites
+                            && !cites.is_empty()
+                        {
+                            Ok(vec![Event::ContentBlockDelta {
+                                index: self.open_ir_index,
+                                delta: Delta::CitationDelta {
+                                    citation: cites.into_iter().next().unwrap(),
+                                },
+                            }])
+                        } else {
+                            Ok(Vec::new())
+                        }
+                    }
                     DELTA_TYPE_INPUT_JSON_DELTA => {
                         Err(Error::new("anthropic: input_json_delta on non-tool block"))
                     }
@@ -331,6 +383,13 @@ impl StreamDecoder {
                         "anthropic: content_block_stop index {} does not match the open block",
                         index
                     )));
+                }
+                if self.open_redacted {
+                    self.block_open = false;
+                    self.open_redacted = false;
+                    return Ok(vec![Event::ContentBlockStop {
+                        index: self.open_ir_index,
+                    }]);
                 }
                 if self.open_tool {
                     let full_input = if !self.tool_parts.is_empty() {

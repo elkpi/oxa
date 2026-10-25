@@ -61,6 +61,15 @@ pub struct Message {
     pub content: Vec<Block>,
 }
 
+/// A citation reference attached to a TextBlock (since 2.4.11).
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TextCitation {
+    #[serde(rename = "source")]
+    pub source: String,
+    #[serde(rename = "value")]
+    pub value: String,
+}
+
 /// A content block (spec/01 §3.4). Sealed; includes the Spec 2.0 thinking variant.
 /// `ToolUseBlock::input` is opaque raw JSON text (INV-1): it is a plain
 /// string and is never parsed or re-serialized by any conversion path.
@@ -71,6 +80,8 @@ pub enum Block {
     Text {
         #[serde(rename = "text")]
         text: String,
+        #[serde(rename = "citations", default, skip_serializing_if = "Option::is_none")]
+        citations: Option<Vec<TextCitation>>,
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
@@ -80,6 +91,13 @@ pub enum Block {
         thinking: String,
         #[serde(rename = "signature", default, skip_serializing_if = "Option::is_none")]
         signature: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
+    #[serde(rename = "redacted_thinking")]
+    RedactedThinking {
+        #[serde(rename = "data")]
+        data: String,
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
@@ -186,6 +204,7 @@ impl Block {
         match self {
             Block::Text { native, .. }
             | Block::Thinking { native, .. }
+            | Block::RedactedThinking { native, .. }
             | Block::Image { native, .. }
             | Block::Document { native, .. }
             | Block::ToolUse { native, .. }

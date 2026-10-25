@@ -23,6 +23,7 @@ fn raw_request_ignores_union_irrelevant_fields_and_reports_unmapped() {
         request.messages[0].content,
         vec![oxa_ir::Block::Text {
             text: "hi".to_string(),
+            citations: None,
             native: Vec::new(),
         }]
     );

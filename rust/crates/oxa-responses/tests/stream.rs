@@ -385,6 +385,7 @@ fn stream_decoder_opens_text_parts_under_reasoning_items() {
         block,
         Some(Block::Text {
             text: String::new(),
+            citations: None,
             native: Vec::new(),
         }),
         "message parts under a reasoning item open a text block like the Go reference"
@@ -497,6 +498,7 @@ fn stream_decoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             },
         },
@@ -773,6 +775,7 @@ fn stream_encoder_merges_consecutive_thinking_blocks_into_one_reasoning_item() {
             index: 2,
             block: Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             },
         })
@@ -844,6 +847,7 @@ fn stream_encoder_maps_reasoning_summary_and_signature_loss() {
             index: 1,
             block: Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             },
         })
@@ -913,6 +917,7 @@ fn stream_encoder_happy_path() {
             index: 0,
             block: Block::Text {
                 text: String::new(),
+                citations: None,
                 native: Vec::new(),
             },
         })

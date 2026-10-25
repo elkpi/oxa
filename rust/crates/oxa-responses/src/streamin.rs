@@ -338,6 +338,7 @@ impl StreamDecoder {
                     index: self.block_index,
                     block: Block::Text {
                         text: part.text.clone(),
+                        citations: None,
                         native: Vec::new(),
                     },
                 }])

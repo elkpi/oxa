@@ -23,6 +23,7 @@ fn text_block_start(index: i64) -> Event {
         index,
         block: Block::Text {
             text: String::new(),
+            citations: None,
             native: Vec::new(),
         },
     }

@@ -316,12 +316,33 @@ fn parse_context_management(cm: &ContextManagementWire, path: &str) -> (Option<S
     (Some(Value::Object(map).to_string()), losses)
 }
 
-pub fn decode_request_native(wire: &Request, req: &mut IrRequest) -> Vec<Loss> {
+pub fn decode_request_native(
+    wire: &Request,
+    req: &mut IrRequest,
+) -> Result<Vec<Loss>, crate::Error> {
     let mut losses = Vec::new();
 
     // 1. Thinking
     if let Some(ref thinking) = wire.thinking {
         match thinking.kind.as_str() {
+            "between_tools" => {
+                if thinking.budget_tokens.is_some() || thinking.display.is_some() {
+                    return Err(crate::Error::new(
+                        "anthropic: cannot specify budget_tokens or display with thinking.type between_tools",
+                    ));
+                }
+                req.native.push(NativeAnnotation {
+                    source: NATIVE_SOURCE_ANTHROPIC.into(),
+                    kind: NATIVE_KIND_THINKING_MODE.into(),
+                    value: r#""between_tools""#.into(),
+                    omission: Some(NativeOmission {
+                        field: "type".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: None,
+                    }),
+                    projection: None,
+                });
+            }
             "adaptive" | "disabled" => {
                 req.native.push(NativeAnnotation {
                     source: NATIVE_SOURCE_ANTHROPIC.into(),
@@ -513,7 +534,27 @@ pub fn decode_request_native(wire: &Request, req: &mut IrRequest) -> Vec<Loss> {
         }
     }
 
-    losses
+    // 5. TopK
+    if let Some(top_k) = wire.top_k {
+        if !(0..=9007199254740991).contains(&top_k) {
+            return Err(crate::Error::new(
+                "anthropic: top_k must be a non-negative safe integer",
+            ));
+        }
+        req.native.push(NativeAnnotation {
+            source: NATIVE_SOURCE_ANTHROPIC.into(),
+            kind: oxa_ir::NATIVE_KIND_TOP_K.into(),
+            value: top_k.to_string(),
+            omission: Some(NativeOmission {
+                field: "top_k".into(),
+                reason: LossReason::UnmappedField,
+                detail: None,
+            }),
+            projection: None,
+        });
+    }
+
+    Ok(losses)
 }
 
 pub fn get_block_cache_control(native: &[NativeAnnotation]) -> Option<Value> {
@@ -546,7 +587,10 @@ pub fn get_tool_eager_input_streaming(native: &[NativeAnnotation]) -> Option<boo
     None
 }
 
-pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
+pub fn encode_request_native(
+    req: &IrRequest,
+    wire: &mut Request,
+) -> Result<Vec<Loss>, crate::Error> {
     let mut losses = Vec::new();
 
     let mut native_mode: Option<String> = None;
@@ -666,6 +710,20 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
             NATIVE_KIND_CONTEXT_MANAGEMENT => {
                 wire.context_management = serde_json::from_str(&n.value).ok();
             }
+            oxa_ir::NATIVE_KIND_TOP_K => {
+                wire.top_k = serde_json::from_str(&n.value).ok();
+            }
+            oxa_ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE => {
+                if let Ok(b) = serde_json::from_str::<bool>(&n.value) {
+                    if let Some(ref mut tc) = wire.tool_choice {
+                        tc.disable_parallel_tool_use = Some(b);
+                    } else {
+                        return Err(crate::Error::new(
+                            "anthropic: disable_parallel_tool_use requires tool_choice",
+                        ));
+                    }
+                }
+            }
             _ => {
                 losses.push(Loss {
                     path: format!("native[{i}]"),
@@ -680,7 +738,19 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
     let current_effort = req.params.as_ref().and_then(|p| p.reasoning_effort);
 
     if native_mode.is_some() || native_effort.is_some() || current_effort.is_some() {
-        if native_mode.as_deref() == Some("disabled") {
+        if native_mode.as_deref() == Some("between_tools") {
+            wire.thinking = Some(ThinkingWire {
+                kind: "between_tools".into(),
+                budget_tokens: None,
+                display: None,
+            });
+            if let Some(eff) = current_effort {
+                wire.output_config = Some(OutputConfigWire {
+                    effort: Some(eff.as_str().into()),
+                    format: None,
+                });
+            }
+        } else if native_mode.as_deref() == Some("disabled") {
             wire.thinking = Some(ThinkingWire {
                 kind: "disabled".into(),
                 budget_tokens: None,
@@ -890,5 +960,5 @@ pub fn encode_request_native(req: &IrRequest, wire: &mut Request) -> Vec<Loss> {
         }
     }
 
-    losses
+    Ok(losses)
 }

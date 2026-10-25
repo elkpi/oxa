@@ -17,6 +17,7 @@ pub const ROLE_SYSTEM: &str = "system";
 
 pub const BLOCK_TYPE_TEXT: &str = "text";
 pub const BLOCK_TYPE_THINKING: &str = "thinking";
+pub const BLOCK_TYPE_REDACTED_THINKING: &str = "redacted_thinking";
 pub const BLOCK_TYPE_IMAGE: &str = "image";
 pub const BLOCK_TYPE_TOOL_USE: &str = "tool_use";
 pub const BLOCK_TYPE_TOOL_RESULT: &str = "tool_result";
@@ -48,6 +49,7 @@ pub const DELTA_TYPE_TEXT_DELTA: &str = "text_delta";
 pub const DELTA_TYPE_INPUT_JSON_DELTA: &str = "input_json_delta";
 pub const DELTA_TYPE_THINKING_DELTA: &str = "thinking_delta";
 pub const DELTA_TYPE_SIGNATURE_DELTA: &str = "signature_delta";
+pub const DELTA_TYPE_CITATIONS: &str = "citations_delta";
 
 pub const TYPE_MESSAGE: &str = "message";
 
@@ -69,6 +71,8 @@ pub struct Request {
     pub temperature: Option<f64>,
     #[serde(rename = "top_p", skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f64>,
+    #[serde(rename = "top_k", skip_serializing_if = "Option::is_none")]
+    pub top_k: Option<i64>,
     #[serde(rename = "stop_sequences", skip_serializing_if = "Option::is_none")]
     pub stop_sequences: Option<Vec<String>>,
     #[serde(rename = "thinking", skip_serializing_if = "Option::is_none")]
@@ -281,8 +285,7 @@ impl Serialize for ToolWire {
     }
 }
 
-/// The wire tool_choice object. `disable_parallel_tool_use` has no IR
-/// equivalent and is dropped with an unmapped-field loss (N-AN-6).
+/// The wire tool_choice object. `disable_parallel_tool_use` is preserved as native annotation (N-AN-19).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ToolChoiceWire {
@@ -293,9 +296,9 @@ pub struct ToolChoiceWire {
     pub name: String,
     #[serde(
         rename = "disable_parallel_tool_use",
-        skip_serializing_if = "std::ops::Not::not"
+        skip_serializing_if = "Option::is_none"
     )]
-    pub disable_parallel_tool_use: bool,
+    pub disable_parallel_tool_use: Option<bool>,
 }
 
 /// A wire message. Content is either a string or an array of blocks.
@@ -412,6 +415,9 @@ pub struct BlockWire {
     pub thinking: Option<String>,
     #[serde(rename = "signature", skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    // redacted_thinking
+    #[serde(rename = "data", skip_serializing_if = "Option::is_none")]
+    pub data: Option<String>,
     #[serde(rename = "cache_control", skip_serializing_if = "Option::is_none")]
     pub cache_control: Option<Value>,
     // tool_use
@@ -461,6 +467,7 @@ impl PartialEq for BlockWire {
             && self.text == other.text
             && self.thinking == other.thinking
             && self.signature == other.signature
+            && self.data == other.data
             && self.cache_control == other.cache_control
             && self.id == other.id
             && self.name == other.name
@@ -639,6 +646,8 @@ pub struct StreamDelta {
     pub thinking: Option<String>,
     #[serde(rename = "signature", skip_serializing_if = "Option::is_none")]
     pub signature: Option<String>,
+    #[serde(rename = "citation", skip_serializing_if = "Option::is_none")]
+    pub citation: Option<Value>,
     #[serde(rename = "partial_json", skip_serializing_if = "Option::is_none")]
     pub partial_json: Option<String>,
     #[serde(rename = "stop_reason", skip_serializing_if = "Option::is_none")]

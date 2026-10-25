@@ -13,6 +13,7 @@ Role = Literal["user", "assistant"]
 # Block types (spec/01 §3.4)
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"
+BLOCK_TYPE_REDACTED_THINKING: Final = "redacted_thinking"
 BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
@@ -28,6 +29,7 @@ TOOL_TYPE_NATIVE: Final = "native"
 BlockType = Literal[
     "text",
     "thinking",
+    "redacted_thinking",
     "image",
     "tool_use",
     "tool_result",
@@ -91,7 +93,15 @@ DELTA_TYPE_INPUT_JSON_DELTA: Final = "input_json_delta"
 DELTA_TYPE_THINKING_DELTA: Final = "thinking_delta"
 DELTA_TYPE_SIGNATURE_DELTA: Final = "signature_delta"
 DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA: Final = "custom_tool_input_delta"
-DeltaType = Literal["text_delta", "input_json_delta", "thinking_delta", "signature_delta", "custom_tool_input_delta"]
+DELTA_TYPE_CITATION: Final = "citation_delta"
+DeltaType = Literal[
+    "text_delta",
+    "input_json_delta",
+    "thinking_delta",
+    "signature_delta",
+    "custom_tool_input_delta",
+    "citation_delta",
+]
 
 # Loss reasons (spec/02 §3)
 LOSS_UNMAPPED_FIELD: Final = "unmapped-field"
@@ -113,6 +123,7 @@ __all__ = [
     "Role",
     "BLOCK_TYPE_TEXT",
     "BLOCK_TYPE_THINKING",
+    "BLOCK_TYPE_REDACTED_THINKING",
     "BLOCK_TYPE_IMAGE",
     "BLOCK_TYPE_DOCUMENT",
     "BLOCK_TYPE_TOOL_USE",
@@ -148,6 +159,7 @@ __all__ = [
     "DELTA_TYPE_THINKING_DELTA",
     "DELTA_TYPE_SIGNATURE_DELTA",
     "DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA",
+    "DELTA_TYPE_CITATION",
     "DeltaType",
     "LOSS_UNMAPPED_FIELD",
     "LOSS_UNMAPPED_VALUE",

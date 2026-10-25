@@ -291,6 +291,12 @@ def decode_request(
         blocks, b_losses = decode_content(
             msg.get("content"), content_path, raw_text, custom_tools, custom_call_ids, declared_tools, is_request=True
         )
+        if role == ROLE_USER:
+            for b_idx, blk in enumerate(blocks):
+                if getattr(blk, "type", "") == "redacted_thinking":
+                    raise ValueError(f"anthropic: messages[{index}].content[{b_idx}]: redacted_thinking is not permitted in user messages")
+                if getattr(blk, "type", "") == "text" and getattr(blk, "citations", None):
+                    raise ValueError(f"anthropic: messages[{index}].content[{b_idx}].citations: citations are not permitted on user text blocks")
         losses.extend(b_losses)
         messages.append(IrMessage(role=role, content=blocks))
 

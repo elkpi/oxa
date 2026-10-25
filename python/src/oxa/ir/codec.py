@@ -14,6 +14,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
@@ -21,6 +22,7 @@ from oxa.ir.constants import (
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
     DELTA_TYPE_THINKING_DELTA,
+    DELTA_TYPE_CITATION,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -77,9 +79,12 @@ from oxa.ir.types import (
     ResponseFormatText,
     SignatureDelta,
     TextBlock,
+    TextCitation,
     TextDelta,
     ThinkingBlock,
     ThinkingDelta,
+    RedactedThinkingBlock,
+    CitationDelta,
     Tool,
     ToolChoice,
     ToolResultBlock,
@@ -205,11 +210,102 @@ def _load_usage(data: dict[str, Any]) -> Usage:
 # ---- Blocks ----------------------------------------------------------------
 
 
+def validate_citation_value(val: str) -> None:
+    if not val:
+        raise CodecError("ir: citation value cannot be empty")
+    try:
+        obj = json.loads(val)
+    except Exception as e:
+        raise CodecError(f"ir: citation value must be a JSON object: {e}") from e
+    if not isinstance(obj, dict):
+        raise CodecError("ir: citation value must be a JSON object")
+    cite_type = obj.get("type")
+    if not isinstance(cite_type, str):
+        raise CodecError("ir: citation value requires type field")
+    if cite_type == "char_location":
+        for k in obj:
+            if k not in ("type", "cited_text", "document_index", "document_title", "start_char_index", "end_char_index", "file_id"):
+                raise CodecError(f'ir: unknown property "{k}" on char_location citation')
+        if not isinstance(obj.get("cited_text"), str):
+            raise CodecError("ir: char_location citation requires cited_text")
+        if not (isinstance(obj.get("document_index"), int) and not isinstance(obj.get("document_index"), bool) and obj["document_index"] >= 0):
+            raise CodecError("ir: char_location citation requires document_index")
+        if obj.get("document_title") is not None and not isinstance(obj.get("document_title"), str):
+            raise CodecError("ir: char_location citation requires document_title")
+        if not (isinstance(obj.get("start_char_index"), int) and not isinstance(obj.get("start_char_index"), bool) and obj["start_char_index"] >= 0):
+            raise CodecError("ir: char_location citation requires start_char_index")
+        if not (isinstance(obj.get("end_char_index"), int) and not isinstance(obj.get("end_char_index"), bool) and obj["end_char_index"] > obj["start_char_index"]):
+            raise CodecError("ir: char_location citation requires end_char_index")
+    elif cite_type == "page_location":
+        for k in obj:
+            if k not in ("type", "cited_text", "document_index", "document_title", "start_page_number", "end_page_number", "file_id"):
+                raise CodecError(f'ir: unknown property "{k}" on page_location citation')
+        if not isinstance(obj.get("cited_text"), str):
+            raise CodecError("ir: page_location citation requires cited_text")
+        if not (isinstance(obj.get("document_index"), int) and not isinstance(obj.get("document_index"), bool) and obj["document_index"] >= 0):
+            raise CodecError("ir: page_location citation requires document_index")
+        if obj.get("document_title") is not None and not isinstance(obj.get("document_title"), str):
+            raise CodecError("ir: page_location citation requires document_title")
+        if not (isinstance(obj.get("start_page_number"), int) and not isinstance(obj.get("start_page_number"), bool) and obj["start_page_number"] >= 1):
+            raise CodecError("ir: page_location citation requires start_page_number")
+        if not (isinstance(obj.get("end_page_number"), int) and not isinstance(obj.get("end_page_number"), bool) and obj["end_page_number"] >= obj["start_page_number"]):
+            raise CodecError("ir: page_location citation requires end_page_number")
+    elif cite_type == "content_block_location":
+        for k in obj:
+            if k not in ("type", "cited_text", "document_index", "document_title", "start_block_index", "end_block_index", "file_id"):
+                raise CodecError(f'ir: unknown property "{k}" on content_block_location citation')
+        if not isinstance(obj.get("cited_text"), str):
+            raise CodecError("ir: content_block_location citation requires cited_text")
+        if not (isinstance(obj.get("document_index"), int) and not isinstance(obj.get("document_index"), bool) and obj["document_index"] >= 0):
+            raise CodecError("ir: content_block_location citation requires document_index")
+        if obj.get("document_title") is not None and not isinstance(obj.get("document_title"), str):
+            raise CodecError("ir: content_block_location citation requires document_title")
+        if not (isinstance(obj.get("start_block_index"), int) and not isinstance(obj.get("start_block_index"), bool) and obj["start_block_index"] >= 0):
+            raise CodecError("ir: content_block_location citation requires start_block_index")
+        if not (isinstance(obj.get("end_block_index"), int) and not isinstance(obj.get("end_block_index"), bool) and obj["end_block_index"] > obj["start_block_index"]):
+            raise CodecError("ir: content_block_location citation requires end_block_index")
+    elif cite_type == "web_search_result_location":
+        for k in obj:
+            if k not in ("type", "cited_text", "encrypted_index", "title", "url"):
+                raise CodecError(f'ir: unknown property "{k}" on web_search_result_location citation')
+        if not isinstance(obj.get("cited_text"), str):
+            raise CodecError("ir: web_search_result_location citation requires cited_text")
+        if not isinstance(obj.get("encrypted_index"), str):
+            raise CodecError("ir: web_search_result_location citation requires encrypted_index")
+        if obj.get("title") is not None and not isinstance(obj.get("title"), str):
+            raise CodecError("ir: web_search_result_location citation requires title")
+        if not isinstance(obj.get("url"), str):
+            raise CodecError("ir: web_search_result_location citation requires url")
+    elif cite_type == "search_result_location":
+        for k in obj:
+            if k not in ("type", "cited_text", "search_result_index", "source", "title", "start_block_index", "end_block_index"):
+                raise CodecError(f'ir: unknown property "{k}" on search_result_location citation')
+        if not isinstance(obj.get("cited_text"), str):
+            raise CodecError("ir: search_result_location citation requires cited_text")
+        if not (isinstance(obj.get("search_result_index"), int) and not isinstance(obj.get("search_result_index"), bool) and obj["search_result_index"] >= 0):
+            raise CodecError("ir: search_result_location citation requires search_result_index")
+        if not isinstance(obj.get("source"), str):
+            raise CodecError("ir: search_result_location citation requires source")
+        if obj.get("title") is not None and not isinstance(obj.get("title"), str):
+            raise CodecError("ir: search_result_location citation requires title")
+        if not (isinstance(obj.get("start_block_index"), int) and not isinstance(obj.get("start_block_index"), bool) and obj["start_block_index"] >= 0):
+            raise CodecError("ir: search_result_location citation requires start_block_index")
+        if not (isinstance(obj.get("end_block_index"), int) and not isinstance(obj.get("end_block_index"), bool) and obj["end_block_index"] > obj["start_block_index"]):
+            raise CodecError("ir: search_result_location citation requires end_block_index")
+    else:
+        raise CodecError(f"ir: unknown citation type {cite_type!r}")
+
+
 def dump_block(block: Block) -> dict[str, Any]:
     if getattr(block, "native", ()):
         raise CodecError("native is only permitted on request blocks")
     if isinstance(block, TextBlock):
-        return {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        if block.citations:
+            out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
+        return out
+    if isinstance(block, RedactedThinkingBlock):
+        return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     if isinstance(block, ThinkingBlock):
         out: dict[str, Any] = {
             "type": BLOCK_TYPE_THINKING,
@@ -297,6 +393,10 @@ def dump_block(block: Block) -> dict[str, Any]:
 def dump_request_block(block: Block) -> dict[str, Any]:
     if isinstance(block, TextBlock):
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        if block.citations:
+            out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
+    elif isinstance(block, RedactedThinkingBlock):
+        out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     elif isinstance(block, ThinkingBlock):
         out = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
         if block.signature is not None:
@@ -456,7 +556,26 @@ def load_block(data: dict[str, Any]) -> Block:
     if kind == BLOCK_TYPE_DOCUMENT:
         raise CodecError('unknown block type "document"')
     if kind == BLOCK_TYPE_TEXT:
-        return TextBlock(text=data["text"])
+        cites = None
+        if "citations" in data:
+            c_raw = data["citations"]
+            if not isinstance(c_raw, list):
+                raise CodecError("citations must be an array")
+            cites = []
+            for item in c_raw:
+                if not isinstance(item, dict) or item.get("source") != "anthropic":
+                    raise CodecError("unknown citation source")
+                val = item.get("value")
+                if not isinstance(val, str):
+                    raise CodecError("citation value must be a string")
+                validate_citation_value(val)
+                cites.append(TextCitation(source="anthropic", value=val))
+        return TextBlock(text=data["text"], citations=tuple(cites) if cites else None)
+    if kind == BLOCK_TYPE_REDACTED_THINKING:
+        d = data.get("data")
+        if not isinstance(d, str):
+            raise CodecError("redacted_thinking requires string data")
+        return RedactedThinkingBlock(data=d)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"))
     if kind == BLOCK_TYPE_IMAGE:
@@ -523,7 +642,26 @@ def load_request_block(data: dict[str, Any]) -> Block:
     native = tuple(load_native_annotation(a) for a in data.get("native", []))
     kind = data.get("type")
     if kind == BLOCK_TYPE_TEXT:
-        return TextBlock(text=data["text"], native=native)
+        cites = None
+        if "citations" in data:
+            c_raw = data["citations"]
+            if not isinstance(c_raw, list):
+                raise CodecError("citations must be an array")
+            cites = []
+            for item in c_raw:
+                if not isinstance(item, dict) or item.get("source") != "anthropic":
+                    raise CodecError("unknown citation source")
+                val = item.get("value")
+                if not isinstance(val, str):
+                    raise CodecError("citation value must be a string")
+                validate_citation_value(val)
+                cites.append(TextCitation(source="anthropic", value=val))
+        return TextBlock(text=data["text"], citations=tuple(cites) if cites else None, native=native)
+    if kind == BLOCK_TYPE_REDACTED_THINKING:
+        d = data.get("data")
+        if not isinstance(d, str):
+            raise CodecError("redacted_thinking requires string data")
+        return RedactedThinkingBlock(data=d, native=native)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"), native=native)
     if kind == BLOCK_TYPE_IMAGE:
@@ -613,6 +751,12 @@ def dump_delta(delta: Delta) -> dict[str, Any]:
         return {"type": DELTA_TYPE_SIGNATURE_DELTA, "signature": delta.signature}
     if isinstance(delta, CustomToolInputDelta):
         return {"type": DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA, "text": delta.text}
+    if isinstance(delta, CitationDelta):
+        validate_citation_value(delta.citation.value)
+        return {
+            "type": DELTA_TYPE_CITATION,
+            "citation": {"source": delta.citation.source, "value": delta.citation.value},
+        }
     raise CodecError(f"unknown delta type: {type(delta)}")
 
 
@@ -628,6 +772,15 @@ def load_delta(data: dict[str, Any]) -> Delta:
         return SignatureDelta(signature=data["signature"])
     if kind == DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA:
         return CustomToolInputDelta(text=data["text"])
+    if kind == DELTA_TYPE_CITATION:
+        c = data.get("citation")
+        if not isinstance(c, dict) or c.get("source") != "anthropic":
+            raise CodecError("unknown citation source")
+        val = c.get("value")
+        if not isinstance(val, str):
+            raise CodecError("citation value must be a string")
+        validate_citation_value(val)
+        return CitationDelta(citation=TextCitation(source="anthropic", value=val))
     raise CodecError(f"unknown delta discriminant: {kind}")
 
 

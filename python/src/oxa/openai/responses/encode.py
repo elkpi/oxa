@@ -30,6 +30,7 @@ from oxa.ir import (
     ResponseFormatText,
     TextBlock,
     ThinkingBlock,
+    RedactedThinkingBlock,
     ToolUseBlock,
 )
 from oxa.ir.native import omitted_native_request_losses
@@ -399,6 +400,24 @@ def encode_response(
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
             has_text = True
+            if block.citations:
+                losses.append(
+                    loss(
+                        f"content[{index}].citations",
+                        "citations",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                    )
+                )
+        elif isinstance(block, RedactedThinkingBlock):
+            losses.append(
+                loss(
+                    f"content[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                )
+            )
         elif isinstance(block, ThinkingBlock):
             thinkings.append(
                 {

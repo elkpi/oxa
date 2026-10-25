@@ -23,11 +23,13 @@ from oxa.ir import (
     MessageDelta,
     MessageDone,
     MessageStart,
+    RedactedThinkingBlock,
     SignatureDelta,
     TextBlock,
     TextDelta,
     ThinkingBlock,
     ThinkingDelta,
+    CitationDelta,
     ToolUseBlock,
 )
 from oxa.modelmap import Table
@@ -51,6 +53,7 @@ class _StreamEncodeBlock:
     native_index: int = 0
     tool_started: bool = False
     tool_type: str = "function"
+    citation_loss_seen: bool = False
 
 
 class StreamEncoder:
@@ -69,6 +72,7 @@ class StreamEncoder:
         "_pending_tools",
         "_finished",
         "_done",
+        "_event_ordinal",
     )
 
     def __init__(self, table: Table | None = None) -> None:
@@ -84,11 +88,15 @@ class StreamEncoder:
         self._pending_tools: list[dict[str, Any]] = []
         self._finished = False
         self._done = False
+        self._event_ordinal = 0
 
     def apply(self, ev: Event) -> tuple[list[dict[str, Any]], list[Loss]]:
         """Pushes one IR event and returns the chunks and losses it produces."""
         if self._done or (self._finished and not isinstance(ev, MessageDone)):
             raise ValueError("chatcompletions: event applied after stream termination")
+
+        ordinal = self._event_ordinal
+        self._event_ordinal += 1
 
         if isinstance(ev, MessageStart):
             if self._started:
@@ -115,7 +123,28 @@ class StreamEncoder:
                     kind="text",
                     index=ev.index,
                 )
-                return [], []
+                losses: list[Loss] = []
+                if ev.block.citations:
+                    self._active.citation_loss_seen = True
+                    losses.append(
+                        loss(
+                            f"events[{ordinal}].block.citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        )
+                    )
+                return [], losses
+            if isinstance(ev.block, RedactedThinkingBlock):
+                self._active = _StreamEncodeBlock(kind="redacted", index=ev.index)
+                return [], [
+                    loss(
+                        f"events[{ordinal}].block",
+                        "type",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                    )
+                ]
             if isinstance(ev.block, ThinkingBlock):
                 self._active = _StreamEncodeBlock(kind="thinking", index=ev.index)
                 return [], []
@@ -160,7 +189,21 @@ class StreamEncoder:
             if self._active is None or ev.index != self._active.index:
                 raise ValueError("chatcompletions: ContentBlockDelta out of grammar order")
 
+            if self._active.kind == "redacted":
+                raise ValueError("chatcompletions: RedactedThinkingBlock received unexpected delta")
             if self._active.kind == "text":
+                if isinstance(ev.delta, CitationDelta):
+                    if not self._active.citation_loss_seen:
+                        self._active.citation_loss_seen = True
+                        return [], [
+                            loss(
+                                f"events[{ordinal}].delta.citation",
+                                "citations",
+                                LOSS_UNSUPPORTED_SEMANTIC,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                            )
+                        ]
+                    return [], []
                 if not isinstance(ev.delta, TextDelta):
                     raise ValueError("chatcompletions: TextBlock received non-text delta")
                 chunk = self._chunk({"content": ev.delta.text})
@@ -202,6 +245,8 @@ class StreamEncoder:
             active = self._active
             self._active = None
 
+            if active.kind == "redacted":
+                return [], []
             if active.kind == "apply_patch":
                 return [], [loss(f"events[{ev.index}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool calls have no Chat Completions streaming mapping")]
             if active.kind == "tool":

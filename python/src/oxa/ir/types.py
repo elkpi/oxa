@@ -10,6 +10,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     BLOCK_TYPE_CUSTOM_TOOL_USE,
@@ -21,6 +22,7 @@ from oxa.ir.constants import (
     DELTA_TYPE_SIGNATURE_DELTA,
     DELTA_TYPE_TEXT_DELTA,
     DELTA_TYPE_THINKING_DELTA,
+    DELTA_TYPE_CITATION,
     EVENT_TYPE_CONTENT_BLOCK_DELTA,
     EVENT_TYPE_CONTENT_BLOCK_START,
     EVENT_TYPE_CONTENT_BLOCK_STOP,
@@ -44,16 +46,43 @@ def _normalize_native(val: Any) -> tuple[NativeAnnotation, ...]:
 
 
 @dataclass(frozen=True, slots=True)
+class TextCitation:
+    """A citation reference attached to a TextBlock (since 2.4.11)."""
+
+    source: str
+    value: str
+
+
+@dataclass(frozen=True, slots=True)
 class TextBlock:
     """A run of text (spec/01 §3.4)."""
 
     text: str
+    citations: tuple[TextCitation, ...] | None = None
     native: tuple[NativeAnnotation, ...] = ()
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
 
     def __post_init__(self) -> None:
         if not isinstance(self.native, tuple):
             object.__setattr__(self, "native", _normalize_native(self.native))
+        if self.citations is not None and not isinstance(self.citations, tuple):
+            object.__setattr__(self, "citations", tuple(self.citations))
+
+
+@dataclass(frozen=True, slots=True)
+class RedactedThinkingBlock:
+    """Anthropic encrypted thinking replay state (spec/01 §3.4, since 2.4.11)."""
+
+    data: str
+    native: tuple[NativeAnnotation, ...] = ()
+    type: str = field(default=BLOCK_TYPE_REDACTED_THINKING, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
+
+    def __repr__(self) -> str:
+        return "[RedactedThinkingBlock]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +255,7 @@ class ApplyPatchToolResultBlock:
 Block = (
     TextBlock
     | ThinkingBlock
+    | RedactedThinkingBlock
     | ImageBlock
     | DocumentBlock
     | ToolUseBlock
@@ -445,7 +475,22 @@ class SignatureDelta:
     type: str = field(default=DELTA_TYPE_SIGNATURE_DELTA, init=False)
 
 
-Delta = TextDelta | InputJsonDelta | ThinkingDelta | SignatureDelta | CustomToolInputDelta
+@dataclass(frozen=True, slots=True)
+class CitationDelta:
+    """A text citation delta (spec/01 §5.2, since 2.4.11)."""
+
+    citation: TextCitation
+    type: str = field(default=DELTA_TYPE_CITATION, init=False)
+
+
+Delta = (
+    TextDelta
+    | InputJsonDelta
+    | ThinkingDelta
+    | SignatureDelta
+    | CustomToolInputDelta
+    | CitationDelta
+)
 
 
 @dataclass(frozen=True, slots=True)

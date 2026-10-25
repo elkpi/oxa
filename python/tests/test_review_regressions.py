@@ -26,8 +26,11 @@ class ReviewRegressionTest(unittest.TestCase):
 
     def test_known_dropped_null_and_false_are_reported(self):
         raw = '{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"hi"}],"metadata":null,"tool_choice":{"type":"auto","disable_parallel_tool_use":false}}'
-        _, losses = anthropic.decode_request_json(raw)
-        self.assertEqual([loss.path for loss in losses], ["metadata", "tool_choice.disable_parallel_tool_use"])
+        req, losses = anthropic.decode_request_json(raw)
+        self.assertEqual([loss.path for loss in losses], ["metadata"])
+        par_ann = next((a for a in (req.native or []) if a.kind == "disable_parallel_tool_use"), None)
+        self.assertIsNotNone(par_ann)
+        self.assertEqual(par_ann.value, "false")
         raw = '{"id":"m1","model":"m","stop_reason":"tool_use","content":[{"type":"tool_use","id":"a","name":"f","input":{},"cache_control":{"type":"ephemeral"}}]}'
         _, losses = anthropic.decode_response_json(raw)
         self.assertEqual([loss.path for loss in losses], ["content[0].cache_control"])

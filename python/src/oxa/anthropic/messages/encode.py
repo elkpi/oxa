@@ -11,6 +11,7 @@ from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     ROLE_ASSISTANT,
@@ -65,6 +66,7 @@ from oxa.ir import (
     Response,
     TextBlock,
     ThinkingBlock,
+    RedactedThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -260,6 +262,7 @@ def encode_request(
         and len(req.messages[0].content) == 1
         and isinstance(req.messages[0].content[0], TextBlock)
         and not req.messages[0].content[0].native
+        and not req.messages[0].content[0].citations
     )
 
     for index, message in enumerate(req.messages):
@@ -344,6 +347,29 @@ def encode_request_block(
 
     if isinstance(block, TextBlock):
         encoded = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        if block.citations:
+            raw_cites = []
+            for c_idx, c in enumerate(block.citations):
+                try:
+                    c_obj = json.loads(c.value)
+                    if c_obj.get("file_id") is not None:
+                        losses.append(
+                            loss(
+                                f"{path}.citations[{c_idx}].file_id",
+                                "file_id",
+                                LOSS_UNMAPPED_FIELD,
+                                "response citation file_id has no request-side representation",
+                            )
+                        )
+                    c_obj.pop("file_id", None)
+                    raw_cites.append(c_obj)
+                except Exception:
+                    pass
+            if raw_cites:
+                encoded["citations"] = raw_cites
+
+    elif isinstance(block, RedactedThinkingBlock):
+        encoded = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
 
     elif isinstance(block, ThinkingBlock):
         signature = block.signature if block.signature else None
@@ -758,7 +784,19 @@ def encode_response_block(
     path: str,
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     if isinstance(block, TextBlock):
-        return {"type": BLOCK_TYPE_TEXT, "text": block.text}, [], True
+        encoded: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        if block.citations:
+            raw_cites = []
+            for c in block.citations:
+                try:
+                    raw_cites.append(json.loads(c.value))
+                except Exception:
+                    pass
+            if raw_cites:
+                encoded["citations"] = raw_cites
+        return encoded, [], True
+    if isinstance(block, RedactedThinkingBlock):
+        return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}, [], True
     if isinstance(block, ThinkingBlock):
         signature = block.signature if block.signature else None
         losses = []

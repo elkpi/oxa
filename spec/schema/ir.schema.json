@@ -549,6 +549,7 @@
               "type": "object",
               "description": "JSON-Schema-shaped object carried verbatim; never analyzed or rewritten."
             },
+            "strict": { "type": "boolean" },
             "native": {
               "type": "array",
               "items": { "$ref": "#/$defs/nativeAnnotation" }

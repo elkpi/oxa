@@ -59,7 +59,7 @@ The wire objects in scope are:
 | `messages[role=assistant].tool_calls[]` | `ToolUseBlock`s and `CustomToolUseBlock`s appended after text blocks | N-CC-4, N-CC-14 |
 | `messages[role=tool]` (consecutive run) | one user message of `ToolResultBlock`s / `CustomToolResultBlock`s | N-CC-5, N-CC-14 |
 | `messages[].tool_call_id` | `ToolResultBlock.ToolUseID` / `CustomToolResultBlock.ToolUseID` | N-CC-5, N-CC-14 |
-| `tools[].function.{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1) |
+| `tools[].function.{name,description,parameters,strict}` | `Tools[].{Name,Description,InputSchema,Strict}` | bidirectional; schema bytes carried verbatim (INV-1), strict preserves omission, false and true |
 | `tools[].custom.{name,description,format}` | `Tools[type=custom].{Name,Description,Format}` | N-CC-14 (since 2.3.1) |
 | `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; named function/custom ⇄ mode `tool`) | N-CC-7, N-CC-14 |
 | `temperature` | `Params.Temperature` | 1:1 |

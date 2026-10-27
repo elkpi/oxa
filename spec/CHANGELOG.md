@@ -5,6 +5,13 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.12 — 未发布
+
+- `Tool.strict` 是仅适用于 function 的可选布尔值，区分缺省、显式 `false` 和 `true`；不检查或改写不透明的 `input_schema`。
+- 三种协议的函数工具 `strict` 在 IR 和 wire 之间无损映射，Responses 容器与 `additional_tools` 包含在内。
+- Anthropic 函数声明携带 `strict` 时，即使 schema 与 custom wrapper 相同也不得识别为 custom。
+- IR contract 保持 `0.2.0`。
+
 ## 2.4.11 - 2026-10-25
 
 ### Added

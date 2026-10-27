@@ -29,6 +29,7 @@
           "properties": { "diff": { "type": "string" } },
           "required": ["diff"]
         },
+        "strict": false,
         "native": [
           {
             "source": "openai",
@@ -61,7 +62,8 @@
               "type": "object",
               "properties": { "diff": { "type": "string" } },
               "required": ["diff"]
-            }
+            },
+            "strict": false
           }
         ]
       }

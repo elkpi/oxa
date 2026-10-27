@@ -1,0 +1,33 @@
+{
+  "name": "anthropic.nonstream.function-tool-strict-to-ir",
+  "description": "Function tool strictness preserves omission, false, and true.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "example",
+    "max_tokens": 64,
+    "messages": [{ "role": "user", "content": "hello" }],
+    "tools": [
+      { "name": "omitted", "input_schema": {} },
+      { "name": "false_value", "input_schema": {}, "strict": false },
+      { "name": "true_value", "input_schema": {}, "strict": true },
+      { "name": "wrapper_schema", "input_schema": { "type": "object", "properties": { "input": { "type": "string" } }, "required": ["input"] }, "strict": true }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "example",
+    "params": { "max_tokens": 64 },
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hello" }] }],
+    "tools": [
+      { "name": "omitted", "input_schema": {} },
+      { "name": "false_value", "input_schema": {}, "strict": false },
+      { "name": "true_value", "input_schema": {}, "strict": true },
+      { "name": "wrapper_schema", "input_schema": { "type": "object", "properties": { "input": { "type": "string" } }, "required": ["input"] }, "strict": true }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["tools", "strict", "request"]
+}

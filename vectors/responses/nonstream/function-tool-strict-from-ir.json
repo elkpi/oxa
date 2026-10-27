@@ -1,0 +1,24 @@
+{
+  "name": "responses.nonstream.function-tool-strict-from-ir",
+  "description": "IR function tool strictness renders at tools[].strict.",
+  "spec_version": "0.2.0", "mode": "nonstream", "conversion": "from-ir",
+  "source": { "protocol": "responses" }, "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0", "model": "example",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hello" }] }],
+    "tools": [
+      { "name": "omitted", "input_schema": {} },
+      { "name": "false_value", "input_schema": {}, "strict": false },
+      { "name": "true_value", "input_schema": {}, "strict": true }
+    ]
+  },
+  "expected_output": {
+    "model": "example", "input": "hello",
+    "tools": [
+      { "type": "function", "name": "omitted", "parameters": {} },
+      { "type": "function", "name": "false_value", "parameters": {}, "strict": false },
+      { "type": "function", "name": "true_value", "parameters": {}, "strict": true }
+    ]
+  },
+  "expected_losses": [], "tags": ["tools", "strict", "request"]
+}

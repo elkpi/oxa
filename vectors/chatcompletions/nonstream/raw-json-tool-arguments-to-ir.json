@@ -18,6 +18,7 @@
             "type": "function",
             "function": {
               "name": "search",
+              "strict": false,
               "arguments": "{\"query\": \"Ren\\u00e9e\", \"opts\": {\"deep\": [1, 2]}, \"limit\": 10, \"note\": \"P\\u0041TH\"}"
             }
           }
@@ -48,6 +49,6 @@
       }
     ]
   },
-  "expected_losses": [],
+  "expected_losses": [{ "path": "messages[1].tool_calls[0].function.strict", "field": "strict", "reason": "unmapped-field" }],
   "tags": ["tools", "request", "raw-json", "n-cc-4", "inv-1"]
 }

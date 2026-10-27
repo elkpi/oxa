@@ -22,7 +22,8 @@
               "type": "object",
               "properties": { "diff": { "type": "string" } },
               "required": ["diff"]
-            }
+            },
+            "strict": true
           }
         ]
       }
@@ -51,6 +52,7 @@
           "properties": { "diff": { "type": "string" } },
           "required": ["diff"]
         },
+        "strict": true,
         "native": [
           {
             "source": "openai",

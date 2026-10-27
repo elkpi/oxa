@@ -23,7 +23,8 @@
             "description": "Calculator",
             "parameters": {
               "type": "object"
-            }
+            },
+            "strict": true
           }
         ]
       }
@@ -49,7 +50,8 @@
         "description": "Calculator",
         "input_schema": {
           "type": "object"
-        }
+        },
+        "strict": true
       }
     ]
   },

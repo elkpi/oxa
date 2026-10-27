@@ -1,0 +1,24 @@
+{
+  "name": "anthropic.nonstream.function-tool-strict-from-ir",
+  "description": "IR function tool strictness renders at tools[].strict.",
+  "spec_version": "0.2.0", "mode": "nonstream", "conversion": "from-ir",
+  "source": { "protocol": "anthropic" }, "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0", "model": "example", "params": { "max_tokens": 64 },
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "hello" }] }],
+    "tools": [
+      { "name": "omitted", "input_schema": {} },
+      { "name": "false_value", "input_schema": {}, "strict": false },
+      { "name": "true_value", "input_schema": {}, "strict": true }
+    ]
+  },
+  "expected_output": {
+    "model": "example", "max_tokens": 64, "messages": [{ "role": "user", "content": "hello" }],
+    "tools": [
+      { "name": "omitted", "input_schema": {} },
+      { "name": "false_value", "input_schema": {}, "strict": false },
+      { "name": "true_value", "input_schema": {}, "strict": true }
+    ]
+  },
+  "expected_losses": [], "tags": ["tools", "strict", "request"]
+}

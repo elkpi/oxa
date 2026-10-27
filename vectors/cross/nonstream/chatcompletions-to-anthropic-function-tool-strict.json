@@ -1,0 +1,81 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-anthropic-function-tool-strict",
+  "description": "Function tool strictness survives cross-face conversion.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "example",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "omitted",
+          "parameters": {}
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "non_strict",
+          "parameters": {},
+          "strict": false
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "strict",
+          "parameters": {},
+          "strict": true
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "max_tokens": 64
+  },
+  "expected_output": {
+    "model": "example",
+    "tools": [
+      {
+        "name": "omitted",
+        "input_schema": {}
+      },
+      {
+        "name": "non_strict",
+        "input_schema": {},
+        "strict": false
+      },
+      {
+        "name": "strict",
+        "input_schema": {},
+        "strict": true
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "max_tokens": 64
+  },
+  "expected_losses": [],
+  "tags": [
+    "cross",
+    "request",
+    "tools",
+    "strict"
+  ]
+}

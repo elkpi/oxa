@@ -86,6 +86,11 @@ The wire objects in scope are:
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
 
+For ordinary function tools, a present `strict` MUST be a boolean; `null` and
+other types are structural errors, including when the input schema matches a
+custom wrapper. Native tool declarations remain opaque: their provider-specific
+`strict` field is not subject to this rule.
+
 原生声明及其 named tool_choice 的保留和跨面省略遵守 [spec/16](16-native-tool-declarations.md)。本扩展不增加 Advisor 响应/流式/历史块支持。
 
 On encode (IR → AN), `Request.System` renders as a system block array

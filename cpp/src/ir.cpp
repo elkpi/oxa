@@ -722,6 +722,15 @@ json::Value dump_request(const Request& r) {
     return out;
 }
 
+StatusOr<json::Value> dump_request_checked(const Request& r) {
+    OXA_RETURN_IF_ERROR(validate_tool_strict(r));
+    OXA_RETURN_IF_ERROR(validate_native_request(r));
+    json::Value out = dump_request(r);
+    auto parsed = load_request(out);
+    if (!parsed.ok()) return parsed.status();
+    return out;
+}
+
 StatusOr<Request> load_request(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("request must be an object");
     OXA_RETURN_IF_ERROR(check_spec_version(v));

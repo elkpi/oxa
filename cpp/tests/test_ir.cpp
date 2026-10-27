@@ -431,6 +431,28 @@ void tool_strict_tests() {
     auto request = load_request(*parsed);
     CHECK(request.ok());
     CHECK(oxa::json::structurally_equal(*parsed, dump_request(*request)));
+    auto checked = dump_request_checked(*request);
+    CHECK(checked.ok());
+    CHECK(oxa::json::structurally_equal(*parsed, *checked));
+    for (const char* kind : {"custom", "apply_patch", "native"}) {
+        auto invalid_request = *request;
+        Tool invalid_tool;
+        invalid_tool.type = kind;
+        invalid_tool.name = kind == std::string("apply_patch") ? "" : "x";
+        invalid_tool.strict = false;
+        if (invalid_tool.type == "native") {
+            invalid_tool.source = "anthropic";
+            invalid_tool.definition = R"({"type":"provider_tool","name":"x"})";
+        }
+        invalid_request.tools = std::vector<Tool>{invalid_tool};
+        CHECK(!dump_request_checked(invalid_request).ok());
+    }
+    auto invalid_conversation = *request;
+    invalid_conversation.messages.clear();
+    CHECK(!dump_request_checked(invalid_conversation).ok());
+    auto invalid_native = *request;
+    invalid_native.native.push_back({"anthropic", "disable_parallel_tool_use", "true", std::nullopt, std::nullopt});
+    CHECK(!dump_request_checked(invalid_native).ok());
     for (const char* declaration : {
         R"({"type":"custom","name":"x","strict":false})",
         R"({"type":"apply_patch","strict":true})",

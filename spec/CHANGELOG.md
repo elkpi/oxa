@@ -5,7 +5,7 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.4.12 — 未发布
+## 2.4.12 - 2026-10-27
 
 - `Tool.strict` 是仅适用于 function 的可选布尔值，区分缺省、显式 `false` 和 `true`；不检查或改写不透明的 `input_schema`。
 - 三种协议的函数工具 `strict` 布尔值在 IR 和 wire 之间无损映射，Responses 容器与 `additional_tools` 包含在内；OpenAI wire 的 `null` 归一为缺省，编码时省略，不保留原始拼写。

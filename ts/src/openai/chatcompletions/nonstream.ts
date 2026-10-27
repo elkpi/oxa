@@ -157,6 +157,11 @@ function decodeRequestObject(
             fn.parameters,
             `tools[${index}].function.parameters`,
           ),
+          ...(fn.strict === undefined
+            ? {}
+            : {
+                strict: boolean(fn.strict, `tools[${index}].function.strict`),
+              }),
         },
       ];
     },
@@ -656,6 +661,7 @@ export function encodeRequest(
               ? {}
               : { description: tool.description }),
             parameters: tool.input_schema,
+            ...(tool.strict === undefined ? {} : { strict: tool.strict }),
           },
         },
       ];

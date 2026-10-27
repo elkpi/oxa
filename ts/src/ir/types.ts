@@ -253,6 +253,7 @@ export type Tool =
       readonly name: string;
       readonly description?: string;
       readonly input_schema: JsonObject;
+      readonly strict?: boolean;
       readonly format?: never;
       readonly native?: readonly NativeAnnotation[];
       readonly source?: never;
@@ -263,6 +264,7 @@ export type Tool =
       readonly name: string;
       readonly description?: string;
       readonly input_schema?: never;
+      readonly strict?: never;
       readonly format?: CustomToolFormat;
       readonly native?: readonly NativeAnnotation[];
       readonly source?: never;
@@ -273,6 +275,7 @@ export type Tool =
       readonly name?: never;
       readonly description?: never;
       readonly input_schema?: never;
+      readonly strict?: never;
       readonly format?: never;
       readonly native?: readonly NativeAnnotation[];
       readonly source?: never;
@@ -285,6 +288,7 @@ export type Tool =
       readonly definition: string;
       readonly description?: never;
       readonly input_schema?: never;
+      readonly strict?: never;
       readonly format?: never;
       readonly native?: never;
     };

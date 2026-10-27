@@ -147,6 +147,9 @@ export function encodeRequest(request: Request): JsonObject {
                         ? {}
                         : { description: tool.description }),
                       input_schema: tool.input_schema,
+                      ...(tool.strict === undefined
+                        ? {}
+                        : { strict: tool.strict }),
                       ...(tool.native && tool.native.length > 0
                         ? { native: tool.native.map(encodeNativeAnnotation) }
                         : {}),
@@ -220,6 +223,9 @@ export function decodeRequest(document: JsonValue): Request {
               tool.native === undefined
                 ? undefined
                 : array(tool.native, "tool.native").map(decodeNativeAnnotation);
+            if (type !== "function" && tool.strict !== undefined) {
+              fail("strict is only allowed on function tools");
+            }
             if (type === "apply_patch") {
               if (
                 tool.name !== undefined ||
@@ -316,6 +322,9 @@ export function decodeRequest(document: JsonValue): Request {
                 tool.input_schema,
                 "request.tool.input_schema",
               ),
+              ...(tool.strict === undefined
+                ? {}
+                : { strict: boolean(tool.strict, "request.tool.strict") }),
               ...(native ? { native } : {}),
             };
           }),
@@ -348,6 +357,15 @@ export function decodeRequest(document: JsonValue): Request {
 /** Enforces request conversation invariants INV-2 through INV-4. */
 export function validateRequest(request: Request): void {
   validateNativeRequest(request);
+  for (const tool of request.tools ?? []) {
+    if (
+      tool.strict !== undefined &&
+      ((tool.type !== undefined && tool.type !== "function") ||
+        typeof tool.strict !== "boolean")
+    ) {
+      invalid("strict is only allowed as a boolean on function tools");
+    }
+  }
   if (request.messages.length === 0)
     invalid("request.messages must not be empty");
   if (request.messages[0]!.role !== "user")

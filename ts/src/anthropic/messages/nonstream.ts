@@ -228,7 +228,7 @@ function decodeRequestObject(
           : {}),
       });
     }
-    if (isCustomToolInputSchema(schema)) {
+    if (tool.strict === undefined && isCustomToolInputSchema(schema)) {
       customTools.add(name);
       return {
         type: "custom" as const,
@@ -255,6 +255,9 @@ function decodeRequestObject(
             ),
           }),
       input_schema: schema,
+      ...(tool.strict === undefined
+        ? {}
+        : { strict: boolean(tool.strict, `tools[${index}].strict`) }),
       ...(native.length > 0 ? { native } : {}),
     };
   });
@@ -649,6 +652,7 @@ export function encodeRequest(
             ? {}
             : { description: tool.description }),
           input_schema: tool.input_schema,
+          ...(tool.strict === undefined ? {} : { strict: tool.strict }),
           ...(cc ? { cache_control: cc } : {}),
           ...(dl ? { defer_loading: true } : {}),
           ...(es !== undefined ? { eager_input_streaming: es } : {}),

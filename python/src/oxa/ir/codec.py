@@ -896,6 +896,8 @@ def dump_request(req: Request) -> dict[str, Any]:
                 if t.format is not None or t.input_schema is None:
                     raise CodecError("function tool requires input_schema and must not carry format")
                 t_dict = {"name": t.name, "input_schema": t.input_schema}
+                if t.strict is not None:
+                    t_dict["strict"] = t.strict
                 if t.description:
                     t_dict["description"] = t.description
             else:
@@ -1043,6 +1045,8 @@ def load_request(data: dict[str, Any] | str) -> Request:
         for t in raw["tools"]:
             tool_native = tuple(load_native_annotation(a) for a in t.get("native", []))
             tool_type = t.get("type", "function")
+            if "strict" in t and (tool_type != "function" or not isinstance(t["strict"], bool)):
+                raise CodecError("strict is only allowed as a boolean on function tools")
             if tool_type == "apply_patch":
                 if any(k in t for k in ("name", "description", "input_schema", "format", "source", "definition")):
                     raise CodecError("apply_patch declaration must only contain type")
@@ -1079,7 +1083,15 @@ def load_request(data: dict[str, Any] | str) -> Request:
             elif tool_type == "function":
                 if "format" in t or "source" in t or "definition" in t:
                     raise CodecError("function tool must not carry format/source/definition")
-                tools.append(Tool(name=t["name"], input_schema=t["input_schema"], description=t.get("description"), native=tool_native))
+                tools.append(
+                    Tool(
+                        name=t["name"],
+                        input_schema=t["input_schema"],
+                        description=t.get("description"),
+                        native=tool_native,
+                        strict=t.get("strict"),
+                    )
+                )
             else:
                 raise CodecError(f"unknown tool type: {tool_type!r}")
 

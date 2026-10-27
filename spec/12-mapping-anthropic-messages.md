@@ -77,7 +77,7 @@ The wire objects in scope are:
 | `output_config.effort` | `Params.ReasoningEffort` + `NativeAnnotation` | 1:1 effort mapping (xhigh/max supported); preserved as native option in IR (N-AN-14) |
 | `cache_control` (top-level, system, content, tools, tool_result) | `NativeAnnotation` | retained on respective IR host; no loss on decode (N-AN-14) |
 | `context_management` | `NativeAnnotation` | retained on IR Request; no loss on decode (N-AN-14) |
-| `tools[].{name,description,input_schema}` | `Tools[].{Name,Description,InputSchema}` | 普通工具；schema bytes carried verbatim (INV-1); MUST be a JSON object |
+| `tools[].{name,description,input_schema,strict}` | `Tools[].{Name,Description,InputSchema,Strict}` | 普通 function 工具双向映射；strict 区分缺省、false、true；schema bytes carried verbatim (INV-1); MUST be a JSON object |
 | `tools[].defer_loading` | `Tools[].Native` (`kind: "defer_loading"`) | true 保留为 NativeAnnotation，无 decode loss；跨面降级为 degraded 损失（N-NAT-2/3） |
 | `tools[].eager_input_streaming` | `Tools[].Native` (`kind: "eager_input_streaming"`) | true/false 保留为 NativeAnnotation，无 decode loss；跨面 true 降级为 degraded 损失，false 零损（N-NAT-2/3，规范 2.4.10） |
 | `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
@@ -85,6 +85,11 @@ The wire objects in scope are:
 | `tool_choice.disable_parallel_tool_use` | `Request.Native` (`kind: "disable_parallel_tool_use"`) | N-AN-19; boolean; preserved as native option in IR (spec/15) |
 | `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
+
+For ordinary function tools, a present `strict` MUST be a boolean; `null` and
+other types are structural errors, including when the input schema matches a
+custom wrapper. Native tool declarations remain opaque: their provider-specific
+`strict` field is not subject to this rule.
 
 原生声明及其 named tool_choice 的保留和跨面省略遵守 [spec/16](16-native-tool-declarations.md)。本扩展不增加 Advisor 响应/流式/历史块支持。
 
@@ -243,6 +248,7 @@ Each rule has a stable ID usable as a vector tag.
   An IR `CustomToolUseBlock` renders as a `tool_use` content block with `input: {"input": "<raw_text>"}`.
   An IR `CustomToolResultBlock` renders as a `tool_result` content block supporting string content
   or arrays of text and image content blocks.
+  A declaration carrying `strict` MUST decode as a function tool even when its schema matches the custom wrapper; otherwise the explicit function-only field would be lost. This rule does not alter or validate the schema.
   On decode, a `tool_use` is decoded to `CustomToolUseBlock` when its declaration in the request matches
   a custom tool, or when its input matches the single-field `{"input": "<string>"}` shape and the tool
   was NOT declared as a standard function tool in the same request. If the tool was declared as a function

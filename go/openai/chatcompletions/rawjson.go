@@ -321,7 +321,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			if kind == ir.ToolTypeCustom || hasCustom {
 				return rawObjectSchema(t, []string{"id", "type", "custom"}, nil, seen)
 			}
-			return rawObjectSchema(t, []string{"id", "type", "function"}, nil, seen)
+			return rawObjectSchema(t, []string{"id", "type", "function"}, map[string]*rawJSONSchema{
+				"function": rawObjectSchema(reflect.TypeOf(FunctionWire{}), []string{"name", "description", "parameters", "arguments"}, nil, seen),
+			}, seen)
 		}
 		return schema
 	case reflect.TypeOf(ToolCallDelta{}):

@@ -334,6 +334,7 @@ fn test_defer_loading_tool_native_option() {
             name: "t1".into(),
             description: None,
             input_schema: Some(serde_json::json!({"type": "object"})),
+            strict: None,
             format: None,
             native: vec![oxa_ir::NativeAnnotation {
                 source: oxa_ir::NATIVE_SOURCE_ANTHROPIC.into(),
@@ -378,6 +379,7 @@ fn test_defer_loading_tool_native_option() {
             name: "t1".into(),
             description: None,
             input_schema: Some(serde_json::json!({"type": "object"})),
+            strict: None,
             format: None,
             native: vec![
                 oxa_ir::NativeAnnotation {

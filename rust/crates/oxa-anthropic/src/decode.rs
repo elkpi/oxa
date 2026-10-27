@@ -94,6 +94,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     name: tool.name.clone(),
                     description: None,
                     input_schema: None,
+                    strict: None,
                     format: None,
                     native: Vec::new(),
                     source: Some(oxa_ir::NATIVE_SOURCE_ANTHROPIC.into()),
@@ -167,13 +168,14 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     projection: None,
                 });
             }
-            if is_custom_tool_input_schema(schema_val) {
+            if tool.strict.is_none() && is_custom_tool_input_schema(schema_val) {
                 custom_tools.insert(tool.name.clone());
                 tools.push(oxa_ir::Tool {
                     tool_type: Some(oxa_ir::ToolType::Custom),
                     name: tool.name.clone(),
                     description: non_empty(tool.description.clone()),
                     input_schema: None,
+                    strict: None,
                     format: None,
                     native,
                     source: None,
@@ -186,6 +188,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 name: tool.name.clone(),
                 description: non_empty(tool.description.clone()),
                 input_schema: Some(schema_val.clone()),
+                strict: tool.strict,
                 format: None,
                 native,
                 source: None,

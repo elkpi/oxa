@@ -161,6 +161,7 @@ def decode_request(
                     name=func.get("name", ""),
                     description=desc if desc else None,
                     input_schema=func.get("parameters", {}),
+                    strict=func.get("strict"),
                 )
             )
 

@@ -96,9 +96,15 @@ The wire objects in scope are:
 | `text.verbosity` | — | unmapped-field loss |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
-| `tools[].strict` | — | unmapped-field loss per tool |
+| function `tools[].strict` | `Tools[].Strict` | optional boolean mapped loss-free in both directions, including nested containers and `additional_tools` (N-R-15) |
 | unknown `input[].type` | — | unsupported-semantic loss per item |
 | `Params.StopSequences` (IR side) | — | Responses has no stop parameter; presence records exactly one unmapped-field loss on encode (N-R-7) |
+
+For a function declaration, wire `strict: null` is normalized to an absent
+`Tool.Strict` without loss, including in containers and `additional_tools`.
+A present non-null value MUST be a boolean. On encode an absent `Tool.Strict`
+is omitted; this does not preserve the original `null` spelling. Canonical IR
+continues to forbid `null` (spec/01 §2).
 
 On encode (IR → RE), `Request.System` is rendered as the `instructions`
 string equal to the concatenation of all system block texts (N-R-1). The
@@ -242,9 +248,11 @@ Each rule has a stable ID usable as a vector tag.
   `Params.StopSequences` cannot round-trip, and a non-empty value on
   encode records exactly one unmapped-field loss.
 - **N-R-8 (unmapped request fields).** `metadata` (string-valued map),
-  `text.verbosity`, `text.format`, `reasoning`, `parallel_tool_calls`,
-  and per-tool `strict` have no IR equivalent in v1 and are dropped with
-  unmapped-field losses (metadata as a single loss per direction).
+  `text.verbosity`, and `parallel_tool_calls` have no IR equivalent and are
+  dropped with unmapped-field losses (metadata as a single loss per direction).
+  `text.format` and `reasoning.effort` map as described above; unsupported
+  members retain their documented losses. Function-tool `strict` maps to
+  `Tool.Strict` without loss, including in containers and `additional_tools`.
   Unknown `input[].type` values are dropped with unsupported-semantic
   losses per item.
 - **N-R-9 (tool choice mapping).** `auto` and `none` map to the
@@ -357,7 +365,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
 | `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
-| `tools[i].strict` | unmapped-field | request → IR | strict mode has no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
 | `input[i].role` = `developer` | degraded | request → IR | text is retained in `Request.System` but the developer/system distinction is lost (N-R-1) |

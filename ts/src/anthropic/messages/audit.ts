@@ -190,6 +190,7 @@ const TOOL: WireAuditSpec = {
         name: undefined,
         description: undefined,
         input_schema: undefined,
+        strict: undefined,
         cache_control: undefined,
         defer_loading: undefined,
         eager_input_streaming: undefined,

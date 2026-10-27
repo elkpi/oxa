@@ -118,6 +118,8 @@ def encode_request(
                 func["description"] = tool.description
             if tool.input_schema is not None:
                 func["parameters"] = tool.input_schema
+            if tool.strict is not None:
+                func["strict"] = tool.strict
             tools_wire.append({"type": TOOL_TYPE_FUNCTION, "function": func})
         if tools_wire:
             out["tools"] = tools_wire

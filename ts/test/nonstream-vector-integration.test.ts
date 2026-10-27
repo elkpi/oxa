@@ -25,7 +25,17 @@ test("preserves Responses instructions and composed losses across faces", () => 
       anthropic,
       chatcompletions,
     }),
-    10,
+    12,
+  );
+});
+
+test("runs Chat Completions cross request vectors across faces", () => {
+  assert.equal(
+    runCrossRequestVectors("chatcompletions", chatcompletions, {
+      anthropic,
+      responses,
+    }),
+    7,
   );
 });
 
@@ -36,6 +46,6 @@ test("runs Anthropic cross request vectors across faces including native roundtr
       chatcompletions,
       responses,
     }),
-    21,
+    23,
   );
 });

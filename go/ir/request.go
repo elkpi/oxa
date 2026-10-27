@@ -37,6 +37,7 @@ type Tool struct {
 	Name        string
 	Description string
 	InputSchema json.RawMessage
+	Strict      *bool
 	Type        string
 	Format      *CustomToolFormat
 	Native      []NativeAnnotation

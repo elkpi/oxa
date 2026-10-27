@@ -17,6 +17,16 @@ const FUNCTION: WireAuditSpec = {
     name: undefined,
     description: undefined,
     parameters: undefined,
+    strict: undefined,
+    arguments: undefined,
+  },
+};
+
+const FUNCTION_CALL: WireAuditSpec = {
+  fields: {
+    name: undefined,
+    description: undefined,
+    parameters: undefined,
     arguments: undefined,
   },
 };
@@ -40,7 +50,7 @@ const TOOL_CALL: WireAuditSpec = {
   fields: {
     id: undefined,
     type: undefined,
-    function: FUNCTION,
+    function: FUNCTION_CALL,
     custom: CUSTOM,
   },
 };
@@ -163,7 +173,7 @@ const TOOL_CALL_DELTA: WireAuditSpec = {
     index: undefined,
     id: undefined,
     type: undefined,
-    function: FUNCTION,
+    function: FUNCTION_CALL,
     custom: CUSTOM,
   },
 };

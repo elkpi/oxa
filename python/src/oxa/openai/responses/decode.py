@@ -761,16 +761,6 @@ def decode_responses_tool_item(
             raise ValueError(f"responses: duplicate tool name {final_name!r}")
         seen_names.add(final_name)
 
-        if tool.get("strict") is not None:
-            losses.append(
-                loss(
-                    f"{path}.strict",
-                    "strict",
-                    LOSS_UNMAPPED_FIELD,
-                    "Responses function tool strict mode has no IR equivalent in v1.",
-                )
-            )
-
         native_ann = []
         if path_stack:
             native_ann.append(
@@ -808,6 +798,7 @@ def decode_responses_tool_item(
                 name=final_name,
                 description=desc if desc else None,
                 input_schema=tool.get("parameters", {}),
+                strict=tool.get("strict"),
                 native=tuple(native_ann) if native_ann else (),
             )
         ]

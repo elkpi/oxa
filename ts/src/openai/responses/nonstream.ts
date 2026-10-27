@@ -1896,9 +1896,10 @@ function decodeResponsesToolItem(
       tool.description === undefined
         ? undefined
         : string(tool.description, `${path}.description`);
-    if (tool.strict !== undefined) {
-      losses.push(loss(`${path}.strict`, "strict", "unmapped-field"));
-    }
+    const strict =
+      tool.strict === undefined || tool.strict === null
+        ? undefined
+        : boolean(tool.strict, `${path}.strict`);
 
     const nativeAnnotations: import("../../ir/index.js").NativeAnnotation[] =
       [];
@@ -1938,6 +1939,7 @@ function decodeResponsesToolItem(
         name: finalName,
         ...(description === undefined ? {} : { description }),
         input_schema: object(tool.parameters, `${path}.parameters`),
+        ...(strict === undefined ? {} : { strict }),
         ...(nativeAnnotations.length > 0 ? { native: nativeAnnotations } : {}),
       },
     ];
@@ -2066,6 +2068,9 @@ function buildNestedContainer(
             ? { description: subTool.description }
             : {}),
           parameters: (subTool as any).input_schema as JsonObject,
+          ...((subTool as any).strict === undefined
+            ? {}
+            : { strict: (subTool as any).strict }),
           ...(hasDefer ? { defer_loading: true } : {}),
         });
       }
@@ -2200,6 +2205,9 @@ function encodeResponsesGroupedTools(
           ? { description: tool.description }
           : {}),
         parameters: (tool as any).input_schema as JsonObject,
+        ...((tool as any).strict === undefined
+          ? {}
+          : { strict: (tool as any).strict }),
         ...(hasDefer ? { defer_loading: true } : {}),
       });
     }

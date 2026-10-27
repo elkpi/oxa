@@ -18,7 +18,7 @@ inline const detail::AuditProfile& wire_profile() {
          {"input_image", {{"type", ""}, {"image_url", ""}}},
          {"output_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "output_part[]"}}},
          {"container_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"tools", "tool[]"}}},
-         {"function_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"parameters", ""}, {"defer_loading", ""}}},
+         {"function_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"parameters", ""}, {"strict", ""}, {"defer_loading", ""}}},
          {"named_choice", {{"type", ""}, {"name", ""}, {"namespace", ""}}},
          {"custom_choice", {{"type", ""}, {"name", ""}, {"namespace", ""}}},
          {"custom_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"format", "format"}, {"defer_loading", ""}}},

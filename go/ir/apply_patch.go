@@ -213,10 +213,14 @@ func applyPatchString(fields map[string]json.RawMessage, name string) (string, e
 
 func (w *wireTool) UnmarshalJSON(data []byte) error {
 	var head struct {
-		Type string `json:"type"`
+		Type   string          `json:"type"`
+		Strict json.RawMessage `json:"strict"`
 	}
 	if err := json.Unmarshal(data, &head); err != nil {
 		return err
+	}
+	if bytes.Equal(bytes.TrimSpace(head.Strict), []byte("null")) {
+		return fmt.Errorf("ir: tool strict must be a boolean")
 	}
 	if head.Type == ToolTypeApplyPatch {
 		if _, err := applyPatchObject(data, "type"); err != nil {

@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — v2.4.12
+
+### Added
+
+- 函数工具新增可选 `strict` 三态 IR 字段，在 Responses、Chat Completions 与 Anthropic Messages 之间保留缺省、`false` 和 `true`，包括 Responses 嵌套容器及 `additional_tools`。
+- 扩充共享向量，覆盖三态、各协议编解码、嵌套工具及六个跨协议方向；结构化输出的 `ResponseFormat.Strict` 不变。
+- C++ 增加 `ir::dump_request_checked`，在输出 canonical request 前校验工具 strict、native 约束及 loader 可接受性。
+
+### Changed
+
+- 移除原先针对 Responses 函数工具 strict 的 `unmapped-field` 损失；OpenAI wire `strict: null` 统一归一为缺省，Anthropic 普通工具的非布尔 strict 作为结构错误拒绝。IR contract 保持 `0.2.0`。
+
 ## [v2.4.11] - 2026-10-25
 
 ### Added

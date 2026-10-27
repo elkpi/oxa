@@ -673,6 +673,7 @@ type wireTool struct {
 	Name        string             `json:"name,omitempty"`
 	Description string             `json:"description,omitempty"`
 	InputSchema json.RawMessage    `json:"input_schema,omitempty"`
+	Strict      *bool              `json:"strict,omitempty"`
 	Type        string             `json:"type,omitempty"`
 	Format      *CustomToolFormat  `json:"format,omitempty"`
 	Native      []NativeAnnotation `json:"native,omitempty"`

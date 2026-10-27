@@ -59,7 +59,7 @@ The wire objects in scope are:
 | `messages[role=assistant].tool_calls[]` | `ToolUseBlock`s and `CustomToolUseBlock`s appended after text blocks | N-CC-4, N-CC-14 |
 | `messages[role=tool]` (consecutive run) | one user message of `ToolResultBlock`s / `CustomToolResultBlock`s | N-CC-5, N-CC-14 |
 | `messages[].tool_call_id` | `ToolResultBlock.ToolUseID` / `CustomToolResultBlock.ToolUseID` | N-CC-5, N-CC-14 |
-| `tools[].function.{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | schema bytes carried verbatim (INV-1) |
+| `tools[].function.{name,description,parameters,strict}` | `Tools[].{Name,Description,InputSchema,Strict}` | bidirectional; schema bytes carried verbatim (INV-1), strict preserves omission, false and true |
 | `tools[].custom.{name,description,format}` | `Tools[type=custom].{Name,Description,Format}` | N-CC-14 (since 2.3.1) |
 | `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; named function/custom ⇄ mode `tool`) | N-CC-7, N-CC-14 |
 | `temperature` | `Params.Temperature` | 1:1 |
@@ -77,6 +77,12 @@ The wire objects in scope are:
 | `functions`, `function_call` | — | unmapped-field loss |
 | `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
 | `logprobs`, `top_logprobs` | — | unmapped-field loss |
+
+For a function declaration, wire `function.strict: null` is normalized to an
+absent `Tool.Strict` without loss, just like an omitted field. A present
+non-null value MUST be a boolean. On encode an absent `Tool.Strict` is omitted;
+this does not preserve the original `null` spelling. Canonical IR continues
+to forbid `null` (spec/01 §2).
 
 On encode (IR → CC), `Request.System` is rendered as exactly one leading
 `role: "system"` message whose string content is the concatenation of all

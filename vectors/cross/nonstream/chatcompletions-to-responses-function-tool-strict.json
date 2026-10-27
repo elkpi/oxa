@@ -1,0 +1,79 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-responses-function-tool-strict",
+  "description": "Function tool strictness survives cross-face conversion.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "chatcompletions"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "example",
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "omitted",
+          "parameters": {}
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "non_strict",
+          "parameters": {},
+          "strict": false
+        }
+      },
+      {
+        "type": "function",
+        "function": {
+          "name": "strict",
+          "parameters": {},
+          "strict": true
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "hello"
+      }
+    ],
+    "max_tokens": 64
+  },
+  "expected_output": {
+    "model": "example",
+    "tools": [
+      {
+        "type": "function",
+        "name": "omitted",
+        "parameters": {}
+      },
+      {
+        "type": "function",
+        "name": "non_strict",
+        "parameters": {},
+        "strict": false
+      },
+      {
+        "type": "function",
+        "name": "strict",
+        "parameters": {},
+        "strict": true
+      }
+    ],
+    "input": "hello",
+    "max_output_tokens": 64
+  },
+  "expected_losses": [],
+  "tags": [
+    "cross",
+    "request",
+    "tools",
+    "strict"
+  ]
+}

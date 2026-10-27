@@ -141,6 +141,8 @@ def decode_request(
                     )
                     continue
 
+            if "strict" in tool and not isinstance(tool["strict"], bool):
+                raise ValueError(f"anthropic: tools[{index}].strict must be a boolean")
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")
@@ -190,7 +192,7 @@ def decode_request(
                     )
                 )
             native = tuple(native_list)
-            if is_custom_tool_input_schema(schema):
+            if "strict" not in tool and is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(
                     Tool(
@@ -206,6 +208,7 @@ def decode_request(
                         name=name,
                         description=desc if desc else None,
                         input_schema=schema,
+                        strict=tool.get("strict"),
                         native=native,
                     )
                 )

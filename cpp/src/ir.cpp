@@ -593,6 +593,17 @@ StatusOr<Block> load_request_block(const json::Value& v) {
 
 // ---- request -----------------------------------------------------------------
 
+Status validate_tool_strict(const Request& req) {
+    if (req.tools.has_value()) {
+        for (const auto& tool : *req.tools) {
+            if (tool.strict.has_value() && tool.type != "function") {
+                return invalid_argument("ir: only function tools may carry strict");
+            }
+        }
+    }
+    return ok_status();
+}
+
 json::Value dump_request(const Request& r) {
     json::Value out = json::Value::object();
     out.set("specVersion", json::Value::string(std::string(SPEC_VERSION)));
@@ -643,6 +654,7 @@ json::Value dump_request(const Request& r) {
                 if (t.has_description) tv.set("description", json::Value::string(t.description));
                 tv.set("input_schema", t.input_schema);
             }
+            if (t.strict.has_value()) tv.set("strict", json::Value::boolean(*t.strict));
             if (!t.native.empty()) {
                 json::Value t_nat = json::Value::array();
                 for (const auto& a : t.native) {
@@ -710,6 +722,15 @@ json::Value dump_request(const Request& r) {
     return out;
 }
 
+StatusOr<json::Value> dump_request_checked(const Request& r) {
+    OXA_RETURN_IF_ERROR(validate_tool_strict(r));
+    OXA_RETURN_IF_ERROR(validate_native_request(r));
+    json::Value out = dump_request(r);
+    auto parsed = load_request(out);
+    if (!parsed.ok()) return parsed.status();
+    return out;
+}
+
 StatusOr<Request> load_request(const json::Value& v) {
     if (!v.is_object()) return invalid_argument("request must be an object");
     OXA_RETURN_IF_ERROR(check_spec_version(v));
@@ -772,6 +793,10 @@ StatusOr<Request> load_request(const json::Value& v) {
             }
             if (t.type != "function" && t.type != "custom" && t.type != "native" && t.type != TOOL_TYPE_APPLY_PATCH)
                 return invalid_argument("tool type must be function, custom, native, or apply_patch");
+            if (const auto* strict = tv.find("strict")) {
+                if (t.type != "function" || !strict->is_bool()) return invalid_argument("strict is only allowed as a boolean on function tools");
+                t.strict = strict->as_bool();
+            }
             if (t.type == TOOL_TYPE_APPLY_PATCH) {
                 if (tv.find("name") != nullptr || tv.find("description") != nullptr ||
                     tv.find("input_schema") != nullptr || tv.find("format") != nullptr ||

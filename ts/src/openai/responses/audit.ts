@@ -175,6 +175,7 @@ const TOOL: WireAuditSpec = {
           name: undefined,
           description: undefined,
           parameters: undefined,
+          strict: undefined,
           defer_loading: undefined,
         },
       };

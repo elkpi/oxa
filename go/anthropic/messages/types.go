@@ -124,6 +124,7 @@ type ToolWire struct {
 	Name                string          `json:"name"`
 	Description         string          `json:"description,omitempty"`
 	InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+	Strict              *bool           `json:"strict,omitempty"`
 	CacheControl        json.RawMessage `json:"cache_control,omitempty"`
 	DeferLoading        *bool           `json:"defer_loading,omitempty"`
 	EagerInputStreaming *bool           `json:"eager_input_streaming,omitempty"`
@@ -138,6 +139,7 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 		Name                json.RawMessage `json:"name"`
 		Description         string          `json:"description,omitempty"`
 		InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+		Strict              json.RawMessage `json:"strict,omitempty"`
 		CacheControl        json.RawMessage `json:"cache_control,omitempty"`
 		DeferLoading        json.RawMessage `json:"defer_loading,omitempty"`
 		EagerInputStreaming json.RawMessage `json:"eager_input_streaming,omitempty"`
@@ -165,11 +167,19 @@ func (t *ToolWire) UnmarshalJSON(data []byte) error {
 	}
 	t.Description = s.Description
 	t.InputSchema = s.InputSchema
+	t.Strict = nil
 	t.CacheControl = s.CacheControl
 	if isNativeToolType(t.Type) {
 		t.Raw = append([]byte(nil), data...)
 	} else {
 		t.Raw = nil
+		if len(s.Strict) > 0 {
+			var value bool
+			if string(s.Strict) == "null" || json.Unmarshal(s.Strict, &value) != nil {
+				return fmt.Errorf("anthropic: tool strict must be a boolean")
+			}
+			t.Strict = &value
+		}
 		if len(s.DeferLoading) > 0 {
 			t.rawDeferLoading = s.DeferLoading
 			trimmed := strings.TrimSpace(string(s.DeferLoading))
@@ -214,6 +224,7 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 		Name                string          `json:"name"`
 		Description         string          `json:"description,omitempty"`
 		InputSchema         json.RawMessage `json:"input_schema,omitempty"`
+		Strict              *bool           `json:"strict,omitempty"`
 		CacheControl        json.RawMessage `json:"cache_control,omitempty"`
 		DeferLoading        *bool           `json:"defer_loading,omitempty"`
 		EagerInputStreaming *bool           `json:"eager_input_streaming,omitempty"`
@@ -223,6 +234,7 @@ func (t ToolWire) MarshalJSON() ([]byte, error) {
 		Name:                t.Name,
 		Description:         t.Description,
 		InputSchema:         t.InputSchema,
+		Strict:              t.Strict,
 		CacheControl:        t.CacheControl,
 		DeferLoading:        t.DeferLoading,
 		EagerInputStreaming: t.EagerInputStreaming,

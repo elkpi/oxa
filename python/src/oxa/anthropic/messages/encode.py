@@ -214,6 +214,8 @@ def encode_request(
                 "name": tool.name,
                 "input_schema": tool.input_schema,
             }
+            if tool.strict is not None:
+                t_dict["strict"] = tool.strict
             if tool.description:
                 t_dict["description"] = tool.description
             cc = get_block_cache_control(tool.native)

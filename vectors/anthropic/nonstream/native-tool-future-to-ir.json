@@ -11,7 +11,7 @@
     "model": "m",
     "max_tokens": 32,
     "tools": [
-      {"type":"future_20990101","name":"future","config":{"opaque":[1,true,{"x":"y"}]}}
+      {"type":"future_20990101","name":"future","strict":{"mode":"provider-specific"},"config":{"opaque":[1,true,{"x":"y"}]}}
     ],
     "messages": [
       {
@@ -39,7 +39,7 @@
         "type": "native",
         "name": "future",
         "source": "anthropic",
-        "definition": "{\"type\":\"future_20990101\",\"name\":\"future\",\"config\":{\"opaque\":[1,true,{\"x\":\"y\"}]}}"
+        "definition": "{\"type\":\"future_20990101\",\"name\":\"future\",\"strict\":{\"mode\":\"provider-specific\"},\"config\":{\"opaque\":[1,true,{\"x\":\"y\"}]}}"
       }
     ],
     "params": {

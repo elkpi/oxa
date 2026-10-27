@@ -22,6 +22,9 @@ use crate::types::{
 /// content renders as `instructions`; a sole user text message without system
 /// content renders as the `input` string shorthand (N-R-1 and N-R-2).
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    for tool in req.tools.iter().flatten() {
+        tool.validate_strict().map_err(Error::new)?;
+    }
     let mut losses = Vec::new();
     for (message_index, message) in req.messages.iter().enumerate() {
         for (block_index, block) in message.content.iter().enumerate() {
@@ -585,6 +588,9 @@ fn build_nested_container(
                 if let Some(ref p) = sub_tool.input_schema {
                     m.insert("parameters".into(), p.clone());
                 }
+                if let Some(strict) = sub_tool.strict {
+                    m.insert("strict".into(), serde_json::Value::Bool(strict));
+                }
                 if has_defer {
                     m.insert("defer_loading".into(), serde_json::Value::Bool(true));
                 }
@@ -776,6 +782,7 @@ fn encode_responses_grouped_tools(
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 parameters: tool.input_schema.clone(),
+                strict: tool.strict,
                 defer_loading: if has_defer { Some(true) } else { None },
                 ..ToolDef::default()
             });

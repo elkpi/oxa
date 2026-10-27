@@ -606,6 +606,7 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                         name: name.clone(),
                         description: String::new(),
                         parameters: None,
+                        strict: None,
                         arguments: input.clone(),
                     }),
                     custom: None,

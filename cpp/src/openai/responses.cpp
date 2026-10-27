@@ -744,10 +744,9 @@ Status decode_responses_tool_item(
         if (const auto* pv = t.find("parameters")) tool.input_schema = *pv;
         else tool.input_schema = json::Value::null();
 
-        if (t.find("strict") != nullptr) {
-            losses.push_back(make_resp_loss(
-                path + ".strict", "strict", ir::LOSS_UNMAPPED_FIELD,
-                "Responses function tool strict mode has no IR equivalent in v1."));
+        if (const auto* strict = t.find("strict"); strict && !strict->is_null()) {
+            if (!strict->is_bool()) return invalid_argument("responses: " + path + ".strict must be a boolean or null");
+            tool.strict = strict->as_bool();
         }
 
         if (!path_stack.empty()) {
@@ -1228,6 +1227,7 @@ static json::Value build_nested_container(
                 ft.set("name", json::Value::string(stripped_name));
                 if (sub.has_description && !sub.description.empty()) ft.set("description", json::Value::string(sub.description));
                 ft.set("parameters", sub.input_schema.is_null() ? json::Value::object() : sub.input_schema);
+                if (sub.strict.has_value()) ft.set("strict", json::Value::boolean(*sub.strict));
                 if (has_defer) ft.set("defer_loading", json::Value::boolean(true));
                 child_tools.push_back(std::move(ft));
             }
@@ -1355,6 +1355,7 @@ static json::Value encode_responses_grouped_tools(
                 tw.set("description", json::Value::string(tool.description));
             }
             tw.set("parameters", tool.input_schema.is_null() ? json::Value::object() : tool.input_schema);
+            if (tool.strict.has_value()) tw.set("strict", json::Value::boolean(*tool.strict));
             if (has_defer) tw.set("defer_loading", json::Value::boolean(true));
         }
         out.push_back(std::move(tw));
@@ -1365,6 +1366,7 @@ static json::Value encode_responses_grouped_tools(
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
     if (req.metadata.has_value() && !req.metadata->empty()) {
         losses.push_back(make_resp_loss(

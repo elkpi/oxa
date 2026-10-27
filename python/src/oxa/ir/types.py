@@ -308,8 +308,13 @@ class Tool:
     native: tuple[NativeAnnotation, ...] = ()
     source: str | None = None
     definition: str | None = None
+    strict: bool | None = None
 
     def __post_init__(self) -> None:
+        if self.strict is not None and (
+            not isinstance(self.strict, bool) or self.type != "function"
+        ):
+            raise ValueError("strict is only allowed as a boolean on function tools")
         if not isinstance(self.native, tuple):
             object.__setattr__(self, "native", _normalize_native(self.native))
 

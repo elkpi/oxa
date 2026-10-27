@@ -333,6 +333,7 @@ struct Tool {
     std::vector<NativeAnnotation> native;
     std::optional<std::string> source;
     std::optional<std::string> definition;
+    std::optional<bool> strict;
 };
 
 struct ToolChoice {
@@ -485,10 +486,13 @@ json::Value dump_native_annotation(const NativeAnnotation& ann);
 StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v);
 
 Status validate_native_request(const Request& req);
+Status validate_tool_strict(const Request& req);
 StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
 Status validate_citation_value(std::string_view val);
 
 json::Value dump_request(const Request& r);
+// Checks typed strict/native constraints and validates the serialized request with load_request.
+StatusOr<json::Value> dump_request_checked(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);
 
 json::Value dump_response(const Response& r);

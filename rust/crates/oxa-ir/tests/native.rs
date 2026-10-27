@@ -282,6 +282,7 @@ fn test_validate_native_request_new_kinds() {
             name: "t1".into(),
             description: None,
             input_schema: Some(serde_json::json!({"type": "object"})),
+            strict: None,
             tool_type: None,
             format: None,
             source: None,

@@ -346,7 +346,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				}, seen)
 			}
 			if kind == ToolTypeFunction {
-				return rawObjectSchema(t, []string{"type", "name", "description", "parameters", "defer_loading"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "name", "description", "parameters", "strict", "defer_loading"}, nil, seen)
 			}
 			if isResponsesNativeTool(kind, node) {
 				return &rawJSONSchema{opaque: true}

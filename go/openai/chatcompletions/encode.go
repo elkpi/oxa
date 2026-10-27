@@ -15,6 +15,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
 	}
+	if err := ir.ValidateToolStrict(req); err != nil {
+		return nil, nil, err
+	}
 	var losses []ir.Loss
 	if len(req.Metadata) > 0 {
 		losses = append(losses, loss(
@@ -52,6 +55,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 					Name:        tool.Name,
 					Description: tool.Description,
 					Parameters:  tool.InputSchema,
+					Strict:      tool.Strict,
 				},
 			})
 		}

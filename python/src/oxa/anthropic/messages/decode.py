@@ -141,6 +141,8 @@ def decode_request(
                     )
                     continue
 
+            if "strict" in tool and not isinstance(tool["strict"], bool):
+                raise ValueError(f"anthropic: tools[{index}].strict must be a boolean")
             schema = tool.get("input_schema")
             require_json_object(schema, f"tools[{index}].input_schema")
             desc = tool.get("description")

@@ -115,6 +115,8 @@ def build_nested_container(path_stack: list[dict[str, Any]], tools: list[Tool]) 
                 child_tools.append(c_dict)
             else:
                 c_dict = {"type": TOOL_TYPE_FUNCTION, "name": stripped_name, "parameters": sub_tool.input_schema}
+                if sub_tool.strict is not None:
+                    c_dict["strict"] = sub_tool.strict
                 if sub_tool.description is not None:
                     c_dict["description"] = sub_tool.description
                 if has_defer:
@@ -225,6 +227,8 @@ def encode_responses_grouped_tools(tools: Sequence[Tool], losses: list[Loss]) ->
             if tool.input_schema is None:
                 raise ValueError(f"responses: tools[{len(out)}].input_schema is required")
             t_dict = {"type": TOOL_TYPE_FUNCTION, "name": tool.name, "parameters": tool.input_schema}
+            if tool.strict is not None:
+                t_dict["strict"] = tool.strict
             if tool.description:
                 t_dict["description"] = tool.description
             if has_defer:

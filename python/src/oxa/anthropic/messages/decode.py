@@ -190,7 +190,7 @@ def decode_request(
                     )
                 )
             native = tuple(native_list)
-            if is_custom_tool_input_schema(schema):
+            if "strict" not in tool and is_custom_tool_input_schema(schema):
                 custom_tools.add(name)
                 tools.append(
                     Tool(
@@ -206,6 +206,7 @@ def decode_request(
                         name=name,
                         description=desc if desc else None,
                         input_schema=schema,
+                        strict=tool.get("strict"),
                         native=native,
                     )
                 )

@@ -157,7 +157,7 @@ function decodeRequestObject(
             fn.parameters,
             `tools[${index}].function.parameters`,
           ),
-          ...(fn.strict === undefined
+          ...(fn.strict === undefined || fn.strict === null
             ? {}
             : {
                 strict: boolean(fn.strict, `tools[${index}].function.strict`),

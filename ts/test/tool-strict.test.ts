@@ -26,6 +26,43 @@ test("canonical tool strict preserves omission, false and true", () => {
   assert.deepEqual(encodeRequest(request).tools, tools);
 });
 
+test("OpenAI raw requests normalize null strict and reject other non-booleans", () => {
+  for (const [decode, encode, expectedTool, wire] of [
+    [
+      chat.decodeRequestJSON,
+      responses.encodeRequest,
+      { type: "function", name: "f", parameters: {} },
+      (strict: unknown) => ({
+        model: "m",
+        messages: [{ role: "user", content: "hi" }],
+        tools: [
+          { type: "function", function: { name: "f", parameters: {}, strict } },
+        ],
+      }),
+    ],
+    [
+      responses.decodeRequestJSON,
+      chat.encodeRequest,
+      { type: "function", function: { name: "f", parameters: {} } },
+      (strict: unknown) => ({
+        model: "m",
+        input: "hi",
+        tools: [{ type: "function", name: "f", parameters: {}, strict }],
+      }),
+    ],
+  ] as const) {
+    const result = decode(JSON.stringify(wire(null)));
+    assert.equal(result.value.tools?.[0]?.strict, undefined);
+    assert.deepEqual(result.losses, []);
+    const encoded = encode(result.value);
+    assert.deepEqual(encoded.value.tools, [expectedTool]);
+    assert.deepEqual(encoded.losses, []);
+    for (const value of [0, "true", {}, []]) {
+      assert.throws(() => decode(JSON.stringify(wire(value))));
+    }
+  }
+});
+
 test("direct non-function strict is rejected by all request encoders", () => {
   for (const tool of [
     { type: "custom", name: "x", strict: false },

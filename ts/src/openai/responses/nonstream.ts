@@ -1897,7 +1897,7 @@ function decodeResponsesToolItem(
         ? undefined
         : string(tool.description, `${path}.description`);
     const strict =
-      tool.strict === undefined
+      tool.strict === undefined || tool.strict === null
         ? undefined
         : boolean(tool.strict, `${path}.strict`);
 

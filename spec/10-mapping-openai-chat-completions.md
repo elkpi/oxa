@@ -78,6 +78,12 @@ The wire objects in scope are:
 | `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
 | `logprobs`, `top_logprobs` | — | unmapped-field loss |
 
+For a function declaration, wire `function.strict: null` is normalized to an
+absent `Tool.Strict` without loss, just like an omitted field. A present
+non-null value MUST be a boolean. On encode an absent `Tool.Strict` is omitted;
+this does not preserve the original `null` spelling. Canonical IR continues
+to forbid `null` (spec/01 §2).
+
 On encode (IR → CC), `Request.System` is rendered as exactly one leading
 `role: "system"` message whose string content is the concatenation of all
 system block texts (N-CC-1); `Params.StopSequences` renders as `stop`;

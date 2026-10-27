@@ -100,6 +100,12 @@ The wire objects in scope are:
 | unknown `input[].type` | — | unsupported-semantic loss per item |
 | `Params.StopSequences` (IR side) | — | Responses has no stop parameter; presence records exactly one unmapped-field loss on encode (N-R-7) |
 
+For a function declaration, wire `strict: null` is normalized to an absent
+`Tool.Strict` without loss, including in containers and `additional_tools`.
+A present non-null value MUST be a boolean. On encode an absent `Tool.Strict`
+is omitted; this does not preserve the original `null` spelling. Canonical IR
+continues to forbid `null` (spec/01 §2).
+
 On encode (IR → RE), `Request.System` is rendered as the `instructions`
 string equal to the concatenation of all system block texts (N-R-1). The
 input string shorthand is rendered exactly when there is no system content

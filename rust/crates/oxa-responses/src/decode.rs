@@ -1060,7 +1060,7 @@ fn decode_responses_tool_item(
         seen_names.insert(final_name.clone());
 
         let strict = match obj.get("strict") {
-            None => None,
+            None | Some(serde_json::Value::Null) => None,
             Some(serde_json::Value::Bool(value)) => Some(*value),
             Some(_) => {
                 return Err(Error::new(format!(

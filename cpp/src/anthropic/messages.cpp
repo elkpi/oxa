@@ -675,11 +675,15 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     std::nullopt,
                 });
             }
-            if (is_custom_tool_input_schema(*t.find("input_schema"))) {
+            if (!t.find("strict") && is_custom_tool_input_schema(*t.find("input_schema"))) {
                 tool.type = "custom";
                 custom_tools.insert(tool.name);
             } else {
                 tool.input_schema = *t.find("input_schema");
+                if (const auto* strict = t.find("strict")) {
+                    if (!strict->is_bool()) return invalid_argument(tool_path + ".strict must be a boolean");
+                    tool.strict = strict->as_bool();
+                }
             }
             tools.push_back(std::move(tool));
         }
@@ -898,6 +902,7 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     OXA_RETURN_IF_ERROR(ir::validate_native_request(req));
     std::vector<ir::Loss> losses;
     if (req.metadata.has_value() && !req.metadata->empty()) {
@@ -1020,6 +1025,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 tw.set("description", json::Value::string(t.description));
             }
             tw.set("input_schema", t.input_schema.is_null() ? json::Value::object() : t.input_schema);
+            if (t.strict.has_value()) tw.set("strict", json::Value::boolean(*t.strict));
             if (auto cc = get_block_cache_control(t.native)) {
                 tw.set("cache_control", std::move(*cc));
             }

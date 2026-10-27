@@ -71,3 +71,5 @@ building a standalone package archive).
 stream decoder 新增 `feed(std::string_view)`。解析后的 `json::Value` 也执行字段审计；
 有源文本时按节点 span 合并 losses，并保留 Anthropic tool input 的 `raw_slice()`。
 没有 source span 的程序内构造对象只保证确定性与 canonical encoding。
+
+`ir::dump_request` 返回 `json::Value`，不提供错误返回值；对于直接构造的 IR，调用方应先调用 `ir::validate_tool_strict`。三个 face 的 request encoder 会执行该校验。对非法的非 function 工具，`dump_request` 保留 `strict` 而不是静默删除，因此结果不符合 IR schema，`ir::load_request` 会拒绝它。

@@ -71,6 +71,21 @@ int main() {
     AnthropicConverter ant;
     ResponsesConverter resp;
 
+    {
+        oxa::ir::Request req;
+        req.model = "m";
+        req.messages.push_back({"user", {oxa::ir::TextBlock{"hi"}}});
+        oxa::ir::Tool tool;
+        tool.type = "custom";
+        tool.name = "x";
+        tool.strict = false;
+        req.tools = std::vector<oxa::ir::Tool>{tool};
+        CHECK(!cc.encode_request(req).ok());
+        CHECK(!ant.encode_request(req).ok());
+        CHECK(!resp.encode_request(req).ok());
+        CHECK(!oxa::ir::load_request(oxa::ir::dump_request(req)).ok());
+    }
+
     // 1. Chat Completions nonstream
     {
         auto r = oxa::vectest::run_nonstream(cc);
@@ -81,7 +96,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 56);
+        CHECK(r->executed == 58);
     }
 
     // 2. Anthropic nonstream
@@ -94,7 +109,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 109);
+        CHECK(r->executed == 111);
     }
 
     // 3. Responses nonstream
@@ -107,7 +122,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 148);
+        CHECK(r->executed == 150);
     }
 
     // 4. Cross-protocol nonstream
@@ -121,7 +136,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 47);
+        CHECK(r->executed == 53);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

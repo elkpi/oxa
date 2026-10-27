@@ -363,6 +363,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     tool.description = dv->as_string();
                     tool.has_description = true;
                 }
+                if (const auto* strict = fn->find("strict")) {
+                    if (!strict->is_bool()) return invalid_argument("function strict must be a boolean");
+                    tool.strict = strict->as_bool();
+                }
                 if (const auto* pv = fn->find("parameters")) {
                     tool.input_schema = *pv;
                 } else {
@@ -676,6 +680,7 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
     if (req.metadata.has_value() && !req.metadata->empty()) {
         losses.push_back(make_cc_loss(
@@ -727,6 +732,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             if (!t.input_schema.is_null()) {
                 fn.set("parameters", t.input_schema);
             }
+            if (t.strict.has_value()) fn.set("strict", json::Value::boolean(*t.strict));
             tw.set("function", std::move(fn));
             tools_arr.push_back(std::move(tw));
         }

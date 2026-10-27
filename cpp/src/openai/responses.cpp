@@ -744,8 +744,8 @@ Status decode_responses_tool_item(
         if (const auto* pv = t.find("parameters")) tool.input_schema = *pv;
         else tool.input_schema = json::Value::null();
 
-        if (const auto* strict = t.find("strict")) {
-            if (!strict->is_bool()) return invalid_argument("responses: " + path + ".strict must be a boolean");
+        if (const auto* strict = t.find("strict"); strict && !strict->is_null()) {
+            if (!strict->is_bool()) return invalid_argument("responses: " + path + ".strict must be a boolean or null");
             tool.strict = strict->as_bool();
         }
 

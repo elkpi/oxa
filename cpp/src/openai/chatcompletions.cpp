@@ -363,8 +363,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     tool.description = dv->as_string();
                     tool.has_description = true;
                 }
-                if (const auto* strict = fn->find("strict")) {
-                    if (!strict->is_bool()) return invalid_argument("function strict must be a boolean");
+                if (const auto* strict = fn->find("strict"); strict && !strict->is_null()) {
+                    if (!strict->is_bool()) return invalid_argument("function strict must be a boolean or null");
                     tool.strict = strict->as_bool();
                 }
                 if (const auto* pv = fn->find("parameters")) {

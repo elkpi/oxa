@@ -40,7 +40,8 @@
                   ]
                 },
                 "strict": true
-              }
+              },
+              { "type": "function", "name": "null_value", "parameters": {}, "strict": null }
             ]
           }
         ]
@@ -89,6 +90,16 @@
             }
           }
         ]
+      },
+      {
+        "name": "editor.null_value",
+        "input_schema": {},
+        "native": [{
+          "source": "openai",
+          "kind": "container",
+          "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
+          "omission": { "field": "type", "reason": "degraded", "detail": "tool container grouping was flattened into dotted tool names" }
+        }]
       }
     ]
   },

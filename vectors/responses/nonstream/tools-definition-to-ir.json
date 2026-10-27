@@ -14,7 +14,8 @@
         "description": "Get weather",
         "parameters": { "type": "object", "properties": { "city": { "type": "string" } } },
         "strict": true
-      }
+      },
+      { "type": "function", "name": "null_value", "parameters": {}, "strict": null }
     ],
     "input": "Weather?"
   },
@@ -27,7 +28,8 @@
         "description": "Get weather",
         "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } },
         "strict": true
-      }
+      },
+      { "name": "null_value", "input_schema": {} }
     ],
     "messages": [
       { "role": "user", "content": [{ "type": "text", "text": "Weather?" }] }

@@ -11,7 +11,8 @@
     "tools": [
       { "type": "function", "function": { "name": "omitted", "parameters": {} } },
       { "type": "function", "function": { "name": "false_value", "parameters": {}, "strict": false } },
-      { "type": "function", "function": { "name": "true_value", "parameters": {}, "strict": true } }
+      { "type": "function", "function": { "name": "true_value", "parameters": {}, "strict": true } },
+      { "type": "function", "function": { "name": "null_value", "parameters": {}, "strict": null } }
     ]
   },
   "expected_ir": {
@@ -21,7 +22,8 @@
     "tools": [
       { "name": "omitted", "input_schema": {} },
       { "name": "false_value", "input_schema": {}, "strict": false },
-      { "name": "true_value", "input_schema": {}, "strict": true }
+      { "name": "true_value", "input_schema": {}, "strict": true },
+      { "name": "null_value", "input_schema": {} }
     ]
   },
   "expected_losses": [],

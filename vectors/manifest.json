@@ -1447,7 +1447,7 @@
         "strict",
         "request"
       ],
-      "sha256": "a46d7369fc35ab242295ef21539be966b685c9d1e43d4573a8a159b844cd35f5"
+      "sha256": "4b68559ab1f77a29ee6550fcc5c02a3a247210047b32d78500e476e35397a75e"
     },
     {
       "name": "chatcompletions.nonstream.images-from-ir",
@@ -4153,7 +4153,7 @@
         "container",
         "N-R-15"
       ],
-      "sha256": "63ae3a1b15dacc82a12b0dd015cdd23c77197b12b72608036c0e45535ea0a3a4"
+      "sha256": "4f225d6fabb5a85fac331a49e3f532fe28fdc1af150758b55e89c86d41c7afa2"
     },
     {
       "name": "responses.nonstream.tool-additional-tools-to-ir",
@@ -4272,7 +4272,7 @@
         "namespace",
         "N-R-15"
       ],
-      "sha256": "f732367fddb57675781d01e0fda36fe6be2218fdce654f97d7059599a8f49b2e"
+      "sha256": "3abc80441dcbf244d8a2145a44675d5b48d6ffe345a05b225f1b0c7c6476aa36"
     },
     {
       "name": "responses.nonstream.tool-container-toolbox-from-ir",
@@ -4412,7 +4412,7 @@
         "strict",
         "N-R-8"
       ],
-      "sha256": "582632e3692670305e7170b065369927bf1a78edaa808592aa31aa906918f36a"
+      "sha256": "6f41aba3f79f757610386c4ce3c6bbc3c9838a6776e0fa62de1adeda5e193b8e"
     },
     {
       "name": "responses.nonstream.unknown-item-loss-request-to-ir",

@@ -154,7 +154,23 @@ func validateOpaqueString(raw json.RawMessage) error {
 	return json.Unmarshal(raw, &text)
 }
 
+// ValidateToolStrict rejects strictness on non-function tools.
+func ValidateToolStrict(req *Request) error {
+	if req == nil {
+		return nil
+	}
+	for i, tool := range req.Tools {
+		if tool.Strict != nil && tool.Type != "" && tool.Type != ToolTypeFunction {
+			return fmt.Errorf("ir: tools[%d]: only function tools may carry strict", i)
+		}
+	}
+	return nil
+}
+
 func validateTool(t Tool) error {
+	if t.Strict != nil && t.Type != "" && t.Type != ToolTypeFunction {
+		return fmt.Errorf("ir: only function tools may carry strict")
+	}
 	if err := ValidateNativeTool(t); err != nil {
 		return err
 	}

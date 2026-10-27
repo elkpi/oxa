@@ -247,9 +247,11 @@ func TestDecodeRequestToolConversationAndMerging(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	// one strict loss; tool_choice required -> any is loss-free
-	if len(losses) != 1 || losses[0].Field != "strict" {
+	if len(losses) != 0 {
 		t.Fatalf("losses: %+v", losses)
+	}
+	if len(req.Tools) != 1 || req.Tools[0].Strict == nil || !*req.Tools[0].Strict {
+		t.Fatalf("strict: %+v", req.Tools)
 	}
 	if len(req.Tools) != 1 || req.Tools[0].Name != "weather" || req.ToolChoice == nil || req.ToolChoice.Mode != "any" {
 		t.Fatalf("tools/tool choice: %+v %+v", req.Tools, req.ToolChoice)

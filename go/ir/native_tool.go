@@ -13,7 +13,7 @@ func ValidateNativeTool(tool Tool) error {
 		}
 		return nil
 	}
-	if tool.Name == "" || tool.Source == "" || tool.Description != "" || len(tool.InputSchema) != 0 || tool.Format != nil || len(tool.Native) != 0 {
+	if tool.Name == "" || tool.Source == "" || tool.Description != "" || len(tool.InputSchema) != 0 || tool.Strict != nil || tool.Format != nil || len(tool.Native) != 0 {
 		return fmt.Errorf("ir: native tool requires name/source/definition and cannot carry other tool configuration")
 	}
 	raw := bytes.TrimSpace([]byte(tool.Definition))

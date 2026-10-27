@@ -133,12 +133,7 @@ func decodeToolItem(raw json.RawMessage, pathStack []ContainerEntry, path string
 			Name:        finalName,
 			Description: probe.Description,
 			InputSchema: probe.Parameters,
-		}
-		if probe.Strict != nil {
-			losses = append(losses, loss(
-				path+".strict", "strict", ir.LossUnmappedField,
-				"Responses function tool strict mode has no IR equivalent in v1.",
-			))
+			Strict:      probe.Strict,
 		}
 	default:
 		// Check whether this is a native tool or an unsupported tool
@@ -250,6 +245,7 @@ func buildNestedContainer(pathStack []ContainerEntry, tools []ir.Tool) (ToolDef,
 				Name:        strippedName,
 				Description: subTool.Description,
 				Parameters:  subTool.InputSchema,
+				Strict:      subTool.Strict,
 			}
 			if subTool.Type == ir.ToolTypeCustom {
 				subDef.Type = ToolTypeCustom
@@ -388,6 +384,7 @@ func encodeGroupedTools(tools []ir.Tool) ([]ToolDef, []ir.Loss, error) {
 					Name:        strippedName,
 					Description: subTool.Description,
 					Parameters:  subTool.InputSchema,
+					Strict:      subTool.Strict,
 				}
 				if subTool.Type == ir.ToolTypeCustom {
 					subDef.Type = ToolTypeCustom
@@ -422,6 +419,7 @@ func encodeGroupedTools(tools []ir.Tool) ([]ToolDef, []ir.Loss, error) {
 			Name:        tool.Name,
 			Description: tool.Description,
 			Parameters:  tool.InputSchema,
+			Strict:      tool.Strict,
 		}
 		if tool.Type == ir.ToolTypeCustom {
 			tDef.Type = ToolTypeCustom

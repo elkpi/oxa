@@ -83,6 +83,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Name:        tool.Function.Name,
 			Description: tool.Function.Description,
 			InputSchema: tool.Function.Parameters,
+			Strict:      tool.Function.Strict,
 		})
 	}
 	choice, choiceLosses := decodeToolChoice(wire.ToolChoice)

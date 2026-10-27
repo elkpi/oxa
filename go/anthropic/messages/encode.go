@@ -28,6 +28,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil request")
 	}
+	if err := ir.ValidateToolStrict(req); err != nil {
+		return nil, nil, err
+	}
 	if err := ir.ValidateNativeRequest(req); err != nil {
 		return nil, nil, err
 	}
@@ -131,6 +134,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+			Strict:      tool.Strict,
 		}
 		if cc := getBlockCacheControl(tool); len(cc) > 0 {
 			tw.CacheControl = cc

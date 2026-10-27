@@ -126,7 +126,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				Omission: om,
 			})
 		}
-		if isCustomToolInputSchema(tool.InputSchema) {
+		if tool.Strict == nil && isCustomToolInputSchema(tool.InputSchema) {
 			customTools[tool.Name] = true
 			req.Tools = append(req.Tools, ir.Tool{
 				Type:        ir.ToolTypeCustom,
@@ -140,6 +140,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Name:        tool.Name,
 			Description: tool.Description,
 			InputSchema: tool.InputSchema,
+			Strict:      tool.Strict,
 			Native:      nat,
 		})
 	}

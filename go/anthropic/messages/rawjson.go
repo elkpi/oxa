@@ -508,7 +508,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		}
 		return schema
 	case reflect.TypeOf(ToolWire{}):
-		return rawObjectSchema(t, []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
+		return rawObjectSchema(t, []string{"type", "name", "description", "input_schema", "strict", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
 	case reflect.TypeOf(ToolChoiceWire{}):
 		return rawObjectSchema(t, []string{"type", "name", "disable_parallel_tool_use"}, nil, seen)
 	case reflect.TypeOf(ThinkingWire{}):
@@ -641,7 +641,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 						if hasType && typeField != "" && typeField != ir.ToolTypeFunction && typeField != ir.ToolTypeCustom {
 							return &rawJSONSchema{}
 						}
-						return rawObjectSchema(reflect.TypeOf(ToolWire{}), []string{"type", "name", "description", "input_schema", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
+						return rawObjectSchema(reflect.TypeOf(ToolWire{}), []string{"type", "name", "description", "input_schema", "strict", "cache_control", "defer_loading", "eager_input_streaming"}, nil, seen)
 					},
 				},
 			}

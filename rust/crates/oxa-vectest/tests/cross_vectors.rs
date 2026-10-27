@@ -91,6 +91,16 @@ fn assert_cross(source: &dyn Converter, target: &dyn Converter, expected: usize)
 }
 
 #[test]
+fn typed_non_function_strict_is_rejected_by_encoders() {
+    let mut req: oxa_ir::Request = oxa_ir::from_json(r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"type":"custom","name":"x"}]}"#).unwrap();
+    req.tools.as_mut().unwrap()[0].strict = Some(false);
+    assert!(oxa_ir::to_json(&req).is_err());
+    assert!(anthropic::encode_request(&req, &anthropic::Config::default()).is_err());
+    assert!(chatcompletions::encode_request(&req, &chatcompletions::Config::default()).is_err());
+    assert!(responses::encode_request(&req, &responses::Config::default()).is_err());
+}
+
+#[test]
 fn nonstream_cross_vectors() {
     let anthropic = Anthropic {
         config: anthropic::Config::default(),
@@ -102,11 +112,11 @@ fn nonstream_cross_vectors() {
         config: responses::Config::default(),
     };
 
-    assert_cross(&anthropic, &chatcompletions, 14);
-    assert_cross(&anthropic, &responses, 10);
+    assert_cross(&anthropic, &chatcompletions, 15);
+    assert_cross(&anthropic, &responses, 11);
     assert_cross(&anthropic, &anthropic, 2);
-    assert_cross(&chatcompletions, &anthropic, 5);
-    assert_cross(&chatcompletions, &responses, 3);
-    assert_cross(&responses, &anthropic, 7);
-    assert_cross(&responses, &chatcompletions, 6);
+    assert_cross(&chatcompletions, &anthropic, 6);
+    assert_cross(&chatcompletions, &responses, 4);
+    assert_cross(&responses, &anthropic, 8);
+    assert_cross(&responses, &chatcompletions, 7);
 }

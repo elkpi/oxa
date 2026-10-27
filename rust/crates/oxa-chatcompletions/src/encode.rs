@@ -21,6 +21,9 @@ use crate::types::{
 /// System content renders as one leading system message; text content remains
 /// a string while image input renders as content parts.
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    for tool in req.tools.iter().flatten() {
+        tool.validate_strict().map_err(Error::new)?;
+    }
     let mut losses = Vec::new();
     if req
         .metadata
@@ -95,6 +98,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                             .unwrap_or(&serde_json::Value::Null),
                     ),
                     arguments: String::new(),
+                    strict: tool.strict,
                 }),
                 custom: None,
             });

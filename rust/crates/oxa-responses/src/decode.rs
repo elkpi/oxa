@@ -925,6 +925,7 @@ fn decode_responses_tool_item(
             name: String::new(),
             description: None,
             input_schema: None,
+            strict: None,
             format: None,
             native: Vec::new(),
             source: None,
@@ -1031,6 +1032,7 @@ fn decode_responses_tool_item(
             name: final_name,
             description: desc,
             input_schema: None,
+            strict: None,
             format,
             native,
             source: None,
@@ -1057,14 +1059,15 @@ fn decode_responses_tool_item(
         }
         seen_names.insert(final_name.clone());
 
-        if obj.get("strict").is_some() {
-            losses.push(loss(
-                format!("{path}.strict"),
-                "strict",
-                LossReason::UnmappedField,
-                "Responses function tool strict mode has no IR equivalent in v1.",
-            ));
-        }
+        let strict = match obj.get("strict") {
+            None => None,
+            Some(serde_json::Value::Bool(value)) => Some(*value),
+            Some(_) => {
+                return Err(Error::new(format!(
+                    "responses: {path}.strict must be a boolean"
+                )));
+            }
+        };
 
         let mut native = Vec::new();
         if !path_stack.is_empty() {
@@ -1116,6 +1119,7 @@ fn decode_responses_tool_item(
             name: final_name,
             description: desc,
             input_schema: obj.get("parameters").cloned(),
+            strict,
             format: None,
             native,
             source: None,
@@ -1158,6 +1162,7 @@ fn decode_responses_tool_item(
             name: tool_name.to_string(),
             description: None,
             input_schema: None,
+            strict: None,
             format: None,
             native: Vec::new(),
             source: Some("openai".into()),

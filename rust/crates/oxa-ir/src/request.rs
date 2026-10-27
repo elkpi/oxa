@@ -347,43 +347,79 @@ impl std::fmt::Debug for Block {
 
 /// A function or custom tool definition (spec/01 §3.5). Absent `tool_type`
 /// means the legacy function declaration and retains its historical JSON shape.
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Tool {
-    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
     pub tool_type: Option<ToolType>,
-    #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
     pub name: String,
-    #[serde(
-        rename = "description",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
     pub description: Option<String>,
-    #[serde(
-        rename = "input_schema",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
     pub input_schema: Option<Value>,
-    #[serde(rename = "format", default, skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
     pub format: Option<CustomToolFormat>,
-    #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
     pub native: Vec<NativeAnnotation>,
-    #[serde(rename = "source", default, skip_serializing_if = "Option::is_none")]
     pub source: Option<String>,
-    #[serde(
-        rename = "definition",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
     pub definition: Option<String>,
 }
 
+impl Serialize for Tool {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        self.validate_strict().map_err(serde::ser::Error::custom)?;
+        let len = usize::from(self.tool_type.is_some())
+            + usize::from(!self.name.is_empty())
+            + usize::from(self.description.is_some())
+            + usize::from(self.input_schema.is_some())
+            + usize::from(self.strict.is_some())
+            + usize::from(self.format.is_some())
+            + usize::from(!self.native.is_empty())
+            + usize::from(self.source.is_some())
+            + usize::from(self.definition.is_some());
+        let mut s = serializer.serialize_struct("Tool", len)?;
+        if let Some(value) = &self.tool_type {
+            s.serialize_field("type", value)?;
+        }
+        if !self.name.is_empty() {
+            s.serialize_field("name", &self.name)?;
+        }
+        if let Some(value) = &self.description {
+            s.serialize_field("description", value)?;
+        }
+        if let Some(value) = &self.input_schema {
+            s.serialize_field("input_schema", value)?;
+        }
+        if let Some(value) = self.strict {
+            s.serialize_field("strict", &value)?;
+        }
+        if let Some(value) = &self.format {
+            s.serialize_field("format", value)?;
+        }
+        if !self.native.is_empty() {
+            s.serialize_field("native", &self.native)?;
+        }
+        if let Some(value) = &self.source {
+            s.serialize_field("source", value)?;
+        }
+        if let Some(value) = &self.definition {
+            s.serialize_field("definition", value)?;
+        }
+        s.end()
+    }
+}
+
 impl Tool {
-    /// Validates the native-tool boundaries (spec/16 N-NT-1): only native
-    /// tools may carry source/definition, and the definition must be a JSON
-    /// object whose native type and name match the outer declaration.
+    /// Checks that strictness is only present on function tools.
+    pub fn validate_strict(&self) -> Result<(), String> {
+        if self.strict.is_some() && !matches!(self.tool_type, None | Some(ToolType::Function)) {
+            return Err("ir: strict is only allowed on function tools".into());
+        }
+        Ok(())
+    }
+
+    /// Validates strictness and native-tool boundaries (spec/16 N-NT-1).
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_strict()?;
         if self.tool_type == Some(ToolType::Native) {
             if self.name.is_empty()
                 || self.source.as_deref().is_none_or(str::is_empty)
@@ -427,6 +463,13 @@ impl Tool {
     }
 }
 
+fn deserialize_tool_strict<'de, D>(deserializer: D) -> Result<Option<bool>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    bool::deserialize(deserializer).map(Some)
+}
+
 impl<'de> Deserialize<'de> for Tool {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -443,6 +486,8 @@ impl<'de> Deserialize<'de> for Tool {
             description: Option<String>,
             #[serde(rename = "input_schema", default)]
             input_schema: Option<Value>,
+            #[serde(default, deserialize_with = "deserialize_tool_strict")]
+            strict: Option<bool>,
             #[serde(rename = "format", default)]
             format: Option<CustomToolFormat>,
             #[serde(rename = "native", default)]
@@ -458,6 +503,7 @@ impl<'de> Deserialize<'de> for Tool {
             name: raw.name,
             description: raw.description,
             input_schema: raw.input_schema,
+            strict: raw.strict,
             format: raw.format,
             native: raw.native,
             source: raw.source,

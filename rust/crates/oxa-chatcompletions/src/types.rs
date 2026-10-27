@@ -143,6 +143,8 @@ pub struct FunctionWire {
     pub description: String,
     #[serde(rename = "parameters", skip_serializing_if = "Option::is_none")]
     pub parameters: Option<Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict: Option<bool>,
     #[serde(rename = "arguments", skip_serializing_if = "String::is_empty")]
     pub arguments: String,
 }

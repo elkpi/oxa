@@ -606,6 +606,7 @@ fn test_grammar_format_loss_on_anthropic_encode() {
             name: "calc".to_string(),
             description: None,
             input_schema: None,
+            strict: None,
             format: Some(oxa_ir::CustomToolFormat {
                 format_type: "grammar".to_string(),
                 syntax: Some("regex".to_string()),

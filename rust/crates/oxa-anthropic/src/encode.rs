@@ -37,6 +37,9 @@ const DEFAULT_MAX_TOKENS: i64 = 4096;
 /// text block and that carries no system prompt; every other request renders
 /// block arrays.
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    for tool in req.tools.iter().flatten() {
+        tool.validate_strict().map_err(Error::new)?;
+    }
     oxa_ir::validate_native_request(req).map_err(|e| Error::new(e.to_string()))?;
     let mut losses = Vec::new();
     if req
@@ -148,6 +151,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "properties": {"input": {"type": "string"}},
                         "required": ["input"],
                     })),
+                    strict: None,
                     cache_control,
                     defer_loading,
                     eager_input_streaming,
@@ -183,6 +187,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 name: tool.name.clone(),
                 description: tool.description.clone().unwrap_or_default(),
                 input_schema: Some(schema_val.clone()),
+                strict: tool.strict,
                 cache_control,
                 defer_loading,
                 eager_input_streaming,

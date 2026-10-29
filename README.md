@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.4.11 (v2.4.12 prepared).** Implements Spec 2.4.12 across Go,
-TypeScript, Rust, Python, and C++, and validates all 418 shared golden vectors.
+**Latest coordinated release: v2.4.12; v2.4.13 is in development.** The source tree targets Spec 2.4.13 across Go,
+TypeScript, Rust, Python, and C++, using 425 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,36 +54,36 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.4.12 | 2.4.11           |
-| TypeScript | `ts/`     | 2.4.12 | 2.4.11           |
-| Rust       | `rust/`   | 2.4.12 | 2.4.11           |
-| Python     | `python/` | 2.4.12 | 2.4.11           |
-| C++        | `cpp/`    | 2.4.12 | 2.4.11           |
+| Go         | `go/`     | 2.4.13 | 2.4.12           |
+| TypeScript | `ts/`     | 2.4.13 | 2.4.12           |
+| Rust       | `rust/`   | 2.4.13 | 2.4.12           |
+| Python     | `python/` | 2.4.13 | 2.4.12           |
+| C++        | `cpp/`    | 2.4.13 | 2.4.12           |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.4.12 prepared)
-ts/        TypeScript implementation (v2.4.12 prepared)
+go/        Go reference implementation (v2.4.13 in development)
+ts/        TypeScript implementation (v2.4.13 in development)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.4.12 prepared)
-python/    Python implementation (v2.4.12 prepared)
-cpp/       C++ implementation (v2.4.12 prepared)
+rust/      Rust implementation (v2.4.13 in development)
+python/    Python implementation (v2.4.13 in development)
+cpp/       C++ implementation (v2.4.13 in development)
 ```
 
 ## Current capabilities
 
-Implements Spec 2.4.12 across Go, TypeScript, Rust,
+The source tree targets Spec 2.4.13 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). Coordinated release v2.4.12 is prepared.
+representation (IR). Coordinated release v2.4.13 is in development.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Chat Completions ↔ IR   | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + `tool_calls` aggregation |
 | Responses ↔ IR          | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + function-call aggregation |
-| Anthropic Messages ↔ IR | requests and responses (thinking, usage; structured formats reported lost) | text + thinking/signature events + `input_json_delta` aggregation |
+| Anthropic Messages ↔ IR | requests and responses (thinking, usage, JSON Schema structured output) | text + thinking/signature events + `input_json_delta` aggregation |
 | Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`)            |
 
 Semantic gaps are never silent: every conversion also returns an ordered
@@ -107,6 +107,18 @@ Go/Rust 的旧 typed API 无法恢复已经被调用方反序列化丢弃的属�
 | Rust | `decode_request_json` / `decode_response_json` | `feed_json` |
 | Python | `decode_request_json` / `decode_response_json` | `feed_json` |
 | C++ | existing `std::string_view` decode overloads | `feed(std::string_view)` |
+
+对于结构化输出的 schema 原文，请使用对应的无损 JSON 文本路径；通用 JSON 序列化器可能重排或压缩 schema：
+
+| Language | canonical IR 文本编解码 | Anthropic 请求文本编码 |
+| -------- | ---------------------- | ---------------------- |
+| Go | `ir.MarshalRequest` / `ir.UnmarshalRequest` | `messages.EncodeRequestJSON` |
+| TypeScript | `ir.encodeRequest` / `ir.decodeRequest` 与 `stringifyJson` / `parseJson` | `stringifyJson(messages.encodeRequest(req).value)` |
+| Rust | `oxa_ir::request_to_json` / `request_from_json` | `oxa_anthropic::encode_request_json` |
+| Python | `oxa.ir.dump_request_json` / `load_request` | `oxa.anthropic.messages.encode_request_json` |
+| C++ | `ir::dump_request_json` 与 `json::parse_lossless` / `ir::load_request` | `anthropic::messages::encode_request_json` |
+
+Anthropic 原生 schema 没有 `name`；编码到要求名称的 OpenAI 面时，OXA 不会合成名称，而是省略格式并报损。Anthropic 请求的 `stream` 传输标记目前仍按既有规则单独报 `unmapped-field`，不改变 schema 映射。
 
 OXA IR 是转换用的受限投影，不是业务运行时的完整模型。它没有运行时 error event、
 server/custom-tool 生命周期或 compaction 语义；`MessageDone` 只表示 IR 流结束，
@@ -153,7 +165,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.1.1`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.4.12`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

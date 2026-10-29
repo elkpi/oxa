@@ -493,6 +493,7 @@ Status validate_citation_value(std::string_view val);
 json::Value dump_request(const Request& r);
 // Checks typed strict/native constraints and validates the serialized request with load_request.
 StatusOr<json::Value> dump_request_checked(const Request& r);
+StatusOr<std::string> dump_request_json(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);
 
 json::Value dump_response(const Response& r);

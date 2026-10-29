@@ -10,8 +10,10 @@ namespace {
 
 class Parser {
 public:
-    explicit Parser(std::string_view text)
-        : source_(std::make_shared<std::string>(text)), text_(*source_) {}
+    explicit Parser(std::string_view text, bool allow_raw_numbers = false,
+                    std::vector<std::string_view> raw_number_path = {})
+        : source_(std::make_shared<std::string>(text)), text_(*source_),
+          allow_raw_numbers_(allow_raw_numbers), raw_number_path_(std::move(raw_number_path)) {}
 
     StatusOr<Value> parse_document() {
         skip_ws();
@@ -28,7 +30,18 @@ private:
 
     std::shared_ptr<const std::string> source_;
     std::string_view text_;
+    bool allow_raw_numbers_ = false;
+    std::vector<std::string_view> raw_number_path_;
+    std::vector<std::string> path_;
     std::size_t pos_ = 0;
+
+    bool raw_number_allowed() const noexcept {
+        if (!allow_raw_numbers_ || path_.size() < raw_number_path_.size()) return false;
+        for (std::size_t i = 0; i < raw_number_path_.size(); ++i) {
+            if (path_[i] != raw_number_path_[i]) return false;
+        }
+        return true;
+    }
 
     char peek() const noexcept { return pos_ < text_.size() ? text_[pos_] : '\0'; }
 
@@ -99,7 +112,9 @@ private:
             skip_ws();
             OXA_RETURN_IF_ERROR(expect(':'));
             skip_ws();
+            path_.push_back(key);
             OXA_ASSIGN_OR_RETURN(Value v, parse_value(depth + 1));
+            path_.pop_back();
             if (obj.find(key) != obj.end()) {
                 return invalid_argument("json: duplicate object key: " + key);
             }
@@ -300,6 +315,7 @@ private:
                 return finish(Value::integer(out), start);
             }
             if (ec == std::errc::result_out_of_range) {
+                if (raw_number_allowed()) return finish(Value::raw(std::string(tok)), start);
                 return resource_exhausted("json: integer out of range");
             }
             return invalid_argument("json: invalid integer");
@@ -307,6 +323,7 @@ private:
         double d = 0;
         auto [ptr2, ec2] = std::from_chars(tok.data(), tok.data() + tok.size(), d);
         if (ec2 != std::errc()) {
+            if (ec2 == std::errc::result_out_of_range && raw_number_allowed()) return finish(Value::raw(std::string(tok)), start);
             return invalid_argument("json: invalid number");
         }
         return finish(Value::real(d), start);
@@ -402,9 +419,12 @@ bool equal_numbers(const Value& a, const Value& b) {
 
 bool equal_values(const Value& a, const Value& b) {
     if (a.is_raw() || b.is_raw()) {
-        auto pa_res = a.is_raw() ? parse(a.as_raw_text()) : StatusOr<Value>(a);
-        auto pb_res = b.is_raw() ? parse(b.as_raw_text()) : StatusOr<Value>(b);
+        auto pa_res = a.is_raw() ? parse_lossless(a.as_raw_text()) : StatusOr<Value>(a);
+        auto pb_res = b.is_raw() ? parse_lossless(b.as_raw_text()) : StatusOr<Value>(b);
         if (!pa_res.ok() || !pb_res.ok()) return false;
+        if (pa_res->is_raw() || pb_res->is_raw()) {
+            return pa_res->is_raw() && pb_res->is_raw() && pa_res->as_raw_text() == pb_res->as_raw_text();
+        }
         return equal_values(*pa_res, *pb_res);
     }
     if (a.is_object() && b.is_object()) {
@@ -442,10 +462,31 @@ StatusOr<Value> parse(std::string_view text) {
     return Parser(text).parse_document();
 }
 
+StatusOr<Value> parse_lossless(std::string_view text) {
+    return Parser(text, true).parse_document();
+}
+
+StatusOr<Value> parse_preserving_schema(std::string_view text, std::vector<std::string_view> path) {
+    return Parser(text, true, std::move(path)).parse_document();
+}
+
 std::string serialize(const Value& v) {
     std::string out;
     serialize_to(out, v);
     return out;
+}
+
+StatusOr<Value> preserve_source(const Value& v) {
+    const auto raw = v.raw_slice();
+    if (raw.empty() || v.is_raw()) {
+        if (!parse_lossless(serialize(v)).ok()) return invalid_argument("JSON value contains invalid raw text");
+        return v;
+    }
+    auto parsed = parse_lossless(raw);
+    if (!parsed.ok() || !equal_values(*parsed, v)) {
+        return invalid_argument("JSON source no longer matches value");
+    }
+    return Value::raw(std::string(raw));
 }
 
 bool structurally_equal(const Value& a, const Value& b) {

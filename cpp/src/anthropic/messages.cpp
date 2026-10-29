@@ -896,7 +896,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const 
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
                                                  const Options& opts) {
-    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse(wire_json));
+    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse_preserving_schema(wire_json, {"output_config", "format", "schema"}));
     return decode_request(v, opts);
 }
 
@@ -1419,16 +1419,41 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
             out.set("stop_sequences", std::move(stops));
         }
-        if (p.response_format.has_value()) {
-            losses.push_back(make_ant_loss(
-                "params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD,
-                "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."));
-        }
     }
 
     OXA_RETURN_IF_ERROR(encode_request_native(req, out, losses));
+    if (req.params && req.params->response_format) {
+        const auto& rf = *req.params->response_format;
+        if (rf.type == "json_schema") {
+            if (!rf.schema || !rf.schema->is_object()) return invalid_argument("anthropic: response format schema must be an object");
+            json::Value config = out.find("output_config") ? *out.find("output_config") : json::Value::object();
+            json::Value format = json::Value::object();
+            format.set("type", json::Value::string("json_schema"));
+            format.set("schema", *rf.schema);
+            config.set("format", std::move(format));
+            out.set("output_config", std::move(config));
+            if (!rf.name.empty()) losses.push_back(make_ant_loss("params.response_format.name", "name", ir::LOSS_UNMAPPED_FIELD, ""));
+            if (rf.description && !rf.description->empty()) losses.push_back(make_ant_loss("params.response_format.description", "description", ir::LOSS_UNMAPPED_FIELD, ""));
+            if (rf.strict) losses.push_back(make_ant_loss("params.response_format.strict", "strict", ir::LOSS_UNMAPPED_FIELD, ""));
+        } else {
+            losses.push_back(make_ant_loss("params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD, ""));
+        }
+    }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
+}
+
+StatusOr<Conversion<std::string>> encode_request_json(const ir::Request& req, const Options& opts) {
+    OXA_ASSIGN_OR_RETURN(auto encoded, encode_request(req, opts));
+    if (req.params && req.params->response_format && req.params->response_format->type == "json_schema" && req.params->response_format->schema) {
+        OXA_ASSIGN_OR_RETURN(json::Value schema, json::preserve_source(*req.params->response_format->schema));
+        auto* config = encoded.value.find("output_config");
+        auto* format = config ? config->find("format") : nullptr;
+        auto* target = format ? format->find("schema") : nullptr;
+        if (!target) return invalid_argument("anthropic: response schema missing from encoded request");
+        *target = std::move(schema);
+    }
+    return Conversion<std::string>{json::serialize(encoded.value), std::move(encoded.losses)};
 }
 
 static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::Value& wire,

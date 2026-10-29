@@ -1159,7 +1159,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const 
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
                                                  const Options& opts) {
-    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse(wire_json));
+    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse_preserving_schema(wire_json, {"text", "format", "schema"}));
     return decode_request(v, opts);
 }
 
@@ -1695,19 +1695,23 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;
-            json::Value format = json::Value::object();
-            format.set("type", json::Value::string(rf.type));
-            if (rf.type == "json_schema") {
-                format.set("name", json::Value::string(rf.name));
-                if (rf.description.has_value()) {
-                    format.set("description", json::Value::string(*rf.description));
+            if (rf.type == "json_schema" && rf.name.empty()) {
+                losses.push_back(make_resp_loss("params.response_format", "name", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses requires a non-empty schema name"));
+            } else {
+                json::Value format = json::Value::object();
+                format.set("type", json::Value::string(rf.type));
+                if (rf.type == "json_schema") {
+                    format.set("name", json::Value::string(rf.name));
+                    if (rf.description.has_value()) {
+                        format.set("description", json::Value::string(*rf.description));
+                    }
+                    if (rf.schema.has_value()) format.set("schema", *rf.schema);
+                    if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
                 }
-                if (rf.schema.has_value()) format.set("schema", *rf.schema);
-                if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
+                json::Value text = json::Value::object();
+                text.set("format", std::move(format));
+                out.set("text", std::move(text));
             }
-            json::Value text = json::Value::object();
-            text.set("format", std::move(format));
-            out.set("text", std::move(text));
         }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(

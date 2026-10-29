@@ -703,7 +703,7 @@ json::Value dump_request(const Request& r) {
             json::Value format = json::Value::object();
             format.set("type", json::Value::string(rf.type));
             if (rf.type == "json_schema") {
-                format.set("name", json::Value::string(rf.name));
+                if (!rf.name.empty()) format.set("name", json::Value::string(rf.name));
                 if (rf.description.has_value()) {
                     format.set("description", json::Value::string(*rf.description));
                 }
@@ -729,6 +729,19 @@ StatusOr<json::Value> dump_request_checked(const Request& r) {
     auto parsed = load_request(out);
     if (!parsed.ok()) return parsed.status();
     return out;
+}
+
+StatusOr<std::string> dump_request_json(const Request& r) {
+    OXA_ASSIGN_OR_RETURN(json::Value out, dump_request_checked(r));
+    if (r.params && r.params->response_format && r.params->response_format->type == "json_schema" && r.params->response_format->schema) {
+        OXA_ASSIGN_OR_RETURN(json::Value schema, json::preserve_source(*r.params->response_format->schema));
+        auto* params = out.find("params");
+        auto* format = params ? params->find("response_format") : nullptr;
+        auto* target = format ? format->find("schema") : nullptr;
+        if (!target) return invalid_argument("IR response schema missing from encoded request");
+        *target = std::move(schema);
+    }
+    return json::serialize(out);
 }
 
 StatusOr<Request> load_request(const json::Value& v) {
@@ -943,10 +956,12 @@ StatusOr<Request> load_request(const json::Value& v) {
             response_format.type = type->as_string();
             if (response_format.type == "json_schema") {
                 const json::Value* name = f->find("name");
-                if (name == nullptr || !name->is_string() || name->as_string().empty()) {
-                    return invalid_argument("params response_format json_schema requires non-empty name");
+                if (name != nullptr) {
+                    if (!name->is_string() || name->as_string().empty()) {
+                        return invalid_argument("params response_format json_schema name must be non-empty when present");
+                    }
+                    response_format.name = name->as_string();
                 }
-                response_format.name = name->as_string();
                 const json::Value* description = f->find("description");
                 if (description != nullptr) {
                     if (!description->is_string()) {

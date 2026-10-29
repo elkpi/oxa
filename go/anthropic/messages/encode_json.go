@@ -41,8 +41,7 @@ func EncodeRequestJSON(req *ir.Request, opts ...Option) ([]byte, []ir.Loss, erro
 	if node == nil {
 		return nil, nil, fmt.Errorf("anthropic: encoded schema not found")
 	}
-	result := make([]byte, 0, len(encoded)-(node.end-node.start)+len(req.Params.ResponseFormat.Schema))
-	result = append(result, encoded[:node.start]...)
+	result := append([]byte(nil), encoded[:node.start]...)
 	result = append(result, req.Params.ResponseFormat.Schema...)
 	result = append(result, encoded[node.end:]...)
 	return result, losses, nil

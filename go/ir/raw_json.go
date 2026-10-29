@@ -40,8 +40,7 @@ func replaceRawJSONValue(document []byte, path []string, raw json.RawMessage) ([
 			return nil, fmt.Errorf("ir: encoded JSON field %q not found", key)
 		}
 	}
-	result := make([]byte, 0, len(document)-(end-start)+len(raw))
-	result = append(result, document[:start]...)
+	result := append([]byte(nil), document[:start]...)
 	result = append(result, raw...)
 	result = append(result, document[end:]...)
 	return result, nil

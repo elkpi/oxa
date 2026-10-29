@@ -1,6 +1,7 @@
 import { OxaError } from "../error.js";
 import {
   isJsonNumber,
+  markSourceObject,
   type JsonInput,
   type JsonNumber,
   type JsonObject,
@@ -36,6 +37,7 @@ export function withSourceText(
   source: JsonText,
 ): JsonObject {
   sourceTexts.set(value, source);
+  markSourceObject(value);
   return value;
 }
 

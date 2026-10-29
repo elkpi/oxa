@@ -59,6 +59,7 @@ function decodeNativeAnnotation(value: JsonValue): NativeAnnotation {
 }
 import { OxaError } from "../error.js";
 import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -956,13 +957,14 @@ function encodeResponseFormat(format: ResponseFormat): JsonObject {
     case "json_object":
       return { type: "json_object" };
     case "json_schema":
+      assertSourceMatches(format.schema);
       return {
         type: "json_schema",
-        name: format.name,
+        ...(format.name === undefined ? {} : { name: format.name }),
         ...(format.description === undefined
           ? {}
           : { description: format.description }),
-        schema: { ...format.schema },
+        schema: format.schema,
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
   }
@@ -979,7 +981,9 @@ function decodeResponseFormat(value: JsonValue): ResponseFormat {
     case "json_schema":
       return {
         type: "json_schema",
-        name: nonEmptyString(rf.name, "params.response_format.name"),
+        ...(rf.name === undefined
+          ? {}
+          : { name: nonEmptyString(rf.name, "params.response_format.name") }),
         ...(rf.description === undefined
           ? {}
           : {

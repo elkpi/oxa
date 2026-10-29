@@ -1,5 +1,6 @@
 import { OxaError } from "../../error.js";
 import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -701,6 +702,10 @@ export function encodeRequest(
           undefined)
         : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
+  const format = params?.response_format;
+  const unnamedSchema = format?.type === "json_schema" && !format.name;
+  if (unnamedSchema)
+    losses.push(loss("params.response_format", "name", "unsupported-semantic"));
   const hasMaxCompletionTokens = request.native?.some(
     (n) => n.source === "openai" && n.kind === "max_completion_tokens",
   );
@@ -769,9 +774,9 @@ export function encodeRequest(
     ...(params?.reasoning_effort === undefined
       ? {}
       : { reasoning_effort: params.reasoning_effort }),
-    ...(params?.response_format === undefined
+    ...(format === undefined || unnamedSchema
       ? {}
-      : { response_format: encodeResponseFormat(params.response_format) }),
+      : { response_format: encodeResponseFormat(format) }),
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
   };
@@ -1191,9 +1196,11 @@ function decodeResponseFormat(
       return { type: "json_object" };
     case "json_schema": {
       const schema = object(format.json_schema, "response_format.json_schema");
+      const name = string(schema.name, "response_format.json_schema.name");
+      if (!name) fail("response_format.json_schema.name must be non-empty");
       return {
         type: "json_schema",
-        name: string(schema.name, "response_format.json_schema.name"),
+        name,
         ...(schema.description === undefined
           ? {}
           : {
@@ -1226,10 +1233,11 @@ function encodeResponseFormat(format: ResponseFormat): JsonObject {
     case "json_object":
       return { type: "json_object" };
     case "json_schema":
+      assertSourceMatches(format.schema);
       return {
         type: "json_schema",
         json_schema: {
-          name: format.name,
+          name: format.name!,
           ...(format.description === undefined
             ? {}
             : { description: format.description }),

@@ -199,7 +199,7 @@ export type IrSchemaTool = { readonly type?: "function"; readonly name: string; 
 
 export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom" | "native"; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; };
 
-export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
+export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name?: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
 
 export interface IrSchemaParams {
   readonly temperature?: number;

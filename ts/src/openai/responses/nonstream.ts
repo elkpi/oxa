@@ -1,5 +1,6 @@
 import { OxaError } from "../../error.js";
 import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -1130,6 +1131,10 @@ export function encodeRequest(
           undefined)
         : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
+  const format = params?.response_format;
+  const unnamedSchema = format?.type === "json_schema" && !format.name;
+  if (unnamedSchema)
+    losses.push(loss("params.response_format", "name", "unsupported-semantic"));
   if (params?.stop_sequences !== undefined && params.stop_sequences.length > 0)
     losses.push(
       loss("params.stop_sequences", "stop_sequences", "unmapped-field"),
@@ -1170,9 +1175,9 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning: { effort: params.reasoning_effort } }),
-      ...(params?.response_format === undefined
+      ...(format === undefined || unnamedSchema
         ? {}
-        : { text: { format: encodeTextFormat(params.response_format) } }),
+        : { text: { format: encodeTextFormat(format) } }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -2320,13 +2325,14 @@ function encodeTextFormat(format: ResponseFormat): JsonObject {
     case "json_object":
       return { type: "json_object" };
     case "json_schema":
+      assertSourceMatches(format.schema);
       return {
         type: "json_schema",
-        name: format.name,
+        name: format.name!,
         ...(format.description === undefined
           ? {}
           : { description: format.description }),
-        schema: { ...format.schema },
+        schema: format.schema,
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
   }

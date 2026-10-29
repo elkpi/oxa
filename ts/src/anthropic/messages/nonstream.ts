@@ -1,5 +1,6 @@
 import { OxaError } from "../../error.js";
 import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -383,7 +384,29 @@ function decodeRequestObject(
     }
     messages.push({ role: normalizedRole, content });
   }
+  let responseFormat: NonNullable<Request["params"]>["response_format"];
+  if (wire.output_config !== undefined && wire.output_config !== null) {
+    const config = object(wire.output_config, "output_config");
+    if (config.format !== undefined) {
+      const format = object(config.format, "output_config.format");
+      const kind = string(format.type, "output_config.format.type");
+      if (!kind) fail("output_config.format.type must be non-empty");
+      if (kind === "json_schema") {
+        responseFormat = {
+          type: "json_schema",
+          schema: object(format.schema, "output_config.format.schema"),
+        };
+      } else {
+        losses.push(
+          loss("output_config.format.type", "type", "unmapped-value"),
+        );
+      }
+    }
+  }
   const params = {
+    ...(responseFormat === undefined
+      ? {}
+      : { response_format: responseFormat }),
     max_tokens: maxTokens,
     ...(wire.temperature === undefined
       ? {}
@@ -509,11 +532,6 @@ export function encodeRequest(
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
     losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
-  if (request.params?.response_format !== undefined) {
-    losses.push(
-      loss("params.response_format", "response_format", "unmapped-field"),
-    );
-  }
   const firstBlock = request.messages[0]?.content[0];
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
@@ -717,8 +735,44 @@ export function encodeRequest(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
   };
   encodeRequestNative(request, outValue, losses);
+  const format = request.params?.response_format;
+  let outputConfig: JsonObject | undefined;
+  if (format?.type === "json_schema") {
+    assertSourceMatches(format.schema);
+    const config =
+      outValue.output_config === undefined
+        ? {}
+        : object(outValue.output_config, "output_config");
+    outputConfig = {
+      ...config,
+      format: { type: "json_schema", schema: format.schema },
+    };
+    if (format.name)
+      losses.push(
+        loss("params.response_format.name", "name", "unmapped-field"),
+      );
+    if (format.description)
+      losses.push(
+        loss(
+          "params.response_format.description",
+          "description",
+          "unmapped-field",
+        ),
+      );
+    if (format.strict !== undefined)
+      losses.push(
+        loss("params.response_format.strict", "strict", "unmapped-field"),
+      );
+  } else if (format !== undefined) {
+    losses.push(
+      loss("params.response_format", "response_format", "unmapped-field"),
+    );
+  }
   return {
-    value: outValue,
+    value:
+      outputConfig === undefined
+        ? outValue
+        : { ...outValue, output_config: outputConfig },
     losses,
   };
 }

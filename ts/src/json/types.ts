@@ -36,13 +36,22 @@ export type JsonInput =
   | JsonInputArray
   | JsonInputObject;
 
+const sourceObjects = new WeakSet<object>();
+
+export function markSourceObject(value: object): void {
+  sourceObjects.add(value);
+}
+
 export function isJsonNumber(value: unknown): value is JsonNumber {
   return (
     typeof value === "object" &&
     value !== null &&
     !Array.isArray(value) &&
+    !sourceObjects.has(value) &&
     "kind" in value &&
-    (value as { readonly kind?: unknown }).kind === "number"
+    (value as { readonly kind?: unknown }).kind === "number" &&
+    typeof (value as { readonly token?: unknown }).token === "string" &&
+    typeof (value as { readonly isInteger?: unknown }).isInteger === "boolean"
   );
 }
 

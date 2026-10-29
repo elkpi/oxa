@@ -312,7 +312,7 @@ export interface ResponseFormatJsonObject {
 }
 export interface ResponseFormatJsonSchema {
   readonly type: "json_schema";
-  readonly name: string;
+  readonly name?: string;
   readonly description?: string;
   readonly schema: JsonObject;
   readonly strict?: boolean;

@@ -224,7 +224,10 @@ Each rule has a stable ID usable as a vector tag.
   unwraps nested `json_schema` into flat fields (`name`, `description`, `schema`,
   `strict`). Unrecognized `type` values are dropped with an `unmapped-value` loss.
   On encode, IR `ResponseFormat` renders back as CC `response_format` with nested
-  `json_schema` wrapping.
+  `json_schema` wrapping. A JSON Schema without a non-empty name cannot be
+  represented: omit the entire response format and record one
+  `unsupported-semantic` loss at `params.response_format`, with field `name`.
+  Do not synthesize a name.
 
 - **Custom tool mapping (N-CC-14).** Chat Completions natively supports Custom Tools
   (spec/13, since 2.3.1). `tools[type=custom].custom.{name,description,format}` maps

@@ -667,7 +667,7 @@
             },
             "strict": { "type": "boolean" }
           },
-          "required": ["type", "name", "schema"],
+          "required": ["type", "schema"],
           "additionalProperties": false
         }
       ]

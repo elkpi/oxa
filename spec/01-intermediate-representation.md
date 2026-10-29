@@ -222,10 +222,19 @@ Structured output generation preference. Closed union of three variants discrimi
 | `json_schema` | `json_schema` | `type`, `name`, `description`, `schema`, `strict` | constrained JSON schema output |
 
 `json_schema` fields:
-- `name` (string, required): schema identifier, non-empty.
+- `name` (string, optional): schema identifier; when present it MUST be non-empty. Some faces require it; Anthropic does not supply one.
 - `description` (string, optional): description of the schema's purpose.
 - `schema` (JSON object, required): JSON Schema object carried verbatim per INV-1; MUST NOT be mutated or re-ordered.
 - `strict` (boolean, optional): whether to strictly enforce schema constraints.
+
+Implementations MAY use an in-memory raw-text sidecar for `schema`; it is not
+an additional canonical IR JSON property. JSON-text decode and encode APIs
+MUST preserve source schema text across the canonical IR and face conversions.
+If a mutable schema value and its sidecar disagree, the encoder MUST return a
+structural error rather than emit stale source text. In-memory-only conversions
+without source text MUST preserve the schema value but need not synthesize an
+original spelling. Callers using a general-purpose JSON serializer rather than
+OXA's lossless JSON-text API cannot assume its output preserves source bytes.
 
 When unspecified by caller, `response_format` is omitted from `Params`.
 

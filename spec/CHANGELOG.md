@@ -5,6 +5,12 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.4.13 — 未发布
+
+- 更新 N-AN-12，映射 Anthropic `output_config.format` JSON Schema 并保留 schema 原文；未知类型与嵌套字段按规范报损。
+- 通用 IR 的 JSON Schema 名称可选；OpenAI 编码要求名称，缺失时省略格式并记录损失，不合成名称。Anthropic 对无法承载的 OpenAI 外层字段分别报损。
+- 明确原文 sidecar、过期数据校验和保真 JSON 文本接口的要求；IR contract 保持 `0.2.0`。
+
 ## 2.4.12 - 2026-10-27
 
 - `Tool.strict` 是仅适用于 function 的可选布尔值，区分缺省、显式 `false` 和 `true`；不检查或改写不透明的 `input_schema`。

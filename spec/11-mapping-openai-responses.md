@@ -304,7 +304,10 @@ Each rule has a stable ID usable as a vector tag.
   `Params.ResponseFormat` (since 2.1). `type: "text"` maps to text variant;
   `type: "json_object"` maps to json_object variant; `type: "json_schema"`
   maps to json_schema variant (`name`, `description`, `schema`, `strict`).
-  On encode, IR `ResponseFormat` renders into request `text.format`.
+  On encode, IR `ResponseFormat` renders into request `text.format`. A JSON
+  Schema without a non-empty name cannot be represented: omit the entire format
+  and record one `unsupported-semantic` loss at `params.response_format`, with
+  field `name`. Do not synthesize a name.
 - **N-R-15 (tool containers, namespacing, and native declarations).** (Since 2.4.9).
   Responses supports hierarchical tool containers (`namespace`, `toolbox`), dynamic tool injection items (`additional_tools`), deferred tool loading (`defer_loading`), and OpenAI native tool declarations (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.).
 

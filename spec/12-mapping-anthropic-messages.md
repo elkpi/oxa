@@ -75,6 +75,7 @@ The wire objects in scope are:
 | `thinking` (`type: "between_tools"`) | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-19, spec/15) |
 | `thinking.display` | `NativeAnnotation` | retained in IR; no loss on decode (N-AN-14) |
 | `output_config.effort` | `Params.ReasoningEffort` + `NativeAnnotation` | 1:1 effort mapping (xhigh/max supported); preserved as native option in IR (N-AN-14) |
+| `output_config.format` | `Params.ResponseFormat` | JSON Schema mapping (N-AN-12) |
 | `cache_control` (top-level, system, content, tools, tool_result) | `NativeAnnotation` | retained on respective IR host; no loss on decode (N-AN-14) |
 | `context_management` | `NativeAnnotation` | retained on IR Request; no loss on decode (N-AN-14) |
 | `tools[].{name,description,input_schema,strict}` | `Tools[].{Name,Description,InputSchema,Strict}` | 普通 function 工具双向映射；strict 区分缺省、false、true；schema bytes carried verbatim (INV-1); MUST be a JSON object |
@@ -233,12 +234,22 @@ Each rule has a stable ID usable as a vector tag.
   An unsigned ThinkingBlock encoded to either a request or response renders as
   a thinking block WITHOUT signature plus a `degraded` loss
   `{path:"content[i]", field:"signature", reason:"degraded", detail:"unsigned thinking block; Anthropic may reject on replay"}`. The replay risk is especially relevant to requests.
-- **N-AN-12 (response_format dropped on encode).** Anthropic Messages API has
-  no native request-level `response_format` parameter. When encoding an IR
-  request carrying `Params.ResponseFormat`, converters MUST NOT synthesize
-  tools or mutate `tools`/`tool_choice`; instead, exactly one `unmapped-field`
-  loss is recorded:
-  `{path: "params.response_format", field: "response_format", reason: "unmapped-field", detail: "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."}`.
+- **N-AN-12 (structured output).** `output_config.format` with type `json_schema`
+  maps to `Params.ResponseFormat` with its schema carried verbatim and no name,
+  description or strict value. On encode, the JSON Schema variant maps to
+  `output_config.format` without changing `output_config.effort`. Non-empty name
+  and description and each present strict value are omitted with separate
+  `unmapped-field` losses at `params.response_format.name`,
+  `params.response_format.description`, and `params.response_format.strict`.
+  `json_object` and `text` are omitted with an `unmapped-field` loss at
+  `params.response_format`. No tools or tool choices are synthesized.
+  An absent or invalid type and a missing or non-object schema are structural
+  errors. An absent or null `output_config` is treated as unset; any other
+  non-object `output_config` is a structural error. An unknown type drops the
+  entire format with one `unmapped-value`
+  loss at `output_config.format.type` and no descendant audit. Unknown
+  properties of a recognized format are audited per spec/02; the schema itself
+  remains opaque. The mapping is identical when the request asks for streaming.
 - **N-AN-13 (custom tool structured wrapper mapping).** Anthropic Messages supports
   Custom Tools via a canonical single-property wrapper (spec/13, since 2.3.1).
   On encode, an IR `Tool{Type: "custom", Name, Description, Format}` renders as a
@@ -379,7 +390,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 |---|---|---|---|
 | response `type`, `role` | exempt (envelope) | both | N-AN-10 |
 | `cache_control` on an unsupported/dropped block | unsupported-semantic | request/response → IR | part of the whole dropped block (N-AN-9) |
-| `params.response_format` | unmapped-field | IR → request | Anthropic Messages has no native response_format request parameter (N-AN-12) |
+| `params.response_format` | unmapped-field | IR → request | unsupported format variant (N-AN-12) |
+| `params.response_format.name`, `description`, `strict` | unmapped-field | IR → request | OpenAI-only envelope fields omitted (N-AN-12) |
+| `output_config.format.type` | unmapped-value | request → IR | unknown format type (N-AN-12) |
 | `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation when no explicit effort is present (N-AN-11, N-AN-14) |
 | `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |
 | unknown block type or unknown image/document source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9/N-AN-16 |

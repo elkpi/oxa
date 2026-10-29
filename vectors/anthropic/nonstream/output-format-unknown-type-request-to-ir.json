@@ -1,0 +1,10 @@
+{
+  "name": "anthropic.nonstream.output-format-unknown-type-request-to-ir",
+  "description": "Unknown output format is dropped once without auditing its children.",
+  "spec_version": "0.2.0", "mode": "nonstream", "conversion": "to-ir",
+  "source": {"protocol": "anthropic"},
+  "input": {"model": "m", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}], "output_config": {"format": {"type": "future_format", "future": true}}},
+  "expected_ir": {"specVersion": "0.2.0", "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}], "params": {"max_tokens": 64}},
+  "expected_losses": [{"path": "output_config.format.type", "field": "type", "reason": "unmapped-value"}],
+  "tags": ["request", "format", "loss"]
+}

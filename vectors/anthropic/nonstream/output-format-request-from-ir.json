@@ -1,0 +1,23 @@
+{
+  "name": "anthropic.nonstream.output-format-request-from-ir",
+  "description": "An unnamed JSON Schema response format maps to Anthropic output_config.format.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {"protocol": "anthropic"},
+  "target": {"protocol": "anthropic"},
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude",
+    "messages": [{"role": "user", "content": [{"type": "text", "text": "Schema request."}]}],
+    "params": {"max_tokens": 64, "response_format": {"type": "json_schema", "schema": {"type": "object"}}}
+  },
+  "expected_output": {
+    "model": "claude",
+    "messages": [{"role": "user", "content": "Schema request."}],
+    "max_tokens": 64,
+    "output_config": {"format": {"type": "json_schema", "schema": {"type": "object"}}}
+  },
+  "expected_losses": [],
+  "tags": ["request", "format"]
+}

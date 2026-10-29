@@ -1,0 +1,10 @@
+{
+  "name": "anthropic.nonstream.output-format-unknown-field-request-to-ir",
+  "description": "Audit unknown format fields without traversing opaque JSON Schema.",
+  "spec_version": "0.2.0", "mode": "nonstream", "conversion": "to-ir",
+  "source": {"protocol": "anthropic"},
+  "input": {"model": "m", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}], "output_config": {"format": {"type": "json_schema", "unknown": false, "schema": {"future_keyword": {"arbitrary": true}}}}},
+  "expected_ir": {"specVersion": "0.2.0", "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}], "params": {"max_tokens": 64, "response_format": {"type": "json_schema", "schema": {"future_keyword": {"arbitrary": true}}}}},
+  "expected_losses": [{"path": "output_config.format.unknown", "field": "unknown", "reason": "unmapped-field"}],
+  "tags": ["request", "format", "loss"]
+}

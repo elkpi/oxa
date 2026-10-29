@@ -1,0 +1,10 @@
+{
+  "name": "anthropic.nonstream.output-format-streaming-request-to-ir",
+  "description": "The streaming request marker does not alter structured-output mapping.",
+  "spec_version": "0.2.0", "mode": "nonstream", "conversion": "to-ir",
+  "source": {"protocol": "anthropic"},
+  "input": {"model": "m", "max_tokens": 64, "messages": [{"role": "user", "content": "hi"}], "stream": true, "output_config": {"format": {"type": "json_schema", "schema": {"type": "object"}}}},
+  "expected_ir": {"specVersion": "0.2.0", "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}], "params": {"max_tokens": 64, "response_format": {"type": "json_schema", "schema": {"type": "object"}}}},
+  "expected_losses": [{"path": "stream", "field": "stream", "reason": "unmapped-field"}],
+  "tags": ["request", "stream", "format", "loss"]
+}

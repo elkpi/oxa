@@ -444,17 +444,6 @@
       "sha256": "a22fc8a6e40a05eb2628cf9fdfa6c245aaa86b00345d88d9c3867695040e86d8"
     },
     {
-      "name": "anthropic.nonstream.native-output-format-still-audited-request-to-ir",
-      "file": "anthropic/nonstream/native-output-format-still-audited-request-to-ir.json",
-      "tags": [
-        "request",
-        "effort",
-        "format",
-        "loss"
-      ],
-      "sha256": "b5ed2bb577b4ffdc5316ff2e2e1c19e20d46114f37b68b303b5bd8860f8a0e93"
-    },
-    {
       "name": "anthropic.nonstream.native-thinking-adaptive-display-request-from-ir",
       "file": "anthropic/nonstream/native-thinking-adaptive-display-request-from-ir.json",
       "tags": [
@@ -836,6 +825,57 @@
         "n-an-19"
       ],
       "sha256": "95abae1bf9ae698fe1856424cd643cab5f7d60e9683c764292e42949139acf0f"
+    },
+    {
+      "name": "anthropic.nonstream.output-format-effort-request-to-ir",
+      "file": "anthropic/nonstream/output-format-effort-request-to-ir.json",
+      "tags": [
+        "request",
+        "effort",
+        "format",
+        "loss"
+      ],
+      "sha256": "c4d6a5cb6c16d963acebbd4d7fd6339d86bf73da872757382cfd641a09e9922a"
+    },
+    {
+      "name": "anthropic.nonstream.output-format-request-from-ir",
+      "file": "anthropic/nonstream/output-format-request-from-ir.json",
+      "tags": [
+        "request",
+        "format"
+      ],
+      "sha256": "fcc2c4f374d9b84d53d238d7637f217c859ecd4f3de3126281606bdcc5cb8a92"
+    },
+    {
+      "name": "anthropic.nonstream.output-format-streaming-request-to-ir",
+      "file": "anthropic/nonstream/output-format-streaming-request-to-ir.json",
+      "tags": [
+        "request",
+        "stream",
+        "format",
+        "loss"
+      ],
+      "sha256": "bb22beced018745a3fabc845fced4aad91a5c5528a10585bbd017b5bbc57c5be"
+    },
+    {
+      "name": "anthropic.nonstream.output-format-unknown-field-request-to-ir",
+      "file": "anthropic/nonstream/output-format-unknown-field-request-to-ir.json",
+      "tags": [
+        "request",
+        "format",
+        "loss"
+      ],
+      "sha256": "2093eafed8ce279f7879b7f4d41e9bc2cd0ba70993eb1277772e32ba2cd89783"
+    },
+    {
+      "name": "anthropic.nonstream.output-format-unknown-type-request-to-ir",
+      "file": "anthropic/nonstream/output-format-unknown-type-request-to-ir.json",
+      "tags": [
+        "request",
+        "format",
+        "loss"
+      ],
+      "sha256": "01abe67a6bb3abf5689813477e697f9b183cb1325c71484c389f108c93f7d611"
     },
     {
       "name": "anthropic.nonstream.params-request-from-ir",
@@ -2274,6 +2314,17 @@
       "sha256": "bd05817b46f9fa0feb8bbbe17f3c9acd1e6db1226208467a17cda9ee47550e69"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-unnamed-schema-request",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-unnamed-schema-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "format",
+        "loss"
+      ],
+      "sha256": "6f78f91143d8eaac83baac59eb5512938bbd9edfdcb56fe6dcec0f3cb7b8eddd"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-responses-budget-request",
       "file": "cross/nonstream/anthropic-to-responses-budget-request.json",
       "tags": [
@@ -2408,6 +2459,17 @@
       "sha256": "ddabbd210c310ed61a7fbb2fe2ac770affccaf6536401fb371f3f0f5b1e70ad3"
     },
     {
+      "name": "cross.nonstream.anthropic-to-responses-unnamed-schema-request",
+      "file": "cross/nonstream/anthropic-to-responses-unnamed-schema-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "format",
+        "loss"
+      ],
+      "sha256": "305ffab8f29e51f9dd250b0280fb872d597338ba634b766dcadb3e11e6ce5216"
+    },
+    {
       "name": "cross.nonstream.chatcompletions-to-anthropic-function-tool-strict",
       "file": "cross/nonstream/chatcompletions-to-anthropic-function-tool-strict.json",
       "tags": [
@@ -2417,6 +2479,17 @@
         "strict"
       ],
       "sha256": "3bb2c32d4d8d05ce35da9b502b74dbc4cf736d832d8c3b22322c37477c1ea0ae"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-json-schema-request",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-json-schema-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "format",
+        "loss"
+      ],
+      "sha256": "17da9ecd592dd7fafa0036f645ae8764445392d483faf31e27a43758cad25d2a"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request",

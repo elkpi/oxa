@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any, cast
 
-from oxa._wire import RawDocument, audit_decode
+from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -343,6 +344,8 @@ def decode_request(
 
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
     response_format = decode_response_format(wire.get("response_format"), losses)
+    if isinstance(response_format, ResponseFormatJsonSchema):
+        response_format = replace(response_format, schema_raw=raw_field(raw_text, "response_format.json_schema.schema"))
 
     params: Params | None = None
     if (

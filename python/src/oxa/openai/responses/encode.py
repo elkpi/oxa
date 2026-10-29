@@ -332,7 +332,11 @@ def encode_request(
         if req.params.reasoning_effort is not None:
             out["reasoning"] = {"effort": req.params.reasoning_effort}
         if req.params.response_format is not None:
-            out["text"] = {"format": encode_text_format(req.params.response_format)}
+            rf = req.params.response_format
+            if isinstance(rf, ResponseFormatJsonSchema) and not rf.name:
+                losses.append(loss("params.response_format", "name", LOSS_UNSUPPORTED_SEMANTIC, "Responses requires a non-empty schema name"))
+            else:
+                out["text"] = {"format": encode_text_format(rf)}
         if req.params.stop_sequences:
             losses.append(
                 loss(

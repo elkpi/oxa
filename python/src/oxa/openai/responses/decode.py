@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, cast
 
 from oxa._wire import RawDocument, audit_decode, raw_field
@@ -282,6 +283,8 @@ def decode_request(
     max_tokens = wire.get("max_output_tokens")
     format_raw = text_config.get("format") if isinstance(text_config, dict) else None
     response_format = decode_text_format(format_raw, losses)
+    if isinstance(response_format, ResponseFormatJsonSchema):
+        response_format = replace(response_format, schema_raw=raw_field(raw_text, "text.format.schema"))
     params: Params | None = None
     if (
         wire.get("temperature") is not None

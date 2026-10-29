@@ -219,7 +219,11 @@ def encode_request(
         if req.params.reasoning_effort is not None:
             out["reasoning_effort"] = req.params.reasoning_effort
         if req.params.response_format is not None:
-            out["response_format"] = encode_response_format(req.params.response_format)
+            rf = req.params.response_format
+            if isinstance(rf, ResponseFormatJsonSchema) and not rf.name:
+                losses.append(loss("params.response_format", "name", LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions requires a non-empty schema name"))
+            else:
+                out["response_format"] = encode_response_format(rf)
 
     if req.native:
         has_max_completion_tokens = any(

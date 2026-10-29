@@ -34,7 +34,7 @@ from oxa.anthropic.messages.decode import (
     decode_response,
     decode_response_json,
 )
-from oxa.anthropic.messages.encode import encode_request, encode_response
+from oxa.anthropic.messages.encode import encode_request, encode_request_json, encode_response
 from oxa.anthropic.messages.streamin import StreamDecoder
 from oxa.anthropic.messages.streamout import StreamEncoder
 
@@ -72,6 +72,7 @@ __all__ = [
     "decode_response",
     "decode_response_json",
     "encode_request",
+    "encode_request_json",
     "encode_response",
     # Streaming Classes
     "StreamDecoder",

@@ -65,6 +65,7 @@ from oxa.ir import (
     Loss,
     Request,
     Response,
+    ResponseFormatJsonSchema,
     TextBlock,
     ThinkingBlock,
     RedactedThinkingBlock,
@@ -316,21 +317,33 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.stop_sequences:
             out["stop_sequences"] = req.params.stop_sequences
-        if req.params.response_format is not None:
-            losses.append(
-                loss(
-                    "params.response_format",
-                    "response_format",
-                    LOSS_UNMAPPED_FIELD,
-                    "Anthropic Messages has no native response_format request parameter; "
-                    "structured output preference is dropped.",
-                )
-            )
-
     native_losses = encode_request_native(req, out)
     losses.extend(native_losses)
 
+    rf = req.params.response_format if req.params else None
+    if isinstance(rf, ResponseFormatJsonSchema):
+        if not isinstance(rf.schema, dict):
+            raise ValueError("anthropic: response format schema must be an object")
+        out.setdefault("output_config", {})["format"] = {"type": "json_schema", "schema": rf.schema}
+        for field in ("name", "description", "strict"):
+            value = getattr(rf, field)
+            if value is not None and (field == "strict" or bool(value)):
+                losses.append(loss("params.response_format." + field, field, LOSS_UNMAPPED_FIELD, ""))
+    elif rf is not None:
+        losses.append(loss("params.response_format", "response_format", LOSS_UNMAPPED_FIELD, ""))
+
     return out, losses
+
+
+def encode_request_json(req: Request, table: Table | None = None) -> tuple[str, list[Loss]]:
+    """编码 Anthropic JSON 并保留响应格式 schema 的原始文本。"""
+    from oxa._raw_schema import serialize_json_with_schema
+
+    wire, losses = encode_request(req, table)
+    fmt = req.params.response_format if req.params else None
+    if isinstance(fmt, ResponseFormatJsonSchema):
+        return serialize_json_with_schema(wire, ("output_config", "format", "schema"), fmt.schema, fmt.schema_raw), losses
+    return json.dumps(wire, ensure_ascii=False, allow_nan=False, separators=(",", ":")), losses
 
 
 def encode_request_blocks(

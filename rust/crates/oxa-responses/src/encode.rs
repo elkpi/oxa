@@ -167,41 +167,51 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             serde_json::json!({ "effort": effort })
         });
         if let Some(rf) = &params.response_format {
-            let format_val = match rf {
-                ResponseFormat::Text => serde_json::json!({ "type": "text" }),
-                ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
-                ResponseFormat::JsonSchema {
-                    name,
-                    description,
-                    schema,
-                    strict,
-                } => {
-                    let mut obj = serde_json::Map::new();
-                    obj.insert(
-                        "type".to_string(),
-                        serde_json::Value::String("json_schema".to_string()),
-                    );
-                    obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
-                    if let Some(desc) = description {
+            if matches!(rf, ResponseFormat::JsonSchema { name, .. } if name.is_empty()) {
+                losses.push(loss(
+                    "params.response_format",
+                    "name",
+                    LossReason::UnsupportedSemantic,
+                    "Responses requires a non-empty schema name",
+                ));
+            } else {
+                let format_val = match rf {
+                    ResponseFormat::Text => serde_json::json!({ "type": "text" }),
+                    ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
+                    ResponseFormat::JsonSchema {
+                        name,
+                        description,
+                        schema,
+                        strict,
+                        ..
+                    } => {
+                        let mut obj = serde_json::Map::new();
                         obj.insert(
-                            "description".to_string(),
-                            serde_json::Value::String(desc.clone()),
+                            "type".to_string(),
+                            serde_json::Value::String("json_schema".to_string()),
                         );
+                        obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
+                        if let Some(desc) = description {
+                            obj.insert(
+                                "description".to_string(),
+                                serde_json::Value::String(desc.clone()),
+                            );
+                        }
+                        obj.insert(
+                            "schema".to_string(),
+                            serde_json::Value::Object(schema.clone()),
+                        );
+                        if let Some(s) = strict {
+                            obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
+                        }
+                        serde_json::Value::Object(obj)
                     }
-                    obj.insert(
-                        "schema".to_string(),
-                        serde_json::Value::Object(schema.clone()),
-                    );
-                    if let Some(s) = strict {
-                        obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
-                    }
-                    serde_json::Value::Object(obj)
-                }
-            };
-            out.text = Some(TextParams {
-                verbosity: None,
-                format: Some(format_val),
-            });
+                };
+                out.text = Some(TextParams {
+                    verbosity: None,
+                    format: Some(format_val),
+                });
+            }
         }
         if params
             .stop_sequences

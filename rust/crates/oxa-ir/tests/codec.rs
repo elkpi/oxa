@@ -112,8 +112,18 @@ fn rejects_non_object_response_format_schema() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_4_12() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.12");
+fn rejects_present_empty_or_null_schema_name() {
+    for name in ["\"\"", "null"] {
+        let document = format!(
+            r#"{{"specVersion":"0.2.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"params":{{"response_format":{{"type":"json_schema","name":{name},"schema":{{}}}}}}}}"#
+        );
+        assert!(from_json::<Request>(&document).is_err(), "{document}");
+    }
+}
+
+#[test]
+fn workspace_crate_version_is_2_4_13() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.13");
 }
 
 #[test]

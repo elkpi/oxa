@@ -12,6 +12,7 @@ mod codec;
 mod event;
 mod loss;
 mod native;
+mod raw_schema;
 mod request;
 mod response;
 
@@ -32,6 +33,7 @@ pub use native::{
     NATIVE_SOURCE_ANTHROPIC, NATIVE_SOURCE_OPENAI, STREAM_OPTIONS_LOSS_DETAIL, fingerprint_losses,
     omitted_native_request_losses, validate_native_request,
 };
+pub use raw_schema::{insert_schema_raw, raw_json_at, request_from_json, request_to_json};
 pub use request::{
     ApplyPatchCallStatus, ApplyPatchOperation, ApplyPatchResultStatus, Block, CustomToolFormat,
     CustomToolOutput, Message, NativeAnnotation, NativeOmission, NativeProjection, Params,

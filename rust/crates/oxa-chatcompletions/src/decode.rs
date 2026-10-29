@@ -501,6 +501,7 @@ fn decode_response_format(
                 name: name.clone(),
                 description,
                 schema: schema.as_object().cloned().unwrap_or_default(),
+                schema_raw: None,
                 strict,
             }))
         }

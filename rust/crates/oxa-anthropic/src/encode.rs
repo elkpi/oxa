@@ -326,18 +326,46 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             .stop_sequences
             .clone()
             .filter(|sequences| !sequences.is_empty());
-
-        if params.response_format.is_some() {
-            losses.push(loss(
-                "params.response_format",
-                "response_format",
-                LossReason::UnmappedField,
-                "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
-            ));
-        }
     }
     let nat_losses = crate::native::encode_request_native(req, &mut out)?;
     losses.extend(nat_losses);
+    if let Some(format) = req.params.as_ref().and_then(|p| p.response_format.as_ref()) {
+        match format {
+            oxa_ir::ResponseFormat::JsonSchema {
+                name,
+                description,
+                schema,
+                strict,
+                ..
+            } => {
+                let config = out.output_config.get_or_insert_with(Default::default);
+                config.format = Some(serde_json::json!({"type":"json_schema", "schema":schema}));
+                for (field, present) in [
+                    ("name", !name.is_empty()),
+                    (
+                        "description",
+                        description.as_ref().is_some_and(|s| !s.is_empty()),
+                    ),
+                    ("strict", strict.is_some()),
+                ] {
+                    if present {
+                        losses.push(loss(
+                            format!("params.response_format.{field}"),
+                            field,
+                            LossReason::UnmappedField,
+                            "",
+                        ));
+                    }
+                }
+            }
+            _ => losses.push(loss(
+                "params.response_format",
+                "response_format",
+                LossReason::UnmappedField,
+                "",
+            )),
+        }
+    }
     Ok((out, losses))
 }
 

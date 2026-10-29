@@ -52,10 +52,18 @@ fn equal_json(expected: &Value, actual: &Value, path: String) -> Result<(), Stri
             Ok(())
         }
         (Value::Number(expected), Value::Number(actual)) => {
-            // serde_json's Number equality already carries integer type
-            // fidelity: PosInt/NegInt never equal Float, while floats compare
-            // numerically (0.5 == 0.50).
-            if expected == actual {
+            let expected_text = expected.to_string();
+            let actual_text = actual.to_string();
+            let expected_float = expected_text.contains(['.', 'e', 'E']);
+            let actual_float = actual_text.contains(['.', 'e', 'E']);
+            let equal = expected_float == actual_float
+                && (expected_text == actual_text
+                    || (expected_float
+                        && expected
+                            .as_f64()
+                            .zip(actual.as_f64())
+                            .is_some_and(|(a, b)| a == b && a.is_finite())));
+            if equal {
                 Ok(())
             } else {
                 Err(format!(

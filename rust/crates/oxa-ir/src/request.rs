@@ -729,10 +729,13 @@ pub enum ResponseFormat {
     JsonObject,
     #[serde(rename = "json_schema")]
     JsonSchema {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
         schema: Map<String, Value>,
+        #[serde(skip)]
+        schema_raw: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         strict: Option<bool>,
     },

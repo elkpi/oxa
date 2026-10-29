@@ -277,7 +277,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             .to_string()
         });
         if let Some(rf) = &params.response_format {
-            out.response_format = Some(encode_response_format(rf));
+            if matches!(rf, ResponseFormat::JsonSchema { name, .. } if name.is_empty()) {
+                losses.push(loss(
+                    "params.response_format",
+                    "name",
+                    LossReason::UnsupportedSemantic,
+                    "Chat Completions requires a non-empty schema name",
+                ));
+            } else {
+                out.response_format = Some(encode_response_format(rf));
+            }
         }
     }
     let has_max_completion_tokens = req
@@ -330,6 +339,7 @@ fn encode_response_format(rf: &ResponseFormat) -> serde_json::Value {
             description,
             schema,
             strict,
+            ..
         } => {
             let mut inner = serde_json::Map::new();
             inner.insert("name".to_string(), serde_json::Value::String(name.clone()));

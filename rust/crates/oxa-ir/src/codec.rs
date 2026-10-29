@@ -436,9 +436,20 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     }
     check_no_document(&document)?;
     check_citations(&document)?;
+    if let Some(format) = document
+        .get("params")
+        .and_then(|p| p.get("response_format"))
+        && format.get("type").and_then(Value::as_str) == Some("json_schema")
+        && let Some(name) = format.get("name")
+        && name.as_str().is_none_or(str::is_empty)
+    {
+        return Err(Error::Custom(
+            "params.response_format name must be non-empty when present".into(),
+        ));
+    }
     match document.get("specVersion") {
         None => Err(Error::MissingSpecVersion),
-        Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(T::deserialize(&document)?),
+        Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(serde_json::from_str(json)?),
         Some(other) => Err(Error::SpecVersionMismatch(
             other.as_str().unwrap_or_default().to_string(),
         )),

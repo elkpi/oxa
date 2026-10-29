@@ -494,6 +494,47 @@ pub fn decode_request_native(
         }
     }
 
+    if let Some(format) = wire
+        .output_config
+        .as_ref()
+        .and_then(|oc| oc.format.as_ref())
+    {
+        let obj = format.as_object().ok_or_else(|| {
+            crate::Error::new("anthropic: output_config.format must be an object")
+        })?;
+        let kind = obj
+            .get("type")
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| {
+                crate::Error::new("anthropic: output_config.format requires a non-empty type")
+            })?;
+        if kind == "json_schema" {
+            let schema = obj
+                .get("schema")
+                .and_then(Value::as_object)
+                .ok_or_else(|| {
+                    crate::Error::new("anthropic: output_config.format.schema must be an object")
+                })?;
+            if let Some(params) = req.params.as_mut() {
+                params.response_format = Some(oxa_ir::ResponseFormat::JsonSchema {
+                    name: String::new(),
+                    description: None,
+                    schema: schema.clone(),
+                    schema_raw: None,
+                    strict: None,
+                });
+            }
+        } else {
+            losses.push(Loss {
+                path: "output_config.format.type".into(),
+                field: "type".into(),
+                reason: LossReason::UnmappedValue,
+                detail: String::new(),
+            });
+        }
+    }
+
     // 3. Top-level cache_control
     if let Some(ref cc) = wire.cache_control {
         let (canon, l) = parse_cache_control(cc, "cache_control");

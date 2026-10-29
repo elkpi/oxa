@@ -302,7 +302,11 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("output_config", "output_config"),
             ("context_management", "context_management"),
         ]),
-        "output_config" => Some(&[("effort", "")]),
+        "output_config" => Some(&[("effort", ""), ("format", "output_format")]),
+        "output_format" => match tag(object, "type").as_deref() {
+            Some("json_schema") => Some(&[("type", ""), ("schema", "")]),
+            _ => None,
+        },
         "context_management" => Some(&[("edits", "")]),
         "response" => Some(&[
             ("id", ""),

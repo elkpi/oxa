@@ -124,7 +124,7 @@ run_rust_consumer() {
             -e "s/oxa-responses = { workspace = true }/oxa-responses = { version = \"$VERSION\", path = \"..\/oxa-responses\" }/" \
             -e "s/oxa-sse = { workspace = true }/oxa-sse = { version = \"$VERSION\", path = \"..\/oxa-sse\" }/" \
             -e 's/serde = { workspace = true }/serde = { version = "1", features = ["derive"] }/' \
-            -e 's/serde_json = { workspace = true }/serde_json = { version = "1", features = ["raw_value"] }/' \
+            -e 's/serde_json = { workspace = true }/serde_json = { version = "1", features = ["raw_value", "arbitrary_precision"] }/' \
             -e '/^\[dev-dependencies\]/,$d' \
             "$manifest" > "$crates/$crate/Cargo.toml"
     done

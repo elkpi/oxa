@@ -36,6 +36,17 @@ struct RawMessage<'a> {
 pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let root: &RawValue =
         serde_json::from_str(raw).map_err(|error| Error::new(error.to_string()))?;
+    if let Some(output_config) = oxa_ir::raw_json_at(raw, &["output_config"])
+        .map_err(|error| Error::new(error.to_string()))?
+        && output_config != "null"
+        && oxa_ir::raw_json_at(output_config, &["format"])
+            .map_err(|error| Error::new(error.to_string()))?
+            == Some("null")
+    {
+        return Err(Error::new(
+            "anthropic: output_config.format must be an object",
+        ));
+    }
     let cleaned = crate::audit::clean_json(root, "request")?;
     let source: RawRequest<'_> =
         serde_json::from_str(&cleaned).map_err(|error| Error::new(error.to_string()))?;
@@ -84,8 +95,37 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
         output_config: source.output_config,
         context_management: source.context_management,
     };
-    let (value, losses) = decode_request(&wire, config)?;
+    let (mut value, losses) = decode_request(&wire, config)?;
+    if let Some(oxa_ir::ResponseFormat::JsonSchema { schema_raw, .. }) = value
+        .params
+        .as_mut()
+        .and_then(|p| p.response_format.as_mut())
+    {
+        *schema_raw = oxa_ir::raw_json_at(raw, &["output_config", "format", "schema"])
+            .map_err(|error| Error::new(error.to_string()))?
+            .map(str::to_owned);
+    }
     Ok((value, crate::audit::audit_losses(raw, "request", losses)?))
+}
+
+/// 编码请求并保留响应 schema 的原始文本。
+pub fn encode_request_json(req: &IrRequest, config: &Config) -> Result<(String, Vec<Loss>), Error> {
+    let (wire, losses) = crate::encode_request(req, config)?;
+    let text = serde_json::to_string(&wire).map_err(|error| Error::new(error.to_string()))?;
+    if let Some(oxa_ir::ResponseFormat::JsonSchema {
+        schema, schema_raw, ..
+    }) = req.params.as_ref().and_then(|p| p.response_format.as_ref())
+    {
+        let text = oxa_ir::insert_schema_raw(
+            text,
+            &["output_config", "format", "schema"],
+            schema,
+            schema_raw.as_deref(),
+        )
+        .map_err(|error| Error::new(error.to_string()))?;
+        return Ok((text, losses));
+    }
+    Ok((text, losses))
 }
 
 pub fn decode_response_json(raw: &str, config: &Config) -> Result<(IrResponse, Vec<Loss>), Error> {

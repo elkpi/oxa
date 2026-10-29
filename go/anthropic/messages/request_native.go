@@ -355,6 +355,22 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 		}
 	}
 
+	if wire.OutputConfig != nil && len(wire.OutputConfig.Format) > 0 {
+		var format jsonOutputFormatWire
+		if err := json.Unmarshal(wire.OutputConfig.Format, &format); err != nil || format.Type == "" {
+			return nil, fmt.Errorf("anthropic: output_config.format requires an object with a non-empty type")
+		}
+		if format.Type != "json_schema" {
+			losses = append(losses, ir.Loss{Path: "output_config.format.type", Field: "type", Reason: ir.LossUnmappedValue})
+		} else {
+			var schema map[string]json.RawMessage
+			if err := json.Unmarshal(format.Schema, &schema); err != nil || schema == nil {
+				return nil, fmt.Errorf("anthropic: output_config.format.schema must be an object")
+			}
+			req.Params.ResponseFormat = &ir.ResponseFormat{Type: ir.ResponseFormatJSONSchema, Schema: format.Schema}
+		}
+	}
+
 	// 3. Top-level cache_control
 	if len(wire.CacheControl) > 0 {
 		canon, l, ok := parseCacheControl(wire.CacheControl, "cache_control")

@@ -421,6 +421,10 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 		wire = *v
 	case TextFormatWire:
 		wire = v
+	case json.RawMessage:
+		if err := json.Unmarshal(v, &wire); err != nil {
+			return nil, nil, fmt.Errorf("responses: text.format: %w", err)
+		}
 	default:
 		data, err := json.Marshal(raw)
 		if err != nil {
@@ -443,7 +447,7 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 		if len(wire.Schema) == 0 {
 			return nil, nil, fmt.Errorf("responses: text.format of type json_schema requires schema")
 		}
-		var obj map[string]any
+		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(wire.Schema, &obj); err != nil || obj == nil {
 			return nil, nil, fmt.Errorf("responses: text.format schema must be a JSON object")
 		}

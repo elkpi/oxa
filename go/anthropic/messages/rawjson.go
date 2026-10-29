@@ -514,7 +514,14 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 	case reflect.TypeOf(ThinkingWire{}):
 		return rawObjectSchema(t, []string{"type", "budget_tokens", "display"}, nil, seen)
 	case reflect.TypeOf(OutputConfigWire{}):
-		return rawObjectSchema(t, []string{"effort"}, nil, seen)
+		formatSchema := &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
+			kind, _ := rawJSONStringField(node, "type")
+			if kind != "json_schema" {
+				return nil
+			}
+			return rawObjectSchema(reflect.TypeOf(jsonOutputFormatWire{}), []string{"type", "schema"}, nil, seen)
+		}}
+		return rawObjectSchema(t, []string{"effort", "format"}, map[string]*rawJSONSchema{"format": formatSchema}, seen)
 	case reflect.TypeOf(ContextManagementWire{}):
 		return rawObjectSchema(t, []string{"edits"}, nil, seen)
 	case reflect.TypeOf(Message{}):

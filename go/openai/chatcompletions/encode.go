@@ -171,8 +171,12 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.TopP = req.Params.TopP
 	out.MaxTokens = req.Params.MaxTokens
 	out.ReasoningEffort = req.Params.ReasoningEffort
-	if req.Params.ResponseFormat != nil {
-		out.ResponseFormat = encodeResponseFormat(req.Params.ResponseFormat)
+	if rf := req.Params.ResponseFormat; rf != nil {
+		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
+			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "name", Reason: ir.LossUnsupportedSemantic, Detail: "Chat Completions requires a non-empty schema name"})
+		} else {
+			out.ResponseFormat = encodeResponseFormat(rf)
+		}
 	}
 	for _, ann := range req.Native {
 		if ann.Source == ir.NativeSourceOpenAI {

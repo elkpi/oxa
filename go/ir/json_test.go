@@ -181,12 +181,27 @@ func TestResponseFormatCodec(t *testing.T) {
 	}
 }
 
+func TestUnnamedJSONSchemaResponseFormatCodec(t *testing.T) {
+	document := []byte(`{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"params":{"response_format":{"type":"json_schema","schema":{"type":"object"}}}}`)
+	req, err := UnmarshalRequest(document)
+	if err != nil {
+		t.Fatalf("decode unnamed schema: %v", err)
+	}
+	if req.Params.ResponseFormat == nil || req.Params.ResponseFormat.Name != "" {
+		t.Fatalf("unexpected response format: %+v", req.Params.ResponseFormat)
+	}
+	if _, err := MarshalRequest(req); err != nil {
+		t.Fatalf("encode unnamed schema: %v", err)
+	}
+}
+
 func TestUnmarshalRequestRejectsMalformedResponseFormat(t *testing.T) {
 	cases := []struct {
 		name   string
 		format string
 	}{
-		{"missing name", `{"type":"json_schema","schema":{"type":"object"}}`},
+		{"empty name", `{"type":"json_schema","name":"","schema":{}}`},
+		{"null name", `{"type":"json_schema","name":null,"schema":{}}`},
 		{"missing schema", `{"type":"json_schema","name":"result"}`},
 		{"non-object schema", `{"type":"json_schema","name":"result","schema":null}`},
 		{"unknown type", `{"type":"yaml"}`},

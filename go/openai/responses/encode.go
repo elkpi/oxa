@@ -124,11 +124,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.Params.ReasoningEffort != "" {
 		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
 	}
-	if req.Params.ResponseFormat != nil {
-		if out.Text == nil {
-			out.Text = &TextParams{}
+	if rf := req.Params.ResponseFormat; rf != nil {
+		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
+			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "name", Reason: ir.LossUnsupportedSemantic, Detail: "Responses requires a non-empty schema name"})
+		} else {
+			if out.Text == nil {
+				out.Text = &TextParams{}
+			}
+			out.Text.Format = encodeTextFormat(rf)
 		}
-		out.Text.Format = encodeTextFormat(req.Params.ResponseFormat)
 	}
 	for _, n := range req.Native {
 		if n.Source == ir.NativeSourceOpenAI && n.Kind == ir.NativeKindStore {

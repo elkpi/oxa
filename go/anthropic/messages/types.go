@@ -83,6 +83,11 @@ type OutputConfigWire struct {
 	Format json.RawMessage `json:"format,omitempty"`
 }
 
+type jsonOutputFormatWire struct {
+	Type   string          `json:"type"`
+	Schema json.RawMessage `json:"schema"`
+}
+
 // ContextManagementWire is the Anthropic request context_management configuration.
 type ContextManagementWire struct {
 	Edits []json.RawMessage `json:"edits,omitempty"`

@@ -90,8 +90,8 @@ func TestNativeDecodeEncodeLossStages(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode failed: %v", err)
 	}
-	if len(decLosses) != 1 || decLosses[0].Field != "metadata" {
-		t.Fatalf("expected decode loss on metadata only, got %+v", decLosses)
+	if len(decLosses) != 0 || req.Metadata["user_id"] != "u1" {
+		t.Fatalf("metadata should be preserved without loss, got metadata=%+v losses=%+v", req.Metadata, decLosses)
 	}
 
 	_, encLosses, err := chatcompletions.EncodeRequest(req)

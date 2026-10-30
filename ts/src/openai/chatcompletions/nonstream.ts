@@ -68,7 +68,6 @@ function decodeRequestObject(
     "function_call",
     "logprobs",
     "top_logprobs",
-    "metadata",
   ])
     if (wire[field] !== undefined)
       losses.push(loss(field, field, "unmapped-field"));
@@ -417,6 +416,7 @@ function decodeRequestObject(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
     ...(native.length === 0 ? {} : { native }),
+    ...stringMetadata(wire.metadata, "chatcompletions"),
   };
   validateRequest(request);
   return { value: request, losses };
@@ -534,11 +534,6 @@ export function encodeRequest(
 ): ConversionResult<JsonObject> {
   validateRequest(request);
   const losses: Loss[] = [];
-  if (
-    request.metadata !== undefined &&
-    Object.keys(request.metadata).length > 0
-  )
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
   const messages: JsonValue[] = [];
   if (request.system !== undefined && request.system.length > 0)
     messages.push({
@@ -779,6 +774,7 @@ export function encodeRequest(
       : { response_format: encodeResponseFormat(format) }),
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
   };
   const omissionLosses = omittedNativeRequestLosses(request, "chatcompletions");
   losses.push(...omissionLosses);
@@ -1351,6 +1347,22 @@ function encodeImage(image: ImageBlock, path: string): JsonObject | undefined {
     } catch {}
   }
   return undefined;
+}
+
+function stringMetadata(
+  value: JsonValue | undefined,
+  face: string,
+): { metadata: Record<string, string> } | Record<string, never> {
+  if (value === undefined || value === null) return {};
+  if (typeof value !== "object" || Array.isArray(value))
+    fail(`${face}: metadata must be an object`);
+  const metadata: Record<string, string> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (typeof child !== "string")
+      fail(`${face}: metadata.${key} must be a string`);
+    metadata[key] = child;
+  }
+  return Object.keys(metadata).length === 0 ? {} : { metadata };
 }
 
 function loss(path: string, field: string, reason: LossReason): Loss {

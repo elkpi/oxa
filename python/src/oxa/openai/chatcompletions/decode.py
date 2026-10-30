@@ -6,6 +6,7 @@ import json
 from dataclasses import replace
 from typing import Any, cast
 
+from oxa._metadata import string_metadata
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -88,7 +89,6 @@ def decode_request(
         ("function_call", "legacy Chat Completions function_call has no IR equivalent in v1."),
         ("logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
         ("top_logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
-        ("metadata", "Chat Completions request metadata has no IR equivalent in v1."),
     ]
     for name, detail in unmapped_fields:
         if wire.get(name) is not None:
@@ -374,6 +374,7 @@ def decode_request(
             tool_choice=tool_choice,
             params=params,
             native=tuple(native) if native else None,
+            metadata=string_metadata(wire.get("metadata"), "chatcompletions"),
         ),
         losses,
     )

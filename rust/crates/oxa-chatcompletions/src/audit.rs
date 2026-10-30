@@ -280,6 +280,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("tools", "tool[]"),
             ("tool_choice", "tool_choice"),
             ("response_format", "format"),
+            ("metadata", ""),
         ]),
         "response" => Some(&[
             ("id", ""),

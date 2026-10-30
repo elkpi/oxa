@@ -23,14 +23,14 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, loss(
-			"metadata", "metadata", ir.LossUnmappedField,
-			"Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-		))
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
+	if len(req.Metadata) > 0 {
+		out.Metadata = make(map[string]string, len(req.Metadata))
+		for key, value := range req.Metadata {
+			out.Metadata[key] = value
+		}
+	}
 	if len(req.System) > 0 {
 		text := ""
 		for _, system := range req.System {

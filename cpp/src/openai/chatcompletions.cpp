@@ -283,7 +283,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     std::vector<ir::Loss> losses;
 
     const char* dropped_fields[] = {
-        "parallel_tool_calls", "functions", "function_call", "logprobs", "top_logprobs", "metadata"};
+        "parallel_tool_calls", "functions", "function_call", "logprobs", "top_logprobs"};
     for (const char* f : dropped_fields) {
         if (wire.find(f) != nullptr) {
             std::string detail = "Chat Completions " + std::string(f) + " has no IR equivalent in v1.";
@@ -295,8 +295,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 detail = "legacy Chat Completions function_call has no IR equivalent in v1.";
             } else if (std::string_view(f) == "logprobs" || std::string_view(f) == "top_logprobs") {
                 detail = "Chat Completions log-probability sampling has no IR equivalent in v1.";
-            } else if (std::string_view(f) == "metadata") {
-                detail = "Chat Completions request metadata has no IR equivalent in v1.";
             }
             losses.push_back(make_cc_loss(f, f, ir::LOSS_UNMAPPED_FIELD, detail));
         }
@@ -306,6 +304,16 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     const auto* mv = wire.find("model");
     if (!mv || !mv->is_string()) return invalid_argument("chatcompletions: request missing model");
     req.model = opts.model_map.map(mv->as_string());
+    if (const auto* md = wire.find("metadata"); md && !md->is_null()) {
+        if (!md->is_object()) return invalid_argument("chatcompletions: metadata must be an object");
+        std::map<std::string, std::string> parsed;
+        for (const auto& [key, value] : md->as_object()) {
+            if (!value.is_string())
+                return invalid_argument("chatcompletions: metadata." + key + " must be a string");
+            parsed.emplace(key, value.as_string());
+        }
+        if (!parsed.empty()) req.metadata = std::move(parsed);
+    }
 
     if (const auto* tools_val = wire.find("tools"); tools_val && tools_val->is_array()) {
         std::vector<ir::Tool> tools;
@@ -682,14 +690,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
-    if (req.metadata.has_value() && !req.metadata->empty()) {
-        losses.push_back(make_cc_loss(
-            "metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-            "Chat Completions requests have no metadata field; the IR metadata map is dropped."));
-    }
-
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
+    if (req.metadata.has_value() && !req.metadata->empty()) {
+        json::Value md = json::Value::object();
+        for (const auto& [key, value] : *req.metadata)
+            md.set(key, json::Value::string(value));
+        out.set("metadata", std::move(md));
+    }
 
     if (req.tools.has_value() && !req.tools->empty()) {
         json::Value tools_arr = json::Value::array();

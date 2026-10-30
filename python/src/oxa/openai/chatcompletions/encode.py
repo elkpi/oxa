@@ -63,16 +63,6 @@ def encode_request(
     """Converts an IR request to a Chat Completions wire request (IR → face)."""
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-            )
-        )
-
     model = req.model
     if table is not None:
         model = table.map(model)
@@ -81,6 +71,8 @@ def encode_request(
         "model": model,
         "messages": [],
     }
+    if req.metadata:
+        out["metadata"] = dict(req.metadata)
 
     tools_wire: list[dict[str, Any]] = []
     if req.tools:

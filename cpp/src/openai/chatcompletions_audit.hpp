@@ -5,7 +5,7 @@
 namespace oxa::openai::chatcompletions {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"max_completion_tokens", ""}, {"store", ""}, {"stream", ""}, {"stream_options", "stream_options"}, {"stop", ""}, {"reasoning_effort", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"response_format", "format"}}},
+        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"max_completion_tokens", ""}, {"store", ""}, {"stream", ""}, {"stream_options", "stream_options"}, {"stop", ""}, {"reasoning_effort", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"response_format", "format"}, {"metadata", ""}}},
          {"stream_options", {{"include_usage", ""}, {"include_obfuscation", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice[]"}, {"usage", "usage"}}},
          {"event", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice_delta[]"}, {"usage", "usage"}}},

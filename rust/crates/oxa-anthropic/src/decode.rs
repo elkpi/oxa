@@ -1,6 +1,6 @@
 //! Face → IR conversions (spec/12 §4).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use oxa_ir::{
     Loss, LossReason, Params, Request as IrRequest, Response as IrResponse, StopReason, Usage,
@@ -45,17 +45,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             "anthropic: max_tokens is required and must be positive",
         ));
     }
-    if wire.metadata.is_some() {
-        // Anthropic's wire metadata is the specific {user_id} semantic, not
-        // an arbitrary string map, so it is dropped symmetrically with a
-        // single unmapped-field loss.
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Anthropic request metadata (user_id) has no IR equivalent in v1.",
-        ));
-    }
+    let metadata = if let Some(value) = &wire.metadata {
+        anthropic_metadata(value, &mut losses)?
+    } else {
+        None
+    };
     let mut req = IrRequest {
         model: config.map_model(&wire.model),
         system: Vec::new(),
@@ -63,7 +57,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tools: None,
         tool_choice: None,
         params: None,
-        metadata: None,
+        metadata,
         native: Vec::new(),
     };
     let mut declared_tools: BTreeSet<String> = BTreeSet::new();
@@ -452,4 +446,35 @@ pub(crate) fn decode_stop_reason(stop: &str) -> Result<(StopReason, Option<Loss>
             )),
         )),
     }
+}
+
+fn anthropic_metadata(
+    value: &serde_json::Value,
+    losses: &mut Vec<Loss>,
+) -> Result<Option<BTreeMap<String, String>>, Error> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(object) = value.as_object() else {
+        return Err(Error::new("anthropic: metadata must be an object"));
+    };
+    let mut user_id = None;
+    for (key, item) in object {
+        if key != "user_id" {
+            losses.push(loss(
+                format!("metadata.{key}"),
+                key,
+                LossReason::UnmappedField,
+                "Anthropic request metadata only preserves user_id; this key is dropped.",
+            ));
+            continue;
+        }
+        let Some(text) = item.as_str() else {
+            return Err(Error::new(
+                "anthropic: metadata.user_id must be a string",
+            ));
+        };
+        user_id = Some(text.to_string());
+    }
+    Ok(user_id.map(|value| BTreeMap::from([("user_id".to_string(), value)])))
 }

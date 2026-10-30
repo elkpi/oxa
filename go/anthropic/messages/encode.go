@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -35,16 +36,12 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, ir.Loss{
-			Path:   "metadata",
-			Field:  "metadata",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
-		})
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
+	if encoded, metaLosses := encodeAnthropicMetadata(req.Metadata); encoded != nil || len(metaLosses) > 0 {
+		out.Metadata = encoded
+		losses = append(losses, metaLosses...)
+	}
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
 		for _, s := range req.System {
@@ -776,4 +773,35 @@ func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
 		items = append(items, json.RawMessage(c.Value))
 	}
 	return json.Marshal(items)
+}
+
+func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss) {
+	if len(metadata) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var losses []ir.Loss
+	var userID string
+	var hasUserID bool
+	for _, key := range keys {
+		if key == "user_id" {
+			userID = metadata[key]
+			hasUserID = true
+			continue
+		}
+		losses = append(losses, ir.Loss{
+			Path:   "metadata." + key,
+			Field:  key,
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic request metadata only preserves user_id; this IR metadata key is dropped.",
+		})
+	}
+	if !hasUserID {
+		return nil, losses
+	}
+	return map[string]string{"user_id": userID}, losses
 }

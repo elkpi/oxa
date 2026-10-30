@@ -36,13 +36,13 @@ func TestRawReviewKnownDroppedPresence(t *testing.T) {
 		{`{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"hi"}],"metadata":null,"tool_choice":{"type":"auto","disable_parallel_tool_use":false}}`, func(raw []byte) (*ir.Request, []ir.Loss, error) { return messages.DecodeRequestJSON(raw) }},
 	}
 	for i, c := range cases {
-		_, losses, err := c.decode([]byte(c.raw))
-		expected := 2
+		req, losses, err := c.decode([]byte(c.raw))
+		expected := 1
 		if i == 1 || i == 2 {
-			expected = 1
+			expected = 0
 		}
-		if err != nil || len(losses) != expected {
-			t.Fatalf("case %d losses=%+v err=%v", i, losses, err)
+		if err != nil || len(losses) != expected || req.Metadata != nil {
+			t.Fatalf("case %d metadata=%+v losses=%+v err=%v", i, req.Metadata, losses, err)
 		}
 	}
 }

@@ -246,16 +246,6 @@ def encode_request(
     """Converts an IR request to a Responses wire request (IR → face)."""
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-            )
-        )
-
     model = req.model
     if table is not None:
         model = table.map(model)
@@ -263,6 +253,8 @@ def encode_request(
     out: dict[str, Any] = {
         "model": model,
     }
+    if req.metadata:
+        out["metadata"] = dict(req.metadata)
 
     if req.system:
         instructions = "".join(b.text for b in req.system)

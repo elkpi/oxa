@@ -658,39 +658,40 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestMetadataLossesBothDirections(t *testing.T) {
-	// face -> IR: wire metadata (user_id semantic) dropped with one loss.
+func TestMetadataUserIDRoundTripAndExtraKeyLoss(t *testing.T) {
 	wire := &Request{
-		Model:     "claude-sonnet-4-5",
-		MaxTokens: 512,
+		Model:     "claude",
+		MaxTokens: 16,
 		Messages:  []Message{{Role: "user", Content: "Hi"}},
-		Metadata:  map[string]any{"user_id": "u1"},
+		Metadata:  map[string]any{"user_id": "u1", "extra": "x"},
 	}
-	_, losses, err := DecodeRequest(wire)
+	req, losses, err := DecodeRequest(wire)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
+	if req.Metadata["user_id"] != "u1" || len(req.Metadata) != 1 {
+		t.Fatalf("metadata = %+v", req.Metadata)
+	}
+	if len(losses) != 1 || losses[0].Path != "metadata.extra" || losses[0].Field != "extra" ||
 		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("decode metadata loss wrong: %+v", losses)
+		t.Fatalf("extra key loss = %+v", losses)
 	}
-	// IR -> face: IR metadata map dropped with one loss.
-	irReq := &ir.Request{
-		Model:    "claude-sonnet-4-5",
+	maxTokens := int64(16)
+	out, losses, err := EncodeRequest(&ir.Request{
+		Model:    "claude",
 		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
-		Params:   ir.Params{MaxTokens: ptr(int64(512))},
-		Metadata: map[string]string{"k": "v"},
-	}
-	out, losses, err := EncodeRequest(irReq)
+		Params:   ir.Params{MaxTokens: &maxTokens},
+		Metadata: map[string]string{"user_id": "u1", "k": "v"},
+	})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if out.Metadata != nil {
-		t.Fatalf("IR metadata must not be rendered: %+v", out.Metadata)
+	got, ok := out.Metadata.(map[string]string)
+	if !ok || got["user_id"] != "u1" || len(got) != 1 {
+		t.Fatalf("rendered = %#v", out.Metadata)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	if len(losses) != 1 || losses[0].Path != "metadata.k" || losses[0].Field != "k" {
+		t.Fatalf("encode loss = %+v", losses)
 	}
 }
 

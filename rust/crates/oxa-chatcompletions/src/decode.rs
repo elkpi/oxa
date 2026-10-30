@@ -7,7 +7,7 @@ use oxa_ir::{
     Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
 };
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -52,11 +52,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             wire.top_logprobs.is_some(),
             "Chat Completions log-probability sampling has no IR equivalent in v1.",
         ),
-        (
-            "metadata",
-            wire.metadata.is_some(),
-            "Chat Completions request metadata has no IR equivalent in v1.",
-        ),
     ] {
         if present {
             losses.push(loss(name, name, LossReason::UnmappedField, detail));
@@ -73,6 +68,9 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         metadata: None,
         native: Vec::new(),
     };
+    if let Some(value) = &wire.metadata {
+        req.metadata = string_metadata(value, "chatcompletions")?;
+    }
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
@@ -675,5 +673,31 @@ pub(crate) fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<L
                 format!("Chat Completions finish_reason {other:?} has no IR equivalent"),
             )),
         )),
+    }
+}
+
+fn string_metadata(
+    value: &Value,
+    face: &str,
+) -> Result<Option<BTreeMap<String, String>>, Error> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(object) = value.as_object() else {
+        return Err(Error::new(format!("{face}: metadata must be an object")));
+    };
+    let mut out = BTreeMap::new();
+    for (key, item) in object {
+        let Some(text) = item.as_str() else {
+            return Err(Error::new(format!(
+                "{face}: metadata.{key} must be a string"
+            )));
+        };
+        out.insert(key.clone(), text.to_string());
+    }
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
     }
 }

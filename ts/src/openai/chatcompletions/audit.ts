@@ -154,6 +154,7 @@ export const CHAT_REQUEST: WireAuditSpec = {
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
     response_format: RESPONSE_FORMAT,
+    metadata: undefined,
   },
 };
 

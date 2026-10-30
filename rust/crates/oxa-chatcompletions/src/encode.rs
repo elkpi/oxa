@@ -25,20 +25,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         tool.validate_strict().map_err(Error::new)?;
     }
     let mut losses = Vec::new();
-    if req
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| !metadata.is_empty())
-    {
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-        ));
-    }
     let mut out = Request {
         model: config.map_model(&req.model),
+        metadata: req.metadata.as_ref().filter(|metadata| !metadata.is_empty()).map(|metadata| {
+            serde_json::Value::Object(
+                metadata
+                    .iter()
+                    .map(|(key, value)| (key.clone(), serde_json::Value::String(value.clone())))
+                    .collect(),
+            )
+        }),
         ..Request::default()
     };
     if let Some(tools) = &req.tools {

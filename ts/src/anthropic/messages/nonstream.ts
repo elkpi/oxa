@@ -116,8 +116,7 @@ function decodeRequestObject(
   const maxTokens = whole(wire.max_tokens, "max_tokens");
   if (maxTokens <= 0n) fail("max_tokens must be positive");
   const losses: Loss[] = [];
-  if (wire.metadata !== undefined)
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
+  const metadata = anthropicMetadata(wire.metadata, losses);
   const system: {
     readonly type: "text";
     readonly text: string;
@@ -425,6 +424,7 @@ function decodeRequestObject(
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     params,
+    ...(metadata === undefined ? {} : { metadata }),
   };
   const request = decodeRequestNative(wire, baseRequest, losses);
   validateRequest(request);
@@ -524,11 +524,7 @@ export function encodeRequest(
 ): ConversionResult<JsonObject> {
   validateRequest(request);
   const losses: Loss[] = [];
-  if (
-    request.metadata !== undefined &&
-    Object.keys(request.metadata).length > 0
-  )
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
+  const metadata = encodeAnthropicMetadata(request.metadata, losses);
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
     losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
@@ -710,6 +706,7 @@ export function encodeRequest(
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),
     max_tokens: integer(maxTokens),
+    ...(metadata === undefined ? {} : { metadata }),
     ...(request.system === undefined || request.system.length === 0
       ? {}
       : {
@@ -1517,6 +1514,54 @@ function encodeToolChoice(
     return { type: "tool", name: value.name };
   }
   return { type: value.mode };
+}
+
+function anthropicMetadata(
+  value: JsonValue | undefined,
+  losses: Loss[],
+): Record<string, string> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "object" || Array.isArray(value))
+    fail("anthropic: metadata must be an object");
+  const out: Record<string, string> = {};
+  for (const [key, child] of Object.entries(value)) {
+    if (key === "user_id") {
+      if (typeof child !== "string")
+        fail("anthropic: metadata.user_id must be a string");
+      out.user_id = child;
+      continue;
+    }
+    losses.push({
+      path: `metadata.${key}`,
+      field: key,
+      reason: "unmapped-field",
+      detail:
+        "Anthropic request metadata only preserves user_id; this key is dropped.",
+    });
+  }
+  return Object.keys(out).length === 0 ? undefined : out;
+}
+
+function encodeAnthropicMetadata(
+  metadata: Readonly<Record<string, string>> | undefined,
+  losses: Loss[],
+): Record<string, string> | undefined {
+  if (metadata === undefined) return undefined;
+  let userID: string | undefined;
+  for (const key of Object.keys(metadata).sort()) {
+    if (key === "user_id") {
+      userID = metadata[key];
+      continue;
+    }
+    losses.push({
+      path: `metadata.${key}`,
+      field: key,
+      reason: "unmapped-field",
+      detail:
+        "Anthropic request metadata only preserves user_id; this IR metadata key is dropped.",
+    });
+  }
+  return userID === undefined ? undefined : { user_id: userID };
 }
 
 function loss(path: string, field: string, reason: LossReason): Loss {

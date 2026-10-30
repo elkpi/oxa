@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 import json
 
+from oxa._metadata import anthropic_metadata
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.anthropic.messages.constants import (
     ROLE_ASSISTANT as AN_ROLE_ASSISTANT,
@@ -90,15 +91,8 @@ def decode_request(
     if max_tokens is None or max_tokens <= 0:
         raise ValueError("anthropic: max_tokens is required and must be positive")
 
-    if "metadata" in wire:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Anthropic request metadata (user_id) has no IR equivalent in v1.",
-            )
-        )
+    metadata, meta_losses = anthropic_metadata(wire.get("metadata"))
+    losses.extend(meta_losses)
 
     model = str(wire.get("model", ""))
     if table is not None:
@@ -340,6 +334,7 @@ def decode_request(
         tools=tools if tools else None,
         tool_choice=tool_choice,
         params=params,
+        metadata=metadata,
     )
 
     req, native_losses = decode_request_native(wire, req)

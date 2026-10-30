@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 160);
+    CHECK(rep_res->executed == 162);
 
     const char* invalid_actions[] = {
         R"(null)", R"({})", R"({"type":"future"})",

@@ -841,10 +841,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!wire.is_object()) return invalid_argument("responses: request must be an object");
     std::vector<ir::Loss> losses;
 
-    if (wire.find("metadata") != nullptr) {
-        losses.push_back(make_resp_loss("metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-                                        "Responses request metadata has no IR equivalent in v1."));
-    }
     if (const auto* txt = wire.find("text"); txt && txt->is_object()) {
         if (txt->find("verbosity") != nullptr) {
             losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD,
@@ -860,6 +856,16 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     const auto* mv = wire.find("model");
     if (!mv || !mv->is_string()) return invalid_argument("responses: request missing model");
     req.model = opts.model_map.map(mv->as_string());
+    if (const auto* md = wire.find("metadata"); md && !md->is_null()) {
+        if (!md->is_object()) return invalid_argument("responses: metadata must be an object");
+        std::map<std::string, std::string> parsed;
+        for (const auto& [key, value] : md->as_object()) {
+            if (!value.is_string())
+                return invalid_argument("responses: metadata." + key + " must be a string");
+            parsed.emplace(key, value.as_string());
+        }
+        if (!parsed.empty()) req.metadata = std::move(parsed);
+    }
 
     if (const auto* inst = wire.find("instructions"); inst && inst->is_string()) {
         req.system.push_back(ir::TextBlock{inst->as_string()});
@@ -1406,14 +1412,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
-    if (req.metadata.has_value() && !req.metadata->empty()) {
-        losses.push_back(make_resp_loss(
-            "metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-            "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped."));
-    }
-
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
+    if (req.metadata.has_value() && !req.metadata->empty()) {
+        json::Value md = json::Value::object();
+        for (const auto& [key, value] : *req.metadata)
+            md.set(key, json::Value::string(value));
+        out.set("metadata", std::move(md));
+    }
 
     if (!req.system.empty()) {
         std::string inst;

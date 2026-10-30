@@ -19,14 +19,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, loss(
-			"metadata", "metadata", ir.LossUnmappedField,
-			"Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-		))
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
+	if len(req.Metadata) > 0 {
+		copied := make(map[string]string, len(req.Metadata))
+		for key, value := range req.Metadata {
+			copied[key] = value
+		}
+		out.Metadata = copied
+	}
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
 		for i, tool := range req.Tools {

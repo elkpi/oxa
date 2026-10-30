@@ -6,6 +6,7 @@ import json
 from decimal import Decimal
 from typing import Any
 
+from oxa._metadata import encode_anthropic_metadata
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
@@ -103,15 +104,8 @@ def encode_request(
     validate_native_request(req)
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
-            )
-        )
+    metadata, meta_losses = encode_anthropic_metadata(req.metadata)
+    losses.extend(meta_losses)
 
     model = req.model
     if table is not None:
@@ -121,6 +115,8 @@ def encode_request(
         "model": model,
         "messages": [],
     }
+    if metadata:
+        out["metadata"] = metadata
 
     if req.system:
         out["system"] = encode_system(req.system)

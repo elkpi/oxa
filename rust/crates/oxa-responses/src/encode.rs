@@ -59,20 +59,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
         }
     }
-    if req
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| !metadata.is_empty())
-    {
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-        ));
-    }
     let mut out = Request {
         model: config.map_model(&req.model),
+        metadata: req
+            .metadata
+            .clone()
+            .filter(|metadata| !metadata.is_empty()),
         ..Request::default()
     };
     if !req.system.is_empty() {

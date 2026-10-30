@@ -171,7 +171,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 115);
+    CHECK(rep_res->executed == 119);
 
     // Test mid-conversation system messages
     {

@@ -199,40 +199,30 @@ func TestDecodeRequestStopSequenceLossOnEncode(t *testing.T) {
 	}
 }
 
-func TestMetadataLossesBothDirections(t *testing.T) {
-	// face -> IR: wire metadata present is dropped with one unmapped-field loss.
+func TestMetadataRoundTrip(t *testing.T) {
+	text := "Hi"
 	wire := &Request{
 		Model:    "gpt-4o-mini",
-		Input:    Input{Text: ptr("Hi")},
+		Input:    Input{Text: &text},
 		Metadata: map[string]string{"user_id": "u1"},
 	}
 	req, losses, err := DecodeRequest(wire)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if req.Metadata != nil {
-		t.Fatalf("wire metadata must be dropped: %+v", req.Metadata)
+	if len(losses) != 0 || req.Metadata["user_id"] != "u1" {
+		t.Fatalf("metadata = %+v losses=%+v", req.Metadata, losses)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("decode metadata loss wrong: %+v", losses)
-	}
-	// IR -> face: IR metadata map is dropped with one unmapped-field loss.
-	irReq := &ir.Request{
+	out, losses, err := EncodeRequest(&ir.Request{
 		Model:    "gpt-4o-mini",
 		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
 		Metadata: map[string]string{"k": "v"},
-	}
-	out, losses, err := EncodeRequest(irReq)
+	})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if out.Metadata != nil {
-		t.Fatalf("IR metadata must not be rendered: %+v", out.Metadata)
-	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	if len(losses) != 0 || out.Metadata["k"] != "v" {
+		t.Fatalf("rendered = %+v losses=%+v", out.Metadata, losses)
 	}
 }
 

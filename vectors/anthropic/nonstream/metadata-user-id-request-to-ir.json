@@ -1,0 +1,25 @@
+{
+  "name": "anthropic.nonstream.metadata-user-id-request-to-ir",
+  "description": "Anthropic metadata.user_id maps to Request.Metadata with no loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-sonnet",
+    "max_tokens": 16,
+    "metadata": { "user_id": "u1" },
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet",
+    "metadata": { "user_id": "u1" },
+    "params": { "max_tokens": 16 },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "metadata", "N-AN-8"]
+}

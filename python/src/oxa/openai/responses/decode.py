@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, cast
 
+from oxa._metadata import string_metadata
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -101,12 +102,6 @@ def decode_request(
 
     text_config = wire.get("text")
     unmapped_fields = [
-        (
-            "metadata",
-            "metadata",
-            wire.get("metadata") is not None,
-            "Responses request metadata has no IR equivalent in v1.",
-        ),
         (
             "text.verbosity",
             "verbosity",
@@ -309,6 +304,7 @@ def decode_request(
             tools=tools if tools else None,
             tool_choice=tool_choice,
             params=params,
+            metadata=string_metadata(wire.get("metadata"), "responses"),
         ),
         losses,
     )

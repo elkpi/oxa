@@ -388,6 +388,7 @@ export const RESPONSES_REQUEST: WireAuditSpec = {
     tool_choice: TOOL_CHOICE,
     text: { fields: { format: FORMAT } },
     reasoning: { fields: { effort: undefined, summary: undefined } },
+    metadata: undefined,
   },
 };
 

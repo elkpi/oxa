@@ -30,14 +30,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     let mut losses = Vec::new();
     for (path, field, present, detail) in [
         (
-            "metadata",
-            "metadata",
-            wire.metadata
-                .as_ref()
-                .is_some_and(|metadata| !metadata.is_empty()),
-            "Responses request metadata has no IR equivalent in v1.",
-        ),
-        (
             "text.verbosity",
             "verbosity",
             wire.text
@@ -65,7 +57,10 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tools: None,
         tool_choice: None,
         params: None,
-        metadata: None,
+        metadata: wire
+            .metadata
+            .clone()
+            .filter(|metadata| !metadata.is_empty()),
         native: Vec::new(),
     };
     if let Some(instructions) = &wire.instructions {

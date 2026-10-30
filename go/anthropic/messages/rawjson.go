@@ -652,7 +652,6 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 					},
 				},
 			}
-			delete(schema.fields, "metadata")
 		case reflect.TypeOf(Response{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForResponseBlock(seen)}
 		}

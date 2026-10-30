@@ -301,6 +301,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("cache_control", ""),
             ("output_config", "output_config"),
             ("context_management", "context_management"),
+            ("metadata", ""),
         ]),
         "output_config" => Some(&[("effort", ""), ("format", "output_format")]),
         "output_format" => match tag(object, "type").as_deref() {

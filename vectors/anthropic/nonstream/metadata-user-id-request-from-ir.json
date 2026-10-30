@@ -1,0 +1,26 @@
+{
+  "name": "anthropic.nonstream.metadata-user-id-request-from-ir",
+  "description": "Request.Metadata user_id round-trips onto an Anthropic request.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-sonnet",
+    "metadata": { "user_id": "u1" },
+    "params": { "max_tokens": 16 },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-sonnet",
+    "max_tokens": 16,
+    "metadata": { "user_id": "u1" },
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_losses": [],
+  "tags": ["request", "metadata", "N-AN-8"]
+}

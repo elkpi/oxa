@@ -122,7 +122,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 159);
+        CHECK(r->executed == 160);
     }
 
     // 4. Cross-protocol nonstream

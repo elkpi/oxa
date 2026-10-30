@@ -8,6 +8,7 @@ precedence between spec, vectors, and schemas is defined in
 ## 2.5.0 - unreleased
 
 - 请求 `metadata` 接通到 `Request.Metadata`。Chat Completions 与 Responses 的字符串图双向零损失。Anthropic 只保留 `user_id`；其余键逐条 `unmapped-field`。IR contract 保持 `0.2.0`。
+- system 块可选 `role: "developer"`。Responses 的 developer 指令可以同脸回转。Anthropic 没有该角色时文本仍进入 system，并逐块记 `degraded`。没有 developer 块时，既有 system 折叠行为不变。
 
 ## 2.4.13 - 2026-10-30
 

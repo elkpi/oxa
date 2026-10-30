@@ -36,7 +36,7 @@ The wire objects in scope are:
   `parallel_tool_calls`, `functions`, `function_call`,
   `response_format`, `logprobs`, `top_logprobs`. `metadata` is a string
   map and maps to `Request.Metadata` (since 2.5.0).
-- **Message**: `role` (`system` | `user` | `assistant` | `tool`),
+- **Message**: `role` (`system` | `developer` | `user` | `assistant` | `tool`),
   `content` (string or content-parts array), `tool_calls[]`
   (assistant), `tool_call_id` (tool), `function_call` (legacy).
 - **ContentPart**: `type` (`text` | `image_url`), `text`,

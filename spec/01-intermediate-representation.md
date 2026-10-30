@@ -81,6 +81,8 @@ System prompt content. Sealed; exactly one variant in v1:
 |---------|-------------|
 | `TextBlock` | `text` |
 
+Since 2.5.0 a system block may carry optional `role`. Absent means a system-tier instruction (`instructions`, `role: "system"`, or Anthropic `system`). `"developer"` is the developer instruction tier. Any other value is a structural error. The field is omitted when absent.
+
 ### 3.3 Message
 
 | Go field | JSON property | Type | Required | Notes |

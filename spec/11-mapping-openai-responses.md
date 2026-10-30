@@ -182,14 +182,18 @@ Each rule has a stable ID usable as a vector tag.
   `input`. This rule does not infer an additional precedence relation between
   system and developer instructions.
 
-  The current IR cannot distinguish developer from system instructions.
-  Each developer item MUST therefore record exactly one `degraded` loss at
-  `input[i].role`, field `role`, even when all its text is carried. This loss
-  MUST explain that the developer/system distinction is not preserved; it
-  remains part of the composed loss list for every target face (spec/02 §6).
-  On encode, all IR system blocks MUST be concatenated, in order, into the
-  `instructions` string. Conversion through IR is not a role-preserving
-  round-trip, including when the target face itself supports developer.
+  Since 2.5.0 each text block taken from a `role: "developer"` item is an IR
+  system block with `role: "developer"`. `instructions` and `role: "system"`
+  items stay system-tier blocks with `role` absent. Decoding a developer item
+  records no role loss. On encode, when no system block has `role: "developer"`,
+  every system block is still concatenated into `instructions`. When any block
+  is developer, the leading run of system-tier blocks becomes `instructions`
+  and each later block becomes its own `system` or `developer` input message,
+  in order. Anthropic has no developer role: the text is still carried as
+  system content, and each developer block records one `degraded` loss at
+  `system[i].role`. Chat Completions keeps the single concatenated system
+  message when no block is developer; otherwise each block is its own
+  `system` or `developer` message.
 
   When instruction extraction leaves no conversation messages but at least
   one system block, the decoder MUST synthesize one user message containing

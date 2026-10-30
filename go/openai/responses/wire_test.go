@@ -10,6 +10,16 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestGenericWireJSONPreservesTextFormatType(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{"text":{"format":{"type":"json_schema","name":"x","schema":{}}}}`), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := wire.Text.Format.(map[string]any); !ok {
+		t.Fatalf("expected generic text.format map, got %T", wire.Text.Format)
+	}
+}
+
 func TestDecodeRequestJSONReportsPresentFalseUnknownField(t *testing.T) {
 	raw := []byte(`{"model":"m","input":"hi","store":false}`)
 	got, losses, err := DecodeRequestJSON(raw)
@@ -515,7 +525,7 @@ func TestUnknownInputItemAndVerbosityLosses(t *testing.T) {
 	wire := &Request{
 		Model: "gpt-4o-mini",
 		Input: Input{Items: []InputItem{
-			{Type: "web_search_call"},
+			{Type: "future_item"},
 			{Role: "user", Content: "Hi"},
 		}},
 		Text: &TextParams{Verbosity: ptr("low"), Format: map[string]any{"type": "unknown_format"}},

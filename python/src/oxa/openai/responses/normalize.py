@@ -32,6 +32,7 @@ from oxa.ir import (
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
+    WebSearchCallBlock,
 )
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
@@ -49,6 +50,7 @@ from oxa.openai.responses.constants import (
     ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
     ITEM_TYPE_MESSAGE,
     ITEM_TYPE_REASONING,
+    ITEM_TYPE_WEB_SEARCH_CALL,
     PART_TYPE_INPUT_IMAGE,
     PART_TYPE_INPUT_TEXT,
     PART_TYPE_OUTPUT_TEXT,
@@ -243,6 +245,7 @@ def precheck_apply_patch_pairs(
                 ITEM_TYPE_CUSTOM_TOOL_CALL,
                 "apply_patch_call",
                 ITEM_TYPE_REASONING,
+                ITEM_TYPE_WEB_SEARCH_CALL,
             )
         )
         if not is_assistant:
@@ -265,7 +268,7 @@ def precheck_apply_patch_pairs(
                 cur_kind = "custom"
             elif k == "apply_patch_call":
                 cur_kind = "apply_patch"
-            elif k == ITEM_TYPE_REASONING or (k in ("", ITEM_TYPE_MESSAGE) and r == ROLE_ASSISTANT):
+            elif k in (ITEM_TYPE_REASONING, ITEM_TYPE_WEB_SEARCH_CALL) or (k in ("", ITEM_TYPE_MESSAGE) and r == ROLE_ASSISTANT):
                 pass
             else:
                 break
@@ -376,6 +379,14 @@ def decode_assistant_run(
     while index < len(items):
         item = items[index]
         kind = item.get("type", "")
+        if kind == ITEM_TYPE_WEB_SEARCH_CALL:
+            from oxa.openai.responses.web_search import decode_web_search_item
+
+            block, call_losses = decode_web_search_item(item, f"input[{index}]")
+            losses.extend(call_losses)
+            calls.append(block)
+            index += 1
+            continue
         if kind == ITEM_TYPE_REASONING:
             for part_index, part in enumerate(item.get("summary", [])):
                 part_type = part.get("type", "")
@@ -832,6 +843,17 @@ def encode_assistant_message(
                 "call_id": block.id,
                 "status": block.status,
                 "operation": encode_apply_patch_operation(block.operation),
+            })
+        elif isinstance(block, WebSearchCallBlock):
+            from oxa.ir.web_search import inspect_web_search, validate_web_search_extra
+            inspect_web_search(block.id, block.status, block.action)
+            validate_web_search_extra(block.extra)
+            calls.append({
+                **block.extra,
+                "type": ITEM_TYPE_WEB_SEARCH_CALL,
+                "id": block.id,
+                "status": block.status,
+                "action": block.action,
             })
         elif isinstance(block, ToolUseBlock):
             dot_idx = block.name.find(".")

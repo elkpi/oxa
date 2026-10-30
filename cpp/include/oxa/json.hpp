@@ -184,10 +184,17 @@ private:
 // Parses one complete JSON document. Trailing whitespace is allowed; trailing
 // non-whitespace is rejected. Duplicate keys are rejected.
 StatusOr<Value> parse(std::string_view text);
+// 将超出原生数值范围的 JSON 数字保留为不透明原文。
+StatusOr<Value> parse_lossless(std::string_view text);
+// 仅在指定 JSON 对象路径下保留超出原生范围的数值。
+StatusOr<Value> parse_preserving_schema(std::string_view text, std::vector<std::string_view> path);
 
 // Serializes a value. Raw values are emitted verbatim. Object keys are
 // emitted in sorted order.
 std::string serialize(const Value& v);
+
+// 仅当原始文本与解析后的值仍一致时保留原文。
+StatusOr<Value> preserve_source(const Value& v);
 
 // Structural equality (vectors/README.md rules 1-3): object key order is
 // irrelevant, arrays are ordered, strings are exact, and Int and Double are

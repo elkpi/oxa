@@ -154,6 +154,13 @@ export interface ApplyPatchToolResultBlock {
   readonly output?: string;
   readonly native?: readonly NativeAnnotation[];
 }
+export interface WebSearchCallBlock {
+  readonly type: "web_search_call";
+  readonly id: string;
+  readonly status: string;
+  readonly action: JsonObject;
+  readonly extra?: JsonObject;
+}
 
 export type Block =
   | TextBlock
@@ -166,7 +173,8 @@ export type Block =
   | CustomToolUseBlock
   | CustomToolResultBlock
   | ApplyPatchToolUseBlock
-  | ApplyPatchToolResultBlock;
+  | ApplyPatchToolResultBlock
+  | WebSearchCallBlock;
 export interface TextDelta {
   readonly type: "text_delta";
   readonly text: string;
@@ -312,7 +320,7 @@ export interface ResponseFormatJsonObject {
 }
 export interface ResponseFormatJsonSchema {
   readonly type: "json_schema";
-  readonly name: string;
+  readonly name?: string;
   readonly description?: string;
   readonly schema: JsonObject;
   readonly strict?: boolean;

@@ -1,0 +1,13 @@
+{
+  "name": "cross.nonstream.responses-to-responses-web-search-extra-request",
+  "description": "Responses history preserves unknown item and action fields on same-face round-trip while reporting source-side losses.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "responses"},
+  "input": {"model": "m", "input": [{"role": "user", "content": "hi"}, {"type": "web_search_call", "id": "ws", "status": "completed", "future": {"nested": 1}, "action": {"type": "search", "query": "q", "extension": true}}, {"role": "assistant", "content": "done"}]},
+  "expected_output": {"model": "m", "input": [{"role": "user", "content": "hi"}, {"role": "assistant", "content": "done"}, {"type": "web_search_call", "id": "ws", "status": "completed", "future": {"nested": 1}, "action": {"type": "search", "query": "q", "extension": true}}]},
+  "expected_losses": [{"path": "input[1].future", "field": "future", "reason": "unmapped-field"}, {"path": "input[1].action.extension", "field": "extension", "reason": "unmapped-field"}],
+  "tags": ["cross", "request", "web-search", "loss", "n-r-16"]
+}

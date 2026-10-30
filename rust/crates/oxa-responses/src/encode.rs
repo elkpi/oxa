@@ -29,6 +29,22 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     for (message_index, message) in req.messages.iter().enumerate() {
         for (block_index, block) in message.content.iter().enumerate() {
             match block {
+                Block::WebSearchCall {
+                    id,
+                    status,
+                    action,
+                    extra,
+                } => {
+                    oxa_ir::validate_web_search_extra(extra)
+                        .map_err(|error| Error::new(error.to_string()))?;
+                    oxa_ir::inspect_web_search_call(
+                        id,
+                        status,
+                        action,
+                        &format!("messages[{message_index}].content[{block_index}]"),
+                    )
+                    .map_err(|error| Error::new(error.to_string()))?;
+                }
                 Block::CustomToolUse { id, name, .. } if id.is_empty() || name.is_empty() => {
                     return Err(Error::new(format!(
                         "responses: messages[{message_index}].content[{block_index}] custom_tool_use requires id and name"
@@ -167,41 +183,51 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             serde_json::json!({ "effort": effort })
         });
         if let Some(rf) = &params.response_format {
-            let format_val = match rf {
-                ResponseFormat::Text => serde_json::json!({ "type": "text" }),
-                ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
-                ResponseFormat::JsonSchema {
-                    name,
-                    description,
-                    schema,
-                    strict,
-                } => {
-                    let mut obj = serde_json::Map::new();
-                    obj.insert(
-                        "type".to_string(),
-                        serde_json::Value::String("json_schema".to_string()),
-                    );
-                    obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
-                    if let Some(desc) = description {
+            if matches!(rf, ResponseFormat::JsonSchema { name, .. } if name.is_empty()) {
+                losses.push(loss(
+                    "params.response_format",
+                    "name",
+                    LossReason::UnsupportedSemantic,
+                    "Responses requires a non-empty schema name",
+                ));
+            } else {
+                let format_val = match rf {
+                    ResponseFormat::Text => serde_json::json!({ "type": "text" }),
+                    ResponseFormat::JsonObject => serde_json::json!({ "type": "json_object" }),
+                    ResponseFormat::JsonSchema {
+                        name,
+                        description,
+                        schema,
+                        strict,
+                        ..
+                    } => {
+                        let mut obj = serde_json::Map::new();
                         obj.insert(
-                            "description".to_string(),
-                            serde_json::Value::String(desc.clone()),
+                            "type".to_string(),
+                            serde_json::Value::String("json_schema".to_string()),
                         );
+                        obj.insert("name".to_string(), serde_json::Value::String(name.clone()));
+                        if let Some(desc) = description {
+                            obj.insert(
+                                "description".to_string(),
+                                serde_json::Value::String(desc.clone()),
+                            );
+                        }
+                        obj.insert(
+                            "schema".to_string(),
+                            serde_json::Value::Object(schema.clone()),
+                        );
+                        if let Some(s) = strict {
+                            obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
+                        }
+                        serde_json::Value::Object(obj)
                     }
-                    obj.insert(
-                        "schema".to_string(),
-                        serde_json::Value::Object(schema.clone()),
-                    );
-                    if let Some(s) = strict {
-                        obj.insert("strict".to_string(), serde_json::Value::Bool(*s));
-                    }
-                    serde_json::Value::Object(obj)
-                }
-            };
-            out.text = Some(TextParams {
-                verbosity: None,
-                format: Some(format_val),
-            });
+                };
+                out.text = Some(TextParams {
+                    verbosity: None,
+                    format: Some(format_val),
+                });
+            }
         }
         if params
             .stop_sequences
@@ -292,6 +318,25 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         "Responses reasoning output items carry no provider signature",
                     ));
                 }
+            }
+            Block::WebSearchCall {
+                id,
+                status,
+                action,
+                extra,
+            } => {
+                oxa_ir::validate_web_search_extra(extra)
+                    .map_err(|error| Error::new(error.to_string()))?;
+                oxa_ir::inspect_web_search_call(id, status, action, &format!("content[{index}]"))
+                    .map_err(|error| Error::new(error.to_string()))?;
+                calls.push(OutputItem {
+                    kind: "web_search_call".into(),
+                    id: id.clone(),
+                    status: status.clone(),
+                    action: Some(action.clone()),
+                    extra: extra.clone(),
+                    ..OutputItem::default()
+                });
             }
             Block::ApplyPatchToolUse {
                 id,

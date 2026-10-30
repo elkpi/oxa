@@ -295,16 +295,20 @@ impl StreamEncoder {
                             Vec::new(),
                         ))
                     }
-                    Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => {
+                    Block::WebSearchCall { .. }
+                    | Block::ApplyPatchToolUse { .. }
+                    | Block::ApplyPatchToolResult { .. } => {
                         self.next_index += 1;
                         self.block_open = true;
                         self.open_tool = false;
                         self.open_thinking = false;
                         self.open_custom = false;
                         self.open_atomic = true;
-                        self.custom_seen = true;
+                        self.custom_seen |= !matches!(block, Block::WebSearchCall { .. });
                         self.open_ir_index = *index;
-                        let detail = if matches!(block, Block::ApplyPatchToolUse { .. }) {
+                        let detail = if matches!(block, Block::WebSearchCall { .. }) {
+                            "Responses web_search_call has no Anthropic equivalent"
+                        } else if matches!(block, Block::ApplyPatchToolUse { .. }) {
                             "Anthropic Messages streaming does not support apply_patch tools"
                         } else {
                             "apply_patch tools have no equivalent in Anthropic Messages"

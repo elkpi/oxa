@@ -17,6 +17,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_RESULT,
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+    BLOCK_TYPE_WEB_SEARCH_CALL,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
@@ -252,6 +253,15 @@ class ApplyPatchToolResultBlock:
             object.__setattr__(self, "native", _normalize_native(self.native))
 
 
+@dataclass(frozen=True, slots=True)
+class WebSearchCallBlock:
+    id: str
+    status: str
+    action: dict[str, Any]
+    extra: dict[str, Any] = field(default_factory=dict)
+    type: str = field(default=BLOCK_TYPE_WEB_SEARCH_CALL, init=False)
+
+
 Block = (
     TextBlock
     | ThinkingBlock
@@ -264,6 +274,7 @@ Block = (
     | CustomToolResultBlock
     | ApplyPatchToolUseBlock
     | ApplyPatchToolResultBlock
+    | WebSearchCallBlock
 )
 SystemBlock = TextBlock
 
@@ -345,15 +356,28 @@ class ResponseFormatJsonObject:
     type: str = field(default="json_object", init=False)
 
 
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ResponseFormatJsonSchema:
-    """Constrained JSON schema output."""
+    """JSON Schema 输出约束；非 OpenAI 协议可省略名称。"""
 
     name: str
     schema: dict[str, Any]
     description: str | None = None
     strict: bool | None = None
+    schema_raw: str | None = None
     type: str = field(default="json_schema", init=False)
+
+    def __init__(self, name: str = "", schema: dict[str, Any] | None = None,
+                 description: str | None = None, strict: bool | None = None,
+                 schema_raw: str | None = None) -> None:
+        if not isinstance(schema, dict):
+            raise ValueError("response_format.json_schema requires schema object")
+        object.__setattr__(self, "name", name)
+        object.__setattr__(self, "schema", schema)
+        object.__setattr__(self, "description", description)
+        object.__setattr__(self, "strict", strict)
+        object.__setattr__(self, "schema_raw", schema_raw)
+        object.__setattr__(self, "type", "json_schema")
 
 
 ResponseFormat = (

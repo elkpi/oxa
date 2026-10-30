@@ -1416,6 +1416,21 @@ export class ResponsesStreamEncoder {
         event.block.name,
         event.block.input,
       );
+    if (event.block.type === "web_search_call") {
+      this.#activeBlock = { kind: "redacted_thinking", index: event.index };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${ordinal}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail:
+              "Responses streaming profile does not encode web_search_call",
+          },
+        ],
+      };
+    }
     this.#lifecycle(`unsupported content block ${event.block.type}`);
   }
 

@@ -234,8 +234,16 @@ func ValidateCustomConversation(req *Request) error {
 	if !hasCustom {
 		return nil
 	}
-	if len(req.Messages) == 0 || req.Messages[0].Role != RoleUser {
-		return fmt.Errorf("ir: first message must be user (INV-2)")
+	validFirst := len(req.Messages) > 0 && req.Messages[0].Role == RoleUser
+	if len(req.Messages) > 0 && req.Messages[0].Role == RoleAssistant {
+		for _, block := range req.Messages[0].Content {
+			if _, ok := block.(WebSearchCallBlock); ok {
+				validFirst = true
+			}
+		}
+	}
+	if !validFirst {
+		return fmt.Errorf("ir: first message must be user or assistant web search history (INV-2)")
 	}
 	type call struct{ id, kind string }
 	var pending []call

@@ -416,6 +416,14 @@ function requestDocument(request: Request): JsonObject {
 
 function blockDocument(block: Block): JsonObject {
   switch (block.type) {
+    case "web_search_call":
+      return {
+        type: block.type,
+        id: block.id,
+        status: block.status,
+        action: block.action,
+        ...(block.extra === undefined ? {} : { extra: block.extra }),
+      };
     case "text":
       return { type: "text", text: block.text };
     case "thinking":

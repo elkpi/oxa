@@ -2,6 +2,7 @@
 #include "responses_audit.hpp"
 
 #include <cstdio>
+#include <algorithm>
 #include <unordered_set>
 
 namespace oxa::openai::responses {
@@ -10,6 +11,31 @@ namespace {
 ir::Loss make_resp_loss(std::string path, std::string field, std::string_view reason,
                         std::string detail) {
     return ir::make_loss(std::move(path), std::move(field), reason, std::move(detail));
+}
+
+StatusOr<ir::Block> decode_web_search_item(const json::Value& item, const std::string& path, std::vector<ir::Loss>& losses) {
+    const auto* id = item.find("id");
+    const auto* status = item.find("status");
+    const auto* action = item.find("action");
+    if (!id || !id->is_string() || !status || !status->is_string() || !action)
+        return invalid_argument(path + ": web_search_call requires id, status and action");
+    ir::WebSearchCallBlock block{id->as_string(), status->as_string(), *action};
+    for (const auto& [key, value] : item.as_object()) {
+        if (key != "type" && key != "id" && key != "status" && key != "action") block.extra.set(key, value);
+    }
+    OXA_ASSIGN_OR_RETURN(auto extra, ir::inspect_web_search_call(block, path));
+    losses.insert(losses.end(), extra.begin(), extra.end());
+    return ir::Block(std::move(block));
+}
+
+StatusOr<json::Value> encode_web_search_item(const ir::WebSearchCallBlock& block, std::string_view path) {
+    OXA_ASSIGN_OR_RETURN(auto ignored, ir::inspect_web_search_call(block, path));
+    json::Value item = block.extra;
+    item.set("type", json::Value::string("web_search_call"));
+    item.set("id", json::Value::string(block.id));
+    item.set("status", json::Value::string(block.status));
+    item.set("action", block.action);
+    return item;
 }
 
 StatusOr<std::optional<ir::ResponseFormat>> decode_text_format(
@@ -89,7 +115,7 @@ std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_content(
             const auto* t = part.find("type");
             std::string kind = t && t->is_string() ? t->as_string() : "";
             std::string part_path = path + "[" + std::to_string(i) + "]";
-            if (kind == "input_text") {
+            if (kind == "input_text" || kind == "output_text") {
                 const auto* txt = part.find("text");
                 std::string text = txt && txt->is_string() ? txt->as_string() : "";
                 blocks.push_back(ir::TextBlock{std::move(text)});
@@ -429,7 +455,7 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
 
         bool is_assistant = ((kind.empty() || kind == "message") && role == "assistant") ||
                             kind == "function_call" || kind == "custom_tool_call" ||
-                            kind == "apply_patch_call" || kind == "reasoning";
+                            kind == "apply_patch_call" || kind == "reasoning" || kind == "web_search_call";
 
         if (!is_assistant) {
             ++i;
@@ -458,7 +484,7 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
                 cur_kind = "custom";
             } else if (it_kind == "apply_patch_call") {
                 cur_kind = "apply_patch";
-            } else if (it_kind == "reasoning" || ((it_kind.empty() || it_kind == "message") && it_role_str == "assistant")) {
+            } else if (it_kind == "reasoning" || it_kind == "web_search_call" || ((it_kind.empty() || it_kind == "message") && it_role_str == "assistant")) {
                 // continues assistant turn
             } else {
                 break;
@@ -916,6 +942,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                             ++index;
                             continue;
                         }
+                        if (ckind == "web_search_call") {
+                            OXA_ASSIGN_OR_RETURN(auto block, decode_web_search_item(cur, "input[" + std::to_string(index) + "]", losses));
+                            call_blocks.push_back(std::move(block));
+                            ++index;
+                            continue;
+                        }
                         if (ckind == "apply_patch_call") {
                             if (precheck.dropped.count(index)) {
                                 ++index;
@@ -956,7 +988,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 } else {
                     return invalid_argument("responses: input[" + std::to_string(index) + "]: unknown role \"" + role + "\"");
                 }
-            } else if (kind == "function_call" || kind == "custom_tool_call" || kind == "reasoning" || kind == "apply_patch_call") {
+            } else if (kind == "function_call" || kind == "custom_tool_call" || kind == "reasoning" || kind == "apply_patch_call" || kind == "web_search_call") {
                 // Standalone reasoning/function_call items start an assistant run
                 std::vector<ir::Block> text_blocks;
                 std::vector<ir::Block> call_blocks;
@@ -968,6 +1000,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         auto blocks = decode_reasoning_summary(cur, index, losses);
                         text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                            std::make_move_iterator(blocks.end()));
+                        ++index;
+                        continue;
+                    }
+                    if (ckind == "web_search_call") {
+                        OXA_ASSIGN_OR_RETURN(auto block, decode_web_search_item(cur, "input[" + std::to_string(index) + "]", losses));
+                        call_blocks.push_back(std::move(block));
                         ++index;
                         continue;
                     }
@@ -1159,7 +1197,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const 
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
                                                  const Options& opts) {
-    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse(wire_json));
+    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse_preserving_schema(wire_json, {"text", "format", "schema"}));
     return decode_request(v, opts);
 }
 
@@ -1618,6 +1656,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
+                } else if (const auto* ws = std::get_if<ir::WebSearchCallBlock>(&b)) {
+                    OXA_ASSIGN_OR_RETURN(auto item, encode_web_search_item(*ws, "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]"));
+                    fc_items.push_back(std::move(item));
                 } else if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&b)) {
                     json::Value item = json::Value::object();
                     item.set("type", json::Value::string("apply_patch_call"));
@@ -1695,19 +1736,23 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;
-            json::Value format = json::Value::object();
-            format.set("type", json::Value::string(rf.type));
-            if (rf.type == "json_schema") {
-                format.set("name", json::Value::string(rf.name));
-                if (rf.description.has_value()) {
-                    format.set("description", json::Value::string(*rf.description));
+            if (rf.type == "json_schema" && rf.name.empty()) {
+                losses.push_back(make_resp_loss("params.response_format", "name", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses requires a non-empty schema name"));
+            } else {
+                json::Value format = json::Value::object();
+                format.set("type", json::Value::string(rf.type));
+                if (rf.type == "json_schema") {
+                    format.set("name", json::Value::string(rf.name));
+                    if (rf.description.has_value()) {
+                        format.set("description", json::Value::string(*rf.description));
+                    }
+                    if (rf.schema.has_value()) format.set("schema", *rf.schema);
+                    if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
                 }
-                if (rf.schema.has_value()) format.set("schema", *rf.schema);
-                if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
+                json::Value text = json::Value::object();
+                text.set("format", std::move(format));
+                out.set("text", std::move(text));
             }
-            json::Value text = json::Value::object();
-            text.set("format", std::move(format));
-            out.set("text", std::move(text));
         }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(
@@ -1811,6 +1856,9 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         ir::LOSS_UNMAPPED_FIELD,
                         "Responses reasoning encrypted_content has no IR equivalent in v2."));
                 }
+            } else if (kind == "web_search_call") {
+                OXA_ASSIGN_OR_RETURN(auto block, decode_web_search_item(item, item_path, losses));
+                resp.content.push_back(std::move(block));
             } else if (kind == "function_call") {
                 OXA_ASSIGN_OR_RETURN(ir::Block call, decode_tool_call_item(item, false));
                 resp.content.push_back(std::move(call));
@@ -1868,6 +1916,12 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
         }
     }
 
+    const auto rank = [](const ir::Block& block) {
+        if (std::holds_alternative<ir::ThinkingBlock>(block)) return 0;
+        if (std::holds_alternative<ir::TextBlock>(block)) return 1;
+        return 2;
+    };
+    std::stable_sort(resp.content.begin(), resp.content.end(), [&](const ir::Block& a, const ir::Block& b) { return rank(a) < rank(b); });
     auto [stop_reason, status_losses] = decode_status(wire, has_tool_use);
     resp.stop_reason = std::move(stop_reason);
     losses.insert(losses.end(), status_losses.begin(), status_losses.end());
@@ -1998,6 +2052,9 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 result.set("output", std::move(parts));
             }
             calls.push_back(std::move(result));
+        } else if (const auto* ws = std::get_if<ir::WebSearchCallBlock>(&b)) {
+            OXA_ASSIGN_OR_RETURN(auto item, encode_web_search_item(*ws, "content[" + std::to_string(i) + "]"));
+            calls.push_back(std::move(item));
         } else if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&b)) {
             json::Value call = json::Value::object();
             call.set("type", json::Value::string("apply_patch_call"));
@@ -3581,8 +3638,9 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb, ordinal));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
-        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block) || std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
             OXA_ASSIGN_OR_RETURN(auto res, start_redacted_block(cbs->index, ordinal));
+            if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) res.second[0].detail = "Responses streaming profile does not encode web_search_call";
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {

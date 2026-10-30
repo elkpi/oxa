@@ -1,0 +1,30 @@
+{
+  "name": "responses.nonstream.web-search-call-unknown-field-request-to-ir",
+  "description": "Unknown action and item fields are reported without dropping a valid web_search_call (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {
+    "model": "gpt-5",
+    "input": [
+      {"role": "user", "content": "hi"},
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "extra": true, "action": {"type": "search", "query": "q", "future": 1}}
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5",
+    "messages": [
+      {"role": "user", "content": [{"type": "text", "text": "hi"}]},
+      {"role": "assistant", "content": [
+        {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "q", "future": 1}, "extra": {"extra": true}}
+      ]}
+    ]
+  },
+  "expected_losses": [
+    {"path": "input[1].extra", "field": "extra", "reason": "unmapped-field"},
+    {"path": "input[1].action.future", "field": "future", "reason": "unmapped-field"}
+  ],
+  "tags": ["request", "web-search", "loss", "n-r-16"]
+}

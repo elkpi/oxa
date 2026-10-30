@@ -1,6 +1,8 @@
 #include <stdexcept>
 
 #include "oxa/anthropic/messages.hpp"
+#include "oxa/openai/chatcompletions.hpp"
+#include "oxa/openai/responses.hpp"
 #include "oxa/vectest.hpp"
 #include "test_util.hpp"
 
@@ -32,6 +34,82 @@ public:
 };
 
 int main() {
+    {
+        const std::string schema = R"({ "type" : "object", "properties" : { "n" : {"type":"string"} } })";
+        const std::string raw = R"({"model":"claude","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":{"type":"json_schema","schema":)" + schema + "}}}";
+        auto decoded = oxa::anthropic::messages::decode_request(std::string_view(raw));
+        CHECK(decoded.ok());
+        CHECK(decoded->losses.empty());
+        auto canonical = oxa::ir::dump_request_json(decoded->value);
+        CHECK(canonical.ok());
+        CHECK(canonical->find(schema) != std::string::npos);
+        auto canonical_value = oxa::json::parse(*canonical);
+        CHECK(canonical_value.ok());
+        auto restored = oxa::ir::load_request(*canonical_value);
+        CHECK(restored.ok());
+        auto encoded = oxa::anthropic::messages::encode_request_json(*restored);
+        CHECK(encoded.ok());
+        CHECK(encoded->losses.empty());
+        CHECK(encoded->value.find(schema) != std::string::npos);
+        restored->params->response_format->schema->set("title", oxa::json::Value::string("changed"));
+        CHECK(!oxa::anthropic::messages::encode_request_json(*restored).ok());
+        auto invalid_schema = oxa::json::Value::object();
+        invalid_schema.set("default", oxa::json::Value::raw("invalid JSON"));
+        restored->params->response_format->schema = std::move(invalid_schema);
+        CHECK(!oxa::anthropic::messages::encode_request_json(*restored).ok());
+    }
+    {
+        const std::string raw = R"({"model":"claude","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":{"type":"json_schema","schema":{"type":"object","maximum":123456789012345678901234567890,"default":1e400}}}})";
+        auto decoded = oxa::anthropic::messages::decode_request(std::string_view(raw));
+        CHECK(decoded.ok());
+        auto canonical = oxa::ir::dump_request_json(decoded->value);
+        CHECK(canonical.ok());
+        auto canonical_value = oxa::json::parse_lossless(*canonical);
+        CHECK(canonical_value.ok());
+        auto restored = oxa::ir::load_request(*canonical_value);
+        CHECK(restored.ok());
+        auto encoded = oxa::anthropic::messages::encode_request_json(*restored);
+        CHECK(encoded.ok());
+        CHECK(encoded->value.find("123456789012345678901234567890") != std::string::npos);
+        CHECK(encoded->value.find("1e400") != std::string::npos);
+    }
+    {
+        const std::string schema = R"({ "type" : "object", "maximum" : 1e400 })";
+        const std::string chat = R"({"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"result","schema":)" + schema + "}}}";
+        const std::string responses = R"({"model":"m","max_output_tokens":64,"input":"hi","text":{"format":{"type":"json_schema","name":"result","schema":)" + schema + "}}}";
+        auto chat_req = oxa::openai::chatcompletions::decode_request(std::string_view(chat));
+        auto responses_req = oxa::openai::responses::decode_request(std::string_view(responses));
+        CHECK(chat_req.ok());
+        CHECK(responses_req.ok());
+        for (const auto* req : {&chat_req->value, &responses_req->value}) {
+            auto canonical = oxa::ir::dump_request_json(*req);
+            CHECK(canonical.ok());
+            CHECK(canonical->find(schema) != std::string::npos);
+            auto out = oxa::anthropic::messages::encode_request_json(*req);
+            CHECK(out.ok());
+            CHECK(out->losses.size() == 1);
+            CHECK(out->value.find(schema) != std::string::npos);
+        }
+    }
+    {
+        const std::string prefix = R"({"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":)";
+        auto null_config = oxa::anthropic::messages::decode_request(std::string_view(prefix + "null}"));
+        CHECK(null_config.ok());
+        CHECK(null_config->losses.empty());
+        for (const std::string value : {"[]", "42", R"("invalid")", "false"}) {
+            CHECK(!oxa::anthropic::messages::decode_request(std::string_view(prefix + value + "}")).ok());
+        }
+    }
+    {
+        for (const std::string format : {"null", "{}", R"({"type":"json_schema"})", R"({"type":"json_schema","schema":null})", R"({"type":"json_schema","schema":[]})", R"({"type":false})", R"({"type":[]})"}) {
+            const std::string raw = R"({"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":)" + format + "}}";
+            CHECK(!oxa::anthropic::messages::decode_request(std::string_view(raw)).ok());
+        }
+    }
+    {
+        const std::string raw = R"({"model":"claude","max_tokens":64,"temperature":1e400,"messages":[{"role":"user","content":"hi"}]})";
+        CHECK(!oxa::anthropic::messages::decode_request(std::string_view(raw)).ok());
+    }
     auto conflicting_document = oxa::anthropic::messages::decode_request(
         R"({"model":"m","max_tokens":1,"messages":[{"role":"user","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"YQ==","url":""}}]}]})");
     CHECK(!conflicting_document.ok());
@@ -93,7 +171,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 111);
+    CHECK(rep_res->executed == 115);
 
     // Test mid-conversation system messages
     {

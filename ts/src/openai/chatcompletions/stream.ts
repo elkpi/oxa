@@ -499,6 +499,21 @@ export class ChatCompletionsStreamEncoder {
       }
       return { value: [], losses };
     }
+    if (event.block.type === "web_search_call") {
+      this.#active = { kind: "redacted_thinking", index: event.index };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${ordinal}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail:
+              "Responses web_search_call has no Chat Completions equivalent",
+          },
+        ],
+      };
+    }
     if (event.block.type === "redacted_thinking") {
       this.#active = { kind: "redacted_thinking", index: event.index };
       return {

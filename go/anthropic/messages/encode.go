@@ -229,13 +229,29 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	losses = append(losses, natLosses...)
-	if req.Params.ResponseFormat != nil {
-		losses = append(losses, ir.Loss{
-			Path:   "params.response_format",
-			Field:  "response_format",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic Messages has no native response_format request parameter; structured output preference is dropped.",
-		})
+	if rf := req.Params.ResponseFormat; rf != nil {
+		if rf.Type == ir.ResponseFormatJSONSchema {
+			var schema map[string]json.RawMessage
+			if err := json.Unmarshal(rf.Schema, &schema); err != nil || schema == nil {
+				return nil, nil, fmt.Errorf("anthropic: response format schema must be an object")
+			}
+			format := append(json.RawMessage(`{"type":"json_schema","schema":`), rf.Schema...)
+			format = append(format, '}')
+			if out.OutputConfig == nil {
+				out.OutputConfig = &OutputConfigWire{}
+			}
+			out.OutputConfig.Format = format
+			for _, field := range []struct {
+				name string
+				set  bool
+			}{{"name", rf.Name != ""}, {"description", rf.Description != ""}, {"strict", rf.Strict != nil}} {
+				if field.set {
+					losses = append(losses, ir.Loss{Path: "params.response_format." + field.name, Field: field.name, Reason: ir.LossUnmappedField})
+				}
+			}
+		} else {
+			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "response_format", Reason: ir.LossUnmappedField})
+		}
 	}
 	return out, losses, nil
 }

@@ -43,6 +43,7 @@ from oxa.ir import (
     Loss,
     Params,
     ReasoningEffort,
+    ResponseFormatJsonSchema,
     Request,
     Response,
     TextBlock,
@@ -306,7 +307,26 @@ def decode_request(
     stop = wire.get("stop_sequences")
     stop_sequences = [s for s in stop if s] if isinstance(stop, list) and stop else None
 
+    response_format = None
+    output_config = wire.get("output_config")
+    if output_config is not None and not isinstance(output_config, dict):
+        raise ValueError("anthropic: output_config must be an object or null")
+    if isinstance(output_config, dict) and "format" in output_config:
+        fmt = output_config["format"]
+        if not isinstance(fmt, dict) or not isinstance(fmt.get("type"), str) or not fmt["type"]:
+            raise ValueError("anthropic: output_config.format requires an object with a non-empty type")
+        if fmt["type"] != "json_schema":
+            losses.append(loss("output_config.format.type", "type", LOSS_UNMAPPED_VALUE, ""))
+        elif not isinstance(fmt.get("schema"), dict):
+            raise ValueError("anthropic: output_config.format.schema must be an object")
+        else:
+            response_format = ResponseFormatJsonSchema(
+                name="", schema=fmt["schema"],
+                schema_raw=raw_field(raw_text, "output_config.format.schema"),
+            )
+
     params = Params(
+        response_format=response_format,
         temperature=wire.get("temperature"),
         top_p=wire.get("top_p"),
         max_tokens=max_tokens,

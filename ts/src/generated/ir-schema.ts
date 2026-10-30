@@ -28,7 +28,7 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
@@ -114,7 +114,19 @@ export interface IrSchemaRequestApplyPatchToolResultBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock;
+
+export interface IrSchemaWebSearchCallBlock {
+  readonly type: "web_search_call";
+  readonly id: string;
+  readonly status: string;
+  readonly action: IrSchemaWebSearchAction;
+  readonly extra?: {  };
+}
+
+export interface IrSchemaWebSearchAction {
+  readonly type: "search" | "open_page" | "find_in_page";
+}
 
 export type IrSchemaApplyPatchOperation = { readonly type: "create_file"; readonly path: string; readonly diff: string; } | { readonly type: "delete_file"; readonly path: string; } | { readonly type: "update_file"; readonly path: string; readonly diff: string; };
 
@@ -199,7 +211,7 @@ export type IrSchemaTool = { readonly type?: "function"; readonly name: string; 
 
 export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom" | "native"; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; };
 
-export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
+export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name?: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
 
 export interface IrSchemaParams {
   readonly temperature?: number;

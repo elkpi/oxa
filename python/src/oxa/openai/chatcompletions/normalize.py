@@ -27,6 +27,7 @@ from oxa.ir import (
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
+    WebSearchCallBlock,
 )
 from oxa.ir import (
     Message as IrMessage,
@@ -463,6 +464,8 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                     "input": block.input,
                 },
             })
+        elif isinstance(block, WebSearchCallBlock):
+            losses.append(loss(f"{path}[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"))
         elif isinstance(block, (CustomToolResultBlock, ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
             losses.append(loss(f"{path}[{index}]", "type", LOSS_UNSUPPORTED_SEMANTIC, "unsupported block in assistant message"))
         elif isinstance(block, ImageBlock):

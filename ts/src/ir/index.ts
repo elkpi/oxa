@@ -10,6 +10,7 @@ export {
 export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   BLOCK_TYPE_IMAGE,
+  BLOCK_TYPE_WEB_SEARCH_CALL,
   BLOCK_TYPE_CUSTOM_TOOL_USE,
   BLOCK_TYPE_CUSTOM_TOOL_RESULT,
   BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
@@ -88,6 +89,7 @@ export {
   type ApplyPatchToolResultBlock,
   type ApplyPatchToolUseBlock,
   type ApplyPatchUpdateFileOperation,
+  type WebSearchCallBlock,
   type Block,
   type CustomToolInputDelta,
   type CustomToolResultBlock,

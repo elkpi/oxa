@@ -279,7 +279,7 @@ func TestNativeCachePlacement(t *testing.T) {
 	}
 }
 
-func TestNativeFormatStillAudited(t *testing.T) {
+func TestNativeFormatAndEffort(t *testing.T) {
 	raw := []byte(`{
 		"model": "claude-opus-5-5",
 		"max_tokens": 16000,
@@ -296,14 +296,8 @@ func TestNativeFormatStillAudited(t *testing.T) {
 	if req.Params.ReasoningEffort != ir.ReasoningEffortHigh {
 		t.Fatalf("expected effort high, got %q", req.Params.ReasoningEffort)
 	}
-	foundFormatLoss := false
-	for _, l := range losses {
-		if l.Field == "format" && l.Reason == ir.LossUnmappedField {
-			foundFormatLoss = true
-		}
-	}
-	if !foundFormatLoss {
-		t.Fatalf("expected unmapped-field loss on output_config.format, got %+v", losses)
+	if req.Params.ResponseFormat == nil || req.Params.ResponseFormat.Type != ir.ResponseFormatJSONSchema || len(losses) != 0 {
+		t.Fatalf("expected lossless JSON Schema format, got %+v, losses %+v", req.Params.ResponseFormat, losses)
 	}
 }
 

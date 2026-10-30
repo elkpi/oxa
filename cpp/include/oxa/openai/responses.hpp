@@ -34,6 +34,7 @@ inline constexpr std::string_view ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT = "custom_to
 inline constexpr std::string_view ITEM_TYPE_APPLY_PATCH_CALL = "apply_patch_call";
 inline constexpr std::string_view ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT = "apply_patch_call_output";
 inline constexpr std::string_view ITEM_TYPE_REASONING = "reasoning";
+inline constexpr std::string_view ITEM_TYPE_WEB_SEARCH_CALL = "web_search_call";
 
 inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
 inline constexpr std::string_view PART_TYPE_OUTPUT_TEXT = "output_text";

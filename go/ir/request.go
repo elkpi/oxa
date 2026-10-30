@@ -90,7 +90,7 @@ const (
 // ResponseFormat specifies output formatting constraints (spec/01 s3.7.1).
 type ResponseFormat struct {
 	Type        string          // text | json_object | json_schema
-	Name        string          // required iff Type is json_schema
+	Name        string          // optional; required by OpenAI faces
 	Description string          // optional
 	Schema      json.RawMessage // verbatim JSON Schema bytes (INV-1)
 	Strict      *bool           // optional

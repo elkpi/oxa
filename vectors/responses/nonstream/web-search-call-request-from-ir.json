@@ -1,0 +1,32 @@
+{
+  "name": "responses.nonstream.web-search-call-request-from-ir",
+  "description": "A WebSearchCallBlock encodes back to a web_search_call item after assistant text (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "responses"},
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-5",
+    "messages": [
+      {"role": "user", "content": [{"type": "text", "text": "Continue"}]},
+      {"role": "assistant", "content": [
+        {"type": "text", "text": "Earlier answer"},
+        {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "open_page", "url": "https://example.com"}, "extra": {"future": {"nested": 1}}}
+      ]}
+    ],
+    "params": {"max_tokens": 64}
+  },
+  "expected_output": {
+    "model": "gpt-5",
+    "max_output_tokens": 64,
+    "input": [
+      {"role": "user", "content": "Continue"},
+      {"role": "assistant", "content": "Earlier answer"},
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "open_page", "url": "https://example.com"}, "future": {"nested": 1}}
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "web-search", "n-r-16"]
+}

@@ -473,7 +473,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             if (is_request) {
                 if (canon.has_value() && !blocks.empty()) {
                     std::visit([&](auto& blk) {
-                        blk.native.push_back(ir::NativeAnnotation{
+                        if constexpr (!std::is_same_v<std::decay_t<decltype(blk)>, ir::WebSearchCallBlock>) blk.native.push_back(ir::NativeAnnotation{
                             std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                             std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                             std::move(*canon),
@@ -896,7 +896,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const 
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
                                                  const Options& opts) {
-    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse(wire_json));
+    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse_preserving_schema(wire_json, {"output_config", "format", "schema"}));
     return decode_request(v, opts);
 }
 
@@ -1131,6 +1131,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
+                } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
                 } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("redacted_thinking"));
@@ -1419,16 +1421,41 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             for (const auto& s : *p.stop_sequences) stops.push_back(json::Value::string(s));
             out.set("stop_sequences", std::move(stops));
         }
-        if (p.response_format.has_value()) {
-            losses.push_back(make_ant_loss(
-                "params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD,
-                "Anthropic Messages has no native response_format request parameter; structured output preference is dropped."));
-        }
     }
 
     OXA_RETURN_IF_ERROR(encode_request_native(req, out, losses));
+    if (req.params && req.params->response_format) {
+        const auto& rf = *req.params->response_format;
+        if (rf.type == "json_schema") {
+            if (!rf.schema || !rf.schema->is_object()) return invalid_argument("anthropic: response format schema must be an object");
+            json::Value config = out.find("output_config") ? *out.find("output_config") : json::Value::object();
+            json::Value format = json::Value::object();
+            format.set("type", json::Value::string("json_schema"));
+            format.set("schema", *rf.schema);
+            config.set("format", std::move(format));
+            out.set("output_config", std::move(config));
+            if (!rf.name.empty()) losses.push_back(make_ant_loss("params.response_format.name", "name", ir::LOSS_UNMAPPED_FIELD, ""));
+            if (rf.description && !rf.description->empty()) losses.push_back(make_ant_loss("params.response_format.description", "description", ir::LOSS_UNMAPPED_FIELD, ""));
+            if (rf.strict) losses.push_back(make_ant_loss("params.response_format.strict", "strict", ir::LOSS_UNMAPPED_FIELD, ""));
+        } else {
+            losses.push_back(make_ant_loss("params.response_format", "response_format", ir::LOSS_UNMAPPED_FIELD, ""));
+        }
+    }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
+}
+
+StatusOr<Conversion<std::string>> encode_request_json(const ir::Request& req, const Options& opts) {
+    OXA_ASSIGN_OR_RETURN(auto encoded, encode_request(req, opts));
+    if (req.params && req.params->response_format && req.params->response_format->type == "json_schema" && req.params->response_format->schema) {
+        OXA_ASSIGN_OR_RETURN(json::Value schema, json::preserve_source(*req.params->response_format->schema));
+        auto* config = encoded.value.find("output_config");
+        auto* format = config ? config->find("format") : nullptr;
+        auto* target = format ? format->find("schema") : nullptr;
+        if (!target) return invalid_argument("anthropic: response schema missing from encoded request");
+        *target = std::move(schema);
+    }
+    return Conversion<std::string>{json::serialize(encoded.value), std::move(encoded.losses)};
 }
 
 static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::Value& wire,
@@ -1547,6 +1574,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             bw.set("input", std::move(inp));
             content_arr.push_back(std::move(bw));
             retained_tool_use = true;
+        } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
@@ -2034,6 +2063,14 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             cb.set("input", json::Value::object());
             chunk.set("content_block", std::move(cb));
             chunks.push_back(std::move(chunk));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
+            skipped_atomic_ = true;
+            skipped_custom_ = false;
+            open_tool_ = false;
+            open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {

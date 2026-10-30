@@ -10,6 +10,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+    BLOCK_TYPE_WEB_SEARCH_CALL,
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
@@ -47,6 +48,7 @@ from oxa.ir.types import (
     ApplyPatchOperation,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
+    WebSearchCallBlock,
     ApplyPatchUpdateFileOperation,
     Block,
     ContentBlockDelta,
@@ -296,6 +298,31 @@ def validate_citation_value(val: str) -> None:
         raise CodecError(f"ir: unknown citation type {cite_type!r}")
 
 
+def _validate_web_search(identifier: str, status: str, action: object) -> None:
+    from oxa.ir.web_search import inspect_web_search
+
+    try:
+        inspect_web_search(identifier, status, action)
+    except ValueError as exc:
+        raise CodecError(str(exc)) from exc
+
+
+def load_web_search_block(data: dict[str, Any]) -> WebSearchCallBlock:
+    identifier = data.get("id")
+    status = data.get("status")
+    action = data.get("action")
+    if not isinstance(identifier, str) or not isinstance(status, str):
+        raise CodecError("web_search_call requires non-empty id and status")
+    _validate_web_search(identifier, status, action)
+    from oxa.ir.web_search import validate_web_search_extra
+    extra = data.get("extra", {})
+    try:
+        validate_web_search_extra(extra)
+    except ValueError as exc:
+        raise CodecError(str(exc)) from exc
+    return WebSearchCallBlock(id=identifier, status=status, action=dict(action), extra=dict(extra))
+
+
 def dump_block(block: Block) -> dict[str, Any]:
     if getattr(block, "native", ()):
         raise CodecError("native is only permitted on request blocks")
@@ -391,6 +418,17 @@ def dump_block(block: Block) -> dict[str, Any]:
         if block.output is not None:
             res["output"] = block.output
         return res
+    if isinstance(block, WebSearchCallBlock):
+        _validate_web_search(block.id, block.status, block.action)
+        from oxa.ir.web_search import validate_web_search_extra
+        validate_web_search_extra(block.extra)
+        return {
+            "type": BLOCK_TYPE_WEB_SEARCH_CALL,
+            "id": block.id,
+            "status": block.status,
+            "action": block.action,
+            **({"extra": block.extra} if block.extra else {}),
+        }
     raise CodecError(f"unknown block type: {type(block)}")
 
 
@@ -505,6 +543,17 @@ def dump_request_block(block: Block) -> dict[str, Any]:
         }
         if block.output is not None:
             out["output"] = block.output
+    elif isinstance(block, WebSearchCallBlock):
+        _validate_web_search(block.id, block.status, block.action)
+        from oxa.ir.web_search import validate_web_search_extra
+        validate_web_search_extra(block.extra)
+        out = {
+            "type": BLOCK_TYPE_WEB_SEARCH_CALL,
+            "id": block.id,
+            "status": block.status,
+            "action": block.action,
+            **({"extra": block.extra} if block.extra else {}),
+        }
     else:
         raise CodecError(f"unknown block type: {type(block)}")
 
@@ -643,6 +692,8 @@ def load_block(data: dict[str, Any]) -> Block:
             status=load_apply_patch_result_status(data.get("status")),
             output=output,
         )
+    if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
+        return load_web_search_block(data)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -742,6 +793,8 @@ def load_request_block(data: dict[str, Any]) -> Block:
             output=output,
             native=native,
         )
+    if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
+        return load_web_search_block(data)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -941,6 +994,17 @@ def dump_request(req: Request) -> dict[str, Any]:
     return out
 
 
+def dump_request_json(req: Request) -> str:
+    """编码 canonical 请求并保留响应格式 schema 的原始文本。"""
+    from oxa._raw_schema import serialize_json_with_schema
+
+    wire = dump_request(req)
+    fmt = req.params.response_format if req.params else None
+    if isinstance(fmt, ResponseFormatJsonSchema):
+        return serialize_json_with_schema(wire, ("params", "response_format", "schema"), fmt.schema, fmt.schema_raw)
+    return json.dumps(wire, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+
+
 def dump_response_format(rf: ResponseFormat) -> dict[str, Any]:
     if isinstance(rf, ResponseFormatText):
         return {"type": "text"}
@@ -949,9 +1013,10 @@ def dump_response_format(rf: ResponseFormat) -> dict[str, Any]:
     if isinstance(rf, ResponseFormatJsonSchema):
         res: dict[str, Any] = {
             "type": "json_schema",
-            "name": rf.name,
             "schema": rf.schema,
         }
+        if rf.name:
+            res["name"] = rf.name
         if rf.description is not None:
             res["description"] = rf.description
         if rf.strict is not None:
@@ -991,9 +1056,9 @@ def load_response_format(data: dict[str, Any]) -> ResponseFormat:
     if kind == "json_object":
         return ResponseFormatJsonObject()
     if kind == "json_schema":
-        name = data.get("name")
-        if not name or not isinstance(name, str):
-            raise CodecError("response_format.json_schema requires non-empty name")
+        name = data.get("name", "")
+        if "name" in data and (not isinstance(name, str) or not name):
+            raise CodecError("response_format.json_schema name must be non-empty when present")
         schema = data.get("schema")
         if not isinstance(schema, dict):
             raise CodecError("response_format.json_schema requires schema object")
@@ -1121,6 +1186,11 @@ def load_request(data: dict[str, Any] | str) -> Request:
             raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
         rf_data = p.get("response_format")
         response_format = load_response_format(rf_data) if rf_data is not None else None
+        if isinstance(data, str) and isinstance(response_format, ResponseFormatJsonSchema):
+            from dataclasses import replace
+            from oxa._wire import raw_field
+
+            response_format = replace(response_format, schema_raw=raw_field(data, "params.response_format.schema"))
         params = Params(
             temperature=p.get("temperature"),
             top_p=p.get("top_p"),

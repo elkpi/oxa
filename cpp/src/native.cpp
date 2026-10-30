@@ -203,6 +203,10 @@ struct BlockValidator {
     HostType host;
     std::string_view path;
 
+    Status operator()(const WebSearchCallBlock& b) const {
+        auto result = inspect_web_search_call(b, path);
+        return result.ok() ? ok_status() : result.status();
+    }
     Status operator()(const TextBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
@@ -506,6 +510,7 @@ struct BlockOmissionCollector {
     std::string_view path;
     std::string_view target;
 
+    void operator()(const WebSearchCallBlock&) const {}
     void operator()(const TextBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);

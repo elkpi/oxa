@@ -12,6 +12,16 @@ import (
 
 func ptr[T any](v T) *T { return &v }
 
+func TestGenericWireJSONPreservesResponseFormatType(t *testing.T) {
+	var wire Request
+	if err := json.Unmarshal([]byte(`{"response_format":{"type":"json_schema","json_schema":{"name":"x","schema":{}}}}`), &wire); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := wire.ResponseFormat.(map[string]any); !ok {
+		t.Fatalf("expected generic response_format map, got %T", wire.ResponseFormat)
+	}
+}
+
 func TestDecodeRequestJSONReportsPresentUnknownField(t *testing.T) {
 	raw := []byte(`{"model":"m","messages":[{"role":"user","content":"Hi","unknown_extension":true}]}`)
 	got, losses, err := DecodeRequestJSON(raw)

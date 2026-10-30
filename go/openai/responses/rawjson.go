@@ -51,9 +51,17 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	}
 	schema := schemaForRawType(reflect.TypeOf(Request{}))
 	cleanJSON := filterKnownJSON(raw, root, schema)
-	var wire Request
-	if err := json.Unmarshal(cleanJSON, &wire); err != nil {
+	cleanRoot, err := parseRawJSON(cleanJSON)
+	if err != nil {
 		return nil, nil, fmt.Errorf("responses: request JSON: %w", err)
+	}
+	masked, format := maskRawFormat(cleanJSON, cleanRoot, []string{"text", "format"})
+	var wire Request
+	if err := json.Unmarshal(masked, &wire); err != nil {
+		return nil, nil, fmt.Errorf("responses: request JSON: %w", err)
+	}
+	if wire.Text != nil && len(format) > 0 && string(format) != "null" {
+		wire.Text.Format = format
 	}
 	req, losses, err := DecodeRequest(&wire, opts...)
 	if err != nil {
@@ -307,6 +315,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "call_id", "output"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "summary"}, nil, seen)
+			case ItemTypeWebSearchCall:
+				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			case ItemTypeAdditionalTools:
 				return rawObjectSchema(t, []string{"type", "role", "tools"}, map[string]*rawJSONSchema{
 					"tools": {items: schemaForRawTypeSeen(reflect.TypeOf(ToolDef{}), seen)},
@@ -388,6 +398,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "namespace", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "id", "status", "summary"}, nil, seen)
+			case ItemTypeWebSearchCall:
+				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			default:
 				return nil
 			}
@@ -724,6 +736,9 @@ func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byt
 		return raw[node.start:node.end]
 	}
 	if schema.variant != nil {
+		if kind, ok := rawJSONStringField(node, "type"); ok && kind == ItemTypeWebSearchCall {
+			return raw[node.start:node.end]
+		}
 		v := schema.variant(node)
 		if v == nil {
 			var buf []byte

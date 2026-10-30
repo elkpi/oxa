@@ -22,6 +22,7 @@ const (
 	BlockTypeThinking         = "thinking"
 	BlockTypeRedactedThinking = "redacted_thinking"
 	BlockTypeDocument         = "document"
+	BlockTypeWebSearchCall    = "web_search_call"
 )
 
 // TextCitation is a citation reference attached to a TextBlock (since 2.4.11).
@@ -103,6 +104,8 @@ type ToolResultBlock struct {
 	IsError   bool
 	Native    []NativeAnnotation
 }
+
+func (WebSearchCallBlock) isBlock() {}
 
 func (TextBlock) isBlock()       {}
 func (ImageBlock) isBlock()      {}

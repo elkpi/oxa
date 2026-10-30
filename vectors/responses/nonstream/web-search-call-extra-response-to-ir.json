@@ -1,0 +1,12 @@
+{
+  "name": "responses.nonstream.web-search-call-extra-response-to-ir",
+  "description": "Unknown top-level web_search_call response item fields are retained in IR extra and reported once.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {"id": "resp", "object": "response", "status": "completed", "model": "m", "output": [{"type": "web_search_call", "id": "ws", "status": "completed", "action": {"type": "search"}, "future": {"level": 2}}], "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2}},
+  "expected_ir": {"specVersion": "0.2.0", "id": "resp", "model": "m", "content": [{"type": "web_search_call", "id": "ws", "status": "completed", "action": {"type": "search"}, "extra": {"future": {"level": 2}}}], "stop_reason": "end_turn", "usage": {"input_tokens": 1, "output_tokens": 1}},
+  "expected_losses": [{"path": "output[0].future", "field": "future", "reason": "unmapped-field"}],
+  "tags": ["response", "web-search", "loss", "n-r-16"]
+}

@@ -1014,6 +1014,7 @@ pub(crate) fn decode_block(
                     projection: None,
                 };
                 match b {
+                    Block::WebSearchCall { .. } => {}
                     Block::Text { native, .. }
                     | Block::Thinking { native, .. }
                     | Block::RedactedThinking { native, .. }

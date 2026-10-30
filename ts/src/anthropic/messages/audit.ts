@@ -212,7 +212,15 @@ const THINKING: WireAuditSpec = {
 };
 
 const OUTPUT_CONFIG: WireAuditSpec = {
-  fields: { effort: undefined },
+  fields: {
+    effort: undefined,
+    format: {
+      variant: (node) =>
+        node.type === "json_schema"
+          ? { fields: { type: undefined, schema: undefined } }
+          : undefined,
+    },
+  },
 };
 
 const CONTEXT_MANAGEMENT: WireAuditSpec = {

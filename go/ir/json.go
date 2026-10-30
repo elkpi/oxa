@@ -101,6 +101,9 @@ func hasNative(b Block) bool {
 
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
+	if value, ok := b.(WebSearchCallBlock); ok {
+		return marshalWebSearchCall(value)
+	}
 	if hasNative(b) {
 		return nil, fmt.Errorf("ir: native annotations are forbidden in response and event content blocks (spec/15)")
 	}
@@ -196,6 +199,8 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return nil, err
 	}
 	switch head.Type {
+	case BlockTypeWebSearchCall:
+		return unmarshalWebSearchCall(data)
 	case BlockTypeApplyPatchToolUse, BlockTypeApplyPatchToolResult:
 		return unmarshalApplyPatchBlock(data, head.Type)
 	case BlockTypeCustomToolUse:
@@ -286,6 +291,9 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError,
 		}, nil
 	default:
+		if head.Type == BlockTypeWebSearchCall {
+			return unmarshalWebSearchCall(data)
+		}
 		return nil, fmt.Errorf("ir: unknown block type %q", head.Type)
 	}
 }
@@ -340,6 +348,8 @@ func marshalRequestApplyPatchResult(b ApplyPatchToolResultBlock) (json.RawMessag
 
 func marshalRequestBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
+	case WebSearchCallBlock:
+		return marshalWebSearchCall(v)
 	case ApplyPatchToolUseBlock:
 		return marshalRequestApplyPatchUse(v)
 	case ApplyPatchToolResultBlock:
@@ -634,6 +644,9 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError, Native: w.Native,
 		}, nil
 	default:
+		if head.Type == BlockTypeWebSearchCall {
+			return unmarshalWebSearchCall(data)
+		}
 		return nil, fmt.Errorf("ir: unknown block type %q", head.Type)
 	}
 }
@@ -695,6 +708,23 @@ type wireResponseFormat struct {
 	Strict      *bool           `json:"strict,omitempty"`
 }
 
+func (rf *wireResponseFormat) UnmarshalJSON(data []byte) error {
+	type shadow wireResponseFormat
+	var value shadow
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if raw, present := fields["name"]; present && (value.Name == "" || string(raw) == "null") {
+		return fmt.Errorf("params.response_format name must be non-empty when present")
+	}
+	*rf = wireResponseFormat(value)
+	return nil
+}
+
 type wireParams struct {
 	Temperature     *float64            `json:"temperature,omitempty"`
 	TopP            *float64            `json:"top_p,omitempty"`
@@ -712,9 +742,6 @@ func validateWireResponseFormat(rf *wireResponseFormat) error {
 	case "text", "json_object":
 		return nil
 	case "json_schema":
-		if rf.Name == "" {
-			return fmt.Errorf("params.response_format json_schema requires non-empty name")
-		}
 		if len(rf.Schema) == 0 {
 			return fmt.Errorf("params.response_format json_schema requires schema")
 		}
@@ -793,7 +820,7 @@ func MarshalRequest(req *Request) ([]byte, error) {
 			}
 		}
 	}
-	return json.Marshal(wireRequest{
+	data, err := json.Marshal(wireRequest{
 		SpecVersion: SpecVersion,
 		Model:       req.Model,
 		System:      system,
@@ -804,6 +831,13 @@ func MarshalRequest(req *Request) ([]byte, error) {
 		Metadata:    req.Metadata,
 		Native:      req.Native,
 	})
+	if err != nil {
+		return nil, err
+	}
+	if rf := req.Params.ResponseFormat; rf != nil && rf.Type == ResponseFormatJSONSchema {
+		return replaceRawJSONValue(data, []string{"params", "response_format", "schema"}, rf.Schema)
+	}
+	return data, nil
 }
 
 // UnmarshalRequest parses a canonical IR request document, const-checking

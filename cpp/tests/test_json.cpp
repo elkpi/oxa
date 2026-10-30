@@ -69,6 +69,9 @@ int main() {
         auto d_15 = oxa::json::parse("1.5");
         auto d_150 = oxa::json::parse("1.50");
         CHECK(oxa::json::structurally_equal(*d_15, *d_150));
+        CHECK(oxa::json::structurally_equal(Value::raw("1.5"), Value::raw("1.50")));
+        CHECK(!oxa::json::structurally_equal(Value::raw("1"), Value::raw("1.0")));
+        CHECK(oxa::json::structurally_equal(Value::raw("1e400"), Value::raw("1e400")));
         auto b_true = oxa::json::parse("true");
         CHECK(!oxa::json::structurally_equal(*b_true, *i_val));
     }

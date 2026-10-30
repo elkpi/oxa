@@ -1,5 +1,6 @@
 export { parseJson } from "./parse.js";
 export { stringifyJson } from "./stringify.js";
+export { assertSourceMatches } from "./source-validation.js";
 export {
   fromValue,
   integer,

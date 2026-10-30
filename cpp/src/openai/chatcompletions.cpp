@@ -674,7 +674,7 @@ StatusOr<Conversion<ir::Request>> decode_request(const json::Value& wire, const 
 
 StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
                                                  const Options& opts) {
-    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse(wire_json));
+    OXA_ASSIGN_OR_RETURN(json::Value v, json::parse_preserving_schema(wire_json, {"response_format", "json_schema", "schema"}));
     return decode_request(v, opts);
 }
 
@@ -847,6 +847,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
                             "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
                     }
+                } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -920,6 +922,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "IR ir.DocumentBlock cannot be rendered in a Chat Completions user message"));
+                } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+                    losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1086,19 +1090,23 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;
-            json::Value format = json::Value::object();
-            format.set("type", json::Value::string(rf.type));
-            if (rf.type == "json_schema") {
-                json::Value schema_config = json::Value::object();
-                schema_config.set("name", json::Value::string(rf.name));
-                if (rf.description.has_value()) {
-                    schema_config.set("description", json::Value::string(*rf.description));
+            if (rf.type == "json_schema" && rf.name.empty()) {
+                losses.push_back(make_cc_loss("params.response_format", "name", ir::LOSS_UNSUPPORTED_SEMANTIC, "Chat Completions requires a non-empty schema name"));
+            } else {
+                json::Value format = json::Value::object();
+                format.set("type", json::Value::string(rf.type));
+                if (rf.type == "json_schema") {
+                    json::Value schema_config = json::Value::object();
+                    schema_config.set("name", json::Value::string(rf.name));
+                    if (rf.description.has_value()) {
+                        schema_config.set("description", json::Value::string(*rf.description));
+                    }
+                    if (rf.schema.has_value()) schema_config.set("schema", *rf.schema);
+                    if (rf.strict.has_value()) schema_config.set("strict", json::Value::boolean(*rf.strict));
+                    format.set("json_schema", std::move(schema_config));
                 }
-                if (rf.schema.has_value()) schema_config.set("schema", *rf.schema);
-                if (rf.strict.has_value()) schema_config.set("strict", json::Value::boolean(*rf.strict));
-                format.set("json_schema", std::move(schema_config));
+                out.set("response_format", std::move(format));
             }
-            out.set("response_format", std::move(format));
         }
     }
 
@@ -1258,6 +1266,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                     ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
             }
+        } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+            losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
         } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
             losses.push_back(make_cc_loss(
                 "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1620,13 +1630,14 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
-        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block) || std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
             ActiveBlock act;
             act.kind = ActiveBlock::Kind::Redacted;
             act.index = cbs->index;
             active_ = std::move(act);
             losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
+            if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) losses.back().detail = "Responses web_search_call has no Chat Completions equivalent";
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (std::holds_alternative<ir::ThinkingBlock>(cbs->block)) {

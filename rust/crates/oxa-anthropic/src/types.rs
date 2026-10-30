@@ -361,6 +361,35 @@ struct GenericMessage {
     content: Option<Value>,
 }
 
+fn canonicalize_generic_numbers(value: Value) -> Value {
+    match value {
+        Value::Number(number) => {
+            if number.is_i64() || number.is_u64() {
+                Value::Number(number)
+            } else {
+                number
+                    .as_f64()
+                    .and_then(serde_json::Number::from_f64)
+                    .map(Value::Number)
+                    .unwrap_or(Value::Number(number))
+            }
+        }
+        Value::Array(items) => Value::Array(
+            items
+                .into_iter()
+                .map(canonicalize_generic_numbers)
+                .collect(),
+        ),
+        Value::Object(fields) => Value::Object(
+            fields
+                .into_iter()
+                .map(|(k, v)| (k, canonicalize_generic_numbers(v)))
+                .collect(),
+        ),
+        other => other,
+    }
+}
+
 impl<'de> Deserialize<'de> for Message {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
@@ -368,7 +397,10 @@ impl<'de> Deserialize<'de> for Message {
     {
         let GenericMessage { role, content } = GenericMessage::deserialize(deserializer)?;
         let content = content
-            .map(|content| serde_json::from_value(content).map_err(D::Error::custom))
+            .map(|content| {
+                serde_json::from_value(canonicalize_generic_numbers(content))
+                    .map_err(D::Error::custom)
+            })
             .transpose()?;
         Ok(Message { role, content })
     }

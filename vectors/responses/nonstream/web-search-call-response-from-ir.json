@@ -1,0 +1,33 @@
+{
+  "name": "responses.nonstream.web-search-call-response-from-ir",
+  "description": "Encoding preserves the web_search_call id and status instead of synthesizing them (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "responses"},
+  "input": {
+    "specVersion": "0.2.0",
+    "id": "resp_ws",
+    "model": "gpt-5",
+    "content": [
+      {"type": "text", "text": "Done"},
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "find_in_page", "url": "https://example.com", "pattern": "oxa"}}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 3, "output_tokens": 4}
+  },
+  "expected_output": {
+    "id": "resp_ws",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-5",
+    "output": [
+      {"type": "message", "id": "msg_abc123", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": "Done", "annotations": []}]},
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "find_in_page", "url": "https://example.com", "pattern": "oxa"}}
+    ],
+    "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7}
+  },
+  "expected_losses": [],
+  "tags": ["response", "web-search", "n-r-16"]
+}

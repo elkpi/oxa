@@ -158,7 +158,7 @@ impl StreamEncoder {
                     Block::Text {
                         text, citations, ..
                     } => self.start_text_block(*index, text, citations.as_deref(), ordinal),
-                    Block::RedactedThinking { .. } => {
+                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
                         self.active_block = Some(StreamEncodeBlock {
                             index: *index,
                             kind: StreamOutputItemKind::Redacted,
@@ -172,7 +172,11 @@ impl StreamEncoder {
                             format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
-                            "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                            if matches!(block, Block::WebSearchCall { .. }) {
+                                "Responses streaming profile does not encode web_search_call"
+                            } else {
+                                "anthropic encrypted thinking replay state; the target face cannot preserve this block"
+                            },
                         );
                         Ok((Vec::new(), vec![l]))
                     }

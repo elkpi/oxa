@@ -635,6 +635,10 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 LossReason::UnsupportedSemantic,
                 "IR tool_result block cannot be rendered in a Chat Completions assistant message",
             )),
+            Block::WebSearchCall { .. } => losses.push(loss(
+                format!("{path}[{index}]"), "type", LossReason::UnsupportedSemantic,
+                "Responses web_search_call has no Chat Completions equivalent",
+            )),
             Block::ApplyPatchToolUse { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",

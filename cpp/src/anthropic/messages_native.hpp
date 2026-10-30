@@ -446,6 +446,9 @@ inline Status decode_request_native(
     }
 
     // 2. OutputConfig
+    if (const auto* oc = wire.find("output_config"); oc != nullptr && !oc->is_null() && !oc->is_object()) {
+        return invalid_argument("anthropic: output_config must be an object or null");
+    }
     if (const auto* oc = wire.find("output_config"); oc != nullptr && oc->is_object()) {
         const auto* effort_val = oc->find("effort");
         if (effort_val != nullptr && effort_val->is_string()) {
@@ -469,6 +472,24 @@ inline Status decode_request_native(
                     std::string(ir::LOSS_UNMAPPED_VALUE),
                     "unknown output_config.effort \"" + effort + "\"",
                 });
+            }
+        }
+    }
+
+    if (const auto* oc = wire.find("output_config"); oc != nullptr && oc->is_object()) {
+        if (const auto* format = oc->find("format")) {
+            if (!format->is_object()) return invalid_argument("anthropic: output_config.format must be an object");
+            const auto* type = format->find("type");
+            if (type == nullptr || !type->is_string() || type->as_string().empty()) return invalid_argument("anthropic: output_config.format requires non-empty type");
+            if (type->as_string() == "json_schema") {
+                const auto* schema = format->find("schema");
+                if (schema == nullptr || !schema->is_object()) return invalid_argument("anthropic: output_config.format.schema must be an object");
+                ir::ResponseFormat rf;
+                rf.type = "json_schema";
+                rf.schema = *schema;
+                if (req.params.has_value()) req.params->response_format = std::move(rf);
+            } else {
+                losses.push_back(ir::Loss{"output_config.format.type", "type", std::string(ir::LOSS_UNMAPPED_VALUE), ""});
             }
         }
     }

@@ -506,6 +506,15 @@ fn validate_annotations(
 
 fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), Error> {
     match blk {
+        Block::WebSearchCall {
+            id,
+            status,
+            action,
+            extra,
+        } => {
+            crate::validate_web_search_extra(extra)?;
+            crate::inspect_web_search_call(id, status, action, path)?;
+        }
         Block::Text { native, .. }
         | Block::Thinking { native, .. }
         | Block::RedactedThinking { native, .. }
@@ -618,7 +627,7 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),
-        Block::Document { .. } | Block::RedactedThinking { .. } => {
+        Block::Document { .. } | Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
             // Whole-block drop; annotations are part of it and are not reported a second time.
             static EMPTY: Vec<NativeAnnotation> = Vec::new();
             (&EMPTY, None)

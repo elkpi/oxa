@@ -105,8 +105,9 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
 | `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
 | `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
+| `WebSearchCallBlock` | `web_search_call` | Responses 已完成或进行中的 web search 历史项（2.4.13，spec/11 N-R-16） |
 
-Adding `DocumentBlock` (2.4.8) and `RedactedThinkingBlock` (2.4.11) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers.
+Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), and `WebSearchCallBlock` (2.4.13) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers. The IR contract version stays `0.2.0`.
 
 #### TextBlock
 
@@ -174,6 +175,17 @@ The exactly-one-of-three rule is enforced by the schema: a document carrying non
 | `Content` | `content` | `[]Block` | yes | MAY be empty (a result with no content) |
 | `IsError` | `is_error` | bool | no, default `false` | marks a failed tool execution |
 
+#### WebSearchCallBlock
+
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `ID` | `id` | string | yes, non-empty | provider item id, carried verbatim |
+| `Status` | `status` | string | yes, non-empty | any non-empty status string; not closed to a fixed enum |
+| `Action` | `action` | JSON object | yes | `type` is `search`, `open_page`, or `find_in_page` |
+| `Extra` | `extra` | JSON object | no | unknown top-level provider item fields; may not contain `type`, `id`, `status`, or `action` |
+
+`action` keeps the provider object, including unknown keys. `search` may carry string `query`, string-array `queries`, and/or `sources` containing `{type: "url", url: string}` objects. `open_page.url` may be absent, a string, or null. `find_in_page` requires string `url` and `pattern`. A missing or non-object `action`, a missing, empty, or unknown `action.type`, a missing required action field, and a known field with the wrong JSON type are structural errors. Keys that are not applicable to that `action.type` remain in the object; the source face reports one `unmapped-field` loss per key. The block carries no native annotation and is not a function or custom tool call.
+
 ### 3.5 Tool
 
 | Go field | JSON property | Type | Required | Notes |
@@ -222,10 +234,19 @@ Structured output generation preference. Closed union of three variants discrimi
 | `json_schema` | `json_schema` | `type`, `name`, `description`, `schema`, `strict` | constrained JSON schema output |
 
 `json_schema` fields:
-- `name` (string, required): schema identifier, non-empty.
+- `name` (string, optional): schema identifier; when present it MUST be non-empty. Some faces require it; Anthropic does not supply one.
 - `description` (string, optional): description of the schema's purpose.
 - `schema` (JSON object, required): JSON Schema object carried verbatim per INV-1; MUST NOT be mutated or re-ordered.
 - `strict` (boolean, optional): whether to strictly enforce schema constraints.
+
+Implementations MAY use an in-memory raw-text sidecar for `schema`; it is not
+an additional canonical IR JSON property. JSON-text decode and encode APIs
+MUST preserve source schema text across the canonical IR and face conversions.
+If a mutable schema value and its sidecar disagree, the encoder MUST return a
+structural error rather than emit stale source text. In-memory-only conversions
+without source text MUST preserve the schema value but need not synthesize an
+original spelling. Callers using a general-purpose JSON serializer rather than
+OXA's lossless JSON-text API cannot assume its output preserves source bytes.
 
 When unspecified by caller, `response_format` is omitted from `Params`.
 
@@ -373,8 +394,7 @@ to `thinking.signature` / `signature_delta.signature`。自 2.2 起，同样的�
 适用于 `custom_tool_use.input` 和 `custom_tool_input_delta.text`；这两个字段的内容
 是任意文本，不要求为 JSON，也不得尝试按 JSON 解析。
 
-**INV-2 — First message is user.** In a `Request`, `messages[0].role` MUST
-be `user`.
+**INV-2 — First message.** In a `Request`, `messages[0].role` MUST be `user`, except that an initial `assistant` message containing a `web_search_call` block is permitted to preserve a Responses history that starts with a server-side search. This exception does not permit other assistant-first requests. This is a rule revision effective in 2.4.13 (not a clarification): strict INV-2 validators outside this repository MUST adopt the same exception, or they will reject Responses history that 2.4.13 decoders legitimately produce. The IR contract version stays `0.2.0`: this rule is sequence-level (INV-2 lies beyond JSON Schema per INV-9), so the document shapes are unchanged.
 
 **INV-3 — Tool use is answered.** For every assistant message containing
 one or more `ToolUseBlock`s, the immediately following message MUST exist,

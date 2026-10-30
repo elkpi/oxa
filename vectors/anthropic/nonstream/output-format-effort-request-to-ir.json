@@ -1,6 +1,6 @@
 {
-  "name": "anthropic.nonstream.native-output-format-still-audited-request-to-ir",
-  "description": "output_config.format is not supported and is reported as unmapped-field loss while effort is mapped.",
+  "name": "anthropic.nonstream.output-format-effort-request-to-ir",
+  "description": "Anthropic output format and effort map simultaneously to IR.",
   "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "to-ir",
@@ -42,7 +42,8 @@
     ],
     "params": {
       "max_tokens": 16000,
-      "reasoning_effort": "high"
+      "reasoning_effort": "high",
+      "response_format": {"type": "json_schema", "schema": {"type": "object"}}
     },
     "native": [
       {
@@ -56,13 +57,7 @@
       }
     ]
   },
-  "expected_losses": [
-    {
-      "path": "output_config.format",
-      "field": "format",
-      "reason": "unmapped-field"
-    }
-  ],
+  "expected_losses": [],
   "tags": [
     "request",
     "effort",

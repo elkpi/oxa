@@ -50,9 +50,17 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	}
 	schema := schemaForRawType(reflect.TypeOf(Request{}))
 	cleanJSON := filterKnownJSON(raw, root, schema)
-	var wire Request
-	if err := json.Unmarshal(cleanJSON, &wire); err != nil {
+	cleanRoot, err := parseRawJSON(cleanJSON)
+	if err != nil {
 		return nil, nil, fmt.Errorf("chatcompletions: request JSON: %w", err)
+	}
+	masked, format := maskRawFormat(cleanJSON, cleanRoot, []string{"response_format"})
+	var wire Request
+	if err := json.Unmarshal(masked, &wire); err != nil {
+		return nil, nil, fmt.Errorf("chatcompletions: request JSON: %w", err)
+	}
+	if len(format) > 0 && string(format) != "null" {
+		wire.ResponseFormat = format
 	}
 	req, losses, err := DecodeRequest(&wire, opts...)
 	if err != nil {

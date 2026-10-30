@@ -612,7 +612,7 @@ function validateAnnotations(
 }
 
 function validateBlockNative(blk: Block, host: HostType, path: string): void {
-  if (blk.native) {
+  if ("native" in blk && blk.native) {
     validateAnnotations(blk.native, host, path);
   }
   if (blk.type === "tool_result") {
@@ -702,7 +702,11 @@ function collectBlockOmissions(
   path: string,
   target: string,
 ): void {
-  if (blk.type === "document" || blk.type === "redacted_thinking") {
+  if (
+    blk.type === "document" ||
+    blk.type === "redacted_thinking" ||
+    blk.type === "web_search_call"
+  ) {
     // whole-block drop; annotations not reported a second time
     return;
   }

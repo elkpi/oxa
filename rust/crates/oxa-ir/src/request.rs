@@ -186,6 +186,14 @@ pub enum Block {
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
+    #[serde(rename = "web_search_call")]
+    WebSearchCall {
+        id: String,
+        status: String,
+        action: Value,
+        #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: BTreeMap<String, Value>,
+    },
     #[serde(rename = "tool_result")]
     ToolResult {
         #[serde(rename = "tool_use_id")]
@@ -213,6 +221,7 @@ impl Block {
             | Block::ApplyPatchToolUse { native, .. }
             | Block::ApplyPatchToolResult { native, .. }
             | Block::ToolResult { native, .. } => native,
+            Block::WebSearchCall { .. } => &[],
         }
     }
 }
@@ -328,6 +337,18 @@ impl std::fmt::Debug for Block {
                 .field("status", status)
                 .field("output", output)
                 .field("native", native)
+                .finish(),
+            Block::WebSearchCall {
+                id,
+                status,
+                action,
+                extra,
+            } => f
+                .debug_struct("WebSearchCall")
+                .field("id", id)
+                .field("status", status)
+                .field("action", action)
+                .field("extra", extra)
                 .finish(),
             Block::ToolResult {
                 tool_use_id,
@@ -729,10 +750,13 @@ pub enum ResponseFormat {
     JsonObject,
     #[serde(rename = "json_schema")]
     JsonSchema {
+        #[serde(default, skip_serializing_if = "String::is_empty")]
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
         schema: Map<String, Value>,
+        #[serde(skip)]
+        schema_raw: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         strict: Option<bool>,
     },

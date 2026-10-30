@@ -213,7 +213,8 @@ namespace {
 #if defined(__EXCEPTIONS) || defined(__cpp_exceptions)
 bool block_has_native(const Block& b) {
     return std::visit([](const auto& val) {
-        return !val.native.empty();
+        if constexpr (std::is_same_v<std::decay_t<decltype(val)>, WebSearchCallBlock>) return false;
+        else return !val.native.empty();
     }, b);
 }
 #endif
@@ -298,6 +299,14 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
             out.set("output", std::move(output)); }
         return out;
     }
+    if (const auto* ws = std::get_if<WebSearchCallBlock>(&b)) {
+        out.set("type", json::Value::string("web_search_call"));
+        out.set("id", json::Value::string(ws->id));
+        out.set("status", json::Value::string(ws->status));
+        out.set("action", ws->action);
+        if (ws->extra.is_object() && !ws->extra.as_object().empty()) out.set("extra", ws->extra);
+        return out;
+    }
     if (const auto* ap = std::get_if<ApplyPatchToolUseBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_APPLY_PATCH_TOOL_USE)));
         out.set("id", json::Value::string(ap->id));
@@ -341,6 +350,55 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
 
 }  // namespace
 
+StatusOr<std::vector<Loss>> inspect_web_search_call(const WebSearchCallBlock& block, std::string_view path) {
+    if (block.id.empty() || block.status.empty()) return invalid_argument("web_search_call requires non-empty id and status");
+    if (!block.extra.is_object()) return invalid_argument("web_search_call extra must be an object");
+    for (const auto& [key, value] : block.extra.as_object()) {
+        if (key == "type" || key == "id" || key == "status" || key == "action")
+            return invalid_argument("web_search_call extra cannot shadow known item fields");
+    }
+    if (!block.action.is_object()) return invalid_argument("web_search_call action must be an object");
+    const auto* type = block.action.find("type");
+    if (!type || !type->is_string()) return invalid_argument("web_search_call action.type is required");
+    const auto& kind = type->as_string();
+    std::vector<std::string> keys;
+    if (kind == "search") keys = {"query", "queries", "sources"};
+    else if (kind == "open_page") keys = {"url"};
+    else if (kind == "find_in_page") {
+        keys = {"url", "pattern"};
+        if (!block.action.find("url") || !block.action.find("pattern")) return invalid_argument("find_in_page requires url and pattern");
+    } else return invalid_argument("unknown web_search_call action.type");
+    std::vector<Loss> losses;
+    for (const auto& [key, value] : block.action.as_object()) {
+        if (key == "type") continue;
+        bool known = false;
+        for (const auto& field : keys) if (key == field) known = true;
+        if (!known) {
+            losses.push_back(make_loss(std::string(path) + ".action." + key, key, LOSS_UNMAPPED_FIELD, ""));
+            continue;
+        }
+        if (kind == "open_page" && key == "url" && value.is_null()) continue;
+        if (key == "queries") {
+            if (!value.is_array()) return invalid_argument("action.queries must be an array of strings");
+            for (const auto& query : value.as_array()) if (!query.is_string()) return invalid_argument("action.queries must be an array of strings");
+        } else if (key == "sources") {
+            if (!value.is_array()) return invalid_argument("action.sources must be an array");
+            std::size_t index = 0;
+            for (const auto& source : value.as_array()) {
+                const auto* st = source.find("type");
+                const auto* url = source.find("url");
+                if (!source.is_object() || !st || !st->is_string() || st->as_string() != "url" || !url || !url->is_string())
+                    return invalid_argument("source requires type url and string url");
+                for (const auto& [field, ignored] : source.as_object()) {
+                    if (field != "type" && field != "url") losses.push_back(make_loss(std::string(path) + ".action.sources[" + std::to_string(index) + "]." + field, field, LOSS_UNMAPPED_FIELD, ""));
+                }
+                ++index;
+            }
+        } else if (!value.is_string()) return invalid_argument("action." + key + " must be a string");
+    }
+    return losses;
+}
+
 json::Value dump_block(const Block& b) {
 #if defined(__EXCEPTIONS) || defined(__cpp_exceptions)
     if (block_has_native(b)) {
@@ -356,7 +414,8 @@ json::Value dump_block(const Block& b) {
 json::Value dump_request_block(const Block& b) {
     json::Value out = dump_block_impl(b, [](const Block& inner) { return dump_request_block(inner); });
     const auto* nat = std::visit([](const auto& val) -> const std::vector<NativeAnnotation>* {
-        return &val.native;
+        if constexpr (std::is_same_v<std::decay_t<decltype(val)>, WebSearchCallBlock>) return nullptr;
+        else return &val.native;
     }, b);
     if (nat != nullptr && !nat->empty()) {
         json::Value native_arr = json::Value::array();
@@ -502,6 +561,17 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
             cr.output = std::move(parts);
         } else return invalid_argument("custom_tool_result output must be a string or array");
         return Block(std::move(cr));
+    }
+    if (kind == "web_search_call") {
+        if (v.find("native")) return invalid_argument("web_search_call does not support native annotations");
+        OXA_ASSIGN_OR_RETURN(auto id, require_string(v, "id", "web_search_call"));
+        OXA_ASSIGN_OR_RETURN(auto status, require_string(v, "status", "web_search_call"));
+        const auto* action = v.find("action");
+        if (!action) return invalid_argument("web_search_call action is required");
+        WebSearchCallBlock block{std::move(id), std::move(status), *action};
+        if (const auto* extra = v.find("extra")) block.extra = *extra;
+        OXA_ASSIGN_OR_RETURN(auto ignored, inspect_web_search_call(block, "web_search_call"));
+        return Block(std::move(block));
     }
     if (kind == BLOCK_TYPE_APPLY_PATCH_TOOL_USE) {
         ApplyPatchToolUseBlock ap;
@@ -703,7 +773,7 @@ json::Value dump_request(const Request& r) {
             json::Value format = json::Value::object();
             format.set("type", json::Value::string(rf.type));
             if (rf.type == "json_schema") {
-                format.set("name", json::Value::string(rf.name));
+                if (!rf.name.empty()) format.set("name", json::Value::string(rf.name));
                 if (rf.description.has_value()) {
                     format.set("description", json::Value::string(*rf.description));
                 }
@@ -729,6 +799,19 @@ StatusOr<json::Value> dump_request_checked(const Request& r) {
     auto parsed = load_request(out);
     if (!parsed.ok()) return parsed.status();
     return out;
+}
+
+StatusOr<std::string> dump_request_json(const Request& r) {
+    OXA_ASSIGN_OR_RETURN(json::Value out, dump_request_checked(r));
+    if (r.params && r.params->response_format && r.params->response_format->type == "json_schema" && r.params->response_format->schema) {
+        OXA_ASSIGN_OR_RETURN(json::Value schema, json::preserve_source(*r.params->response_format->schema));
+        auto* params = out.find("params");
+        auto* format = params ? params->find("response_format") : nullptr;
+        auto* target = format ? format->find("schema") : nullptr;
+        if (!target) return invalid_argument("IR response schema missing from encoded request");
+        *target = std::move(schema);
+    }
+    return json::serialize(out);
 }
 
 StatusOr<Request> load_request(const json::Value& v) {
@@ -943,10 +1026,12 @@ StatusOr<Request> load_request(const json::Value& v) {
             response_format.type = type->as_string();
             if (response_format.type == "json_schema") {
                 const json::Value* name = f->find("name");
-                if (name == nullptr || !name->is_string() || name->as_string().empty()) {
-                    return invalid_argument("params response_format json_schema requires non-empty name");
+                if (name != nullptr) {
+                    if (!name->is_string() || name->as_string().empty()) {
+                        return invalid_argument("params response_format json_schema name must be non-empty when present");
+                    }
+                    response_format.name = name->as_string();
                 }
-                response_format.name = name->as_string();
                 const json::Value* description = f->find("description");
                 if (description != nullptr) {
                     if (!description->is_string()) {
@@ -1341,7 +1426,7 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                 open_is_thinking = true;
                 open_is_atomic = false;
                 signature_seen = false;
-            } else if (std::holds_alternative<RedactedThinkingBlock>(cbs->block)) {
+            } else if (std::holds_alternative<RedactedThinkingBlock>(cbs->block) || std::holds_alternative<WebSearchCallBlock>(cbs->block)) {
                 open_is_tool = false;
                 open_is_custom_tool = false;
                 open_is_thinking = false;

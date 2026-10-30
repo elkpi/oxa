@@ -8,7 +8,16 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
     let cleaned = crate::audit::clean_json(root, "request")?;
     let wire: Request =
         serde_json::from_str(&cleaned).map_err(|error| Error::new(error.to_string()))?;
-    let (value, losses) = decode_request(&wire, config)?;
+    let (mut value, losses) = decode_request(&wire, config)?;
+    if let Some(oxa_ir::ResponseFormat::JsonSchema { schema_raw, .. }) = value
+        .params
+        .as_mut()
+        .and_then(|p| p.response_format.as_mut())
+    {
+        *schema_raw = oxa_ir::raw_json_at(raw, &["response_format", "json_schema", "schema"])
+            .map_err(|error| Error::new(error.to_string()))?
+            .map(str::to_owned);
+    }
     Ok((value, crate::audit::audit_losses(raw, "request", losses)?))
 }
 

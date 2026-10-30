@@ -130,6 +130,15 @@ const INPUT_ITEM: WireAuditSpec = {
             summary: { items: SUMMARY_PART },
           },
         };
+      case "web_search_call":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            action: undefined,
+          },
+        };
       case "additional_tools":
         return {
           fields: {
@@ -327,6 +336,15 @@ const OUTPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
+          },
+        };
+      case "web_search_call":
+        return {
+          fields: {
+            type: undefined,
+            id: undefined,
+            status: undefined,
+            action: undefined,
           },
         };
       default:

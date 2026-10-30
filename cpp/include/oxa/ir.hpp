@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <type_traits>
 #include <vector>
 
 #include "oxa/json.hpp"
@@ -80,6 +81,7 @@ inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
+inline constexpr std::string_view BLOCK_TYPE_WEB_SEARCH_CALL = "web_search_call";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_USE = "tool_use";
 inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use";
@@ -297,10 +299,17 @@ struct ApplyPatchToolResultBlock {
         : tool_use_id(std::move(tid)), status(std::move(st)), output(std::move(out)), native(std::move(nat)) {}
 };
 
+struct WebSearchCallBlock {
+    std::string id;
+    std::string status;
+    json::Value action;
+    json::Value extra = json::Value::object();
+};
+
 using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, ImageBlock, DocumentBlock,
                            ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
-                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock>;
+                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock>;
 
 struct BlockHolder {
     Block block;
@@ -489,10 +498,12 @@ Status validate_native_request(const Request& req);
 Status validate_tool_strict(const Request& req);
 StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
 Status validate_citation_value(std::string_view val);
+StatusOr<std::vector<Loss>> inspect_web_search_call(const WebSearchCallBlock& block, std::string_view path);
 
 json::Value dump_request(const Request& r);
 // Checks typed strict/native constraints and validates the serialized request with load_request.
 StatusOr<json::Value> dump_request_checked(const Request& r);
+StatusOr<std::string> dump_request_json(const Request& r);
 StatusOr<Request> load_request(const json::Value& v);
 
 json::Value dump_response(const Response& r);

@@ -233,6 +233,7 @@ func TestCrossVectors(t *testing.T) {
 		{"chatcompletions", "anthropic"},
 		{"responses", "chatcompletions"},
 		{"responses", "anthropic"},
+		{"responses", "responses"},
 		{"anthropic", "chatcompletions"},
 		{"anthropic", "responses"},
 		{"anthropic", "anthropic"},

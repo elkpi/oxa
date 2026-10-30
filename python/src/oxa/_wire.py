@@ -141,7 +141,7 @@ def _audit(wire: dict[str, Any], face: str, kind: str, document: RawDocument | N
             return
         if "$tag" in fields:
             tag = value.get(fields["$tag"])
-            target = fields["$cases"].get(tag, "") if tag is not None else fields.get("$default", "")
+            target = fields["$cases"].get(tag, "") if isinstance(tag, str) else fields.get("$default", "")
             if not target:
                 return
             return visit(value, target, path)

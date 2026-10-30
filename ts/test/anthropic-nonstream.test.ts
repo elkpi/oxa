@@ -3,11 +3,24 @@ import test from "node:test";
 
 import {
   decodeRequest,
+  decodeRequestJSON,
   decodeResponse,
   encodeRequest,
   encodeResponse,
 } from "../src/anthropic/messages/index.js";
 import { OxaError } from "../src/error.js";
+import {
+  decodeRequestJSON as decodeChatJSON,
+  encodeRequest as encodeChat,
+} from "../src/openai/chatcompletions/index.js";
+import {
+  decodeRequestJSON as decodeResponsesJSON,
+  encodeRequest as encodeResponses,
+} from "../src/openai/responses/index.js";
+import {
+  encodeRequest as encodeIRRequest,
+  decodeRequest as decodeIRRequest,
+} from "../src/ir/index.js";
 import {
   integer,
   jsonText,
@@ -25,6 +38,144 @@ test("runs every Anthropic non-stream vector", () => {
       encodeRequest,
       encodeResponse,
     }) > 0,
+  );
+});
+
+test("preserves output schema source bytes through canonical IR and Anthropic JSON", () => {
+  const schema = `{ "type" : "object", "properties" : { "n" : {"type":"string"} } }`;
+  const raw = `{"model":"claude","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":{"type":"json_schema","schema":${schema}}}}`;
+  const decoded = decodeRequestJSON(raw);
+  assert.equal(decoded.losses.length, 0);
+  const canonical = stringifyJson(encodeIRRequest(decoded.value));
+  assert.ok(canonical.includes(schema), canonical);
+  const ir = decodeIRRequest(parseJson(canonical));
+  const encoded = encodeRequest(ir);
+  assert.equal(encoded.losses.length, 0);
+  assert.ok(
+    stringifyJson(encoded.value).includes(schema),
+    stringifyJson(encoded.value),
+  );
+  const format = ir.params?.response_format;
+  assert.equal(format?.type, "json_schema");
+  if (format?.type !== "json_schema") throw new Error("missing schema");
+  (format.schema as Record<string, unknown>).title = "changed";
+  assert.throws(() => encodeRequest(ir));
+  assert.throws(() => encodeIRRequest(ir));
+});
+
+test("OpenAI to Anthropic preserves schema source bytes", () => {
+  const schema = `{ "type" : "object", "maximum" : 1e400 }`;
+  const cases = [
+    decodeChatJSON(
+      `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"result","schema":${schema}}}}`,
+    ),
+    decodeResponsesJSON(
+      `{"model":"m","max_output_tokens":64,"input":"hi","text":{"format":{"type":"json_schema","name":"result","schema":${schema}}}}`,
+    ),
+  ];
+  for (const result of cases) {
+    const canonical = stringifyJson(encodeIRRequest(result.value));
+    assert.ok(canonical.includes(schema), canonical);
+    const ir = decodeIRRequest(parseJson(canonical));
+    const encoded = encodeRequest(ir);
+    assert.equal(encoded.losses.length, 1);
+    assert.ok(stringifyJson(encoded.value).includes(schema));
+  }
+});
+
+test("nested schema source edits cannot be hidden by a new outer object", () => {
+  const original = decodeChatJSON(
+    `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"result","schema":{"type":"object","properties":{"n":{"type":"string"}}}}}}`,
+  ).value;
+  const oldFormat = original.params?.response_format;
+  if (oldFormat?.type !== "json_schema") throw new Error("missing schema");
+  const nested = oldFormat.schema.properties as JsonObject;
+  (nested.n as Record<string, unknown>).type = "number";
+  const req = {
+    ...original,
+    params: {
+      ...original.params,
+      response_format: { ...oldFormat, schema: { properties: nested } },
+    },
+  };
+  assert.throws(() => encodeRequest(req));
+  assert.throws(() => encodeIRRequest(req));
+});
+
+test("OpenAI encoders reject stale schema source", () => {
+  const decoded = decodeChatJSON(
+    `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"result","schema":{"type":"object"}}}}`,
+  ).value;
+  const format = decoded.params?.response_format;
+  if (format?.type !== "json_schema") throw new Error("missing schema");
+  (format.schema as Record<string, unknown>).title = "changed";
+  assert.throws(() => encodeChat(decoded));
+  assert.throws(() => encodeResponses(decoded));
+});
+
+test("Responses encoder preserves the original schema bytes", () => {
+  const schema = `{ "type" : "object", "maximum" : 1e400 }`;
+  const req = decodeResponsesJSON(
+    `{"model":"m","input":"hi","text":{"format":{"type":"json_schema","name":"result","schema":${schema}}}}`,
+  ).value;
+  const encoded = stringifyJson(encodeResponses(req).value);
+  assert.ok(encoded.includes(schema), encoded);
+});
+
+test("opaque schema objects may contain number-marker properties", () => {
+  for (const schema of [
+    `{"kind":"number","type":"object"}`,
+    `{"kind":"number","token":"1","isInteger":true}`,
+  ]) {
+    const raw = `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":{"type":"json_schema","schema":${schema}}}}`;
+    const result = decodeRequestJSON(raw);
+    assert.equal(result.losses.length, 0);
+    assert.ok(
+      stringifyJson(encodeRequest(result.value).value).includes(schema),
+    );
+  }
+});
+
+test("output_config accepts null but rejects non-object values", () => {
+  const prefix = `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":`;
+  const result = decodeRequestJSON(prefix + "null}");
+  assert.equal(result.value.params?.response_format, undefined);
+  assert.equal(result.losses.length, 0);
+  for (const value of ["[]", "42", '"invalid"', "false"]) {
+    assert.throws(() => decodeRequestJSON(prefix + value + "}"), value);
+  }
+});
+
+test("malformed Anthropic output formats are structural errors", () => {
+  for (const format of [
+    "null",
+    "{}",
+    `{"type":"json_schema"}`,
+    `{"type":"json_schema","schema":null}`,
+    `{"type":"json_schema","schema":[]}`,
+    `{"type":false}`,
+    `{"type":[]}`,
+  ]) {
+    assert.throws(
+      () =>
+        decodeRequestJSON(
+          `{"model":"m","max_tokens":64,"messages":[{"role":"user","content":"hi"}],"output_config":{"format":${format}}}`,
+        ),
+      format,
+    );
+  }
+});
+
+test("OpenAI JSON Schema wire requires a non-empty name", () => {
+  assert.throws(() =>
+    decodeChatJSON(
+      `{"model":"m","messages":[{"role":"user","content":"hi"}],"response_format":{"type":"json_schema","json_schema":{"name":"","schema":{}}}}`,
+    ),
+  );
+  assert.throws(() =>
+    decodeResponsesJSON(
+      `{"model":"m","input":"hi","text":{"format":{"type":"json_schema","name":"","schema":{}}}}`,
+    ),
   );
 });
 

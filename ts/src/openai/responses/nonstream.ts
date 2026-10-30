@@ -1,5 +1,10 @@
 import { OxaError } from "../../error.js";
 import {
+  inspectWebSearchCall,
+  validateWebSearchExtra,
+} from "../../ir/web-search.js";
+import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -33,7 +38,39 @@ import type {
   Tool,
   ToolChoice,
   ToolResultBlock,
+  WebSearchCallBlock,
 } from "../../ir/index.js";
+
+function decodeWebSearchCall(
+  item: JsonObject,
+  path: string,
+  losses: Loss[],
+): WebSearchCallBlock {
+  const id = nonEmptyString(item.id, `${path}.id`);
+  const status = nonEmptyString(item.status, `${path}.status`);
+  const { action, unknown } = inspectWebSearchCall(
+    id,
+    status,
+    item.action,
+    path,
+  );
+  for (const field of unknown)
+    losses.push(loss(field.path, field.field, "unmapped-field"));
+  const extra: Record<string, JsonValue> = Object.create(null) as Record<
+    string,
+    JsonValue
+  >;
+  for (const [key, value] of Object.entries(item)) {
+    if (!["type", "id", "status", "action"].includes(key)) extra[key] = value;
+  }
+  return {
+    type: "web_search_call",
+    id,
+    status,
+    action,
+    ...(Object.keys(extra).length ? { extra } : {}),
+  };
+}
 
 export interface NonstreamOptions {
   readonly modelMapper?: ModelMapper;
@@ -140,6 +177,7 @@ function decodeRequestObject(
         type === "custom_tool_call" ||
         type === "apply_patch_call" ||
         type === "reasoning" ||
+        type === "web_search_call" ||
         (type === "message" && item.role === "assistant")
       ) {
         const thinking: Block[] = [];
@@ -182,6 +220,11 @@ function decodeRequestObject(
               if (text !== "")
                 thinking.push({ type: "thinking", thinking: text });
             }
+            index += 1;
+            continue;
+          }
+          if (currentType === "web_search_call") {
+            calls.push(decodeWebSearchCall(current, `input[${index}]`, losses));
             index += 1;
             continue;
           }
@@ -452,7 +495,8 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
       type === "function_call" ||
       type === "custom_tool_call" ||
       type === "apply_patch_call" ||
-      type === "reasoning";
+      type === "reasoning" ||
+      type === "web_search_call";
 
     if (!isAssistant) {
       i++;
@@ -481,6 +525,7 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
         kind = "apply_patch";
       } else if (
         t === "reasoning" ||
+        t === "web_search_call" ||
         (t === "message" && it.role === "assistant")
       ) {
         // assistant content
@@ -859,6 +904,8 @@ function decodeResponseObject(
         status: statusResult.status!,
         ...(outResult.output !== undefined ? { output: outResult.output } : {}),
       });
+    } else if (item.type === "web_search_call") {
+      calls.push(decodeWebSearchCall(item, `output[${index}]`, losses));
     } else if (item.type === "function_call") {
       const rawName = nonEmptyString(item.name, `output[${index}].name`);
       const ns =
@@ -1042,6 +1089,16 @@ export function encodeRequest(
             status: block.status,
             operation: encodeApplyPatchOperation(block.operation),
           });
+        } else if (block.type === "web_search_call") {
+          inspectWebSearchCall(block.id, block.status, block.action);
+          validateWebSearchExtra(block.extra);
+          calls.push({
+            ...block.extra,
+            type: "web_search_call",
+            id: block.id,
+            status: block.status,
+            action: block.action,
+          });
         } else if (block.type === "tool_use") {
           const dotIdx = block.name.indexOf(".");
           calls.push({
@@ -1130,6 +1187,10 @@ export function encodeRequest(
           undefined)
         : encodeToolChoice(request.tool_choice, losses);
   const params = request.params;
+  const format = params?.response_format;
+  const unnamedSchema = format?.type === "json_schema" && !format.name;
+  if (unnamedSchema)
+    losses.push(loss("params.response_format", "name", "unsupported-semantic"));
   if (params?.stop_sequences !== undefined && params.stop_sequences.length > 0)
     losses.push(
       loss("params.stop_sequences", "stop_sequences", "unmapped-field"),
@@ -1170,9 +1231,9 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning: { effort: params.reasoning_effort } }),
-      ...(params?.response_format === undefined
+      ...(format === undefined || unnamedSchema
         ? {}
-        : { text: { format: encodeTextFormat(params.response_format) } }),
+        : { text: { format: encodeTextFormat(format) } }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     },
@@ -1237,6 +1298,16 @@ export function encodeResponse(
         ...(block.output !== undefined ? { output: block.output } : {}),
       });
       apcoIndex += 1;
+    } else if (block.type === "web_search_call") {
+      inspectWebSearchCall(block.id, block.status, block.action);
+      validateWebSearchExtra(block.extra);
+      calls.push({
+        ...block.extra,
+        type: "web_search_call",
+        id: block.id,
+        status: block.status,
+        action: block.action,
+      });
     } else if (block.type === "tool_use") {
       const dotIdx = block.name.indexOf(".");
       calls.push({
@@ -2320,13 +2391,14 @@ function encodeTextFormat(format: ResponseFormat): JsonObject {
     case "json_object":
       return { type: "json_object" };
     case "json_schema":
+      assertSourceMatches(format.schema);
       return {
         type: "json_schema",
-        name: format.name,
+        name: format.name!,
         ...(format.description === undefined
           ? {}
           : { description: format.description }),
-        schema: { ...format.schema },
+        schema: format.schema,
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
   }

@@ -169,7 +169,8 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     ITEM_TYPE_FUNCTION_CALL
                     | ITEM_TYPE_CUSTOM_TOOL_CALL
                     | crate::types::ITEM_TYPE_APPLY_PATCH_CALL
-                    | ITEM_TYPE_REASONING => {
+                    | ITEM_TYPE_REASONING
+                    | crate::types::ITEM_TYPE_WEB_SEARCH_CALL => {
                         let (message, next, run_losses) =
                             decode_assistant_run(items, index, &decoded_calls, &dropped)?;
                         if let Some(message) = message {
@@ -363,7 +364,13 @@ fn validate_tool_history(req: &IrRequest) -> Result<(), Error> {
     if !has_custom {
         return Ok(());
     }
-    if req.messages.first().is_some_and(|m| m.role != Role::User) {
+    if req.messages.first().is_some_and(|m| {
+        m.role != Role::User
+            && !m
+                .content
+                .iter()
+                .any(|b| matches!(b, Block::WebSearchCall { .. }))
+    }) {
         return Err(Error::new(
             "responses: conversation must begin with a user message",
         ));
@@ -512,6 +519,7 @@ fn decode_text_format(
                 name: name.clone(),
                 description,
                 schema: schema.as_object().cloned().unwrap_or_default(),
+                schema_raw: None,
                 strict,
             }))
         }
@@ -667,6 +675,24 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                         native: Vec::new(),
                     });
                 }
+            }
+            "web_search_call" => {
+                let action = item.action.as_ref().unwrap_or(&serde_json::Value::Null);
+                losses.extend(
+                    oxa_ir::inspect_web_search_call(
+                        &item.id,
+                        &item.status,
+                        action,
+                        &format!("output[{item_index}]"),
+                    )
+                    .map_err(|error| Error::new(error.to_string()))?,
+                );
+                calls.push(Block::WebSearchCall {
+                    id: item.id.clone(),
+                    status: item.status.clone(),
+                    action: action.clone(),
+                    extra: item.extra.clone(),
+                });
             }
             ITEM_TYPE_FUNCTION_CALL => {
                 let ns = item.namespace.as_deref().unwrap_or_default();

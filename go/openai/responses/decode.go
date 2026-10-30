@@ -159,7 +159,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			default:
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
-		case ItemTypeFunctionCall, ItemTypeCustomToolCall, ItemTypeApplyPatchCall, ItemTypeReasoning:
+		case ItemTypeFunctionCall, ItemTypeCustomToolCall, ItemTypeApplyPatchCall, ItemTypeReasoning, ItemTypeWebSearchCall:
 			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i, decodedCalls, droppedItems)
 			if err != nil {
 				return nil, nil, err
@@ -249,7 +249,7 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		isAssistantItem := (item.Type == "" && item.Role == RoleAssistant) ||
 			(item.Type == ItemTypeMessage && item.Role == RoleAssistant) ||
 			item.Type == ItemTypeFunctionCall || item.Type == ItemTypeCustomToolCall ||
-			item.Type == ItemTypeApplyPatchCall || item.Type == ItemTypeReasoning
+			item.Type == ItemTypeApplyPatchCall || item.Type == ItemTypeReasoning || item.Type == ItemTypeWebSearchCall
 
 		if !isAssistantItem {
 			i++
@@ -269,6 +269,7 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 				kind = "custom"
 			case ItemTypeApplyPatchCall:
 				kind = "apply_patch"
+			case ItemTypeWebSearchCall:
 			case ItemTypeReasoning:
 			case "", ItemTypeMessage:
 				if it.Role != RoleAssistant {
@@ -421,6 +422,10 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 		wire = *v
 	case TextFormatWire:
 		wire = v
+	case json.RawMessage:
+		if err := json.Unmarshal(v, &wire); err != nil {
+			return nil, nil, fmt.Errorf("responses: text.format: %w", err)
+		}
 	default:
 		data, err := json.Marshal(raw)
 		if err != nil {
@@ -443,7 +448,7 @@ func decodeTextFormat(raw any) (*ir.ResponseFormat, []ir.Loss, error) {
 		if len(wire.Schema) == 0 {
 			return nil, nil, fmt.Errorf("responses: text.format of type json_schema requires schema")
 		}
-		var obj map[string]any
+		var obj map[string]json.RawMessage
 		if err := json.Unmarshal(wire.Schema, &obj); err != nil || obj == nil {
 			return nil, nil, fmt.Errorf("responses: text.format schema must be a JSON object")
 		}
@@ -527,6 +532,15 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 				finalName = item.Namespace + "." + finalName
 			}
 			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: finalName, Input: input})
+			continue
+		}
+		if item.Type == ItemTypeWebSearchCall {
+			block, callLosses, err := decodeWebSearchCall(item.ID, item.Status, item.Action, item.Extra, fmt.Sprintf("input[%d]", i))
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			losses = append(losses, callLosses...)
+			calls = append(calls, block)
 			continue
 		}
 		if item.Type == ItemTypeReasoning {
@@ -802,6 +816,15 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 					))
 				}
 				texts = append(texts, ir.TextBlock{Text: part.Text})
+			}
+		case ItemTypeWebSearchCall:
+			block, callLosses, err := decodeWebSearchCall(item.ID, item.Status, item.Action, item.Extra, fmt.Sprintf("output[%d]", i))
+			{
+				if err != nil {
+					return nil, nil, err
+				}
+				losses = append(losses, callLosses...)
+				calls = append(calls, block)
 			}
 		case ItemTypeFunctionCall:
 			input, err := wrapToolArguments(item.Arguments)

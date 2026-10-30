@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import Any, cast
 
 from oxa._wire import RawDocument, audit_decode, raw_field
@@ -191,7 +192,7 @@ def decode_request(
                     index = next_idx
                 else:
                     raise ValueError(f"responses: input[{index}]: unknown role {role!r}")
-            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING):
+            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING, "web_search_call"):
                 msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
                 if msg is not None:
                     req.messages.append(msg)
@@ -282,6 +283,8 @@ def decode_request(
     max_tokens = wire.get("max_output_tokens")
     format_raw = text_config.get("format") if isinstance(text_config, dict) else None
     response_format = decode_text_format(format_raw, losses)
+    if isinstance(response_format, ResponseFormatJsonSchema):
+        response_format = replace(response_format, schema_raw=raw_field(raw_text, "text.format.schema"))
     params: Params | None = None
     if (
         wire.get("temperature") is not None
@@ -521,6 +524,12 @@ def decode_response(
             else:
                 raise ValueError(f"responses: output[{item_index}].output must be a string or array")
             has_tool_use = True
+        elif kind == "web_search_call":
+            from oxa.openai.responses.web_search import decode_web_search_item
+
+            block, call_losses = decode_web_search_item(item, f"output[{item_index}]")
+            losses.extend(call_losses)
+            calls.append(block)
         else:
             losses.append(
                 loss(

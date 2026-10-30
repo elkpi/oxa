@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.4.13] - 2026-10-30
+
+### Added
+
+- Anthropic Messages 原生 `output_config.format` JSON Schema 与通用 IR `ResponseFormat` 双向映射，支持与 `output_config.effort` 共存，并通过共享向量验证跨协议损失。
+- 增加保留 schema 原始文本的 JSON 编码入口：Go `messages.EncodeRequestJSON`；Python `dump_request_json` / `encode_request_json`；Rust `request_from_json` / `request_to_json` / `encode_request_json`；C++ `parse_lossless` / `dump_request_json` / `encode_request_json`。TypeScript 使用 `parseJson` / `stringifyJson`。
+
+### Changed
+
+- 通用 IR 的 JSON Schema `name` 允许缺省；OpenAI 目标仍要求非空名称，不合成名称，并在无法映射时记录损失。Anthropic 无法表达的 `name`、`description` 和 `strict` 分别报损；`json_object` 继续显式报损。
+- **Rust API 兼容性提示：** `ResponseFormat::JsonSchema` 新增 `schema_raw` 字段；直接构造该枚举变体的调用方需提供该字段，穷尽解构需相应调整，此为公开 API 兼容性变更。Rust 启用 `serde_json/arbitrary_precision` 以保留大数；Cargo 的特性合并可能同时改变同一依赖图中 `serde_json::Number` 的行为。
+- Anthropic 请求的 `stream` 传输标记仍按既有策略单独记录 `unmapped-field`；它不影响 `output_config.format` 映射。
+- Responses 非流式 `web_search_call` 历史项映射为 `WebSearchCallBlock`，保留 `id`、`status`、`action` 及可选顶层扩展字段 `extra`。Chat Completions 与 Anthropic 编码时省略并报 `unsupported-semantic`；流式仍整项报损。这是需要穷尽匹配更新的公开内容块扩展，IR contract 保持 `0.2.0`。
+
 ## [v2.4.12] - 2026-10-27
 
 ### Added

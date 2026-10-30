@@ -1,3 +1,8 @@
+import {
+  inspectWebSearchCall as validateWebSearchCall,
+  validateWebSearchExtra,
+} from "./web-search.js";
+
 function encodeNativeAnnotation(ann: NativeAnnotation): JsonObject {
   return {
     source: ann.source,
@@ -59,6 +64,7 @@ function decodeNativeAnnotation(value: JsonValue): NativeAnnotation {
 }
 import { OxaError } from "../error.js";
 import {
+  assertSourceMatches,
   fromValue,
   integer,
   isJsonArray,
@@ -368,8 +374,18 @@ export function validateRequest(request: Request): void {
   }
   if (request.messages.length === 0)
     invalid("request.messages must not be empty");
-  if (request.messages[0]!.role !== "user")
-    invalid("INV-2: first message must be user");
+  if (
+    request.messages[0]!.role !== "user" &&
+    !(
+      request.messages[0]!.role === "assistant" &&
+      request.messages[0]!.content.some(
+        (block) => block.type === "web_search_call",
+      )
+    )
+  )
+    invalid(
+      "INV-2: first message must be user or an assistant web search history",
+    );
   for (let index = 0; index < request.messages.length; index += 1) {
     const message = request.messages[index]!;
     if (message.content.length === 0)
@@ -528,7 +544,11 @@ export function decodeResponse(document: JsonValue): Response {
 }
 
 function encodeBlock(block: Block): JsonObject {
-  if (block.native !== undefined && block.native.length > 0) {
+  if (
+    "native" in block &&
+    block.native !== undefined &&
+    block.native.length > 0
+  ) {
     fail(
       "ir: native annotations are forbidden in response and event content blocks (spec/15)",
     );
@@ -543,7 +563,7 @@ function encodeRequestBlock(block: Block): JsonObject {
   const enc = encodeBlockBase(block, encodeRequestBlock);
   return {
     ...enc,
-    ...(block.native && block.native.length > 0
+    ...("native" in block && block.native && block.native.length > 0
       ? { native: block.native.map(encodeNativeAnnotation) }
       : {}),
   };
@@ -636,6 +656,16 @@ function encodeBlockBase(
         status: block.status,
         ...(block.output === undefined ? {} : { output: block.output }),
       };
+    case "web_search_call":
+      validateWebSearchCall(block.id, block.status, block.action);
+      validateWebSearchExtra(block.extra);
+      return {
+        type: block.type,
+        id: block.id,
+        status: block.status,
+        action: block.action,
+        ...(block.extra === undefined ? {} : { extra: block.extra }),
+      };
     case "tool_result":
       return {
         type: "tool_result",
@@ -675,6 +705,11 @@ function decodeRequestBlock(value: JsonValue): Block {
   let native: readonly NativeAnnotation[] | undefined;
   if (block.native !== undefined) {
     native = array(block.native, "block.native").map(decodeNativeAnnotation);
+  }
+  if (base.type === "web_search_call") {
+    if (native !== undefined)
+      fail("web_search_call does not support native annotations");
+    return base;
   }
   return native ? { ...base, native } : base;
 }
@@ -800,6 +835,24 @@ function decodeBlockBase(
         tool_use_id: nonEmptyString(block.tool_use_id, "block.tool_use_id"),
         status: decodeApplyPatchResultStatus(block.status, "block.status"),
         ...(block.output === undefined ? {} : { output: block.output }),
+      };
+    }
+    case "web_search_call": {
+      const action = object(block.action, "block.action");
+      validateWebSearchCall(
+        nonEmptyString(block.id, "block.id"),
+        nonEmptyString(block.status, "block.status"),
+        action,
+      );
+      validateWebSearchExtra(block.extra);
+      return {
+        type: "web_search_call",
+        id: nonEmptyString(block.id, "block.id"),
+        status: nonEmptyString(block.status, "block.status"),
+        action,
+        ...(block.extra === undefined
+          ? {}
+          : { extra: object(block.extra, "block.extra") }),
       };
     }
     case "tool_result":
@@ -956,13 +1009,14 @@ function encodeResponseFormat(format: ResponseFormat): JsonObject {
     case "json_object":
       return { type: "json_object" };
     case "json_schema":
+      assertSourceMatches(format.schema);
       return {
         type: "json_schema",
-        name: format.name,
+        ...(format.name === undefined ? {} : { name: format.name }),
         ...(format.description === undefined
           ? {}
           : { description: format.description }),
-        schema: { ...format.schema },
+        schema: format.schema,
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
   }
@@ -979,7 +1033,9 @@ function decodeResponseFormat(value: JsonValue): ResponseFormat {
     case "json_schema":
       return {
         type: "json_schema",
-        name: nonEmptyString(rf.name, "params.response_format.name"),
+        ...(rf.name === undefined
+          ? {}
+          : { name: nonEmptyString(rf.name, "params.response_format.name") }),
         ...(rf.description === undefined
           ? {}
           : {

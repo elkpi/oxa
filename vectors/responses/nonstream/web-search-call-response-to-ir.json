@@ -1,0 +1,32 @@
+{
+  "name": "responses.nonstream.web-search-call-response-to-ir",
+  "description": "A response web_search_call is preserved and does not force a tool_use stop reason (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {
+    "id": "resp_ws",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-5",
+    "output": [
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}},
+      {"type": "message", "id": "msg_1", "status": "completed", "role": "assistant", "content": [{"type": "output_text", "text": "Done", "annotations": []}]}
+    ],
+    "usage": {"input_tokens": 3, "output_tokens": 4, "total_tokens": 7}
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_ws",
+    "model": "gpt-5",
+    "content": [
+      {"type": "text", "text": "Done"},
+      {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}}
+    ],
+    "stop_reason": "end_turn",
+    "usage": {"input_tokens": 3, "output_tokens": 4}
+  },
+  "expected_losses": [],
+  "tags": ["response", "web-search", "n-r-16"]
+}

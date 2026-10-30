@@ -67,6 +67,8 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts = {});
+StatusOr<Conversion<std::string>> encode_request_json(const ir::Request& req,
+                                                     const Options& opts = {});
 
 StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire,
                                                   const Options& opts = {});

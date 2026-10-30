@@ -124,11 +124,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.Params.ReasoningEffort != "" {
 		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
 	}
-	if req.Params.ResponseFormat != nil {
-		if out.Text == nil {
-			out.Text = &TextParams{}
+	if rf := req.Params.ResponseFormat; rf != nil {
+		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
+			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "name", Reason: ir.LossUnsupportedSemantic, Detail: "Responses requires a non-empty schema name"})
+		} else {
+			if out.Text == nil {
+				out.Text = &TextParams{}
+			}
+			out.Text.Format = encodeTextFormat(rf)
 		}
-		out.Text.Format = encodeTextFormat(req.Params.ResponseFormat)
 	}
 	for _, n := range req.Native {
 		if n.Source == ir.NativeSourceOpenAI && n.Kind == ir.NativeKindStore {
@@ -376,6 +380,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			calls = append(calls, InputItem{
 				Type: ItemTypeFunctionCall, CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
+		case ir.WebSearchCallBlock:
+			item, err := encodeWebSearchCall(value, fmt.Sprintf("%s[%d]", path, i))
+			if err != nil {
+				return nil, err
+			}
+			calls = append(calls, item)
 		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
@@ -491,6 +501,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 				Type: ItemTypeFunctionCall, ID: "fc_abc123", Status: StatusCompleted,
 				CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
+		case ir.WebSearchCallBlock:
+			item, err := encodeWebSearchCall(value, fmt.Sprintf("content[%d]", i))
+			if err != nil {
+				return nil, nil, err
+			}
+			output = append(output, OutputItem{Type: item.Type, ID: item.ID, Status: item.Status, Action: item.Action, Extra: item.Extra})
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "content", ir.LossUnsupportedSemantic,

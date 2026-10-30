@@ -394,7 +394,7 @@ to `thinking.signature` / `signature_delta.signature`。自 2.2 起，同样的�
 适用于 `custom_tool_use.input` 和 `custom_tool_input_delta.text`；这两个字段的内容
 是任意文本，不要求为 JSON，也不得尝试按 JSON 解析。
 
-**INV-2 — First message.** In a `Request`, `messages[0].role` MUST be `user`, except that an initial `assistant` message containing a `web_search_call` block is permitted to preserve a Responses history that starts with a server-side search. This exception does not permit other assistant-first requests.
+**INV-2 — First message.** In a `Request`, `messages[0].role` MUST be `user`, except that an initial `assistant` message containing a `web_search_call` block is permitted to preserve a Responses history that starts with a server-side search. This exception does not permit other assistant-first requests. This is a rule revision effective in 2.4.13 (not a clarification): strict INV-2 validators outside this repository MUST adopt the same exception, or they will reject Responses history that 2.4.13 decoders legitimately produce. The IR contract version stays `0.2.0`: this rule is sequence-level (INV-2 lies beyond JSON Schema per INV-9), so the document shapes are unchanged.
 
 **INV-3 — Tool use is answered.** For every assistant message containing
 one or more `ToolUseBlock`s, the immediately following message MUST exist,

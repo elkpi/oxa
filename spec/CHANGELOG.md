@@ -5,12 +5,13 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
-## 2.4.13 — 未发布
+## 2.4.13 - 2026-10-30
 
 - 更新 N-AN-12，映射 Anthropic `output_config.format` JSON Schema 并保留 schema 原文；未知类型与嵌套字段按规范报损。
 - 通用 IR 的 JSON Schema 名称可选；OpenAI 编码要求名称，缺失时省略格式并记录损失，不合成名称。Anthropic 对无法承载的 OpenAI 外层字段分别报损。
 - 明确原文 sidecar、过期数据校验和保真 JSON 文本接口的要求；IR contract 保持 `0.2.0`。
 - 新增 `WebSearchCallBlock`，非流式映射 Responses `web_search_call` 历史项（N-R-16）。其他协议编码时省略并报 `unsupported-semantic`；流式仍整项报损。穷尽匹配内容块的消费者必须处理新变体。IR contract 保持 `0.2.0`。
+- INV-2 为规则修订（2.4.13 起）：仅允许包含 `web_search_call` 的 assistant 首个消息保留以服务端搜索开头的 Responses 历史。该规则位于 JSON Schema 之外的序列层，文档形状不变，contract 仍为 `0.2.0`；严格校验 INV-2 的下游消费者须同步接受该例外。
 
 ## 2.4.12 - 2026-10-27
 

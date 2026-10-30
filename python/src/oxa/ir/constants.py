@@ -22,6 +22,7 @@ BLOCK_TYPE_CUSTOM_TOOL_USE: Final = "custom_tool_use"
 BLOCK_TYPE_CUSTOM_TOOL_RESULT: Final = "custom_tool_result"
 BLOCK_TYPE_APPLY_PATCH_TOOL_USE: Final = "apply_patch_tool_use"
 BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT: Final = "apply_patch_tool_result"
+BLOCK_TYPE_WEB_SEARCH_CALL: Final = "web_search_call"
 TOOL_TYPE_APPLY_PATCH: Final = "apply_patch"
 TOOL_TYPE_FUNCTION: Final = "function"
 TOOL_TYPE_CUSTOM: Final = "custom"
@@ -37,6 +38,7 @@ BlockType = Literal[
     "custom_tool_result",
     "apply_patch_tool_use",
     "apply_patch_tool_result",
+    "web_search_call",
 ]
 
 # Tool choice modes (spec/01 §3.6)

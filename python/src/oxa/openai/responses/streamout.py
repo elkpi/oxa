@@ -34,6 +34,7 @@ from oxa.ir import (
     ThinkingDelta,
     CitationDelta,
     ToolUseBlock,
+    WebSearchCallBlock,
 )
 from oxa.modelmap import Table
 from oxa.openai.responses.constants import (
@@ -208,6 +209,16 @@ class StreamEncoder:
                 return self._start_function_call_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
             if isinstance(ev.block, CustomToolUseBlock):
                 return self._start_custom_tool_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
+            if isinstance(ev.block, WebSearchCallBlock):
+                self._active_block = _StreamEncodeBlock(index=ev.index, kind="redacted", content_index=0)
+                return [], [
+                    loss(
+                        f"events[{ordinal}].block",
+                        "type",
+                        "unsupported-semantic",
+                        "Responses streaming profile does not encode web_search_call",
+                    )
+                ]
             raise ValueError("responses: ContentBlockStart carries unsupported block")
 
         if isinstance(ev, ContentBlockDelta):

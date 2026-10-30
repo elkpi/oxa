@@ -71,6 +71,7 @@ from oxa.ir import (
     RedactedThinkingBlock,
     ToolResultBlock,
     ToolUseBlock,
+    WebSearchCallBlock,
 )
 from oxa.ir import (
     ROLE_USER as IR_ROLE_USER,
@@ -423,6 +424,8 @@ def encode_request_block(
         if not mapped:
             return None, losses, False
 
+    elif isinstance(block, WebSearchCallBlock):
+        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent")], False
     elif isinstance(block, (ApplyPatchToolUseBlock, ApplyPatchToolResultBlock)):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no Anthropic mapping")], False
 

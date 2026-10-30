@@ -17,6 +17,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_RESULT,
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+    BLOCK_TYPE_WEB_SEARCH_CALL,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
@@ -252,6 +253,15 @@ class ApplyPatchToolResultBlock:
             object.__setattr__(self, "native", _normalize_native(self.native))
 
 
+@dataclass(frozen=True, slots=True)
+class WebSearchCallBlock:
+    id: str
+    status: str
+    action: dict[str, Any]
+    extra: dict[str, Any] = field(default_factory=dict)
+    type: str = field(default=BLOCK_TYPE_WEB_SEARCH_CALL, init=False)
+
+
 Block = (
     TextBlock
     | ThinkingBlock
@@ -264,6 +274,7 @@ Block = (
     | CustomToolResultBlock
     | ApplyPatchToolUseBlock
     | ApplyPatchToolResultBlock
+    | WebSearchCallBlock
 )
 SystemBlock = TextBlock
 

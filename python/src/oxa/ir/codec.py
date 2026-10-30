@@ -10,6 +10,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
+    BLOCK_TYPE_WEB_SEARCH_CALL,
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
@@ -47,6 +48,7 @@ from oxa.ir.types import (
     ApplyPatchOperation,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
+    WebSearchCallBlock,
     ApplyPatchUpdateFileOperation,
     Block,
     ContentBlockDelta,
@@ -296,6 +298,31 @@ def validate_citation_value(val: str) -> None:
         raise CodecError(f"ir: unknown citation type {cite_type!r}")
 
 
+def _validate_web_search(identifier: str, status: str, action: object) -> None:
+    from oxa.ir.web_search import inspect_web_search
+
+    try:
+        inspect_web_search(identifier, status, action)
+    except ValueError as exc:
+        raise CodecError(str(exc)) from exc
+
+
+def load_web_search_block(data: dict[str, Any]) -> WebSearchCallBlock:
+    identifier = data.get("id")
+    status = data.get("status")
+    action = data.get("action")
+    if not isinstance(identifier, str) or not isinstance(status, str):
+        raise CodecError("web_search_call requires non-empty id and status")
+    _validate_web_search(identifier, status, action)
+    from oxa.ir.web_search import validate_web_search_extra
+    extra = data.get("extra", {})
+    try:
+        validate_web_search_extra(extra)
+    except ValueError as exc:
+        raise CodecError(str(exc)) from exc
+    return WebSearchCallBlock(id=identifier, status=status, action=dict(action), extra=dict(extra))
+
+
 def dump_block(block: Block) -> dict[str, Any]:
     if getattr(block, "native", ()):
         raise CodecError("native is only permitted on request blocks")
@@ -391,6 +418,17 @@ def dump_block(block: Block) -> dict[str, Any]:
         if block.output is not None:
             res["output"] = block.output
         return res
+    if isinstance(block, WebSearchCallBlock):
+        _validate_web_search(block.id, block.status, block.action)
+        from oxa.ir.web_search import validate_web_search_extra
+        validate_web_search_extra(block.extra)
+        return {
+            "type": BLOCK_TYPE_WEB_SEARCH_CALL,
+            "id": block.id,
+            "status": block.status,
+            "action": block.action,
+            **({"extra": block.extra} if block.extra else {}),
+        }
     raise CodecError(f"unknown block type: {type(block)}")
 
 
@@ -505,6 +543,17 @@ def dump_request_block(block: Block) -> dict[str, Any]:
         }
         if block.output is not None:
             out["output"] = block.output
+    elif isinstance(block, WebSearchCallBlock):
+        _validate_web_search(block.id, block.status, block.action)
+        from oxa.ir.web_search import validate_web_search_extra
+        validate_web_search_extra(block.extra)
+        out = {
+            "type": BLOCK_TYPE_WEB_SEARCH_CALL,
+            "id": block.id,
+            "status": block.status,
+            "action": block.action,
+            **({"extra": block.extra} if block.extra else {}),
+        }
     else:
         raise CodecError(f"unknown block type: {type(block)}")
 
@@ -643,6 +692,8 @@ def load_block(data: dict[str, Any]) -> Block:
             status=load_apply_patch_result_status(data.get("status")),
             output=output,
         )
+    if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
+        return load_web_search_block(data)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -742,6 +793,8 @@ def load_request_block(data: dict[str, Any]) -> Block:
             output=output,
             native=native,
         )
+    if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
+        return load_web_search_block(data)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 

@@ -192,7 +192,7 @@ def decode_request(
                     index = next_idx
                 else:
                     raise ValueError(f"responses: input[{index}]: unknown role {role!r}")
-            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING):
+            elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING, "web_search_call"):
                 msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
                 if msg is not None:
                     req.messages.append(msg)
@@ -524,6 +524,12 @@ def decode_response(
             else:
                 raise ValueError(f"responses: output[{item_index}].output must be a string or array")
             has_tool_use = True
+        elif kind == "web_search_call":
+            from oxa.openai.responses.web_search import decode_web_search_item
+
+            block, call_losses = decode_web_search_item(item, f"output[{item_index}]")
+            losses.extend(call_losses)
+            calls.append(block)
         else:
             losses.append(
                 loss(

@@ -20,6 +20,7 @@ ITEM_TYPE_FUNCTION_CALL_OUTPUT: Final = "function_call_output"
 ITEM_TYPE_CUSTOM_TOOL_CALL: Final = "custom_tool_call"
 ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT: Final = "custom_tool_call_output"
 ITEM_TYPE_REASONING: Final = "reasoning"
+ITEM_TYPE_WEB_SEARCH_CALL: Final = "web_search_call"
 
 PART_TYPE_INPUT_TEXT: Final = "input_text"
 PART_TYPE_OUTPUT_TEXT: Final = "output_text"
@@ -71,6 +72,7 @@ __all__ = [
     "ITEM_TYPE_CUSTOM_TOOL_CALL",
     "ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT",
     "ITEM_TYPE_REASONING",
+    "ITEM_TYPE_WEB_SEARCH_CALL",
     "PART_TYPE_INPUT_TEXT",
     "PART_TYPE_OUTPUT_TEXT",
     "PART_TYPE_INPUT_IMAGE",

@@ -32,6 +32,7 @@ from oxa.ir import (
     ThinkingBlock,
     RedactedThinkingBlock,
     ToolUseBlock,
+    WebSearchCallBlock,
 )
 from oxa.ir.native import omitted_native_request_losses
 from oxa.ir import (
@@ -463,6 +464,17 @@ def encode_response(
                 item["output"] = block.output
             calls.append(item)
             apco_index += 1
+        elif isinstance(block, WebSearchCallBlock):
+            from oxa.ir.web_search import inspect_web_search, validate_web_search_extra
+            inspect_web_search(block.id, block.status, block.action)
+            validate_web_search_extra(block.extra)
+            calls.append({
+                **block.extra,
+                "type": "web_search_call",
+                "id": block.id,
+                "status": block.status,
+                "action": block.action,
+            })
         elif isinstance(block, ToolUseBlock):
             dot_idx = block.name.find(".")
             call_dict = {"type": ITEM_TYPE_FUNCTION_CALL, "id": "fc_abc123", "status": STATUS_COMPLETED, "call_id": block.id, "arguments": block.input}

@@ -8,7 +8,7 @@
   "input": {
     "model": "gpt-4o-mini",
     "input": [
-      { "type": "web_search_call", "id": "ws_1" },
+      { "type": "future_item", "id": "item_1" },
       { "role": "user", "content": "Hi" }
     ]
   },
@@ -24,7 +24,7 @@
       "path": "input[0]",
       "field": "type",
       "reason": "unsupported-semantic",
-      "detail": "Responses input item type \"web_search_call\" has no IR equivalent"
+      "detail": "Responses input item type \"future_item\" has no IR equivalent"
     }
   ],
   "tags": ["loss", "request", "N-R-8"]

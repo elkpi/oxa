@@ -1,0 +1,28 @@
+{
+  "name": "responses.stream.web-search-call-item-loss",
+  "description": "The streaming profile reports one unsupported-semantic loss for a web_search_call item and emits no content block (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {
+    "events": [
+      {"type": "response.created", "response": {"id": "resp_ws", "object": "response", "status": "in_progress", "model": "gpt-5", "output": []}},
+      {"type": "response.output_item.added", "output_index": 0, "item": {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}}},
+      {"type": "response.output_item.done", "output_index": 0, "item": {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}}},
+      {"type": "response.completed", "response": {"id": "resp_ws", "object": "response", "status": "completed", "model": "gpt-5", "output": [{"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}}], "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4}}}
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      {"type": "message_start", "id": "resp_ws", "model": "gpt-5"},
+      {"type": "message_delta", "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 2}},
+      {"type": "message_done"}
+    ]
+  },
+  "expected_losses": [
+    {"path": "output[0]", "field": "type", "reason": "unsupported-semantic"}
+  ],
+  "tags": ["stream", "web-search", "loss", "n-r-16"]
+}

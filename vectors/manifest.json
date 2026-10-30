@@ -2719,6 +2719,18 @@
       "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-web-search-call-request",
+      "file": "cross/nonstream/responses-to-anthropic-web-search-call-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "58a6605c2cbebe739d930c8100be8d145dda711b64cfbccbd9489ffcb525371c"
+    },
+    {
       "name": "cross.nonstream.responses-to-chatcompletions-custom-tool",
       "file": "cross/nonstream/responses-to-chatcompletions-custom-tool.json",
       "tags": [
@@ -2774,6 +2786,30 @@
         "N-R-15"
       ],
       "sha256": "42261c71c83710a24e3631b1f6cd26e4fc716ac61fdd2c0af335b28924282bf1"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-web-search-call-request",
+      "file": "cross/nonstream/responses-to-chatcompletions-web-search-call-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "8667d3850f137a024e63849b71df19bc2f093c8bb540e5e08929587cef538a82"
+    },
+    {
+      "name": "cross.nonstream.responses-to-responses-web-search-extra-request",
+      "file": "cross/nonstream/responses-to-responses-web-search-extra-request.json",
+      "tags": [
+        "cross",
+        "request",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "b8a873fa9b18ee05df2834727c7e17b86ff2f0ec3f8858a398dc6ca070987af0"
     },
     {
       "name": "responses.nonstream.annotations-loss-response-to-ir",
@@ -4495,7 +4531,7 @@
         "request",
         "N-R-8"
       ],
-      "sha256": "0dded2041ae11fb991c1abd31e51d41c32c75ca99dcc6daaa853844090040bd4"
+      "sha256": "7adf962efff383a306939cf40c543bd600c89aa2c5f990d5c87f0eb407d3bb97"
     },
     {
       "name": "responses.nonstream.unknown-reasoning-field-to-ir",
@@ -4560,6 +4596,98 @@
         "N-R-12"
       ],
       "sha256": "e1f64d0b56b95cd57e3ae44c14836ec7973f8812bdb3e865f5bdb6bbae62d772"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-actions-request-to-ir",
+      "file": "responses/nonstream/web-search-call-actions-request-to-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "e72ed9f2970e30c0605bf42df32b2f72fdcd20c60808e1fbaf2417c4ce8f1ead"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-extra-response-to-ir",
+      "file": "responses/nonstream/web-search-call-extra-response-to-ir.json",
+      "tags": [
+        "response",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "5f94908be6b23b8aac89f736de24d1015d6ec533a72a2219e3fb24743b512eef"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-open-page-null-request-to-ir",
+      "file": "responses/nonstream/web-search-call-open-page-null-request-to-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "9dbb802c4762b6a5b2bd693b7b8b6e8040078982d85464a2bcbe57a8e487d60d"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-request-from-ir",
+      "file": "responses/nonstream/web-search-call-request-from-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "057f52e39fcaf8f8b12e342813e40247e3816826db015c7daa2621fe897f20e9"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-request-to-ir",
+      "file": "responses/nonstream/web-search-call-request-to-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "c404d7b6b91b3c34fa14309bc9a7e50d797536413fde0c4a399aea97a1b7fa20"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-response-from-ir",
+      "file": "responses/nonstream/web-search-call-response-from-ir.json",
+      "tags": [
+        "response",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "c69c2ebc4b4879c9f0b18ab27547cb4f3725797d7ee4c6524fd9512b0afe4247"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-response-to-ir",
+      "file": "responses/nonstream/web-search-call-response-to-ir.json",
+      "tags": [
+        "response",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "67d4ada233f59d69f26143576675805ed9ddd2921ade1b2069cbaba37479a919"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-search-sources-request-to-ir",
+      "file": "responses/nonstream/web-search-call-search-sources-request-to-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "n-r-16"
+      ],
+      "sha256": "51687637da109464568457ecb6670694aed6a5192e65ea54d9beb11a78028067"
+    },
+    {
+      "name": "responses.nonstream.web-search-call-unknown-field-request-to-ir",
+      "file": "responses/nonstream/web-search-call-unknown-field-request-to-ir.json",
+      "tags": [
+        "request",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "49483210ffdbad7932945afd12f9f60a8e6febe1dfd6438047dee9a0b16f57a4"
     },
     {
       "name": "responses.stream.apply-patch-call-create-file-from-ir",
@@ -4867,6 +4995,17 @@
         "n-s-1"
       ],
       "sha256": "5ee32f3073bb9fd475df77d03c414cc9a66c1e076bd34e89ee14c1016a5cb4b0"
+    },
+    {
+      "name": "responses.stream.web-search-call-item-loss",
+      "file": "responses/stream/web-search-call-item-loss.json",
+      "tags": [
+        "stream",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "e46a022b34b0d3bf1c4920d2c6551f579ae48f967be24dee16175395ab26cc97"
     }
   ]
 }

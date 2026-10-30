@@ -1,0 +1,12 @@
+{
+  "name": "responses.nonstream.web-search-call-open-page-null-request-to-ir",
+  "description": "The official open_page action accepts and preserves a null url.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {"model": "m", "input": [{"role": "user", "content": "hi"}, {"type": "web_search_call", "id": "ws", "status": "completed", "action": {"type": "open_page", "url": null}}]},
+  "expected_ir": {"specVersion": "0.2.0", "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}, {"role": "assistant", "content": [{"type": "web_search_call", "id": "ws", "status": "completed", "action": {"type": "open_page", "url": null}}]}]},
+  "expected_losses": [],
+  "tags": ["request", "web-search", "n-r-16"]
+}

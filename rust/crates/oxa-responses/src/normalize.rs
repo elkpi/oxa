@@ -71,7 +71,7 @@ pub(crate) fn decode_content(
 
 fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Block>, Vec<Loss>) {
     match part.kind.as_str() {
-        PART_TYPE_INPUT_TEXT => (
+        PART_TYPE_INPUT_TEXT | PART_TYPE_OUTPUT_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
                 citations: None,

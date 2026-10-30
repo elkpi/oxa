@@ -101,6 +101,9 @@ func hasNative(b Block) bool {
 
 // MarshalBlock renders one block in its canonical type-discriminated form.
 func MarshalBlock(b Block) (json.RawMessage, error) {
+	if value, ok := b.(WebSearchCallBlock); ok {
+		return marshalWebSearchCall(value)
+	}
 	if hasNative(b) {
 		return nil, fmt.Errorf("ir: native annotations are forbidden in response and event content blocks (spec/15)")
 	}
@@ -196,6 +199,8 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return nil, err
 	}
 	switch head.Type {
+	case BlockTypeWebSearchCall:
+		return unmarshalWebSearchCall(data)
 	case BlockTypeApplyPatchToolUse, BlockTypeApplyPatchToolResult:
 		return unmarshalApplyPatchBlock(data, head.Type)
 	case BlockTypeCustomToolUse:
@@ -286,6 +291,9 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError,
 		}, nil
 	default:
+		if head.Type == BlockTypeWebSearchCall {
+			return unmarshalWebSearchCall(data)
+		}
 		return nil, fmt.Errorf("ir: unknown block type %q", head.Type)
 	}
 }
@@ -340,6 +348,8 @@ func marshalRequestApplyPatchResult(b ApplyPatchToolResultBlock) (json.RawMessag
 
 func marshalRequestBlock(b Block) (json.RawMessage, error) {
 	switch v := b.(type) {
+	case WebSearchCallBlock:
+		return marshalWebSearchCall(v)
 	case ApplyPatchToolUseBlock:
 		return marshalRequestApplyPatchUse(v)
 	case ApplyPatchToolResultBlock:
@@ -634,6 +644,9 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError, Native: w.Native,
 		}, nil
 	default:
+		if head.Type == BlockTypeWebSearchCall {
+			return unmarshalWebSearchCall(data)
+		}
 		return nil, fmt.Errorf("ir: unknown block type %q", head.Type)
 	}
 }

@@ -525,7 +525,7 @@ func TestUnknownInputItemAndVerbosityLosses(t *testing.T) {
 	wire := &Request{
 		Model: "gpt-4o-mini",
 		Input: Input{Items: []InputItem{
-			{Type: "web_search_call"},
+			{Type: "future_item"},
 			{Role: "user", Content: "Hi"},
 		}},
 		Text: &TextParams{Verbosity: ptr("low"), Format: map[string]any{"type": "unknown_format"}},

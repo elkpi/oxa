@@ -315,6 +315,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "call_id", "output"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "summary"}, nil, seen)
+			case ItemTypeWebSearchCall:
+				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			case ItemTypeAdditionalTools:
 				return rawObjectSchema(t, []string{"type", "role", "tools"}, map[string]*rawJSONSchema{
 					"tools": {items: schemaForRawTypeSeen(reflect.TypeOf(ToolDef{}), seen)},
@@ -396,6 +398,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "namespace", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
 				return rawObjectSchema(t, []string{"type", "id", "status", "summary"}, nil, seen)
+			case ItemTypeWebSearchCall:
+				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			default:
 				return nil
 			}
@@ -732,6 +736,9 @@ func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byt
 		return raw[node.start:node.end]
 	}
 	if schema.variant != nil {
+		if kind, ok := rawJSONStringField(node, "type"); ok && kind == ItemTypeWebSearchCall {
+			return raw[node.start:node.end]
+		}
 		v := schema.variant(node)
 		if v == nil {
 			var buf []byte

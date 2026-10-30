@@ -454,6 +454,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 					Input: inputStr,
 				},
 			})
+		case ir.WebSearchCallBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"Responses web_search_call has no Chat Completions equivalent",
+			))
 		case ir.ApplyPatchToolUseBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,

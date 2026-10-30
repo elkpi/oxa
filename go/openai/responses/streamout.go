@@ -147,6 +147,11 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		case ir.ToolUseBlock:
 			out, losses, err = e.startFunctionCallBlock(event.Index, block)
 		default:
+			if _, ok := event.Block.(ir.WebSearchCallBlock); ok {
+				e.activeBlock = &streamEncodeBlock{index: event.Index, kind: streamRedactedBlock}
+				e.nextBlockIndex++
+				return nil, []ir.Loss{loss(fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic, "Responses streaming profile does not encode web_search_call")}, nil
+			}
 			return nil, nil, fmt.Errorf("responses: ContentBlockStart carries unsupported block %T", block)
 		}
 		if err != nil {

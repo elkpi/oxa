@@ -380,6 +380,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			calls = append(calls, InputItem{
 				Type: ItemTypeFunctionCall, CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
+		case ir.WebSearchCallBlock:
+			item, err := encodeWebSearchCall(value, fmt.Sprintf("%s[%d]", path, i))
+			if err != nil {
+				return nil, err
+			}
+			calls = append(calls, item)
 		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
@@ -495,6 +501,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 				Type: ItemTypeFunctionCall, ID: "fc_abc123", Status: StatusCompleted,
 				CallID: value.ID, Name: nm, Namespace: ns, Arguments: arguments,
 			})
+		case ir.WebSearchCallBlock:
+			item, err := encodeWebSearchCall(value, fmt.Sprintf("content[%d]", i))
+			if err != nil {
+				return nil, nil, err
+			}
+			output = append(output, OutputItem{Type: item.Type, ID: item.ID, Status: item.Status, Action: item.Action, Extra: item.Extra})
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "content", ir.LossUnsupportedSemantic,

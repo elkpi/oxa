@@ -170,7 +170,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     | ITEM_TYPE_CUSTOM_TOOL_CALL
                     | crate::types::ITEM_TYPE_APPLY_PATCH_CALL
                     | ITEM_TYPE_REASONING
-                    | "web_search_call" => {
+                    | crate::types::ITEM_TYPE_WEB_SEARCH_CALL => {
                         let (message, next, run_losses) =
                             decode_assistant_run(items, index, &decoded_calls, &dropped)?;
                         if let Some(message) = message {

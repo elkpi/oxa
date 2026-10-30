@@ -39,7 +39,19 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 150);
+    CHECK(rep_res->executed == 159);
+
+    const char* invalid_actions[] = {
+        R"(null)", R"({})", R"({"type":"future"})",
+        R"({"type":"find_in_page","url":"https://example.com"})",
+        R"({"type":"find_in_page","url":null,"pattern":"q"})",
+        R"({"type":"search","query":null})",
+        R"({"type":"search","sources":[{"type":"url"}]})",
+    };
+    for (const auto* action : invalid_actions) {
+        const auto input = std::string(R"({"model":"m","input":[{"type":"web_search_call","id":"ws","status":"completed","action":)") + action + R"(},{"role":"user","content":"continue"}]})";
+        CHECK(!oxa::openai::responses::decode_request(input).ok());
+    }
 
     auto wire = oxa::json::parse(R"({
         "model":"gpt-4o",

@@ -14,6 +14,7 @@
 #include <string>
 #include <string_view>
 #include <variant>
+#include <type_traits>
 #include <vector>
 
 #include "oxa/json.hpp"
@@ -297,10 +298,17 @@ struct ApplyPatchToolResultBlock {
         : tool_use_id(std::move(tid)), status(std::move(st)), output(std::move(out)), native(std::move(nat)) {}
 };
 
+struct WebSearchCallBlock {
+    std::string id;
+    std::string status;
+    json::Value action;
+    json::Value extra = json::Value::object();
+};
+
 using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, ImageBlock, DocumentBlock,
                            ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
-                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock>;
+                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock>;
 
 struct BlockHolder {
     Block block;
@@ -489,6 +497,7 @@ Status validate_native_request(const Request& req);
 Status validate_tool_strict(const Request& req);
 StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, std::string_view target);
 Status validate_citation_value(std::string_view val);
+StatusOr<std::vector<Loss>> inspect_web_search_call(const WebSearchCallBlock& block, std::string_view path);
 
 json::Value dump_request(const Request& r);
 // Checks typed strict/native constraints and validates the serialized request with load_request.

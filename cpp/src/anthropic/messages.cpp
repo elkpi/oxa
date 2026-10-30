@@ -473,7 +473,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
             if (is_request) {
                 if (canon.has_value() && !blocks.empty()) {
                     std::visit([&](auto& blk) {
-                        blk.native.push_back(ir::NativeAnnotation{
+                        if constexpr (!std::is_same_v<std::decay_t<decltype(blk)>, ir::WebSearchCallBlock>) blk.native.push_back(ir::NativeAnnotation{
                             std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                             std::string(ir::NATIVE_KIND_CACHE_CONTROL),
                             std::move(*canon),
@@ -1131,6 +1131,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
+                } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
                 } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("redacted_thinking"));
@@ -1572,6 +1574,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             bw.set("input", std::move(inp));
             content_arr.push_back(std::move(bw));
             retained_tool_use = true;
+        } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
         } else if (std::holds_alternative<ir::ApplyPatchToolUseBlock>(b) || std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tools have no equivalent in Anthropic Messages"));
@@ -2059,6 +2063,14 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             cb.set("input", json::Value::object());
             chunk.set("content_block", std::move(cb));
             chunks.push_back(std::move(chunk));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
+            skipped_atomic_ = true;
+            skipped_custom_ = false;
+            open_tool_ = false;
+            open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {

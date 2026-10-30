@@ -26,6 +26,7 @@ pub const ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT: &str = "custom_tool_call_output";
 pub const ITEM_TYPE_APPLY_PATCH_CALL: &str = "apply_patch_call";
 pub const ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT: &str = "apply_patch_call_output";
 pub const ITEM_TYPE_REASONING: &str = "reasoning";
+pub const ITEM_TYPE_WEB_SEARCH_CALL: &str = "web_search_call";
 
 pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
 pub const PART_TYPE_OUTPUT_TEXT: &str = "output_text";
@@ -183,6 +184,10 @@ pub struct InputItem {
     pub operation: Option<ApplyPatchOperationWire>,
     #[serde(rename = "tools", default, skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<Value>>,
+    #[serde(rename = "action", default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<Value>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, Value>,
 }
 
 /// Responses message content, either text shorthand or a part array.
@@ -382,6 +387,10 @@ pub struct OutputItem {
     pub output: Option<OutputValue>,
     #[serde(rename = "operation", default, skip_serializing_if = "Option::is_none")]
     pub operation: Option<ApplyPatchOperationWire>,
+    #[serde(rename = "action", default, skip_serializing_if = "Option::is_none")]
+    pub action: Option<Value>,
+    #[serde(flatten, default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub extra: BTreeMap<String, Value>,
 }
 
 /// A custom-tool output string or ordered input-content list.

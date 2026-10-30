@@ -15,6 +15,8 @@ mod native;
 mod raw_schema;
 mod request;
 mod response;
+mod web_search;
+pub use web_search::{inspect_web_search_call, validate_web_search_extra};
 
 pub use checker::{Violation, validate_event_stream, validate_event_stream_for_encoder};
 pub use codec::{Error, SPEC_VERSION, from_json, to_json};

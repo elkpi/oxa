@@ -64,6 +64,9 @@ fn check_no_native(val: &Value) -> Result<(), Error> {
                 "ir: native annotations are forbidden in response and event content blocks (spec/15)".into(),
             ));
         }
+        if map.get("type").and_then(Value::as_str) == Some("web_search_call") {
+            return Ok(());
+        }
         for v in map.values() {
             check_no_native(v)?;
         }
@@ -370,6 +373,9 @@ fn validate_citation_value(val_str: &str) -> Result<(), Error> {
 
 fn check_citations(val: &Value) -> Result<(), Error> {
     if let Value::Object(map) = val {
+        if map.get("type").and_then(Value::as_str) == Some("web_search_call") {
+            return Ok(());
+        }
         if let Some(Value::Array(cites)) = map.get("citations") {
             for c in cites {
                 if let Some(src) = c.get("source").and_then(Value::as_str)
@@ -419,6 +425,7 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
     }
     check_no_document(&document)?;
     check_citations(&document)?;
+    crate::web_search::check_web_search_blocks(&document)?;
     let object = document.as_object_mut().ok_or(Error::MissingSpecVersion)?;
     object.insert(
         "specVersion".to_string(),
@@ -436,6 +443,7 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     }
     check_no_document(&document)?;
     check_citations(&document)?;
+    crate::web_search::check_web_search_blocks(&document)?;
     if let Some(format) = document
         .get("params")
         .and_then(|p| p.get("response_format"))

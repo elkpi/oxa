@@ -5,7 +5,7 @@ with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 425
+oxa implementation — Rust gets no vector set of its own, and CI runs all 438
 shared vectors against it, including structured outputs, Custom Tools, Apply Patch,
 native request options, Responses reasoning-summary fidelity, and Anthropic native tool declarations.
 

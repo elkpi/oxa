@@ -97,7 +97,9 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                             signature_seen: false,
                         },
                     ),
-                    Block::RedactedThinking { .. } => (*index, OpenBlock::Atomic),
+                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
+                        (*index, OpenBlock::Atomic)
+                    }
                     Block::ToolUse { input, .. } => (
                         *index,
                         OpenBlock::Tool(OpenTool {
@@ -310,6 +312,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::ApplyPatchToolUse { .. } => "apply_patch_tool_use",
         Block::ApplyPatchToolResult { .. } => "apply_patch_tool_result",
         Block::ToolResult { .. } => "tool_result",
+        Block::WebSearchCall { .. } => "web_search_call",
     }
 }
 

@@ -29,6 +29,22 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     for (message_index, message) in req.messages.iter().enumerate() {
         for (block_index, block) in message.content.iter().enumerate() {
             match block {
+                Block::WebSearchCall {
+                    id,
+                    status,
+                    action,
+                    extra,
+                } => {
+                    oxa_ir::validate_web_search_extra(extra)
+                        .map_err(|error| Error::new(error.to_string()))?;
+                    oxa_ir::inspect_web_search_call(
+                        id,
+                        status,
+                        action,
+                        &format!("messages[{message_index}].content[{block_index}]"),
+                    )
+                    .map_err(|error| Error::new(error.to_string()))?;
+                }
                 Block::CustomToolUse { id, name, .. } if id.is_empty() || name.is_empty() => {
                     return Err(Error::new(format!(
                         "responses: messages[{message_index}].content[{block_index}] custom_tool_use requires id and name"
@@ -302,6 +318,25 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         "Responses reasoning output items carry no provider signature",
                     ));
                 }
+            }
+            Block::WebSearchCall {
+                id,
+                status,
+                action,
+                extra,
+            } => {
+                oxa_ir::validate_web_search_extra(extra)
+                    .map_err(|error| Error::new(error.to_string()))?;
+                oxa_ir::inspect_web_search_call(id, status, action, &format!("content[{index}]"))
+                    .map_err(|error| Error::new(error.to_string()))?;
+                calls.push(OutputItem {
+                    kind: "web_search_call".into(),
+                    id: id.clone(),
+                    status: status.clone(),
+                    action: Some(action.clone()),
+                    extra: extra.clone(),
+                    ..OutputItem::default()
+                });
             }
             Block::ApplyPatchToolUse {
                 id,

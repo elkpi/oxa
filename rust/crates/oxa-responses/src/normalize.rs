@@ -327,7 +327,8 @@ pub(crate) fn precheck_apply_patch_pairs(
             || item.kind == ITEM_TYPE_FUNCTION_CALL
             || item.kind == ITEM_TYPE_CUSTOM_TOOL_CALL
             || item.kind == "apply_patch_call"
-            || item.kind == ITEM_TYPE_REASONING;
+            || item.kind == ITEM_TYPE_REASONING
+            || item.kind == "web_search_call";
 
         if !is_assistant {
             i += 1;
@@ -343,7 +344,7 @@ pub(crate) fn precheck_apply_patch_pairs(
                 ITEM_TYPE_FUNCTION_CALL => "function",
                 ITEM_TYPE_CUSTOM_TOOL_CALL => "custom",
                 "apply_patch_call" => "apply_patch",
-                ITEM_TYPE_REASONING => "",
+                ITEM_TYPE_REASONING | "web_search_call" => "",
                 "" | ITEM_TYPE_MESSAGE if it.role == ROLE_ASSISTANT => "",
                 _ => break,
             };
@@ -525,6 +526,26 @@ pub(crate) fn decode_assistant_run(
             return Err(Error::new(format!(
                 "responses: input[{index}]: unpaired apply_patch_call (INV-3)"
             )));
+        }
+        if item.kind == "web_search_call" {
+            let action = item.action.as_ref().unwrap_or(&Value::Null);
+            losses.extend(
+                oxa_ir::inspect_web_search_call(
+                    &item.id,
+                    &item.status,
+                    action,
+                    &format!("input[{index}]"),
+                )
+                .map_err(|error| Error::new(error.to_string()))?,
+            );
+            calls.push(Block::WebSearchCall {
+                id: item.id.clone(),
+                status: item.status.clone(),
+                action: action.clone(),
+                extra: item.extra.clone(),
+            });
+            index += 1;
+            continue;
         }
         if item.kind == ITEM_TYPE_REASONING {
             for (part_index, part) in item.summary.iter().enumerate() {
@@ -1290,6 +1311,9 @@ pub(crate) fn encode_assistant_message(
                     ..InputItem::default()
                 });
             }
+            Block::WebSearchCall { id, status, action, extra } => calls.push(InputItem {
+                kind: "web_search_call".into(), id: id.clone(), status: status.clone(), action: Some(action.clone()), extra: extra.clone(), ..InputItem::default()
+            }),
             Block::Image { .. }
             | Block::Document { .. }
             | Block::ToolResult { .. }

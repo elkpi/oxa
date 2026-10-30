@@ -147,7 +147,7 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), start_losses))
                     }
-                    Block::RedactedThinking { .. } => {
+                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
                         self.active = Some(StreamEncodeBlock {
                             kind: StreamBlockKind::Redacted,
                             index: *index,
@@ -164,7 +164,11 @@ impl StreamEncoder {
                             format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
-                            "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                            if matches!(block, Block::WebSearchCall { .. }) {
+                                "Responses web_search_call has no Chat Completions equivalent"
+                            } else {
+                                "anthropic encrypted thinking replay state; the target face cannot preserve this block"
+                            },
                         );
                         Ok((Vec::new(), vec![l]))
                     }

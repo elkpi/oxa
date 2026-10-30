@@ -427,19 +427,7 @@ fn encode_request_blocks(
         let (mut encoded, block_losses, mapped) =
             encode_request_block(block, &format!("{path}[{index}]"))?;
         if mapped {
-            let native = match block {
-                Block::Text { native, .. }
-                | Block::Thinking { native, .. }
-                | Block::RedactedThinking { native, .. }
-                | Block::Image { native, .. }
-                | Block::Document { native, .. }
-                | Block::ToolUse { native, .. }
-                | Block::CustomToolUse { native, .. }
-                | Block::ApplyPatchToolUse { native, .. }
-                | Block::ApplyPatchToolResult { native, .. }
-                | Block::ToolResult { native, .. }
-                | Block::CustomToolResult { native, .. } => native,
-            };
+            let native = block.native();
             if let Some(cc) = crate::native::get_block_cache_control(native) {
                 encoded.cache_control = Some(cc);
             }
@@ -633,7 +621,9 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 }
             }
         }
-        Block::ApplyPatchToolUse { .. } | Block::ApplyPatchToolResult { .. } => Ok((
+        Block::WebSearchCall { .. }
+        | Block::ApplyPatchToolUse { .. }
+        | Block::ApplyPatchToolResult { .. } => Ok((
             BlockWire::default(),
             vec![loss(
                 path,

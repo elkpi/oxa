@@ -313,6 +313,7 @@ func unmarshalBlocks(raws []json.RawMessage) ([]Block, error) {
 type wireSystemBlock struct {
 	Type   string             `json:"type"`
 	Text   string             `json:"text"`
+	Role   string             `json:"role,omitempty"`
 	Native []NativeAnnotation `json:"native,omitempty"`
 }
 
@@ -771,7 +772,10 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	}
 	system := make([]wireSystemBlock, 0, len(req.System))
 	for _, s := range req.System {
-		system = append(system, wireSystemBlock{Type: BlockTypeText, Text: s.Text, Native: s.Native})
+		if s.Role != "" && s.Role != SystemRoleDeveloper {
+			return nil, fmt.Errorf("ir: system role %q is not supported", s.Role)
+		}
+		system = append(system, wireSystemBlock{Type: BlockTypeText, Text: s.Text, Role: s.Role, Native: s.Native})
 	}
 	messages := make([]wireMessage, 0, len(req.Messages))
 	for i, m := range req.Messages {
@@ -857,7 +861,10 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 	}
 	req := &Request{Model: w.Model, Metadata: w.Metadata, Native: w.Native}
 	for _, s := range w.System {
-		req.System = append(req.System, SystemBlock{Text: s.Text, Native: s.Native})
+		if s.Role != "" && s.Role != SystemRoleDeveloper {
+			return nil, fmt.Errorf("ir: system role %q is not supported", s.Role)
+		}
+		req.System = append(req.System, SystemBlock{Text: s.Text, Role: s.Role, Native: s.Native})
 	}
 	for i, m := range w.Messages {
 		content, err := unmarshalRequestBlocks(m.Content)

@@ -243,6 +243,7 @@ fn single_text_message_renders_the_string_shorthand() {
     let mut with_system = req;
     with_system.system = vec![oxa_ir::SystemBlock::Text {
         text: "be brief".to_string(),
+        role: String::new(),
         native: Vec::new(),
     }];
     let (wire, _) = encode_request(&with_system, &Config::default()).expect("encode");
@@ -664,6 +665,7 @@ fn test_mid_conversation_system_messages() {
     assert_eq!(t1, "Terse mode.");
     let oxa_ir::SystemBlock::Text {
         text: t2,
+        role: _,
         native: n2,
     } = &req.system[2];
     assert_eq!(t2, "Under 20 words.");

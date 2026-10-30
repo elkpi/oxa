@@ -160,17 +160,34 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         losses.push(loss);
     }
     if !req.system.is_empty() {
-        let mut text = String::new();
-        for block in &req.system {
-            match block {
-                oxa_ir::SystemBlock::Text { text: value, .. } => text.push_str(value),
+        let has_developer = req.system.iter().any(|block| {
+            matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer")
+        });
+        if !has_developer {
+            let mut text = String::new();
+            for block in &req.system {
+                let oxa_ir::SystemBlock::Text { text: value, .. } = block;
+                text.push_str(value);
+            }
+            out.messages.push(Message {
+                role: ROLE_SYSTEM.to_string(),
+                content: Some(ContentValue::Text(text)),
+                ..Message::default()
+            });
+        } else {
+            for block in &req.system {
+                let oxa_ir::SystemBlock::Text { text: value, role, .. } = block;
+                out.messages.push(Message {
+                    role: if role == "developer" {
+                        "developer".to_string()
+                    } else {
+                        ROLE_SYSTEM.to_string()
+                    },
+                    content: Some(ContentValue::Text(value.clone())),
+                    ..Message::default()
+                });
             }
         }
-        out.messages.push(Message {
-            role: ROLE_SYSTEM.to_string(),
-            content: Some(ContentValue::Text(text)),
-            ..Message::default()
-        });
     }
     for (index, message) in req.messages.iter().enumerate() {
         match message.role {

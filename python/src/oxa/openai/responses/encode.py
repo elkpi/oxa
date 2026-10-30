@@ -257,8 +257,11 @@ def encode_request(
         out["metadata"] = dict(req.metadata)
 
     if req.system:
-        instructions = "".join(b.text for b in req.system)
-        out["instructions"] = instructions
+        instructions, leading = _encode_system_instructions(req.system)
+        if instructions is not None:
+            out["instructions"] = instructions
+    else:
+        leading = []
 
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
@@ -292,7 +295,7 @@ def encode_request(
     if choice_loss is not None:
         losses.append(choice_loss)
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, Any]] = list(leading)
     for index, message in enumerate(req.messages):
         if message.role == IR_ROLE_USER:
             msg_items, m_losses = encode_user_message(message, f"messages[{index}]")
@@ -595,3 +598,24 @@ def encode_response(
         out["error"] = error
 
     return out, losses
+
+
+def _encode_system_instructions(blocks):
+    has_developer = any(getattr(block, "role", "") == "developer" for block in blocks)
+    if not has_developer:
+        return "".join(block.text for block in blocks), []
+    index = 0
+    instructions = None
+    if getattr(blocks[0], "role", "") != "developer":
+        text = []
+        while index < len(blocks) and getattr(blocks[index], "role", "") != "developer":
+            text.append(blocks[index].text)
+            index += 1
+        instructions = "".join(text)
+    items = []
+    while index < len(blocks):
+        block = blocks[index]
+        role = "developer" if getattr(block, "role", "") == "developer" else "system"
+        items.append({"role": role, "content": block.text})
+        index += 1
+    return instructions, items

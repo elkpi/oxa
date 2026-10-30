@@ -44,7 +44,15 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
-		for _, s := range req.System {
+		for i, s := range req.System {
+			if s.Role == ir.SystemRoleDeveloper {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("system[%d].role", i),
+					Field:  "role",
+					Reason: ir.LossDegraded,
+					Detail: "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+				})
+			}
 			sbw := SystemBlockWire{Type: BlockTypeText, Text: s.Text}
 			if cc := getBlockCacheControl(s); len(cc) > 0 {
 				sbw.CacheControl = cc

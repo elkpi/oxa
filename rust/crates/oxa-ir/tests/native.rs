@@ -9,6 +9,7 @@ fn test_native_portable_round_trip() {
         model: "test-model".into(),
         system: vec![SystemBlock::Text {
             text: "System prompt".into(),
+            role: String::new(),
             native: vec![NativeAnnotation {
                 source: "anthropic".into(),
                 kind: "cache_control".into(),

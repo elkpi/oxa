@@ -56,6 +56,7 @@ from oxa.openai.chatcompletions.constants import (
     FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS,
     ROLE_ASSISTANT,
+    ROLE_DEVELOPER,
     ROLE_SYSTEM,
     ROLE_TOOL,
     ROLE_USER,
@@ -204,11 +205,13 @@ def decode_request(
                 )
             content.insert(0, ThinkingBlock(thinking=reasoning_content))
 
-        if role != ROLE_SYSTEM and not content:
+        if role not in (ROLE_SYSTEM, ROLE_DEVELOPER) and not content:
             content = [TextBlock(text="")]
 
-        if role == ROLE_SYSTEM:
+        if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
             sys_blocks, sys_losses = content_system(content, content_path)
+            if role == ROLE_DEVELOPER:
+                sys_blocks = [replace(block, role="developer") for block in sys_blocks]
             system.extend(sys_blocks)
             losses.extend(sys_losses)
         elif role == ROLE_USER:

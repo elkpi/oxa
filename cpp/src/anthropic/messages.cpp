@@ -933,7 +933,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     if (!req.system.empty()) {
         json::Value sys_arr = json::Value::array();
-        for (const auto& s : req.system) {
+        for (std::size_t i = 0; i < req.system.size(); ++i) {
+            const auto& s = req.system[i];
+            if (s.role == "developer") {
+                losses.push_back(make_ant_loss(
+                    "system[" + std::to_string(i) + "].role", "role", ir::LOSS_DEGRADED,
+                    "developer instruction is carried as Anthropic system content; Anthropic has no developer role"));
+            }
             json::Value sb = json::Value::object();
             sb.set("type", json::Value::string("text"));
             sb.set("text", json::Value::string(s.text));

@@ -710,7 +710,15 @@ export function encodeRequest(
     ...(request.system === undefined || request.system.length === 0
       ? {}
       : {
-          system: request.system.map((block) => {
+          system: request.system.map((block, index) => {
+            if (block.role === "developer")
+              losses.push({
+                path: `system[${index}].role`,
+                field: "role",
+                reason: "degraded",
+                detail:
+                  "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+              });
             const cc = getBlockCacheControl(block);
             return {
               type: "text",

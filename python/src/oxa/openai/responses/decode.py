@@ -154,19 +154,11 @@ def decode_request(
             if kind in ("", ITEM_TYPE_MESSAGE):
                 role = item.get("role", "")
                 if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
-                    if role == ROLE_DEVELOPER:
-                        losses.append(
-                            loss(
-                                f"input[{index}].role",
-                                "role",
-                                LOSS_DEGRADED,
-                                "Responses developer instructions are carried as IR system "
-                                "content; the developer/system role distinction is not preserved.",
-                            )
-                        )
                     path = f"input[{index}].content"
                     content, c_losses = decode_content(item.get("content"), path)
                     sys_blocks, s_losses = content_system(content, path)
+                    if role == ROLE_DEVELOPER:
+                        sys_blocks = [replace(block, role="developer") for block in sys_blocks]
                     req.system.extend(sys_blocks)
                     losses.extend(c_losses)
                     losses.extend(s_losses)

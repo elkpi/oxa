@@ -61,6 +61,7 @@ class TextBlock:
     text: str
     native: tuple[NativeAnnotation, ...] = ()
     citations: tuple[TextCitation, ...] | None = None
+    role: str = ""
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
 
     def __post_init__(self) -> None:

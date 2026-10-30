@@ -118,5 +118,8 @@ func (ThinkingBlock) isBlock()   {}
 // variant (text) in v1.
 type SystemBlock struct {
 	Text   string
+	Role   string // "" (system tier) or SystemRoleDeveloper, since 2.5.0
 	Native []NativeAnnotation
 }
+
+const SystemRoleDeveloper = "developer"

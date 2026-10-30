@@ -473,9 +473,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         auto content = std::move(c_res.first);
 
-        if (role == "system") {
+        if (role == "system" || role == "developer") {
             for (auto& b : content) {
                 if (auto* tb = std::get_if<ir::TextBlock>(&b)) {
+                    if (role == "developer") tb->role = "developer";
                     req.system.push_back(std::move(*tb));
                 } else {
                     losses.push_back(make_cc_loss(
@@ -828,12 +829,23 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     json::Value messages_arr = json::Value::array();
     if (!req.system.empty()) {
-        std::string sys_txt;
-        for (const auto& s : req.system) sys_txt += s.text;
-        json::Value sm = json::Value::object();
-        sm.set("role", json::Value::string("system"));
-        sm.set("content", json::Value::string(std::move(sys_txt)));
-        messages_arr.push_back(std::move(sm));
+        bool has_developer = false;
+        for (const auto& s : req.system) if (s.role == "developer") has_developer = true;
+        if (!has_developer) {
+            std::string sys_txt;
+            for (const auto& s : req.system) sys_txt += s.text;
+            json::Value sm = json::Value::object();
+            sm.set("role", json::Value::string("system"));
+            sm.set("content", json::Value::string(std::move(sys_txt)));
+            messages_arr.push_back(std::move(sm));
+        } else {
+            for (const auto& s : req.system) {
+                json::Value sm = json::Value::object();
+                sm.set("role", json::Value::string(s.role == "developer" ? "developer" : "system"));
+                sm.set("content", json::Value::string(s.text));
+                messages_arr.push_back(std::move(sm));
+            }
+        }
     }
 
     for (std::size_t i = 0; i < req.messages.size(); ++i) {

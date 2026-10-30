@@ -265,6 +265,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 crate::types::ContentValue::Text(text) => {
                     req.system.push(oxa_ir::SystemBlock::Text {
                         text: text.clone(),
+                        role: String::new(),
                         native: Vec::new(),
                     });
                 }
@@ -302,6 +303,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         }
                         req.system.push(oxa_ir::SystemBlock::Text {
                             text: b.text.clone(),
+                            role: String::new(),
                             native: nat,
                         });
                     }

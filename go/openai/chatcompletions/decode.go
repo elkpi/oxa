@@ -128,8 +128,13 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			content = []ir.Block{ir.TextBlock{Text: ""}}
 		}
 		switch message.Role {
-		case RoleSystem:
+		case RoleSystem, RoleDeveloper:
 			system, systemLosses := contentSystem(content, fmt.Sprintf("messages[%d].content", i))
+			if message.Role == RoleDeveloper {
+				for j := range system {
+					system[j].Role = ir.SystemRoleDeveloper
+				}
+			}
 			req.System = append(req.System, system...)
 			losses = append(losses, systemLosses...)
 		case RoleUser:

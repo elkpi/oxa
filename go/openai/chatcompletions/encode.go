@@ -79,11 +79,28 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = nil
 	}
 	if len(req.System) > 0 {
-		text := ""
+		hasDeveloper := false
 		for _, system := range req.System {
-			text += system.Text
+			if system.Role == ir.SystemRoleDeveloper {
+				hasDeveloper = true
+				break
+			}
 		}
-		out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+		if !hasDeveloper {
+			text := ""
+			for _, system := range req.System {
+				text += system.Text
+			}
+			out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+		} else {
+			for _, system := range req.System {
+				role := RoleSystem
+				if system.Role == ir.SystemRoleDeveloper {
+					role = RoleDeveloper
+				}
+				out.Messages = append(out.Messages, Message{Role: role, Content: system.Text})
+			}
+		}
 	}
 	for i, message := range req.Messages {
 		switch message.Role {

@@ -225,6 +225,7 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
         out.set("text", json::Value::string(t->text));
+        if (t->role == "developer") out.set("role", json::Value::string(t->role));
         if (t->citations.has_value() && !t->citations->empty()) {
             json::Value cites = json::Value::array();
             for (const auto& c : *t->citations) {
@@ -449,6 +450,11 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
                 cites.push_back(TextCitation{std::move(source), std::move(value)});
             }
             if (!cites.empty()) block.citations = std::move(cites);
+        }
+        if (const auto* role = v.find("role"); role != nullptr) {
+            if (!role->is_string() || role->as_string() != "developer")
+                return invalid_argument("ir: system role is not supported");
+            block.role = role->as_string();
         }
         return Block(std::move(block));
     }
@@ -700,7 +706,7 @@ json::Value dump_request(const Request& r) {
     if (!r.system.empty()) {
         json::Value system = json::Value::array();
         for (const auto& s : r.system) {
-            system.push_back(dump_request_block(TextBlock{s.text, s.native}));
+            system.push_back(dump_request_block(s));
         }
         out.set("system", std::move(system));
     }

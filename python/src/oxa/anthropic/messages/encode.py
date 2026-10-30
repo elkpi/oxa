@@ -119,6 +119,16 @@ def encode_request(
         out["metadata"] = metadata
 
     if req.system:
+        for index, block in enumerate(req.system):
+            if getattr(block, "role", "") == "developer":
+                losses.append(
+                    Loss(
+                        path=f"system[{index}].role",
+                        field="role",
+                        reason="degraded",
+                        detail="developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+                    )
+                )
         out["system"] = encode_system(req.system)
 
     tools_wire: list[dict[str, Any]] = []

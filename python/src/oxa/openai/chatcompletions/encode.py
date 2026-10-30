@@ -42,6 +42,7 @@ from oxa.openai.chatcompletions.constants import (
     FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS,
     OBJECT_CHAT_COMPLETION,
+    ROLE_DEVELOPER,
     ROLE_SYSTEM,
     ROLE_USER,
     TOOL_TYPE_FUNCTION,
@@ -146,8 +147,13 @@ def encode_request(
         losses.append(choice_loss)
 
     if req.system:
-        text = "".join(block.text for block in req.system)
-        out["messages"].append({"role": ROLE_SYSTEM, "content": text})
+        if any(getattr(block, "role", "") == "developer" for block in req.system):
+            for block in req.system:
+                role = ROLE_DEVELOPER if getattr(block, "role", "") == "developer" else ROLE_SYSTEM
+                out["messages"].append({"role": role, "content": block.text})
+        else:
+            text = "".join(block.text for block in req.system)
+            out["messages"].append({"role": ROLE_SYSTEM, "content": text})
 
     for index, message in enumerate(req.messages):
         if message.role == IR_ROLE_ASSISTANT:

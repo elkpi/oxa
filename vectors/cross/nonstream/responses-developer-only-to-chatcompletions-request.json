@@ -4,19 +4,47 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
-  "source": { "protocol": "responses" },
-  "target": { "protocol": "chatcompletions" },
-  "input": { "model": "m", "input": [{ "role": "developer", "content": "Answer briefly." }] },
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "m",
+    "input": [
+      {
+        "role": "developer",
+        "content": "Answer briefly."
+      }
+    ]
+  },
   "expected_output": {
     "model": "m",
     "messages": [
-      { "role": "system", "content": "Answer briefly." },
-      { "role": "user", "content": "" }
+      {
+        "role": "developer",
+        "content": "Answer briefly."
+      },
+      {
+        "role": "user",
+        "content": ""
+      }
     ]
   },
   "expected_losses": [
-    { "path": "input", "field": "input", "reason": "degraded" },
-    { "path": "input[0].role", "field": "role", "reason": "degraded" }
+    {
+      "path": "input",
+      "field": "input",
+      "reason": "degraded"
+    }
   ],
-  "tags": ["cross", "developer", "system", "request", "loss", "N-R-1"]
+  "tags": [
+    "cross",
+    "developer",
+    "system",
+    "request",
+    "loss",
+    "N-R-1"
+  ]
 }

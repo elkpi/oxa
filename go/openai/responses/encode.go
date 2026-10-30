@@ -31,12 +31,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			out.Metadata[key] = value
 		}
 	}
+	var leadingSystemItems []InputItem
 	if len(req.System) > 0 {
-		text := ""
-		for _, system := range req.System {
-			text += system.Text
-		}
-		out.Instructions = &text
+		instructions, items := encodeSystemInstructions(req.System)
+		out.Instructions = instructions
+		leadingSystemItems = items
 	}
 	if len(req.Tools) > 0 {
 		groupedTools, toolLosses, err := encodeGroupedTools(req.Tools)
@@ -79,7 +78,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = nil
 	}
 
-	items := make([]InputItem, 0)
+	items := append([]InputItem{}, leadingSystemItems...)
 	for i, message := range req.Messages {
 		switch message.Role {
 		case ir.RoleAssistant:
@@ -580,4 +579,40 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		out.Status = StatusIncomplete
 	}
 	return out, losses, nil
+}
+
+func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
+	hasDeveloper := false
+	for _, block := range blocks {
+		if block.Role == ir.SystemRoleDeveloper {
+			hasDeveloper = true
+			break
+		}
+	}
+	if !hasDeveloper {
+		text := ""
+		for _, block := range blocks {
+			text += block.Text
+		}
+		return &text, nil
+	}
+	var instructions *string
+	i := 0
+	if blocks[0].Role != ir.SystemRoleDeveloper {
+		text := ""
+		for i < len(blocks) && blocks[i].Role != ir.SystemRoleDeveloper {
+			text += blocks[i].Text
+			i++
+		}
+		instructions = &text
+	}
+	items := make([]InputItem, 0)
+	for ; i < len(blocks); i++ {
+		role := RoleSystem
+		if blocks[i].Role == ir.SystemRoleDeveloper {
+			role = RoleDeveloper
+		}
+		items = append(items, InputItem{Role: role, Content: blocks[i].Text})
+	}
+	return instructions, items
 }

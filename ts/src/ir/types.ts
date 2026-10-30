@@ -61,6 +61,7 @@ export interface TextCitation {
 export interface TextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly role?: "developer";
   readonly citations?: readonly TextCitation[];
   readonly native?: readonly NativeAnnotation[];
 }

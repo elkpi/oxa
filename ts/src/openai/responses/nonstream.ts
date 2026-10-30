@@ -129,7 +129,11 @@ function decodeRequestObject(
       loss("parallel_tool_calls", "parallel_tool_calls", "unmapped-field"),
     );
 
-  const system: { readonly type: "text"; readonly text: string }[] = [];
+  const system: {
+    readonly type: "text";
+    readonly text: string;
+    readonly role?: "developer";
+  }[] = [];
   if (wire.instructions !== undefined)
     system.push({
       type: "text",
@@ -364,14 +368,6 @@ function decodeRequestObject(
       }
       if (type === "message") {
         const role = string(item.role, `input[${index}].role`);
-        if (role === "developer")
-          losses.push({
-            path: `input[${index}].role`,
-            field: "role",
-            reason: "degraded",
-            detail:
-              "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-          });
         const content = decodeContent(
           item.content,
           `input[${index}].content`,
@@ -380,7 +376,10 @@ function decodeRequestObject(
         if (role === "system" || role === "developer") {
           for (let child = 0; child < content.length; child += 1) {
             const block = content[child]!;
-            if (block.type === "text") system.push(block);
+            if (block.type === "text")
+              system.push(
+                role === "developer" ? { ...block, role: "developer" as const } : block,
+              );
             else
               losses.push(
                 loss(
@@ -1138,6 +1137,8 @@ export function encodeRequest(
     }
     encodeUserMessage(items, message, index, losses);
   }
+  const systemPlan = encodeSystemPlan(request.system);
+  if (systemPlan.items.length > 0) items.unshift(...systemPlan.items);
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     items.length === 1 &&
@@ -1207,11 +1208,9 @@ export function encodeRequest(
     value: {
       model: mapModel(options.modelMapper, request.model),
       input: shorthand ?? items,
-      ...(request.system === undefined || request.system.length === 0
+      ...(systemPlan.instructions === undefined
         ? {}
-        : {
-            instructions: request.system.map((block) => block.text).join(""),
-          }),
+        : { instructions: systemPlan.instructions }),
       ...(storeVal !== undefined ? { store: storeVal } : {}),
       ...(params?.temperature === undefined
         ? {}
@@ -2280,6 +2279,38 @@ function encodeResponsesGroupedTools(
     i++;
   }
   return out;
+}
+
+function encodeSystemPlan(system: Request["system"]): {
+  instructions?: string;
+  items: JsonObject[];
+} {
+  if (system === undefined || system.length === 0) return { items: [] };
+  if (!system.some((block) => block.role === "developer"))
+    return {
+      instructions: system.map((block) => block.text).join(""),
+      items: [],
+    };
+  let index = 0;
+  let instructions: string | undefined;
+  if (system[0]!.role !== "developer") {
+    const text: string[] = [];
+    while (index < system.length && system[index]!.role !== "developer") {
+      text.push(system[index]!.text);
+      index += 1;
+    }
+    instructions = text.join("");
+  }
+  const items: JsonObject[] = [];
+  while (index < system.length) {
+    const block = system[index]!;
+    items.push({
+      role: block.role === "developer" ? "developer" : "system",
+      content: block.text,
+    });
+    index += 1;
+  }
+  return instructions === undefined ? { items } : { instructions, items };
 }
 
 function stringMetadata(

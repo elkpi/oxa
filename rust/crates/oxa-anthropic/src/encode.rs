@@ -49,6 +49,17 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         ..Request::default()
     };
     if !req.system.is_empty() {
+        for (index, block) in req.system.iter().enumerate() {
+            let oxa_ir::SystemBlock::Text { role, .. } = block;
+            if role == "developer" {
+                losses.push(loss(
+                    format!("system[{index}].role"),
+                    "role",
+                    LossReason::Degraded,
+                    "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+                ));
+            }
+        }
         out.system = Some(crate::types::SystemValue::Blocks(encode_system(
             &req.system,
         )));
@@ -1122,9 +1133,7 @@ fn encode_anthropic_metadata(
     metadata: Option<&std::collections::BTreeMap<String, String>>,
     losses: &mut Vec<Loss>,
 ) -> Option<serde_json::Value> {
-    let Some(metadata) = metadata.filter(|value| !value.is_empty()) else {
-        return None;
-    };
+    let metadata = metadata.filter(|value| !value.is_empty())?;
     let mut user_id = None;
     for (key, value) in metadata {
         if key == "user_id" {

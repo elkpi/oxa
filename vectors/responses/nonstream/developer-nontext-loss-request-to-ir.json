@@ -4,23 +4,66 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "to-ir",
-  "source": { "protocol": "responses" },
+  "source": {
+    "protocol": "responses"
+  },
   "input": {
     "model": "m",
     "input": [
-      { "role": "developer", "content": [{ "type": "input_text", "text": "Keep this." }, { "type": "input_image", "image_url": "https://example.com/image.png" }] },
-      { "role": "user", "content": "Hi" }
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Keep this."
+          },
+          {
+            "type": "input_image",
+            "image_url": "https://example.com/image.png"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      }
     ]
   },
   "expected_ir": {
     "specVersion": "0.1.0",
     "model": "m",
-    "system": [{ "type": "text", "text": "Keep this." }],
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+    "system": [
+      {
+        "type": "text",
+        "text": "Keep this.",
+        "role": "developer"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hi"
+          }
+        ]
+      }
+    ]
   },
   "expected_losses": [
-    { "path": "input[0].role", "field": "role", "reason": "degraded" },
-    { "path": "input[0].content[1]", "field": "content", "reason": "unsupported-semantic" }
+    {
+      "path": "input[0].content[1]",
+      "field": "content",
+      "reason": "unsupported-semantic"
+    }
   ],
-  "tags": ["developer", "system", "images", "request", "loss", "N-R-1"]
+  "tags": [
+    "developer",
+    "system",
+    "images",
+    "request",
+    "loss",
+    "N-R-1"
+  ]
 }

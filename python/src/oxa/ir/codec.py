@@ -441,6 +441,10 @@ def dump_request_block(block: Block) -> dict[str, Any]:
                     raise CodecError(f"ir: unknown citation source {c.source!r}")
                 validate_citation_value(c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
+        if block.role:
+            if block.role != "developer":
+                raise CodecError(f"ir: system role {block.role!r} is not supported")
+            out["role"] = block.role
     elif isinstance(block, RedactedThinkingBlock):
         out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     elif isinstance(block, ThinkingBlock):
@@ -715,7 +719,10 @@ def load_request_block(data: dict[str, Any]) -> Block:
                     raise CodecError("citation value must be a string")
                 validate_citation_value(val)
                 cites.append(TextCitation(source="anthropic", value=val))
-        return TextBlock(text=data["text"], citations=tuple(cites) if cites else None, native=native)
+        role = data.get("role", "")
+        if role not in ("", "developer"):
+            raise CodecError(f"ir: system role {role!r} is not supported")
+        return TextBlock(text=data["text"], citations=tuple(cites) if cites else None, native=native, role=role)
     if kind == BLOCK_TYPE_REDACTED_THINKING:
         d = data.get("data")
         if not isinstance(d, str):

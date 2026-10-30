@@ -168,6 +168,7 @@ struct TextBlock {
     std::string text;
     std::optional<std::vector<TextCitation>> citations;
     std::vector<NativeAnnotation> native;
+    std::string role;
 
     TextBlock() = default;
     explicit TextBlock(std::string t, std::vector<NativeAnnotation> nat = {})

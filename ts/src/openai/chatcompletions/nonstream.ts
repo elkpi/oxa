@@ -242,10 +242,11 @@ function decodeRequestObject(
       `messages[${index}].content`,
       losses,
     );
-    if (role === "system") {
+    if (role === "system" || role === "developer") {
       for (let blockIndex = 0; blockIndex < content.length; blockIndex += 1) {
         const block = content[blockIndex]!;
-        if (block.type === "text") system.push(block);
+        if (block.type === "text")
+          system.push(role === "developer" ? { ...block, role: "developer" } : block);
         else
           losses.push(
             loss(
@@ -535,11 +536,19 @@ export function encodeRequest(
   validateRequest(request);
   const losses: Loss[] = [];
   const messages: JsonValue[] = [];
-  if (request.system !== undefined && request.system.length > 0)
-    messages.push({
-      role: "system",
-      content: request.system.map((block) => block.text).join(""),
-    });
+  if (request.system !== undefined && request.system.length > 0) {
+    if (request.system.some((block) => block.role === "developer")) {
+      for (const block of request.system)
+        messages.push({
+          role: block.role === "developer" ? "developer" : "system",
+          content: block.text,
+        });
+    } else
+      messages.push({
+        role: "system",
+        content: request.system.map((block) => block.text).join(""),
+      });
+  }
   for (let index = 0; index < request.messages.length; index += 1) {
     const message = request.messages[index]!;
     if (message.role === "assistant") {

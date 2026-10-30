@@ -105,6 +105,7 @@ export function encodeRequest(request: Request): JsonObject {
           system: request.system.map((sb) => ({
             type: "text",
             text: sb.text,
+            ...(sb.role === "developer" ? { role: "developer" as const } : {}),
             ...(sb.native && sb.native.length > 0
               ? { native: sb.native.map(encodeNativeAnnotation) }
               : {}),
@@ -197,9 +198,13 @@ export function decodeRequest(document: JsonValue): Request {
                 : array(obj.native, "system_block.native").map(
                     decodeNativeAnnotation,
                   );
+            const role = obj.role === undefined ? undefined : string(obj.role, "system_block.role");
+            if (role !== undefined && role !== "developer")
+              fail(`ir: system role ${role} is not supported`);
             return {
               type: "text" as const,
               text: string(obj.text, "system_block.text"),
+              ...(role === "developer" ? { role: "developer" as const } : {}),
               ...(native ? { native } : {}),
             };
           }),

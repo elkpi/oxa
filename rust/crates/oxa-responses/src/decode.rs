@@ -66,6 +66,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     if let Some(instructions) = &wire.instructions {
         request.system.push(oxa_ir::SystemBlock::Text {
             text: instructions.clone(),
+            role: String::new(),
             native: Vec::new(),
         });
     }
@@ -110,18 +111,16 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 match item.kind.as_str() {
                     "" | ITEM_TYPE_MESSAGE => match item.role.as_str() {
                         ROLE_SYSTEM | ROLE_DEVELOPER => {
-                            if item.role == ROLE_DEVELOPER {
-                                losses.push(loss(
-                                    format!("input[{index}].role"),
-                                    "role",
-                                    LossReason::Degraded,
-                                    "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-                                ));
-                            }
                             let path = format!("input[{index}].content");
                             let (content, content_losses) =
                                 decode_content(item.content.as_ref(), &path);
-                            let (system, system_losses) = content_system(content, &path);
+                            let (mut system, system_losses) = content_system(content, &path);
+                            if item.role == ROLE_DEVELOPER {
+                                for block in &mut system {
+                                    let oxa_ir::SystemBlock::Text { role, .. } = block;
+                                    *role = "developer".to_string();
+                                }
+                            }
                             request.system.extend(system);
                             losses.extend(content_losses);
                             losses.extend(system_losses);

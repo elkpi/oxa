@@ -908,16 +908,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 const auto* role_val = item.find("role");
                 std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
                 if (role == ROLE_SYSTEM || role == ROLE_DEVELOPER) {
-                    if (role == ROLE_DEVELOPER) {
-                        losses.push_back(make_resp_loss(
-                            "input[" + std::to_string(index) + "].role", "role", ir::LOSS_DEGRADED,
-                            "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved."));
-                    }
                     std::string path = "input[" + std::to_string(index) + "].content";
                     auto [blocks, bl_losses] = decode_content(item.find("content"), path);
                     losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                     for (std::size_t child = 0; child < blocks.size(); ++child) {
                         if (auto* tb = std::get_if<ir::TextBlock>(&blocks[child])) {
+                            if (role == ROLE_DEVELOPER) tb->role = "developer";
                             req.system.push_back(std::move(*tb));
                         } else {
                             losses.push_back(make_resp_loss(
@@ -1421,10 +1417,32 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("metadata", std::move(md));
     }
 
+    std::vector<json::Value> leading_system_items;
     if (!req.system.empty()) {
-        std::string inst;
-        for (const auto& s : req.system) inst += s.text;
-        out.set("instructions", json::Value::string(std::move(inst)));
+        bool has_developer = false;
+        for (const auto& s : req.system) if (s.role == "developer") has_developer = true;
+        if (!has_developer) {
+            std::string inst;
+            for (const auto& s : req.system) inst += s.text;
+            out.set("instructions", json::Value::string(std::move(inst)));
+        } else {
+            std::size_t index = 0;
+            if (req.system[0].role != "developer") {
+                std::string inst;
+                while (index < req.system.size() && req.system[index].role != "developer") {
+                    inst += req.system[index].text;
+                    ++index;
+                }
+                out.set("instructions", json::Value::string(std::move(inst)));
+            }
+            while (index < req.system.size()) {
+                json::Value item = json::Value::object();
+                item.set("role", json::Value::string(req.system[index].role == "developer" ? "developer" : "system"));
+                item.set("content", json::Value::string(req.system[index].text));
+                leading_system_items.push_back(std::move(item));
+                ++index;
+            }
+        }
     }
 
     bool all_tools_dropped = false;
@@ -1503,7 +1521,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
-    std::vector<json::Value> items;
+    std::vector<json::Value> items = std::move(leading_system_items);
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
         const auto& m = req.messages[i];
         if (m.role == ir::ROLE_USER) {

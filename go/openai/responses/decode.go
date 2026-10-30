@@ -120,19 +120,17 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		case "", ItemTypeMessage:
 			switch item.Role {
 			case RoleSystem, RoleDeveloper:
-				if item.Role == RoleDeveloper {
-					losses = append(losses, loss(
-						fmt.Sprintf("input[%d].role", i), "role", ir.LossDegraded,
-						"Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-					))
-				}
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
 				if err != nil {
 					return nil, nil, err
 				}
+				role := ""
+				if item.Role == RoleDeveloper {
+					role = ir.SystemRoleDeveloper
+				}
 				for j, block := range content {
 					if text, ok := block.(ir.TextBlock); ok {
-						req.System = append(req.System, ir.SystemBlock{Text: text.Text, Native: text.Native})
+						req.System = append(req.System, ir.SystemBlock{Text: text.Text, Role: role, Native: text.Native})
 						continue
 					}
 					losses = append(losses, loss(

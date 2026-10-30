@@ -209,7 +209,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 "Chat Completions reasoning_content is defined only for assistant messages",
             ));
         }
-        if message.role != ROLE_SYSTEM && content.is_empty() {
+        if message.role != ROLE_SYSTEM && message.role != "developer" && content.is_empty() {
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
                 text: String::new(),
@@ -218,8 +218,14 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             });
         }
         match message.role.as_str() {
-            ROLE_SYSTEM => {
-                let (system_blocks, system_losses) = content_system(content, &content_path);
+            ROLE_SYSTEM | "developer" => {
+                let (mut system_blocks, system_losses) = content_system(content, &content_path);
+                if message.role == "developer" {
+                    for block in &mut system_blocks {
+                        let oxa_ir::SystemBlock::Text { role, .. } = block;
+                        *role = "developer".to_string();
+                    }
+                }
                 system.extend(system_blocks);
                 losses.extend(system_losses);
             }

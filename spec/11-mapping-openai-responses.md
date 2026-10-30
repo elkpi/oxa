@@ -81,6 +81,7 @@ The wire objects in scope are:
 | `input[type=function_call]` (consecutive run, incl. adjacent assistant message items) | one assistant message; `ToolUseBlock`s after any text blocks | N-R-5 |
 | `input[type=function_call_output]` (consecutive run) | one user message of `ToolResultBlock`s | N-R-6 |
 | `input[type=reasoning].summary[]` | assistant `ThinkingBlock`s | N-R-13; accepts `summary_text` and legacy `output_text` in encounter order |
+| `input[type=web_search_call]` | assistant `WebSearchCallBlock` | N-R-16; joined to the surrounding assistant run and ordered with tool calls |
 | `tools[].{name,description,parameters}` | `Tools[].{Name,Description,InputSchema}` | flat form; schema bytes carried verbatim (INV-1) |
 | `tools[type=namespace/toolbox]` | `Tools[]` | flattened with `<name>.` prefix; container preserved in native annotation (N-R-15) |
 | `tools[type=web_search/...]` | `Tools[]` (`type: "native"`) | source="openai", definition verbatim (N-R-15, spec/16) |
@@ -122,6 +123,7 @@ always renders as a string.
 | `output[type=message].content[type=output_text].text` | `Response.Content` text blocks | N-R-3 |
 | `output[type=reasoning].summary[]` | `ThinkingBlock.Thinking` | N-R-13 (since 2.0); one block per summary text part; encrypted_content dropped with unmapped-field |
 | `output[type=function_call]` | `ToolUseBlock`s after the text blocks | N-R-5 |
+| `output[type=web_search_call]` | `WebSearchCallBlock` after the text blocks | N-R-16; `id` and `status` are semantic for this item, not envelope defaults |
 | `status` + `incomplete_details.reason` + `error` | `Response.StopReason` | N-R-11 |
 | `id` | `Response.ID` | |
 | `model` | `Response.Model` | via model map |
@@ -308,6 +310,7 @@ Each rule has a stable ID usable as a vector tag.
   Schema without a non-empty name cannot be represented: omit the entire format
   and record one `unsupported-semantic` loss at `params.response_format`, with
   field `name`. Do not synthesize a name.
+- **N-R-16 (web_search_call history).** (Since 2.4.13). A non-streaming request `input[]` item or response `output[]` item with `type: "web_search_call"` maps to `WebSearchCallBlock`. `id` and `status` MUST be non-empty strings. `action` MUST be a JSON object whose `type` is `search`, `open_page`, or `find_in_page`. Missing or empty `id` or `status`, a missing or non-object `action`, an absent, empty, or unknown `action.type`, and an applicable action field of the wrong JSON type are structural errors. For `search`, `query`, `queries`, and `sources` are optional; each source requires `type: "url"` and a string `url`. For `open_page`, `url` may be absent, a string, or null. For `find_in_page`, string `url` and `pattern` are required. Every other key on the item or inside `action` records one `unmapped-field` loss and does not drop the item; unknown action keys remain in `action`, and unknown item-level keys are retained in the optional `extra` object. Responses encoding restores `extra` keys to the item; `extra` MUST NOT contain `type`, `id`, `status`, or `action`. On a request, the item joins the assistant run used for `reasoning` and `function_call` (N-R-5): thinking, then text, then tool calls and web-search calls in encounter order. It does not set the response `tool_use` stop reason. On encode, Responses renders the block back as `web_search_call` with the same `id`, `status`, and `action`. Chat Completions and Anthropic omit each block and record one `unsupported-semantic` loss at that block, field `type`; they MUST NOT synthesize a function call or `server_tool_use`. The streaming profile does not decode or encode this block: each streamed item or IR block records one `unsupported-semantic` loss and emits no content events.
 - **N-R-15 (tool containers, namespacing, and native declarations).** (Since 2.4.9).
   Responses supports hierarchical tool containers (`namespace`, `toolbox`), dynamic tool injection items (`additional_tools`), deferred tool loading (`defer_loading`), and OpenAI native tool declarations (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.).
 

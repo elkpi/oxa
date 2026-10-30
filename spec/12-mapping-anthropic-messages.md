@@ -392,6 +392,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `cache_control` on an unsupported/dropped block | unsupported-semantic | request/response → IR | part of the whole dropped block (N-AN-9) |
 | `params.response_format` | unmapped-field | IR → request | unsupported format variant (N-AN-12) |
 | `params.response_format.name`, `description`, `strict` | unmapped-field | IR → request | OpenAI-only envelope fields omitted (N-AN-12) |
+| `messages[i].content[j]`, `content[i]` | unsupported-semantic | IR → request/response | `web_search_call` omitted; not rewritten as `server_tool_use` (N-R-16) |
 | `output_config.format.type` | unmapped-value | request → IR | unknown format type (N-AN-12) |
 | `thinking.budget_tokens` / `params.reasoning_effort` | degraded | both | effort mapped to/from discrete budget values with approximation when no explicit effort is present (N-AN-11, N-AN-14) |
 | `content[i].signature` (unsigned thinking block) | degraded | IR → request/response | unsigned thinking block has no provider signature; request replay may be rejected (N-AN-11) |

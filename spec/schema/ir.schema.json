@@ -99,7 +99,8 @@
         { "$ref": "#/$defs/requestCustomToolUseBlock" },
         { "$ref": "#/$defs/requestCustomToolResultBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
-        { "$ref": "#/$defs/requestApplyPatchToolResultBlock" }
+        { "$ref": "#/$defs/requestApplyPatchToolResultBlock" },
+        { "$ref": "#/$defs/webSearchCallBlock" }
       ]
     },
     "requestTextBlock": {
@@ -326,7 +327,30 @@
         { "$ref": "#/$defs/customToolUseBlock" },
         { "$ref": "#/$defs/customToolResultBlock" },
         { "$ref": "#/$defs/applyPatchToolUseBlock" },
-        { "$ref": "#/$defs/applyPatchToolResultBlock" }
+        { "$ref": "#/$defs/applyPatchToolResultBlock" },
+        { "$ref": "#/$defs/webSearchCallBlock" }
+      ]
+    },
+    "webSearchCallBlock": {
+      "type": "object",
+      "properties": {
+        "type": { "const": "web_search_call" },
+        "id": { "type": "string", "minLength": 1 },
+        "status": { "type": "string", "minLength": 1 },
+        "action": { "$ref": "#/$defs/webSearchAction" },
+        "extra": { "type": "object", "not": { "anyOf": [ { "required": ["type"] }, { "required": ["id"] }, { "required": ["status"] }, { "required": ["action"] } ] } }
+      },
+      "required": ["type", "id", "status", "action"],
+      "additionalProperties": false
+    },
+    "webSearchAction": {
+      "type": "object",
+      "required": ["type"],
+      "properties": { "type": { "enum": ["search", "open_page", "find_in_page"] } },
+      "allOf": [
+        { "if": { "properties": { "type": { "const": "search" } } }, "then": { "properties": { "query": { "type": "string" }, "queries": { "type": "array", "items": { "type": "string" } }, "sources": { "type": "array", "items": { "type": "object", "properties": { "type": { "const": "url" }, "url": { "type": "string" } }, "required": ["type", "url"] } } } } },
+        { "if": { "properties": { "type": { "const": "open_page" } } }, "then": { "properties": { "url": { "type": ["string", "null"] } } } },
+        { "if": { "properties": { "type": { "const": "find_in_page" } } }, "then": { "required": ["url", "pattern"], "properties": { "url": { "type": "string" }, "pattern": { "type": "string" } } } }
       ]
     },
     "applyPatchOperation": {

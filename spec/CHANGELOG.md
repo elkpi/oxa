@@ -10,6 +10,7 @@ precedence between spec, vectors, and schemas is defined in
 - 更新 N-AN-12，映射 Anthropic `output_config.format` JSON Schema 并保留 schema 原文；未知类型与嵌套字段按规范报损。
 - 通用 IR 的 JSON Schema 名称可选；OpenAI 编码要求名称，缺失时省略格式并记录损失，不合成名称。Anthropic 对无法承载的 OpenAI 外层字段分别报损。
 - 明确原文 sidecar、过期数据校验和保真 JSON 文本接口的要求；IR contract 保持 `0.2.0`。
+- 新增 `WebSearchCallBlock`，非流式映射 Responses `web_search_call` 历史项（N-R-16）。其他协议编码时省略并报 `unsupported-semantic`；流式仍整项报损。穷尽匹配内容块的消费者必须处理新变体。IR contract 保持 `0.2.0`。
 
 ## 2.4.12 - 2026-10-27
 

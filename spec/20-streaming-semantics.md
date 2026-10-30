@@ -342,6 +342,8 @@ Each rule has a stable ID usable as a streaming vector tag.
 | unsupported native block/item/part | face → IR | one `unsupported-semantic` loss per native unit; matching descendants/done events absorbed |
 | non-function tool call | CC → IR | one `unsupported-semantic` loss; descendants absorbed |
 | RE `function_call_output` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed |
+| RE `web_search_call` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed; non-streaming N-R-16 does not change this profile |
+| IR `web_search_call` block | IR → any streaming face | omit block with one `unsupported-semantic` loss, consume its stop and preserve lifecycle/index ordering |
 | AN `server_tool_use`, provider-hosted tool | AN → IR | one `unsupported-semantic` loss per unit; descendants absorbed |
 | unknown native stop value | face → IR | mapping-document `unmapped-value` loss and IR `other`, where the face status policy permits it |
 | IR `stop_sequence` for CC or RE | IR → face | native completed/stop form plus `unmapped-value` loss for matched-sequence identity |

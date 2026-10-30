@@ -1,5 +1,9 @@
 import { OxaError } from "../../error.js";
 import {
+  inspectWebSearchCall,
+  validateWebSearchExtra,
+} from "../../ir/web-search.js";
+import {
   assertSourceMatches,
   fromValue,
   integer,
@@ -34,7 +38,39 @@ import type {
   Tool,
   ToolChoice,
   ToolResultBlock,
+  WebSearchCallBlock,
 } from "../../ir/index.js";
+
+function decodeWebSearchCall(
+  item: JsonObject,
+  path: string,
+  losses: Loss[],
+): WebSearchCallBlock {
+  const id = nonEmptyString(item.id, `${path}.id`);
+  const status = nonEmptyString(item.status, `${path}.status`);
+  const { action, unknown } = inspectWebSearchCall(
+    id,
+    status,
+    item.action,
+    path,
+  );
+  for (const field of unknown)
+    losses.push(loss(field.path, field.field, "unmapped-field"));
+  const extra: Record<string, JsonValue> = Object.create(null) as Record<
+    string,
+    JsonValue
+  >;
+  for (const [key, value] of Object.entries(item)) {
+    if (!["type", "id", "status", "action"].includes(key)) extra[key] = value;
+  }
+  return {
+    type: "web_search_call",
+    id,
+    status,
+    action,
+    ...(Object.keys(extra).length ? { extra } : {}),
+  };
+}
 
 export interface NonstreamOptions {
   readonly modelMapper?: ModelMapper;
@@ -141,6 +177,7 @@ function decodeRequestObject(
         type === "custom_tool_call" ||
         type === "apply_patch_call" ||
         type === "reasoning" ||
+        type === "web_search_call" ||
         (type === "message" && item.role === "assistant")
       ) {
         const thinking: Block[] = [];
@@ -183,6 +220,11 @@ function decodeRequestObject(
               if (text !== "")
                 thinking.push({ type: "thinking", thinking: text });
             }
+            index += 1;
+            continue;
+          }
+          if (currentType === "web_search_call") {
+            calls.push(decodeWebSearchCall(current, `input[${index}]`, losses));
             index += 1;
             continue;
           }
@@ -453,7 +495,8 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
       type === "function_call" ||
       type === "custom_tool_call" ||
       type === "apply_patch_call" ||
-      type === "reasoning";
+      type === "reasoning" ||
+      type === "web_search_call";
 
     if (!isAssistant) {
       i++;
@@ -482,6 +525,7 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
         kind = "apply_patch";
       } else if (
         t === "reasoning" ||
+        t === "web_search_call" ||
         (t === "message" && it.role === "assistant")
       ) {
         // assistant content
@@ -860,6 +904,8 @@ function decodeResponseObject(
         status: statusResult.status!,
         ...(outResult.output !== undefined ? { output: outResult.output } : {}),
       });
+    } else if (item.type === "web_search_call") {
+      calls.push(decodeWebSearchCall(item, `output[${index}]`, losses));
     } else if (item.type === "function_call") {
       const rawName = nonEmptyString(item.name, `output[${index}].name`);
       const ns =
@@ -1042,6 +1088,16 @@ export function encodeRequest(
             call_id: block.id,
             status: block.status,
             operation: encodeApplyPatchOperation(block.operation),
+          });
+        } else if (block.type === "web_search_call") {
+          inspectWebSearchCall(block.id, block.status, block.action);
+          validateWebSearchExtra(block.extra);
+          calls.push({
+            ...block.extra,
+            type: "web_search_call",
+            id: block.id,
+            status: block.status,
+            action: block.action,
           });
         } else if (block.type === "tool_use") {
           const dotIdx = block.name.indexOf(".");
@@ -1242,6 +1298,16 @@ export function encodeResponse(
         ...(block.output !== undefined ? { output: block.output } : {}),
       });
       apcoIndex += 1;
+    } else if (block.type === "web_search_call") {
+      inspectWebSearchCall(block.id, block.status, block.action);
+      validateWebSearchExtra(block.extra);
+      calls.push({
+        ...block.extra,
+        type: "web_search_call",
+        id: block.id,
+        status: block.status,
+        action: block.action,
+      });
     } else if (block.type === "tool_use") {
       const dotIdx = block.name.indexOf(".");
       calls.push({

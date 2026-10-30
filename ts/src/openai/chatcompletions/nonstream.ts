@@ -1035,6 +1035,8 @@ function encodeAssistant(
           arguments: block.input,
         },
       });
+    else if (block.type === "web_search_call")
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     else if (block.type === "custom_tool_use") {
       toolCalls.push({
         id: block.id,

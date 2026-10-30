@@ -88,6 +88,7 @@ export {
   type ApplyPatchToolResultBlock,
   type ApplyPatchToolUseBlock,
   type ApplyPatchUpdateFileOperation,
+  type WebSearchCallBlock,
   type Block,
   type CustomToolInputDelta,
   type CustomToolResultBlock,

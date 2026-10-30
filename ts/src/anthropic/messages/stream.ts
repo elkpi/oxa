@@ -592,7 +592,8 @@ type EncoderBlock =
       readonly blockType:
         | "custom_tool_result"
         | "apply_patch_tool_use"
-        | "apply_patch_tool_result";
+        | "apply_patch_tool_result"
+        | "web_search_call";
     }
   | {
       readonly kind: "thinking";
@@ -794,7 +795,8 @@ export class AnthropicStreamEncoder {
     if (
       event.block.type === "custom_tool_result" ||
       event.block.type === "apply_patch_tool_use" ||
-      event.block.type === "apply_patch_tool_result"
+      event.block.type === "apply_patch_tool_result" ||
+      event.block.type === "web_search_call"
     ) {
       if (
         event.block.type === "custom_tool_result" &&

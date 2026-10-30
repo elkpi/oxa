@@ -1390,7 +1390,8 @@ function encodeContent(
       }
     } else if (
       block.type === "apply_patch_tool_use" ||
-      block.type === "apply_patch_tool_result"
+      block.type === "apply_patch_tool_result" ||
+      block.type === "web_search_call"
     ) {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     }

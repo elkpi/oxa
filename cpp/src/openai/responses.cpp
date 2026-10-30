@@ -115,7 +115,7 @@ std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_content(
             const auto* t = part.find("type");
             std::string kind = t && t->is_string() ? t->as_string() : "";
             std::string part_path = path + "[" + std::to_string(i) + "]";
-            if (kind == "input_text") {
+            if (kind == "input_text" || kind == "output_text") {
                 const auto* txt = part.find("text");
                 std::string text = txt && txt->is_string() ? txt->as_string() : "";
                 blocks.push_back(ir::TextBlock{std::move(text)});

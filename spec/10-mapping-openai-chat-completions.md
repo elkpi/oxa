@@ -34,7 +34,8 @@ The wire objects in scope are:
 - **Request**: `model`, `messages[]`, `temperature`, `top_p`,
   `max_tokens`, `stop`, `tools[]`, `tool_choice`, and the unsupported
   `parallel_tool_calls`, `functions`, `function_call`,
-  `response_format`, `logprobs`, `top_logprobs`, `metadata`.
+  `response_format`, `logprobs`, `top_logprobs`. `metadata` is a string
+  map and maps to `Request.Metadata` (since 2.5.0).
 - **Message**: `role` (`system` | `user` | `assistant` | `tool`),
   `content` (string or content-parts array), `tool_calls[]`
   (assistant), `tool_call_id` (tool), `function_call` (legacy).
@@ -72,7 +73,7 @@ The wire objects in scope are:
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
-| `metadata` | — | unmapped-field loss, both directions as a single loss each way |
+| `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object or a non-string value is a structural error |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `functions`, `function_call` | — | unmapped-field loss |
 | `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
@@ -251,7 +252,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 |---|---|---|---|
 | `usage.total_tokens` | exempt (derived) | both | recomputed as prompt + completion on encode |
 | `object`, `created`, `choices[].index`, `message.role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
-| `metadata` | unmapped-field | request, both directions (single loss each way) | CC request metadata has no IR equivalent; the IR metadata map has no CC field. Dropped symmetrically as one loss per direction. |
 | `logprobs`, `top_logprobs` | unmapped-field | request → IR | log-probability sampling has no IR equivalent |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |

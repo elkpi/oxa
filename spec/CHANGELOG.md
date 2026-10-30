@@ -5,6 +5,10 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.5.0 - unreleased
+
+- 请求 `metadata` 接通到 `Request.Metadata`。Chat Completions 与 Responses 的字符串图双向零损失。Anthropic 只保留 `user_id`；其余键逐条 `unmapped-field`。IR contract 保持 `0.2.0`。
+
 ## 2.4.13 - 2026-10-30
 
 - 更新 N-AN-12，映射 Anthropic `output_config.format` JSON Schema 并保留 schema 原文；未知类型与嵌套字段按规范报损。

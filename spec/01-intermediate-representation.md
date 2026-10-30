@@ -71,7 +71,7 @@ A conversation to be sent to a model, face-neutral.
 | `Tools` | `tools` | `[]Tool` | no | absent means no tools |
 | `ToolChoice` | `tool_choice` | `ToolChoice` | no | absent defers to the target's default |
 | `Params` | `params` | `Params` | no | absent means all fields unset |
-| `Metadata` | `metadata` | `map[string]string` | no | string-to-string map |
+| `Metadata` | `metadata` | `map[string]string` | no | string-to-string map. Since 2.5.0 the three faces map it: OpenAI round-trips every key; Anthropic round-trips only `user_id` |
 
 ### 3.2 SystemBlock
 

@@ -36,6 +36,7 @@ pub(crate) fn loss(
 pub(crate) fn decode_content(
     content: Option<&ContentValue>,
     path: &str,
+    is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), crate::error::Error> {
     let Some(content) = content else {
         return Ok((
@@ -60,7 +61,7 @@ pub(crate) fn decode_content(
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
             for (index, part) in parts.iter().enumerate() {
-                let (decoded, part_losses) = decode_content_part(part, path, index)?;
+                let (decoded, part_losses) = decode_content_part(part, path, index, is_user)?;
                 blocks.extend(decoded);
                 losses.extend(part_losses);
             }
@@ -73,6 +74,7 @@ fn decode_content_part(
     part: &ContentPart,
     path: &str,
     index: usize,
+    is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     match part.kind.as_str() {
         CONTENT_PART_TYPE_TEXT => Ok((
@@ -95,16 +97,27 @@ fn decode_content_part(
             }
         }
         CONTENT_PART_TYPE_FILE => {
+            if !is_user {
+                return Ok((
+                    Vec::new(),
+                    vec![loss(
+                        format!("{path}[{index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "Chat Completions content part type \"file\" has no IR equivalent",
+                    )],
+                ));
+            }
             let Some(ref file_wire) = part.file else {
                 return Err(Error::new(format!(
                     "chatcompletions: {path}[{index}].file is required"
                 )));
             };
             let mut count = 0;
-            if file_wire.file_id.as_ref().is_some_and(|s| !s.is_empty()) {
+            if file_wire.file_id.is_some() {
                 count += 1;
             }
-            if file_wire.file_data.as_ref().is_some_and(|s| !s.is_empty()) {
+            if file_wire.file_data.is_some() {
                 count += 1;
             }
             if count != 1 {
@@ -122,6 +135,11 @@ fn decode_content_part(
                 ));
             }
             if let Some(ref fid) = file_wire.file_id {
+                if fid.is_empty() {
+                    return Err(Error::new(format!(
+                        "chatcompletions: {path}[{index}].file.file_id cannot be empty"
+                    )));
+                }
                 Ok((
                     vec![Block::Document {
                         media_type: None,
@@ -132,18 +150,40 @@ fn decode_content_part(
                     }],
                     losses,
                 ))
-            } else {
-                let data = file_wire.file_data.clone();
+            } else if let Some(ref fdata) = file_wire.file_data {
+                if fdata.is_empty() {
+                    return Err(Error::new(format!(
+                        "chatcompletions: {path}[{index}].file.file_data cannot be empty"
+                    )));
+                }
+                let (data, media_type) = if let Some(rest) = fdata.strip_prefix("data:") {
+                    let Some(idx) = rest.find(";base64,") else {
+                        return Err(Error::new(format!(
+                            "chatcompletions: {path}[{index}].file.file_data: malformed data file URL"
+                        )));
+                    };
+                    let mt = if idx == 0 {
+                        "application/pdf".to_string()
+                    } else {
+                        rest[..idx].to_string()
+                    };
+                    let payload = rest[idx + ";base64,".len()..].to_string();
+                    (payload, mt)
+                } else {
+                    (fdata.clone(), "application/pdf".to_string())
+                };
                 Ok((
                     vec![Block::Document {
-                        media_type: Some("application/pdf".to_string()),
-                        data,
+                        media_type: Some(media_type),
+                        data: Some(data),
                         url: None,
                         file_id: None,
                         native: Vec::new(),
                     }],
                     losses,
                 ))
+            } else {
+                unreachable!()
             }
         }
         other => Ok((
@@ -286,6 +326,7 @@ pub(crate) fn decode_tool_result_run(
         let (blocks, block_losses) = decode_content(
             messages[index].content.as_ref(),
             &format!("messages[{index}].content"),
+            false,
         )?;
         losses.extend(block_losses);
         let call_id = messages[index].tool_call_id.clone();
@@ -605,13 +646,44 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 }
                 Err(image_loss) => losses.push(image_loss),
             },
-            Block::Document { file_id, data, url, .. } => {
+            Block::Document { file_id, data, url, media_type, .. } => {
+                let mut count = 0;
+                if file_id.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if url.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if data.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if count == 0 {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "IR DocumentBlock carries no supported file source",
+                    ));
+                    continue;
+                }
+                if count > 1 {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "IR DocumentBlock carries conflicting file sources",
+                    ));
+                    continue;
+                }
                 if url.is_some() {
                     losses.push(loss(
                         format!("{path}[{index}]"),
                         "content",
                         LossReason::UnsupportedSemantic,
                         "Chat Completions file content parts do not support url sources; file dropped",
+                    ));
+                    continue;
+                }
+                if data.is_some() && media_type.as_deref().is_some_and(|m| m != "application/pdf") {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "Chat Completions file content parts do not support non-PDF media types; file dropped",
                     ));
                     continue;
                 }
@@ -636,13 +708,6 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                         }),
                         ..Default::default()
                     });
-                } else {
-                    losses.push(loss(
-                        format!("{path}[{index}]"),
-                        "content",
-                        LossReason::UnsupportedSemantic,
-                        "IR DocumentBlock carries no supported file source",
-                    ));
                 }
             }
             _ => losses.push(loss(
@@ -745,7 +810,13 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     }),
                 });
             }
-            Block::Image { .. } | Block::Document { .. } => losses.push(loss(
+            Block::Document { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "content",
+                LossReason::UnsupportedSemantic,
+                "IR DocumentBlock cannot be rendered in a Chat Completions assistant message",
+            )),
+            Block::Image { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
                 LossReason::UnsupportedSemantic,

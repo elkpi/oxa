@@ -97,7 +97,7 @@ bool is_valid_https_url(std::string_view raw) {
 }
 
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content(
-    const json::Value* content, const std::string& path) {
+    const json::Value* content, const std::string& path, bool is_user = true) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
@@ -170,6 +170,12 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                                                     "only https and base64 data image URLs are supported"));
                 }
             } else if (kind == "input_file") {
+                if (!is_user) {
+                    losses.push_back(make_resp_loss(
+                        part_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Responses content part type \"input_file\" has no IR equivalent"));
+                    continue;
+                }
                 const auto* fid = part.find("file_id");
                 const auto* furl = part.find("file_url");
                 const auto* fdata = part.find("file_data");
@@ -200,9 +206,23 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     blocks.push_back(std::move(doc));
                 } else {
                     if (!fdata->is_string() || fdata->as_string().empty()) return invalid_argument(part_path + ".file_data must be a non-empty string");
+                    std::string raw_data = fdata->as_string();
+                    std::string data_payload = raw_data;
+                    std::string media_type = "application/pdf";
+                    if (raw_data.starts_with("data:")) {
+                        std::string_view rest = std::string_view(raw_data).substr(5);
+                        std::size_t idx = rest.find(";base64,");
+                        if (idx == std::string_view::npos) {
+                            return invalid_argument("responses: " + part_path + ".file_data: malformed data file URL");
+                        }
+                        if (idx > 0) {
+                            media_type = std::string(rest.substr(0, idx));
+                        }
+                        data_payload = std::string(rest.substr(idx + 8));
+                    }
                     ir::DocumentBlock doc;
-                    doc.data = fdata->as_string();
-                    doc.media_type = "application/pdf";
+                    doc.data = std::move(data_payload);
+                    doc.media_type = std::move(media_type);
                     blocks.push_back(std::move(doc));
                 }
             } else {
@@ -1588,11 +1608,20 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     results.push_back(&b);
                     last_result = bi;
                 } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&b)) {
-                    if (!doc->file_id.has_value() && !doc->url.has_value() && !doc->data.has_value()) {
+                    int s_count = 0;
+                    if (doc->file_id.has_value() && !doc->file_id->empty()) s_count++;
+                    if (doc->url.has_value() && !doc->url->empty()) s_count++;
+                    if (doc->data.has_value() && !doc->data->empty()) s_count++;
+                    if (s_count == 0) {
                         losses.push_back(make_resp_loss(
                             "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                             "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
                             "IR DocumentBlock carries no supported file source"));
+                    } else if (s_count > 1) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "IR DocumentBlock carries conflicting file sources"));
                     } else {
                         if (!first_normal.has_value()) first_normal = bi;
                         normal.push_back(&b);
@@ -1809,6 +1838,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                     call.set("input", json::Value::string(custom->input));
                     fc_items.push_back(std::move(call));
+                } else if (std::holds_alternative<ir::DocumentBlock>(b) || std::holds_alternative<ir::ImageBlock>(b) || std::holds_alternative<ir::ToolResultBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "this IR block cannot be rendered in a Responses assistant input item"));
                 }
             }
             const bool has_reasoning = !reasoning_summary.as_array().empty();

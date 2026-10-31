@@ -671,6 +671,9 @@ export function omittedNativeRequestLosses(
 
   request.messages.forEach((msg, mIdx) => {
     msg.content.forEach((blk, cIdx) => {
+      if (blk.type === "document" && msg.role !== "user") {
+        return;
+      }
       collectBlockOmissions(
         losses,
         blk,
@@ -707,7 +710,8 @@ function collectBlockOmissions(
     blk.type === "web_search_call" ||
     (blk.type === "document" &&
       target === "chatcompletions" &&
-      blk.url !== undefined)
+      (blk.url !== undefined ||
+        (blk.media_type !== undefined && blk.media_type !== "application/pdf")))
   ) {
     // whole-block drop; annotations not reported a second time
     return;
@@ -724,6 +728,7 @@ function collectBlockOmissions(
   });
   if (blk.type === "tool_result") {
     (blk as ToolResultBlock).content.forEach((child, k) => {
+      if (child.type === "document") return;
       collectBlockOmissions(losses, child, `${path}.content[${k}]`, target);
     });
   } else if (blk.type === "custom_tool_result") {

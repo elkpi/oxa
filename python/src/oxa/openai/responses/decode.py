@@ -151,7 +151,7 @@ def decode_request(
                 role = item.get("role", "")
                 if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
                     path = f"input[{index}].content"
-                    content, c_losses = decode_content(item.get("content"), path)
+                    content, c_losses = decode_content(item.get("content"), path, is_user=False)
                     sys_blocks, s_losses = content_system(content, path)
                     if role == ROLE_DEVELOPER:
                         sys_blocks = [replace(block, role="developer") for block in sys_blocks]
@@ -161,7 +161,7 @@ def decode_request(
                     index += 1
                 elif role == ROLE_USER:
                     path = f"input[{index}].content"
-                    content, c_losses = decode_content(item.get("content"), path)
+                    content, c_losses = decode_content(item.get("content"), path, is_user=True)
                     losses.extend(c_losses)
                     if not content:
                         content = [TextBlock(text="")]

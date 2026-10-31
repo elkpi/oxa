@@ -79,7 +79,7 @@ bool is_valid_https_url(std::string_view raw) {
 }
 
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content(
-    const json::Value* content, const std::string& path) {
+    const json::Value* content, const std::string& path, bool is_user = true) {
     if (!content || content->is_null()) {
         return std::make_pair(std::vector<ir::Block>{ir::TextBlock{""}}, std::vector<ir::Loss>{});
     }
@@ -152,6 +152,12 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                                                   "only https and base64 data image URLs are supported"));
                 }
             } else if (ptype == "file") {
+                if (!is_user) {
+                    losses.push_back(make_cc_loss(
+                        path + "[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Chat Completions content part type \"file\" has no IR equivalent"));
+                    continue;
+                }
                 std::string part_path = path + "[" + std::to_string(i) + "]";
                 const auto* f_val = part.find("file");
                 if (!f_val || !f_val->is_object()) {
@@ -176,9 +182,23 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     blocks.push_back(std::move(doc));
                 } else {
                     if (!fdata->is_string() || fdata->as_string().empty()) return invalid_argument(part_path + ".file.file_data must be a non-empty string");
+                    std::string raw_data = fdata->as_string();
+                    std::string data_payload = raw_data;
+                    std::string media_type = "application/pdf";
+                    if (raw_data.starts_with("data:")) {
+                        std::string_view rest = std::string_view(raw_data).substr(5);
+                        std::size_t idx = rest.find(";base64,");
+                        if (idx == std::string_view::npos) {
+                            return invalid_argument("chatcompletions: " + part_path + ".file.file_data: malformed data file URL");
+                        }
+                        if (idx > 0) {
+                            media_type = std::string(rest.substr(0, idx));
+                        }
+                        data_payload = std::string(rest.substr(idx + 8));
+                    }
                     ir::DocumentBlock doc;
-                    doc.data = fdata->as_string();
-                    doc.media_type = "application/pdf";
+                    doc.data = std::move(data_payload);
+                    doc.media_type = std::move(media_type);
                     blocks.push_back(std::move(doc));
                 }
             } else {
@@ -461,7 +481,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (cr != "tool") break;
 
                 std::string content_path = "messages[" + std::to_string(index) + "].content";
-                OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(cur.find("content"), content_path));
+                OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(cur.find("content"), content_path, false));
                 losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
 
                 std::string cid;
@@ -501,7 +521,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
 
         std::string content_path = "messages[" + std::to_string(index) + "].content";
-        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(m.find("content"), content_path));
+        OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(m.find("content"), content_path, role == "user"));
         losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
         auto content = std::move(c_res.first);
 
@@ -967,6 +987,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "content", ir::LOSS_UNSUPPORTED_SEMANTIC, "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message"));
+                } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock cannot be rendered in a Chat Completions assistant message"));
                 } else {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -998,11 +1023,30 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
                 } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&b)) {
-                    if (doc->url.has_value() && !doc->url->empty()) {
+                    int s_count = 0;
+                    if (doc->file_id.has_value() && !doc->file_id->empty()) s_count++;
+                    if (doc->url.has_value() && !doc->url->empty()) s_count++;
+                    if (doc->data.has_value() && !doc->data->empty()) s_count++;
+                    if (s_count == 0) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "IR DocumentBlock carries no supported file source"));
+                    } else if (s_count > 1) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "IR DocumentBlock carries conflicting file sources"));
+                    } else if (doc->url.has_value() && !doc->url->empty()) {
                         losses.push_back(make_cc_loss(
                             "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                             "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
                             "Chat Completions file content parts do not support url sources; file dropped"));
+                    } else if (doc->data.has_value() && !doc->data->empty() && doc->media_type.has_value() && *doc->media_type != "application/pdf") {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "Chat Completions file content parts do not support non-PDF media types; file dropped"));
                     } else {
                         if (!first_normal.has_value()) first_normal = bi;
                         normal.push_back(&b);
@@ -1286,7 +1330,7 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
     const auto* msg = choice.find("message");
     if (!msg || !msg->is_object()) return invalid_argument("chatcompletions: choice missing message");
 
-    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(msg->find("content"), "choices[0].message.content"));
+    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(msg->find("content"), "choices[0].message.content", false));
     losses.insert(losses.end(), c_res.second.begin(), c_res.second.end());
     auto blocks = std::move(c_res.first);
     if (const auto* reasoning = msg->find("reasoning_content"); reasoning && !reasoning->is_null()) {

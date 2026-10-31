@@ -17,14 +17,18 @@ func ptrLoss(value ir.Loss) *ir.Loss { return &value }
 
 // decodeItemContent normalizes a message item's content (string shorthand or
 // parts array) into IR blocks (N-R-3).
-func decodeItemContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
+func decodeItemContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.Loss, error) {
+	user := false
+	if len(isUser) > 0 {
+		user = isUser[0]
+	}
 	switch v := content.(type) {
 	case nil:
 		return []ir.Block{ir.TextBlock{Text: ""}}, nil, nil
 	case string:
 		return []ir.Block{ir.TextBlock{Text: v}}, nil, nil
 	case []ContentPart:
-		return decodeParts(v, path)
+		return decodeParts(v, path, user)
 	case []any:
 		parts := make([]ContentPart, 0, len(v))
 		for i, raw := range v {
@@ -42,13 +46,34 @@ func decodeItemContent(content any, path string) ([]ir.Block, []ir.Loss, error) 
 			}
 			parts = append(parts, p)
 		}
-		return decodeParts(parts, path)
+		return decodeParts(parts, path, user)
 	default:
 		return nil, nil, fmt.Errorf("responses: %s: content is neither string nor parts array", path)
 	}
 }
 
-func decodeParts(parts []ContentPart, path string) ([]ir.Block, []ir.Loss, error) {
+func decodeFileData(raw, path string) (string, string, error) {
+	if strings.HasPrefix(raw, "data:") {
+		rest := strings.TrimPrefix(raw, "data:")
+		idx := strings.Index(rest, ";base64,")
+		if idx == -1 {
+			return "", "", fmt.Errorf("responses: %s: malformed data file URL", path)
+		}
+		mt := rest[:idx]
+		if mt == "" {
+			mt = "application/pdf"
+		}
+		payload := rest[idx+len(";base64,"):]
+		return payload, mt, nil
+	}
+	return raw, "application/pdf", nil
+}
+
+func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, []ir.Loss, error) {
+	user := false
+	if len(isUser) > 0 {
+		user = isUser[0]
+	}
 	blocks := make([]ir.Block, 0, len(parts))
 	var losses []ir.Loss
 	for i, part := range parts {
@@ -63,20 +88,27 @@ func decodeParts(parts []ContentPart, path string) ([]ir.Block, []ir.Loss, error
 			}
 			blocks = append(blocks, image)
 		case PartTypeInputFile:
+			if !user {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+					"Responses content part type \"input_file\" has no IR equivalent",
+				))
+				continue
+			}
 			var count int
-			if part.FileID != "" {
+			if part.FileID != nil {
 				count++
 			}
-			if part.FileURL != "" {
+			if part.FileURL != nil {
 				count++
 			}
-			if part.FileData != "" {
+			if part.FileData != nil {
 				count++
 			}
 			if count != 1 {
 				return nil, nil, fmt.Errorf("responses: %s[%d]: input_file must specify exactly one of file_id, file_url, or file_data", path, i)
 			}
-			if part.Filename != "" {
+			if part.Filename != nil {
 				losses = append(losses, loss(
 					fmt.Sprintf("%s[%d].filename", path, i), "filename", ir.LossUnmappedField,
 					"Responses input_file filename has no IR equivalent",
@@ -88,12 +120,25 @@ func decodeParts(parts []ContentPart, path string) ([]ir.Block, []ir.Loss, error
 					"Responses input_file detail has no IR equivalent",
 				))
 			}
-			if part.FileID != "" {
-				blocks = append(blocks, ir.DocumentBlock{FileID: part.FileID})
-			} else if part.FileURL != "" {
-				blocks = append(blocks, ir.DocumentBlock{URL: part.FileURL})
+			if part.FileID != nil {
+				if *part.FileID == "" {
+					return nil, nil, fmt.Errorf("responses: %s[%d].file_id cannot be empty", path, i)
+				}
+				blocks = append(blocks, ir.DocumentBlock{FileID: *part.FileID})
+			} else if part.FileURL != nil {
+				if *part.FileURL == "" {
+					return nil, nil, fmt.Errorf("responses: %s[%d].file_url cannot be empty", path, i)
+				}
+				blocks = append(blocks, ir.DocumentBlock{URL: *part.FileURL})
 			} else {
-				blocks = append(blocks, ir.DocumentBlock{Data: part.FileData, MediaType: "application/pdf"})
+				if *part.FileData == "" {
+					return nil, nil, fmt.Errorf("responses: %s[%d].file_data cannot be empty", path, i)
+				}
+				data, mt, err := decodeFileData(*part.FileData, fmt.Sprintf("%s[%d].file_data", path, i))
+				if err != nil {
+					return nil, nil, err
+				}
+				blocks = append(blocks, ir.DocumentBlock{Data: data, MediaType: mt})
 			}
 		default:
 			losses = append(losses, loss(

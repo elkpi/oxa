@@ -36,6 +36,7 @@ pub(crate) fn loss(
 pub(crate) fn decode_content(
     content: Option<&ContentValue>,
     path: &str,
+    is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
         return Ok((
@@ -60,7 +61,7 @@ pub(crate) fn decode_content(
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
             for (index, part) in parts.iter().enumerate() {
-                let (decoded, part_losses) = decode_content_part(part, path, index)?;
+                let (decoded, part_losses) = decode_content_part(part, path, index, is_user)?;
                 blocks.extend(decoded);
                 losses.extend(part_losses);
             }
@@ -73,6 +74,7 @@ fn decode_content_part(
     part: &ContentPart,
     path: &str,
     index: usize,
+    is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     match part.kind.as_str() {
         PART_TYPE_INPUT_TEXT | PART_TYPE_OUTPUT_TEXT => Ok((
@@ -90,14 +92,25 @@ fn decode_content_part(
             }
         }
         PART_TYPE_INPUT_FILE => {
+            if !is_user {
+                return Ok((
+                    Vec::new(),
+                    vec![loss(
+                        format!("{path}[{index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "Responses content part type \"input_file\" has no IR equivalent",
+                    )],
+                ));
+            }
             let mut count = 0;
-            if part.file_id.as_ref().is_some_and(|s| !s.is_empty()) {
+            if part.file_id.is_some() {
                 count += 1;
             }
-            if part.file_url.as_ref().is_some_and(|s| !s.is_empty()) {
+            if part.file_url.is_some() {
                 count += 1;
             }
-            if part.file_data.as_ref().is_some_and(|s| !s.is_empty()) {
+            if part.file_data.is_some() {
                 count += 1;
             }
             if count != 1 {
@@ -123,6 +136,11 @@ fn decode_content_part(
                 ));
             }
             if let Some(ref fid) = part.file_id {
+                if fid.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: {path}[{index}].file_id cannot be empty"
+                    )));
+                }
                 Ok((
                     vec![Block::Document {
                         media_type: None,
@@ -134,6 +152,11 @@ fn decode_content_part(
                     losses,
                 ))
             } else if let Some(ref furl) = part.file_url {
+                if furl.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: {path}[{index}].file_url cannot be empty"
+                    )));
+                }
                 Ok((
                     vec![Block::Document {
                         media_type: None,
@@ -144,17 +167,40 @@ fn decode_content_part(
                     }],
                     losses,
                 ))
-            } else {
+            } else if let Some(ref fdata) = part.file_data {
+                if fdata.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: {path}[{index}].file_data cannot be empty"
+                    )));
+                }
+                let (data, media_type) = if let Some(rest) = fdata.strip_prefix("data:") {
+                    let Some(idx) = rest.find(";base64,") else {
+                        return Err(Error::new(format!(
+                            "responses: {path}[{index}].file_data: malformed data file URL"
+                        )));
+                    };
+                    let mt = if idx == 0 {
+                        "application/pdf".to_string()
+                    } else {
+                        rest[..idx].to_string()
+                    };
+                    let payload = rest[idx + ";base64,".len()..].to_string();
+                    (payload, mt)
+                } else {
+                    (fdata.clone(), "application/pdf".to_string())
+                };
                 Ok((
                     vec![Block::Document {
-                        media_type: Some("application/pdf".to_string()),
-                        data: part.file_data.clone(),
+                        media_type: Some(media_type),
+                        data: Some(data),
                         url: None,
                         file_id: None,
                         native: Vec::new(),
                     }],
                     losses,
                 ))
+            } else {
+                unreachable!()
             }
         }
         other => Ok((
@@ -698,8 +744,11 @@ pub(crate) fn decode_assistant_run(
         {
             break;
         }
-        let (blocks, block_losses) =
-            decode_content(item.content.as_ref(), &format!("input[{index}].content"))?;
+        let (blocks, block_losses) = decode_content(
+            item.content.as_ref(),
+            &format!("input[{index}].content"),
+            false,
+        )?;
         text.extend(blocks);
         losses.extend(block_losses);
         index += 1;
@@ -1133,26 +1182,37 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 Err(image_loss) => losses.push(image_loss),
             },
             Block::Document { file_id, url, data, .. } => {
-                let mut cp = ContentPart {
-                    kind: PART_TYPE_INPUT_FILE.to_string(),
-                    ..Default::default()
-                };
-                if let Some(id) = file_id {
-                    cp.file_id = Some(id.clone());
-                    parts.push(cp);
-                } else if let Some(u) = url {
-                    cp.file_url = Some(u.clone());
-                    parts.push(cp);
-                } else if let Some(d) = data {
-                    cp.file_data = Some(d.clone());
-                    parts.push(cp);
-                } else {
+                let mut count = 0;
+                if file_id.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if url.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if data.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
+                if count == 0 {
                     losses.push(loss(
                         format!("{path}[{index}]"),
                         "content",
                         LossReason::UnsupportedSemantic,
                         "IR DocumentBlock carries no supported file source",
                     ));
+                } else if count > 1 {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "IR DocumentBlock carries conflicting file sources",
+                    ));
+                } else {
+                    let mut cp = ContentPart {
+                        kind: PART_TYPE_INPUT_FILE.to_string(),
+                        ..Default::default()
+                    };
+                    if let Some(id) = file_id {
+                        cp.file_id = Some(id.clone());
+                    } else if let Some(u) = url {
+                        cp.file_url = Some(u.clone());
+                    } else if let Some(d) = data {
+                        cp.file_data = Some(d.clone());
+                    }
+                    parts.push(cp);
                 }
             }
             _ => losses.push(loss(

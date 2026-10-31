@@ -96,7 +96,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 67);
+        CHECK(r->executed == 69);
     }
 
     // 2. Anthropic nonstream
@@ -122,7 +122,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 171);
+        CHECK(r->executed == 172);
     }
 
     // 4. Cross-protocol nonstream

@@ -384,16 +384,19 @@ Each rule has a stable ID usable as a vector tag.
   - **Decode.** Each `input_file` content part must be a JSON object specifying exactly one of:
     - `file_id`: a non-empty string. Maps to `DocumentBlock{FileID: file_id}`.
     - `file_url`: a non-empty string. Maps to `DocumentBlock{URL: file_url}`.
-    - `file_data`: a non-empty string (base64). Maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`.
+    - `file_data`: a non-empty string. May be raw base64 (maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`)
+      or a `data:<media>;base64,<payload>` URL (maps to `DocumentBlock{Data: payload, MediaType: media}`).
     Specifying none or more than one of `file_id`, `file_url`, or `file_data`, or non-string/empty values, is a structural error.
-    Optional wire fields: `filename` (string) and `detail` (string) are dropped with `unmapped-field` losses.
+    Optional wire fields: `filename` (string) and `detail` (string) are dropped with `unmapped-field` losses whenever present (including empty string).
     Unknown fields on `input_file` record `unmapped-field` losses in source order.
+    In response decoding, `input_file` content parts have no IR equivalent and record an `unsupported-semantic` loss.
   - **Encode.** In a user message, `DocumentBlock` renders as an `input_file` content part
     (forcing array representation of `content`):
+    - Conflicting sources (more than one of `FileID`, `Data`, `URL` non-empty) or missing sources record an `unsupported-semantic` loss.
     - `FileID` present: renders `{"type": "input_file", "file_id": *FileID}` with zero loss.
     - `URL` present: renders `{"type": "input_file", "file_url": *URL}` with zero loss.
     - `Data` present: renders `{"type": "input_file", "file_data": *Data}` with zero loss.
-    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss.
+    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss (detail: `"this IR block cannot be rendered in a Responses assistant input item"`).
 
 ## 8. Loss Catalog
 

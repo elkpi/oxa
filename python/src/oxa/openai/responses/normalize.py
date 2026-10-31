@@ -84,7 +84,9 @@ def is_valid_https_url(raw: str) -> bool:
     return bool(parsed.scheme == "https" and parsed.netloc)
 
 
-def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
+def decode_content(
+    content: Any, path: str, is_user: bool = True
+) -> tuple[list[Block], list[Loss]]:
     """Decodes content (string or content-part list) into IR blocks."""
     if content is None:
         return [TextBlock(text="")], []
@@ -95,7 +97,9 @@ def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
         losses: list[Loss] = []
         for index, part in enumerate(content):
             if isinstance(part, dict):
-                part_blocks, part_losses = decode_content_part(part, path, index)
+                part_blocks, part_losses = decode_content_part(
+                    part, path, index, is_user=is_user
+                )
                 blocks.extend(part_blocks)
                 losses.extend(part_losses)
         return blocks, losses
@@ -103,7 +107,7 @@ def decode_content(content: Any, path: str) -> tuple[list[Block], list[Loss]]:
 
 
 def decode_content_part(
-    part: dict[str, Any], path: str, index: int
+    part: dict[str, Any], path: str, index: int, is_user: bool = True
 ) -> tuple[list[Block], list[Loss]]:
     kind = part.get("type", "")
     if kind == PART_TYPE_INPUT_TEXT:
@@ -121,6 +125,15 @@ def decode_content_part(
     if kind == PART_TYPE_OUTPUT_TEXT:
         return [TextBlock(text=part.get("text", ""))], []
     if kind == "input_file":
+        if not is_user:
+            return [], [
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Responses content part type 'input_file' has no IR equivalent",
+                )
+            ]
         count = sum(1 for k in ("file_id", "file_url", "file_data") if part.get(k) is not None)
         if count != 1:
             raise ValueError(f"responses: {path}[{index}]: input_file must specify exactly one of file_id, file_url, or file_data")
@@ -146,6 +159,13 @@ def decode_content_part(
         fdata = part["file_data"]
         if not isinstance(fdata, str) or not fdata:
             raise TypeError(f"{path}[{index}].file_data must be a non-empty string")
+        if fdata.startswith("data:"):
+            idx = fdata.find(";base64,")
+            if idx == -1:
+                raise ValueError(f"responses: {path}[{index}].file_data: malformed data file URL")
+            mt = fdata[5:idx] or "application/pdf"
+            payload = fdata[idx + len(";base64,"):]
+            return [DocumentBlock(data=payload, media_type=mt)], losses
         return [DocumentBlock(data=fdata, media_type="application/pdf")], losses
     return [], [
         loss(
@@ -469,7 +489,7 @@ def decode_assistant_run(
         if kind not in ("", ITEM_TYPE_MESSAGE) or item.get("role") != ROLE_ASSISTANT:
             break
 
-        blocks, b_losses = decode_content(item.get("content"), f"input[{index}].content")
+        blocks, b_losses = decode_content(item.get("content"), f"input[{index}].content", is_user=False)
         text.extend(blocks)
         losses.extend(b_losses)
         index += 1
@@ -714,13 +734,8 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                 parts.append(part)
         elif isinstance(block, DocumentBlock):
             other_blocks += 1
-            if block.file_id:
-                parts.append({"type": "input_file", "file_id": block.file_id})
-            elif block.url:
-                parts.append({"type": "input_file", "file_url": block.url})
-            elif block.data:
-                parts.append({"type": "input_file", "file_data": block.data})
-            else:
+            s_count = sum(1 for x in (block.file_id, block.url, block.data) if x)
+            if s_count == 0:
                 losses.append(
                     loss(
                         f"{path}[{index}]",
@@ -729,6 +744,23 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                         "IR DocumentBlock carries no supported file source",
                     )
                 )
+                continue
+            if s_count > 1:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock carries conflicting file sources",
+                    )
+                )
+                continue
+            if block.file_id:
+                parts.append({"type": "input_file", "file_id": block.file_id})
+            elif block.url:
+                parts.append({"type": "input_file", "file_url": block.url})
+            else:
+                parts.append({"type": "input_file", "file_data": block.data})
         else:
             other_blocks += 1
             losses.append(

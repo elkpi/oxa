@@ -463,9 +463,9 @@ type ContentPart struct {
 
 // FileWire holds the payload of a file content part (since 2.5.0).
 type FileWire struct {
-	FileID   string `json:"file_id,omitempty"`
-	FileData string `json:"file_data,omitempty"`
-	Filename string `json:"filename,omitempty"`
+	FileID   *string `json:"file_id,omitempty"`
+	FileData *string `json:"file_data,omitempty"`
+	Filename *string `json:"filename,omitempty"`
 }
 
 // ImageURLWire holds the URL of an image_url content part. URL is either an

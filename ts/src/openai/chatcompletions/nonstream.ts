@@ -200,6 +200,7 @@ function decodeRequestObject(
           item.content,
           `messages[${index}].content`,
           losses,
+          false,
         );
         const toolCallId = string(
           item.tool_call_id,
@@ -242,6 +243,7 @@ function decodeRequestObject(
       message.content,
       `messages[${index}].content`,
       losses,
+      role === "user",
     );
     if (role === "system" || role === "developer") {
       for (let blockIndex = 0; blockIndex < content.length; blockIndex += 1) {
@@ -456,6 +458,7 @@ function decodeResponseObject(
     message.content,
     "choices[0].message.content",
     losses,
+    false,
   );
   if (
     message.reasoning_content !== undefined &&
@@ -882,6 +885,7 @@ function decodeContent(
   value: JsonValue | undefined,
   path: string,
   losses: Loss[],
+  isUser: boolean = true,
 ): Block[] {
   if (value === undefined || value === null)
     return [{ type: "text", text: "" }];
@@ -911,6 +915,16 @@ function decodeContent(
         );
       else blocks.push(image);
     } else if (type === "file") {
+      if (!isUser) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            'Chat Completions content part type "file" has no IR equivalent',
+        });
+        continue;
+      }
       const fileObj = object(part.file, `${path}[${index}].file`);
       let count = 0;
       if (fileObj.file_id !== undefined && fileObj.file_id !== null) count++;
@@ -957,10 +971,24 @@ function decodeContent(
             "type-violation",
             `${path}[${index}].file.file_data cannot be empty`,
           );
+        let dataPayload = fileData;
+        let mediaType = "application/pdf";
+        if (fileData.startsWith("data:")) {
+          const idx = fileData.indexOf(";base64,");
+          if (idx === -1) {
+            throw new OxaError(
+              "type-violation",
+              `chatcompletions: ${path}[${index}].file.file_data: malformed data file URL`,
+            );
+          }
+          const mt = fileData.slice(5, idx);
+          if (mt.length > 0) mediaType = mt;
+          dataPayload = fileData.slice(idx + 8);
+        }
         blocks.push({
           type: "document",
-          data: fileData,
-          media_type: "application/pdf",
+          data: dataPayload,
+          media_type: mediaType,
         });
       }
     } else
@@ -1065,7 +1093,29 @@ function encodeUserContent(
         parts.push({ type: "image_url", image_url: image });
       }
     } else if (block.type === "document") {
-      if (block.url !== undefined) {
+      let sCount = 0;
+      if (block.file_id !== undefined && block.file_id !== "") sCount++;
+      if (block.url !== undefined && block.url !== "") sCount++;
+      if (block.data !== undefined && block.data !== "") sCount++;
+      if (sCount === 0) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail: "IR DocumentBlock carries no supported file source",
+        });
+        continue;
+      }
+      if (sCount > 1) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail: "IR DocumentBlock carries conflicting file sources",
+        });
+        continue;
+      }
+      if (block.url !== undefined && block.url !== "") {
         losses.push({
           path: `${path}[${index}]`,
           field: "content",
@@ -1075,21 +1125,31 @@ function encodeUserContent(
         });
         continue;
       }
+      if (
+        block.data !== undefined &&
+        block.media_type !== undefined &&
+        block.media_type !== "application/pdf"
+      ) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail:
+            "Chat Completions file content parts do not support non-PDF media types; file dropped",
+        });
+        continue;
+      }
       hasImage = true;
-      if (block.file_id !== undefined) {
+      if (block.file_id !== undefined && block.file_id !== "") {
         parts.push({
           type: "file",
           file: { file_id: block.file_id },
         });
-      } else if (block.data !== undefined) {
+      } else {
         parts.push({
           type: "file",
-          file: { file_data: block.data },
+          file: { file_data: block.data! },
         });
-      } else {
-        losses.push(
-          loss(`${path}[${index}]`, "content", "unsupported-semantic"),
-        );
       }
     } else {
       losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));
@@ -1169,6 +1229,14 @@ function encodeAssistant(
           name: block.name,
           input: block.input,
         },
+      });
+    } else if (block.type === "document") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "content",
+        reason: "unsupported-semantic",
+        detail:
+          "IR DocumentBlock cannot be rendered in a Chat Completions assistant message",
       });
     } else
       losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));

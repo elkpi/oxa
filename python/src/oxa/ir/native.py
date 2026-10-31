@@ -12,6 +12,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_REDACTED_THINKING,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
+    ROLE_USER,
     ReasoningEffort,
 )
 from oxa.ir.loss import Loss
@@ -357,7 +358,10 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
             )
 
     for m_idx, msg in enumerate(getattr(req, "messages", ()) or ()):
+        role = getattr(msg, "role", "")
         for c_idx, blk in enumerate(getattr(msg, "content", ()) or ()):
+            if getattr(blk, "type", "") == BLOCK_TYPE_DOCUMENT and role != ROLE_USER:
+                continue
             _collect_block_omissions(
                 losses,
                 blk,
@@ -382,7 +386,12 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
 def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: str) -> None:
     blk_type = getattr(blk, "type", "")
     if blk_type == BLOCK_TYPE_REDACTED_THINKING or (
-        blk_type == BLOCK_TYPE_DOCUMENT and target == "chatcompletions" and getattr(blk, "url", None)
+        blk_type == BLOCK_TYPE_DOCUMENT
+        and target == "chatcompletions"
+        and (
+            getattr(blk, "url", None)
+            or (getattr(blk, "media_type", None) and getattr(blk, "media_type", None) != "application/pdf")
+        )
     ):
         # whole-block drop; annotations are part of it and are not reported a second time.
         return
@@ -392,11 +401,15 @@ def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: st
     content = getattr(blk, "content", None)
     if isinstance(content, list):
         for k, child in enumerate(content):
+            if getattr(child, "type", "") == BLOCK_TYPE_DOCUMENT:
+                continue
             _collect_block_omissions(losses, child, f"{path}.content[{k}]", target)
 
     output = getattr(blk, "output", None)
     if isinstance(output, list):
         for k, child in enumerate(output):
+            if getattr(child, "type", "") == BLOCK_TYPE_DOCUMENT:
+                continue
             _collect_block_omissions(losses, child, f"{path}.output.content[{k}]", target)
 
 

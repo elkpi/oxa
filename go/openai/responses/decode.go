@@ -1004,4 +1004,3 @@ func decodeResponsesAnnotations(raw []json.RawMessage, path string) ([]ir.TextCi
 	}
 	return out, nil
 }
-

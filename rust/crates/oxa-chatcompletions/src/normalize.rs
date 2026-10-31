@@ -9,10 +9,12 @@ use oxa_ir::{
     ToolType,
 };
 
+use crate::error::Error;
 use crate::types::{
-    CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, ContentPart, ContentValue, CustomCallWire,
-    FunctionWire, ImageURLWire, Message, ROLE_ASSISTANT, ROLE_TOOL, TOOL_CHOICE_AUTO,
-    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION, ToolCall,
+    CONTENT_PART_TYPE_FILE, CONTENT_PART_TYPE_IMAGE_URL, CONTENT_PART_TYPE_TEXT, ContentPart,
+    ContentValue, CustomCallWire, FileWire, FunctionWire, ImageURLWire, Message, ROLE_ASSISTANT,
+    ROLE_TOOL, TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM,
+    TOOL_TYPE_FUNCTION, ToolCall,
 };
 
 pub(crate) fn loss(
@@ -58,7 +60,7 @@ pub(crate) fn decode_content(
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
             for (index, part) in parts.iter().enumerate() {
-                let (decoded, part_losses) = decode_content_part(part, path, index);
+                let (decoded, part_losses) = decode_content_part(part, path, index)?;
                 blocks.extend(decoded);
                 losses.extend(part_losses);
             }
@@ -67,16 +69,20 @@ pub(crate) fn decode_content(
     }
 }
 
-fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Block>, Vec<Loss>) {
+fn decode_content_part(
+    part: &ContentPart,
+    path: &str,
+    index: usize,
+) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     match part.kind.as_str() {
-        CONTENT_PART_TYPE_TEXT => (
+        CONTENT_PART_TYPE_TEXT => Ok((
             vec![Block::Text {
                 text: part.text.clone(),
                 citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
-        ),
+        )),
         CONTENT_PART_TYPE_IMAGE_URL => {
             let raw = part
                 .image_url
@@ -84,11 +90,63 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
                 .map(|image| image.url.as_str())
                 .unwrap_or_default();
             match decode_image_url(raw, &format!("{path}[{index}].image_url")) {
-                Ok(block) => (vec![block], Vec::new()),
-                Err(image_loss) => (Vec::new(), vec![image_loss]),
+                Ok(block) => Ok((vec![block], Vec::new())),
+                Err(image_loss) => Ok((Vec::new(), vec![image_loss])),
             }
         }
-        other => (
+        CONTENT_PART_TYPE_FILE => {
+            let Some(ref file_wire) = part.file else {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].file is required"
+                )));
+            };
+            let mut count = 0;
+            if file_wire.file_id.as_ref().is_some_and(|s| !s.is_empty()) {
+                count += 1;
+            }
+            if file_wire.file_data.as_ref().is_some_and(|s| !s.is_empty()) {
+                count += 1;
+            }
+            if count != 1 {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].file must specify exactly one of file_id or file_data"
+                )));
+            }
+            let mut losses = Vec::new();
+            if file_wire.filename.is_some() {
+                losses.push(loss(
+                    format!("{path}[{index}].file.filename"),
+                    "filename",
+                    LossReason::UnmappedField,
+                    "Chat Completions file filename has no IR equivalent",
+                ));
+            }
+            if let Some(ref fid) = file_wire.file_id {
+                Ok((
+                    vec![Block::Document {
+                        media_type: None,
+                        data: None,
+                        url: None,
+                        file_id: Some(fid.clone()),
+                        native: Vec::new(),
+                    }],
+                    losses,
+                ))
+            } else {
+                let data = file_wire.file_data.clone();
+                Ok((
+                    vec![Block::Document {
+                        media_type: Some("application/pdf".to_string()),
+                        data,
+                        url: None,
+                        file_id: None,
+                        native: Vec::new(),
+                    }],
+                    losses,
+                ))
+            }
+        }
+        other => Ok((
             Vec::new(),
             vec![loss(
                 format!("{path}[{index}]"),
@@ -96,7 +154,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
                 LossReason::UnsupportedSemantic,
                 format!("Chat Completions content part type {other:?} has no IR equivalent"),
             )],
-        ),
+        )),
     }
 }
 
@@ -462,10 +520,10 @@ pub(crate) fn encode_image_block(
         }
         return Ok(ContentPart {
             kind: CONTENT_PART_TYPE_IMAGE_URL.to_string(),
-            text: String::new(),
             image_url: Some(ImageURLWire {
                 url: format!("data:{media_type};base64,{data}"),
             }),
+            ..Default::default()
         });
     }
     if let Some(url) = url
@@ -473,10 +531,10 @@ pub(crate) fn encode_image_block(
     {
         return Ok(ContentPart {
             kind: CONTENT_PART_TYPE_IMAGE_URL.to_string(),
-            text: String::new(),
             image_url: Some(ImageURLWire {
                 url: url.to_string(),
             }),
+            ..Default::default()
         });
     }
     Err(loss(
@@ -500,7 +558,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 parts.push(ContentPart {
                     kind: CONTENT_PART_TYPE_TEXT.to_string(),
                     text: value.clone(),
-                    image_url: None,
+                    ..Default::default()
                 });
                 text.push_str(value);
                 if let Some(cites) = citations && !cites.is_empty() {
@@ -547,6 +605,46 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 }
                 Err(image_loss) => losses.push(image_loss),
             },
+            Block::Document { file_id, data, url, .. } => {
+                if url.is_some() {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "Chat Completions file content parts do not support url sources; file dropped",
+                    ));
+                    continue;
+                }
+                has_image = true;
+                if let Some(fid) = file_id {
+                    parts.push(ContentPart {
+                        kind: CONTENT_PART_TYPE_FILE.to_string(),
+                        file: Some(FileWire {
+                            file_id: Some(fid.clone()),
+                            file_data: None,
+                            filename: None,
+                        }),
+                        ..Default::default()
+                    });
+                } else if let Some(d) = data {
+                    parts.push(ContentPart {
+                        kind: CONTENT_PART_TYPE_FILE.to_string(),
+                        file: Some(FileWire {
+                            file_id: None,
+                            file_data: Some(d.clone()),
+                            filename: None,
+                        }),
+                        ..Default::default()
+                    });
+                } else {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "IR DocumentBlock carries no supported file source",
+                    ));
+                }
+            }
             _ => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
@@ -712,7 +810,7 @@ pub(crate) fn encode_tool_result(block: &Block, path: &str) -> (Message, Vec<Los
                             parts.push(ContentPart {
                                 kind: CONTENT_PART_TYPE_TEXT.to_string(),
                                 text: value.clone(),
-                                image_url: None,
+                                ..Default::default()
                             });
                         }
                         Block::Image {

@@ -311,6 +311,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             Some(value) => match value.as_str() {
                 "text" => shape("text", object),
                 "image_url" => shape("image", object),
+                "file" => shape("file_part", object),
                 _ => None,
             },
             None => None,
@@ -318,6 +319,8 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         "text" => Some(&[("type", ""), ("text", "")]),
         "image" => Some(&[("type", ""), ("image_url", "image_url")]),
         "image_url" => Some(&[("url", "")]),
+        "file_part" => Some(&[("type", ""), ("file", "file_def")]),
+        "file_def" => Some(&[("file_id", ""), ("file_data", ""), ("filename", "")]),
         "tool" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "function" => shape("function_tool", object),

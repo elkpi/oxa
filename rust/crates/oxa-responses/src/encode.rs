@@ -890,9 +890,7 @@ fn encode_custom_output(
                     Block::Text { text, .. } => parts.push(crate::types::ContentPart {
                         kind: PART_TYPE_INPUT_TEXT.to_string(),
                         text: text.clone(),
-                        image_url: String::new(),
-                        detail: None,
-                        file_id: None,
+                        ..Default::default()
                     }),
                     Block::Image {
                         media_type,

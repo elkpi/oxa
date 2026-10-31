@@ -110,7 +110,7 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
 
 - 解码保真：三项按原值无损捕获（0 decode loss）；`citations` 的 `value` 为规范化紧凑 JSON（与 §3.2 `cache_control` 的规范化一致，键序与空白不作保真承诺）。`title`/`context` 非字符串、`citations` 非对象或 `enabled` 非布尔，属于结构类型错误（error），与 §3.4 的类型违例处理一致。
 - 原生回转：编码回 Anthropic 时按 `kind` 完整恢复 wire 上的 `title`/`context`/`citations`。
-- 跨面遗漏：目标面无 document 契约时，`DocumentBlock` 整块以一条 `unsupported-semantic` 损失报损（spec/12 N-AN-16）；块内注解随整块丢弃，不再逐条报损（N-AN-9 对称原则），区别于 §4.1 中存续块注解的逐条遗漏报损。
+- 跨面遗漏：目标面原生支持文件输入时（OpenAI Responses 原生支持 base64/url/file_id 为 input_file，OpenAI Chat Completions 原生支持 base64/file_id 为 file），DocumentBlock 正常保真转换；其附属的文档级注解（document_title、document_context、document_citations）按 §4.1 逐条记录遗漏损失。仅当目标面无法表达对应来源形式（如 Chat Completions 遇到 url 形式文档）时，DocumentBlock 整块以一条 unsupported-semantic 损失报损，块内注解随整块丢弃，不再逐条报损（N-AN-9 对称原则）。
 
 ### 3.6 Eager Input Streaming（规范 2.4.10）
 - `eager_input_streaming` 适用于用户定义的普通工具（`function`）或自定义工具（`custom`）；不适用于 Anthropic 服务端原生工具（`type` 非空且非 function/custom）。

@@ -33,6 +33,7 @@ from oxa.ir import (
     RedactedThinkingBlock,
     ToolUseBlock,
     WebSearchCallBlock,
+    RefusalBlock,
 )
 from oxa.ir.native import omitted_native_request_losses
 from oxa.ir.codec import validate_citation
@@ -401,9 +402,26 @@ def encode_response(
     calls: list[dict[str, Any]] = []
     apc_index = 0
     apco_index = 0
+    refusal_msg: str | None = None
 
     for index, block in enumerate(resp.content):
-        if isinstance(block, TextBlock):
+        if isinstance(block, RefusalBlock):
+            if block.category:
+                losses.append(
+                    loss(
+                        f"content[{index}].category",
+                        "category",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic refusal category has no Responses equivalent",
+                    )
+                )
+            text_parts.append({
+                "type": "refusal",
+                "refusal": block.refusal,
+            })
+            if not refusal_msg:
+                refusal_msg = block.refusal
+        elif isinstance(block, TextBlock):
             part_annotations: list[Any] = []
             if block.citations:
                 has_anthropic = False
@@ -576,7 +594,7 @@ def encode_response(
         status = STATUS_COMPLETED
     elif resp.stop_reason == STOP_REFUSAL:
         status = STATUS_FAILED
-        error = {"code": ERROR_CODE_REFUSAL, "message": ""}
+        error = {"code": ERROR_CODE_REFUSAL, "message": refusal_msg or ""}
     else:
         raise ValueError(f"responses: stop reason {resp.stop_reason!r} has no Responses equivalent")
 

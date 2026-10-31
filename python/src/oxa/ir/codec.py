@@ -11,6 +11,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
     BLOCK_TYPE_WEB_SEARCH_CALL,
+    BLOCK_TYPE_REFUSAL,
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
@@ -64,6 +65,7 @@ from oxa.ir.types import (
     Event,
     EventStream,
     DocumentBlock,
+    RefusalBlock,
     ImageBlock,
     InputJsonDelta,
     InputTokensDetails,
@@ -449,6 +451,11 @@ def dump_block(block: Block) -> dict[str, Any]:
             "action": block.action,
             **({"extra": block.extra} if block.extra else {}),
         }
+    if isinstance(block, RefusalBlock):
+        res_ref: dict[str, Any] = {"type": BLOCK_TYPE_REFUSAL, "refusal": block.refusal}
+        if block.category is not None:
+            res_ref["category"] = block.category
+        return res_ref
     raise CodecError(f"unknown block type: {type(block)}")
 
 
@@ -589,6 +596,10 @@ def dump_request_block(block: Block) -> dict[str, Any]:
             "action": block.action,
             **({"extra": block.extra} if block.extra else {}),
         }
+    elif isinstance(block, RefusalBlock):
+        out = {"type": BLOCK_TYPE_REFUSAL, "refusal": block.refusal}
+        if block.category is not None:
+            out["category"] = block.category
     else:
         raise CodecError(f"unknown block type: {type(block)}")
 
@@ -729,6 +740,11 @@ def load_block(data: dict[str, Any]) -> Block:
         )
     if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
         return load_web_search_block(data)
+    if kind == BLOCK_TYPE_REFUSAL:
+        refusal_val = data.get("refusal")
+        if not isinstance(refusal_val, str):
+            raise CodecError("refusal block requires refusal string")
+        return RefusalBlock(refusal=refusal_val, category=data.get("category"))
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -832,6 +848,11 @@ def load_request_block(data: dict[str, Any]) -> Block:
         )
     if kind == BLOCK_TYPE_WEB_SEARCH_CALL:
         return load_web_search_block(data)
+    if kind == BLOCK_TYPE_REFUSAL:
+        refusal_val = data.get("refusal")
+        if not isinstance(refusal_val, str):
+            raise CodecError("refusal block requires refusal string")
+        return RefusalBlock(refusal=refusal_val, category=data.get("category"), native=native)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 

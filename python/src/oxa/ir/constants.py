@@ -23,6 +23,7 @@ BLOCK_TYPE_CUSTOM_TOOL_RESULT: Final = "custom_tool_result"
 BLOCK_TYPE_APPLY_PATCH_TOOL_USE: Final = "apply_patch_tool_use"
 BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT: Final = "apply_patch_tool_result"
 BLOCK_TYPE_WEB_SEARCH_CALL: Final = "web_search_call"
+BLOCK_TYPE_REFUSAL: Final = "refusal"
 TOOL_TYPE_APPLY_PATCH: Final = "apply_patch"
 TOOL_TYPE_FUNCTION: Final = "function"
 TOOL_TYPE_CUSTOM: Final = "custom"
@@ -39,6 +40,7 @@ BlockType = Literal[
     "apply_patch_tool_use",
     "apply_patch_tool_result",
     "web_search_call",
+    "refusal",
 ]
 
 # Tool choice modes (spec/01 §3.6)
@@ -134,6 +136,7 @@ __all__ = [
     "BLOCK_TYPE_CUSTOM_TOOL_RESULT",
     "BLOCK_TYPE_APPLY_PATCH_TOOL_USE",
     "BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT",
+    "BLOCK_TYPE_REFUSAL",
     "TOOL_TYPE_APPLY_PATCH",
     "BlockType",
     "TOOL_CHOICE_AUTO",

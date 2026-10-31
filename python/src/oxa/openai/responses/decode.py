@@ -16,6 +16,7 @@ from oxa.ir import (
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_OTHER,
+    STOP_REFUSAL,
     STOP_TOOL_USE,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
@@ -30,6 +31,7 @@ from oxa.ir import (
     OutputTokensDetails,
     Params,
     ReasoningEffort,
+    RefusalBlock,
     Request,
     Response,
     ResponseFormat,
@@ -377,6 +379,9 @@ def decode_response(
         if kind == ITEM_TYPE_MESSAGE:
             for content_index, part in enumerate(item.get("content", [])):
                 p_kind = part.get("type", "")
+                if p_kind == "refusal":
+                    text.append(RefusalBlock(refusal=part.get("refusal", "")))
+                    continue
                 if p_kind != PART_TYPE_OUTPUT_TEXT:
                     losses.append(
                         loss(
@@ -537,6 +542,8 @@ def decode_response(
     stop_reason, status_losses = decode_status(wire, has_tool_use)
     losses.extend(status_losses)
     content = thinkings + text + calls
+    if any(isinstance(b, RefusalBlock) for b in content) and stop_reason == STOP_END_TURN:
+        stop_reason = STOP_REFUSAL
 
     model = str(wire.get("model", ""))
     if table is not None:
@@ -578,6 +585,8 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
         error = wire["error"]
         code = error.get("code")
         msg = error.get("message", "")
+        if code == "refusal":
+            return STOP_REFUSAL, []
         return (
             STOP_OTHER,
             [

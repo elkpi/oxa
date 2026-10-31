@@ -44,6 +44,7 @@ from oxa.ir import (
     Loss,
     Params,
     ReasoningEffort,
+    RefusalBlock,
     ResponseFormatJsonSchema,
     Request,
     Response,
@@ -367,6 +368,16 @@ def decode_response(
     stop_reason, stop_loss = decode_stop_reason(wire.get("stop_reason"))
     if stop_loss is not None:
         losses.append(stop_loss)
+
+    if stop_reason == STOP_REFUSAL:
+        stop_details = wire.get("stop_details")
+        if isinstance(stop_details, dict):
+            category = stop_details.get("category")
+            explanation = stop_details.get("explanation")
+            content.append(RefusalBlock(
+                refusal=explanation if isinstance(explanation, str) else "",
+                category=category if isinstance(category, str) else None,
+            ))
 
     model = str(wire.get("model", ""))
     if table is not None:

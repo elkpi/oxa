@@ -38,6 +38,7 @@ from oxa.ir import (
     SystemBlock,
     TextBlock,
     ThinkingBlock,
+    RefusalBlock,
     Tool,
     Usage,
 )
@@ -219,11 +220,16 @@ def decode_request(
             messages.append(IrMessage(role=IR_ROLE_USER, content=content))
         elif role == ROLE_ASSISTANT:
             tool_calls = msg.get("tool_calls")
+            refusal = msg.get("refusal")
+            if refusal is not None and isinstance(refusal, str) and refusal != "":
+                if msg.get("content") is None:
+                    content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
+                content.append(RefusalBlock(refusal=refusal))
             if tool_calls is not None:
                 calls_path = f"messages[{index}].tool_calls"
                 tool_blocks, tool_losses = decode_tool_calls(tool_calls, calls_path)
                 if msg.get("content") is None and tool_blocks:
-                    content = [block for block in content if isinstance(block, ThinkingBlock)]
+                    content = [block for block in content if isinstance(block, (ThinkingBlock, RefusalBlock))]
                 content.extend(tool_blocks)
                 losses.extend(tool_losses)
             messages.append(IrMessage(role=IR_ROLE_ASSISTANT, content=content))
@@ -473,10 +479,15 @@ def decode_response(
         content.insert(0, ThinkingBlock(thinking=reasoning_content))
 
     tool_calls = msg.get("tool_calls")
+    refusal = msg.get("refusal")
+    if refusal is not None and isinstance(refusal, str) and refusal != "":
+        if msg.get("content") is None:
+            content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
+        content.append(RefusalBlock(refusal=refusal))
     if tool_calls is not None:
         tool_blocks, tool_losses = decode_tool_calls(tool_calls, "choices[0].message.tool_calls")
         if msg.get("content") is None and tool_blocks:
-            content = [block for block in content if isinstance(block, ThinkingBlock)]
+            content = [block for block in content if isinstance(block, (ThinkingBlock, RefusalBlock))]
         content.extend(tool_blocks)
         losses.extend(tool_losses)
 

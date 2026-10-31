@@ -25,6 +25,7 @@ from oxa.ir import (
     TextBlock,
     ThinkingBlock,
     RedactedThinkingBlock,
+    RefusalBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -515,6 +516,7 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
     text_chunks: list[str] = []
     reasoning_chunks: list[str] = []
     has_reasoning = False
+    refusal_val: str | None = None
     tool_calls: list[dict[str, Any]] = []
     losses: list[Loss] = []
 
@@ -596,6 +598,17 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                     "IR tool_result block cannot be rendered in a Chat Completions assistant message",
                 )
             )
+        elif isinstance(block, RefusalBlock):
+            refusal_val = block.refusal
+            if block.category:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].category",
+                        "category",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic refusal category has no Chat Completions equivalent",
+                    )
+                )
         elif isinstance(block, DocumentBlock):
             losses.append(
                 loss(
@@ -606,7 +619,14 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                 )
             )
 
-    out["content"] = "".join(text_chunks)
+    if refusal_val is not None:
+        out["refusal"] = refusal_val
+        if not text_chunks:
+            out["content"] = None
+        else:
+            out["content"] = "".join(text_chunks)
+    else:
+        out["content"] = "".join(text_chunks)
     if has_reasoning:
         out["reasoning_content"] = "".join(reasoning_chunks)
     if tool_calls:

@@ -32,6 +32,27 @@ class AnthropicNonstreamTest(unittest.TestCase):
             decode_request(wire)
         self.assertIn("max_tokens is required and must be positive", str(cm.exception))
 
+    def test_non_positive_budget_is_a_structural_error(self) -> None:
+        for budget in (0, -1, -100):
+            wire = {
+                "model": "claude-sonnet-4-5",
+                "max_tokens": 100,
+                "messages": [{"role": "user", "content": "Hello"}],
+                "thinking": {"type": "enabled", "budget_tokens": budget},
+            }
+            with self.assertRaises(ValueError) as cm:
+                decode_request(wire)
+            self.assertIn("budget_tokens", str(cm.exception))
+        wire_missing = {
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "thinking": {"type": "enabled"},
+        }
+        with self.assertRaises(ValueError) as cm:
+            decode_request(wire_missing)
+        self.assertIn("budget_tokens", str(cm.exception))
+
     def test_unknown_role_is_a_structural_error(self) -> None:
         wire = {
             "model": "claude-sonnet-4-5",

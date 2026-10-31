@@ -237,17 +237,18 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
                 )
             )
             budget = thinking.get("budget_tokens")
-            if isinstance(budget, int) and budget > 0:
-                if has_explicit_effort:
-                    req_native.append(
-                        NativeAnnotation(
-                            source=NATIVE_SOURCE_ANTHROPIC,
-                            kind=NATIVE_KIND_THINKING_BUDGET,
-                            value=str(budget),
-                            omission=NativeOmission(field="budget_tokens", reason=LOSS_UNMAPPED_FIELD),
-                        )
+            if not isinstance(budget, int) or isinstance(budget, bool) or budget <= 0:
+                raise ValueError("anthropic: thinking.budget_tokens must be a positive integer")
+            if has_explicit_effort:
+                req_native.append(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_ANTHROPIC,
+                        kind=NATIVE_KIND_THINKING_BUDGET,
+                        value=str(budget),
+                        omission=NativeOmission(field="budget_tokens", reason=LOSS_UNMAPPED_FIELD),
                     )
-                else:
+                )
+            else:
                     derived: ReasoningEffort = (
                         "minimal" if budget <= 1024 else ("low" if budget <= 2048 else ("medium" if budget <= 8192 else "high"))
                     )

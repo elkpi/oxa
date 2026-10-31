@@ -398,13 +398,17 @@ func TestDecodeResponseToolCallAndReasoningLoss(t *testing.T) {
 	if resp.StopReason != ir.StopToolUse {
 		t.Fatalf("stop reason: %v", resp.StopReason)
 	}
-	// one reasoning-item loss, one annotations loss
-	if len(losses) != 2 {
+	// one reasoning-item loss; annotations now map to Citations without loss
+	if len(losses) != 1 {
 		t.Fatalf("losses: %+v", losses)
 	}
 	blocks := resp.Content
 	if len(blocks) != 2 {
 		t.Fatalf("content: %+v", blocks)
+	}
+	tb, ok := blocks[0].(ir.TextBlock)
+	if !ok || len(tb.Citations) != 1 || tb.Citations[0].Source != ir.CitationSourceOpenAI {
+		t.Fatalf("expected text citation, got %+v", blocks[0])
 	}
 	// N-R-5: text blocks come first, then tool uses, regardless of the wire
 	// order of the output items (here the function_call item preceded the

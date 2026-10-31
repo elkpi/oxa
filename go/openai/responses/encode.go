@@ -430,6 +430,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var losses []ir.Loss
 	var output []OutputItem
 	var thinkings []OutputContent
+	var annotations []json.RawMessage
 	text := ""
 	hasText := false
 	apcIndex := 0
@@ -439,7 +440,15 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
-			if len(value.Citations) > 0 {
+			hasAnthropic := false
+			for _, c := range value.Citations {
+				if c.Source == ir.CitationSourceOpenAI {
+					annotations = append(annotations, json.RawMessage(c.Value))
+				} else if c.Source == ir.CitationSourceAnthropic {
+					hasAnthropic = true
+				}
+			}
+			if hasAnthropic {
 				losses = append(losses, loss(
 					fmt.Sprintf("content[%d].citations", i), "citations", ir.LossUnsupportedSemantic,
 					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
@@ -524,10 +533,14 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		}
 	}
 	if hasText || (len(resp.Content) == 0 && len(thinkings) == 0) {
+		annList := annotations
+		if annList == nil {
+			annList = []json.RawMessage{}
+		}
 		output = append([]OutputItem{{
 			Type: ItemTypeMessage, ID: "msg_abc123", Status: StatusCompleted, Role: RoleAssistant,
 			Content: []OutputContent{{
-				Type: PartTypeOutputText, Text: text, Annotations: []json.RawMessage{},
+				Type: PartTypeOutputText, Text: text, Annotations: annList,
 			}},
 		}}, output...)
 	}

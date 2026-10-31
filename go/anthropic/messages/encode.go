@@ -681,14 +681,16 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 	switch b := block.(type) {
 	case ir.TextBlock:
 		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
+		var blockLosses []ir.Loss
 		if len(b.Citations) > 0 {
-			rawCites, err := encodeResponseCitations(b.Citations)
+			rawCites, citeLosses, err := encodeResponseCitations(b.Citations, path+".citations")
 			if err != nil {
 				return BlockWire{}, nil, false, err
 			}
 			bw.Citations = rawCites
+			blockLosses = append(blockLosses, citeLosses...)
 		}
-		return bw, nil, true, nil
+		return bw, blockLosses, true, nil
 	case ir.RedactedThinkingBlock:
 		return BlockWire{Type: BlockTypeRedactedThinking, Data: b.Data}, nil, true, nil
 	case ir.ThinkingBlock:
@@ -744,8 +746,13 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 func encodeRequestCitations(cites []ir.TextCitation, path string) (json.RawMessage, []ir.Loss, error) {
 	var losses []ir.Loss
 	var items []json.RawMessage
+	hasOpenAI := false
 	for i, c := range cites {
-		if c.Source != "anthropic" {
+		if c.Source == ir.CitationSourceOpenAI {
+			hasOpenAI = true
+			continue
+		}
+		if c.Source != ir.CitationSourceAnthropic {
 			return nil, nil, fmt.Errorf("anthropic: %s[%d]: unknown citation source %q", path, i, c.Source)
 		}
 		if err := ir.ValidateCitationValue(c.Value); err != nil {
@@ -772,22 +779,51 @@ func encodeRequestCitations(cites []ir.TextCitation, path string) (json.RawMessa
 		}
 		items = append(items, b)
 	}
+	if hasOpenAI {
+		losses = append(losses, ir.Loss{
+			Path:   path,
+			Field:  "citations",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: "openai text annotations; the target face cannot preserve source locations and replay metadata",
+		})
+	}
+	if len(items) == 0 {
+		return nil, losses, nil
+	}
 	b, err := json.Marshal(items)
 	return b, losses, err
 }
 
-func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
+func encodeResponseCitations(cites []ir.TextCitation, path string) (json.RawMessage, []ir.Loss, error) {
 	var items []json.RawMessage
+	var losses []ir.Loss
+	hasOpenAI := false
 	for i, c := range cites {
-		if c.Source != "anthropic" {
-			return nil, fmt.Errorf("anthropic: citations[%d]: unknown citation source %q", i, c.Source)
+		if c.Source == ir.CitationSourceOpenAI {
+			hasOpenAI = true
+			continue
+		}
+		if c.Source != ir.CitationSourceAnthropic {
+			return nil, nil, fmt.Errorf("anthropic: citations[%d]: unknown citation source %q", i, c.Source)
 		}
 		if err := ir.ValidateCitationValue(c.Value); err != nil {
-			return nil, fmt.Errorf("anthropic: citations[%d]: %w", i, err)
+			return nil, nil, fmt.Errorf("anthropic: citations[%d]: %w", i, err)
 		}
 		items = append(items, json.RawMessage(c.Value))
 	}
-	return json.Marshal(items)
+	if hasOpenAI {
+		losses = append(losses, ir.Loss{
+			Path:   path,
+			Field:  "citations",
+			Reason: ir.LossUnsupportedSemantic,
+			Detail: "openai text annotations; the target face cannot preserve source locations and replay metadata",
+		})
+	}
+	if len(items) == 0 {
+		return nil, losses, nil
+	}
+	b, err := json.Marshal(items)
+	return b, losses, err
 }
 
 func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss, error) {

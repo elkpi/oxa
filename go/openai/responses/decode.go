@@ -817,13 +817,11 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 					))
 					continue
 				}
-				if len(part.Annotations) > 0 {
-					losses = append(losses, loss(
-						fmt.Sprintf("output[%d].content[%d].annotations", i, j), "annotations", ir.LossUnmappedField,
-						"Responses output annotations have no IR equivalent in v1.",
-					))
+				cites, err := decodeResponsesAnnotations(part.Annotations, fmt.Sprintf("output[%d].content[%d].annotations", i, j))
+				if err != nil {
+					return nil, nil, err
 				}
-				texts = append(texts, ir.TextBlock{Text: part.Text})
+				texts = append(texts, ir.TextBlock{Text: part.Text, Citations: cites})
 			}
 		case ItemTypeWebSearchCall:
 			block, callLosses, err := decodeWebSearchCall(item.ID, item.Status, item.Action, item.Extra, fmt.Sprintf("output[%d]", i))
@@ -973,3 +971,37 @@ func responsesMetadata(v any) (map[string]string, error) {
 	}
 	return out, nil
 }
+
+func decodeResponsesAnnotations(raw []json.RawMessage, path string) ([]ir.TextCitation, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out []ir.TextCitation
+	for k, ann := range raw {
+		if len(ann) == 0 {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation cannot be empty", path, k)
+		}
+		var obj map[string]any
+		if err := json.Unmarshal(ann, &obj); err != nil {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation must be an object: %w", path, k, err)
+		}
+		typeVal, ok := obj["type"]
+		if !ok {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation requires type field", path, k)
+		}
+		typeStr, ok := typeVal.(string)
+		if !ok || typeStr == "" {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation type must be a non-empty string", path, k)
+		}
+		compact, err := json.Marshal(obj)
+		if err != nil {
+			return nil, fmt.Errorf("responses: %s[%d]: %w", path, k, err)
+		}
+		out = append(out, ir.TextCitation{
+			Source: ir.CitationSourceOpenAI,
+			Value:  string(compact),
+		})
+	}
+	return out, nil
+}
+

@@ -118,14 +118,15 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.openThinking = false
 			e.openIndex = event.Index
 			var citesRaw json.RawMessage
+			var citeLosses []ir.Loss
 			if len(block.Citations) > 0 {
 				var err error
-				citesRaw, err = encodeResponseCitations(block.Citations)
+				citesRaw, citeLosses, err = encodeResponseCitations(block.Citations, fmt.Sprintf("content[%d].citations", event.Index))
 				if err != nil {
 					return nil, nil, err
 				}
 			}
-			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{Type: BlockTypeText, Text: block.Text, Citations: citesRaw}}}, nil, nil
+			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{Type: BlockTypeText, Text: block.Text, Citations: citesRaw}}}, citeLosses, nil
 		case ir.ThinkingBlock:
 			e.nextIndex++
 			e.blockOpen = true

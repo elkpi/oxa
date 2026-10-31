@@ -298,6 +298,7 @@ function decodeRequestObject(
             current.content,
             `input[${index}].content`,
             losses,
+            false,
           );
           texts.push(
             ...(decoded.length === 0
@@ -380,6 +381,7 @@ function decodeRequestObject(
           item.content,
           `input[${index}].content`,
           losses,
+          role === "user",
         );
         if (role === "system" || role === "developer") {
           for (let child = 0; child < content.length; child += 1) {
@@ -1687,6 +1689,7 @@ function decodeContent(
   value: JsonValue | undefined,
   path: string,
   losses: Loss[],
+  isUser: boolean = true,
 ): Block[] {
   if (value === undefined || value === null)
     return [{ type: "text", text: "" }];
@@ -1717,6 +1720,16 @@ function decodeContent(
         );
       else blocks.push(image);
     } else if (part.type === "input_file") {
+      if (!isUser) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            'Responses content part type "input_file" has no IR equivalent',
+        });
+        continue;
+      }
       let count = 0;
       if (part.file_id !== undefined && part.file_id !== null) count++;
       if (part.file_url !== undefined && part.file_url !== null) count++;
@@ -1778,10 +1791,24 @@ function decodeContent(
             "type-violation",
             `${path}[${index}].file_data cannot be empty`,
           );
+        let dataPayload = fileData;
+        let mediaType = "application/pdf";
+        if (fileData.startsWith("data:")) {
+          const idx = fileData.indexOf(";base64,");
+          if (idx === -1) {
+            throw new OxaError(
+              "type-violation",
+              `responses: ${path}[${index}].file_data: malformed data file URL`,
+            );
+          }
+          const mt = fileData.slice(5, idx);
+          if (mt.length > 0) mediaType = mt;
+          dataPayload = fileData.slice(idx + 8);
+        }
         blocks.push({
           type: "document",
-          data: fileData,
-          media_type: "application/pdf",
+          data: dataPayload,
+          media_type: mediaType,
         });
       }
     } else
@@ -1851,16 +1878,30 @@ function encodeUserContent(
       }
     } else if (block.type === "document") {
       otherBlocks += 1;
-      if (block.file_id !== undefined) {
+      let sCount = 0;
+      if (block.file_id !== undefined && block.file_id !== "") sCount++;
+      if (block.url !== undefined && block.url !== "") sCount++;
+      if (block.data !== undefined && block.data !== "") sCount++;
+      if (sCount === 0) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail: "IR DocumentBlock carries no supported file source",
+        });
+      } else if (sCount > 1) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail: "IR DocumentBlock carries conflicting file sources",
+        });
+      } else if (block.file_id !== undefined && block.file_id !== "") {
         parts.push({ type: "input_file", file_id: block.file_id });
-      } else if (block.url !== undefined) {
+      } else if (block.url !== undefined && block.url !== "") {
         parts.push({ type: "input_file", file_url: block.url });
-      } else if (block.data !== undefined) {
-        parts.push({ type: "input_file", file_data: block.data });
       } else {
-        losses.push(
-          loss(`${path}[${index}]`, "content", "unsupported-semantic"),
-        );
+        parts.push({ type: "input_file", file_data: block.data! });
       }
     } else {
       otherBlocks += 1;

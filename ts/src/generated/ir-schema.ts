@@ -29,7 +29,7 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRequestRefusalBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
@@ -115,7 +115,20 @@ export interface IrSchemaRequestApplyPatchToolResultBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRefusalBlock;
+
+export interface IrSchemaRefusalBlock {
+  readonly type: "refusal";
+  readonly refusal: string;
+  readonly category?: string;
+}
+
+export interface IrSchemaRequestRefusalBlock {
+  readonly type: "refusal";
+  readonly refusal: string;
+  readonly category?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
 
 export interface IrSchemaWebSearchCallBlock {
   readonly type: "web_search_call";

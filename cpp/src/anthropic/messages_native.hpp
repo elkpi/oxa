@@ -401,7 +401,7 @@ inline Status decode_request_native(
                         std::nullopt,
                     });
                 } else {
-                    std::string derived = (budget <= 2048) ? "low" : ((budget <= 8192) ? "medium" : "high");
+                    std::string derived = (budget <= 1024) ? "minimal" : ((budget <= 2048) ? "low" : ((budget <= 8192) ? "medium" : "high"));
                     if (req.params.has_value()) {
                         req.params->reasoning_effort = derived;
                     }

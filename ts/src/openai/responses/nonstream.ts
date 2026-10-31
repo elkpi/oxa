@@ -801,6 +801,16 @@ function decodeResponseObject(
           content[child],
           `output[${index}].content[${child}]`,
         );
+        if (part.type === "refusal") {
+          texts.push({
+            type: "refusal",
+            refusal: string(
+              part.refusal,
+              `output[${index}].content[${child}].refusal`,
+            ),
+          });
+          continue;
+        }
         if (part.type !== "output_text") {
           losses.push(
             loss(
@@ -982,8 +992,15 @@ function decodeResponseObject(
   const status = string(wire.status, "status");
   let stopReason: Response["stop_reason"];
   if (wire.error !== undefined && wire.error !== null) {
-    stopReason = "other";
-    losses.push(loss("error", "error", "unsupported-semantic"));
+    const errObj = object(wire.error, "error");
+    if (errObj.code === "refusal") {
+      stopReason = "refusal";
+    } else {
+      stopReason = "other";
+      losses.push(loss("error", "error", "unsupported-semantic"));
+    }
+  } else if (texts.some((b) => b.type === "refusal")) {
+    stopReason = "refusal";
   } else if (status === "completed") {
     stopReason = calls.some(
       (block) =>
@@ -1306,9 +1323,24 @@ export function encodeResponse(
   const calls: JsonValue[] = [];
   let apcIndex = 0;
   let apcoIndex = 0;
+  let refusalMsg: string | undefined;
   for (let index = 0; index < response.content.length; index += 1) {
     const block = response.content[index]!;
-    if (block.type === "text") {
+    if (block.type === "refusal") {
+      if (block.category) {
+        losses.push({
+          path: `content[${index}].category`,
+          field: "category",
+          reason: "unsupported-semantic",
+          detail: "Anthropic refusal category has no Responses equivalent",
+        });
+      }
+      textParts.push({
+        type: "refusal",
+        refusal: block.refusal,
+      });
+      if (!refusalMsg) refusalMsg = block.refusal;
+    } else if (block.type === "text") {
       const partAnnotations: JsonValue[] = [];
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
@@ -1454,7 +1486,7 @@ export function encodeResponse(
       break;
     case "refusal":
       status = "failed";
-      error = { code: "refusal", message: "" };
+      error = { code: "refusal", message: refusalMsg ?? "" };
       break;
     default:
       fail(`stop reason ${response.stop_reason} is unsupported`);

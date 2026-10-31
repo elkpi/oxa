@@ -163,6 +163,13 @@ export interface WebSearchCallBlock {
   readonly extra?: JsonObject;
 }
 
+export interface RefusalBlock {
+  readonly type: "refusal";
+  readonly refusal: string;
+  readonly category?: string;
+  readonly native?: readonly NativeAnnotation[];
+}
+
 export type Block =
   | TextBlock
   | ThinkingBlock
@@ -175,7 +182,8 @@ export type Block =
   | CustomToolResultBlock
   | ApplyPatchToolUseBlock
   | ApplyPatchToolResultBlock
-  | WebSearchCallBlock;
+  | WebSearchCallBlock
+  | RefusalBlock;
 export interface TextDelta {
   readonly type: "text_delta";
   readonly text: string;

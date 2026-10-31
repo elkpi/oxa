@@ -72,6 +72,7 @@ const MESSAGE: WireAuditSpec = {
   fields: {
     role: undefined,
     content: { items: PART },
+    refusal: undefined,
     reasoning_content: undefined,
     tool_calls: { items: TOOL_CALL },
     tool_call_id: undefined,

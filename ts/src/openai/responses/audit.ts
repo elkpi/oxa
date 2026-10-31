@@ -33,6 +33,8 @@ const INPUT_PART: WireAuditSpec = {
           detail: undefined,
         },
       };
+    if (part.type === "refusal")
+      return { fields: { type: undefined, refusal: undefined } };
     return undefined;
   },
 };
@@ -276,6 +278,8 @@ const RESPONSE_PART: WireAuditSpec = {
       return {
         fields: { type: undefined, image_url: undefined, detail: undefined },
       };
+    if (part.type === "refusal")
+      return { fields: { type: undefined, refusal: undefined } };
     if (part.type !== "output_text") return undefined;
     return {
       fields: {

@@ -166,6 +166,12 @@ function encodeBlock(block: Block): JsonObject {
       name: block.name,
       input: block.input,
     };
+  if (block.type === "refusal")
+    return {
+      type: "refusal",
+      refusal: block.refusal,
+      ...(block.category === undefined ? {} : { category: block.category }),
+    };
   throw new OxaError(
     "ir-invariant",
     `codec does not yet encode block ${block.type}`,
@@ -248,6 +254,14 @@ function decodeBlock(value: JsonValue | undefined): Block {
       id: string(block.id, "block.id"),
       name: string(block.name, "block.name"),
       input: string(block.input, "block.input") as JsonText,
+    };
+  if (block.type === "refusal")
+    return {
+      type: "refusal",
+      refusal: string(block.refusal, "block.refusal"),
+      ...(block.category === undefined
+        ? {}
+        : { category: string(block.category, "block.category") }),
     };
   fail("unsupported block type");
 }

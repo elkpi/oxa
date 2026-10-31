@@ -59,7 +59,7 @@ test("runs Responses cross response vectors across faces", () => {
       chatcompletions,
       responses,
     }),
-    8,
+    10,
   );
 });
 
@@ -69,7 +69,7 @@ test("runs Chat Completions cross response vectors across faces", () => {
       anthropic,
       responses,
     }),
-    3,
+    4,
   );
 });
 
@@ -80,6 +80,6 @@ test("runs Anthropic cross response vectors across faces", () => {
       chatcompletions,
       responses,
     }),
-    6,
+    8,
   );
 });

@@ -56,6 +56,7 @@ import type {
   TextCitation,
   ThinkingBlock,
   RedactedThinkingBlock,
+  RefusalBlock,
   Tool,
   ToolChoice,
 } from "../../ir/index.js";
@@ -475,6 +476,22 @@ function decodeResponseObject(
     stopReason = "other";
     losses.push(loss("stop_reason", "stop_reason", "unmapped-value"));
   }
+  if (
+    nativeStop === "refusal" &&
+    wire.stop_details !== undefined &&
+    wire.stop_details !== null
+  ) {
+    const details = object(wire.stop_details, "stop_details");
+    const category =
+      typeof details.category === "string" ? details.category : undefined;
+    const explanation =
+      typeof details.explanation === "string" ? details.explanation : "";
+    content.push({
+      type: "refusal",
+      refusal: explanation,
+      ...(category === undefined ? {} : { category }),
+    });
+  }
   const usage = object(wire.usage, "usage");
   return {
     value: {
@@ -797,6 +814,13 @@ export function encodeResponse(
   )
     fail(`stop reason ${response.stop_reason} is unsupported`);
   const losses: Loss[] = [];
+  let refusalBlock: RefusalBlock | undefined;
+  for (const block of response.content) {
+    if (block.type === "refusal") {
+      refusalBlock = block;
+      break;
+    }
+  }
   const stopReason =
     response.stop_reason === "tool_use" &&
     !response.content.some(
@@ -804,7 +828,9 @@ export function encodeResponse(
     )
       ? (losses.push(loss("stop_reason", "stop_reason", "degraded")),
         "end_turn" as const)
-      : response.stop_reason;
+      : refusalBlock !== undefined
+        ? ("refusal" as const)
+        : response.stop_reason;
   return {
     value: {
       id: response.id,
@@ -819,9 +845,20 @@ export function encodeResponse(
           false,
           false,
         );
-        return encoded.length === 0 ? [{ type: "text", text: "" }] : encoded;
+        return encoded.length === 0 && stopReason !== "refusal"
+          ? [{ type: "text", text: "" }]
+          : encoded;
       })(),
       stop_reason: stopReason,
+      ...(stopReason === "refusal"
+        ? {
+            stop_details: {
+              type: "refusal",
+              category: refusalBlock?.category ?? null,
+              explanation: refusalBlock?.refusal ?? null,
+            },
+          }
+        : {}),
       ...(stopReason === "stop_sequence" && response.stop_sequence !== undefined
         ? { stop_sequence: response.stop_sequence }
         : {}),
@@ -1406,6 +1443,17 @@ function encodeContent(
           ...(cc ? { cache_control: cc } : {}),
         });
       }
+    } else if (block.type === "refusal") {
+      if (isRequest) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            "Anthropic does not support refusal content blocks in request history",
+        });
+      }
+      continue;
     } else if (
       block.type === "apply_patch_tool_use" ||
       block.type === "apply_patch_tool_result" ||

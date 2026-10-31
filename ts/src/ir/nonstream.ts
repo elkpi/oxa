@@ -690,6 +690,12 @@ function encodeBlockBase(
         content: block.content.map(childEncoder),
         ...(block.is_error === undefined ? {} : { is_error: block.is_error }),
       };
+    case "refusal":
+      return {
+        type: "refusal",
+        refusal: block.refusal,
+        ...(block.category === undefined ? {} : { category: block.category }),
+      };
   }
 }
 
@@ -880,6 +886,14 @@ function decodeBlockBase(
         ...(block.is_error === undefined
           ? {}
           : { is_error: boolean(block.is_error, "block.is_error") }),
+      };
+    case "refusal":
+      return {
+        type: "refusal",
+        refusal: string(block.refusal, "block.refusal"),
+        ...(block.category === undefined
+          ? {}
+          : { category: string(block.category, "block.category") }),
       };
     default:
       fail("unsupported IR block type");

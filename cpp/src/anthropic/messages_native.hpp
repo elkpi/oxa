@@ -390,9 +390,11 @@ inline Status decode_request_native(
             });
 
             const auto* budget_val = thinking->find("budget_tokens");
-            if (budget_val != nullptr && budget_val->is_int() && budget_val->as_int() > 0) {
-                std::int64_t budget = budget_val->as_int();
-                if (has_explicit_effort) {
+            if (budget_val == nullptr || !budget_val->is_int() || budget_val->as_int() <= 0) {
+                return invalid_argument("anthropic: thinking.budget_tokens must be a positive integer");
+            }
+            std::int64_t budget = budget_val->as_int();
+            if (has_explicit_effort) {
                     req.native.push_back(ir::NativeAnnotation{
                         std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                         std::string(ir::NATIVE_KIND_THINKING_BUDGET),
@@ -413,7 +415,6 @@ inline Status decode_request_native(
                         ir::NativeProjection{"budget", derived},
                     });
                 }
-            }
         } else {
             losses.push_back(ir::Loss{
                 "thinking.type",

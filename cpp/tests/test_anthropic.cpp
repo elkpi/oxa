@@ -173,6 +173,21 @@ int main() {
     CHECK(rep_res->failures.empty());
     CHECK(rep_res->executed == 120);
 
+    // Test non-positive budget rejection in enabled thinking
+    {
+        for (const char* budget_str : {"0", "-1", "-100"}) {
+            std::string raw = std::string(R"({"model":"claude-opus-5-5","max_tokens":1024,"messages":[{"role":"user","content":"Hi"}],"thinking":{"type":"enabled","budget_tokens":)") + budget_str + "}}";
+            auto wire = oxa::json::parse(raw);
+            CHECK(wire.ok());
+            auto dec = oxa::anthropic::messages::decode_request(*wire);
+            CHECK(!dec.ok());
+        }
+        auto wire_missing = oxa::json::parse(R"({"model":"claude-opus-5-5","max_tokens":1024,"messages":[{"role":"user","content":"Hi"}],"thinking":{"type":"enabled"}})");
+        CHECK(wire_missing.ok());
+        auto dec_missing = oxa::anthropic::messages::decode_request(*wire_missing);
+        CHECK(!dec_missing.ok());
+    }
+
     // Test mid-conversation system messages
     {
         auto wire_res = oxa::json::parse(R"({

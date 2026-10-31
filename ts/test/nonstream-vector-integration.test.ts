@@ -6,6 +6,7 @@ import * as chatcompletions from "../src/openai/chatcompletions/index.js";
 import * as responses from "../src/openai/responses/index.js";
 import {
   runCrossRequestVectors,
+  runCrossResponseVectors,
   runNonstreamVectors,
 } from "./nonstream-vector-runner.js";
 
@@ -48,5 +49,37 @@ test("runs Anthropic cross request vectors across faces including native roundtr
       responses,
     }),
     25,
+  );
+});
+
+test("runs Responses cross response vectors across faces", () => {
+  assert.equal(
+    runCrossResponseVectors("responses", responses, {
+      anthropic,
+      chatcompletions,
+      responses,
+    }),
+    8,
+  );
+});
+
+test("runs Chat Completions cross response vectors across faces", () => {
+  assert.equal(
+    runCrossResponseVectors("chatcompletions", chatcompletions, {
+      anthropic,
+      responses,
+    }),
+    3,
+  );
+});
+
+test("runs Anthropic cross response vectors across faces", () => {
+  assert.equal(
+    runCrossResponseVectors("anthropic", anthropic, {
+      anthropic,
+      chatcompletions,
+      responses,
+    }),
+    6,
   );
 });

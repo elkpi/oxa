@@ -130,6 +130,49 @@ export function runCrossRequestVectors(
   return vectors.length;
 }
 
+export function runCrossResponseVectors(
+  sourceFace: string,
+  source: NonstreamVectorAdapter,
+  targets: Readonly<Record<string, NonstreamVectorAdapter>>,
+): number {
+  const root = findRepoRoot(process.cwd());
+  assert.ok(root !== undefined);
+  const vectors = loadVectors(root).filter(
+    ({ document }) =>
+      document.conversion === "protocol-to-protocol" &&
+      object(document.source, "source").protocol === sourceFace &&
+      strings(document.tags, "tags").includes("response"),
+  );
+  assert.ok(vectors.length > 0);
+  for (const vector of vectors) {
+    const document = vector.document;
+    const target =
+      targets[
+        string(object(document.target, "target").protocol, "target.protocol")
+      ];
+    assert.ok(target !== undefined, vector.name);
+    const decoded = source.decodeResponse(object(document.input, "input"));
+    const encoded = target.encodeResponse(decoded.value);
+    assert.equal(
+      compareJson(
+        object(document.expected_output, "expected_output"),
+        encoded.value,
+      ),
+      undefined,
+      vector.name,
+    );
+    assert.equal(
+      compareLosses(losses(document.expected_losses, vector.name), [
+        ...decoded.losses,
+        ...encoded.losses,
+      ]),
+      undefined,
+      vector.name,
+    );
+  }
+  return vectors.length;
+}
+
 function losses(value: JsonValue | undefined, name: string): readonly Loss[] {
   return array(value, `${name}.expected_losses`).map((entry, index) => {
     const item = object(entry, `${name}.expected_losses[${index}]`);

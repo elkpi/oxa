@@ -134,10 +134,14 @@ impl StreamEncoder {
                         self.open_ir_index = *index;
                         self.open_index = self.next_wire_index;
                         self.next_wire_index += 1;
-                        let wire_cites = citations
-                            .as_ref()
-                            .map(|cites| crate::encode::encode_response_citations(cites))
-                            .transpose()?;
+                        let (wire_cites, cite_losses) = if let Some(cites) = citations {
+                            crate::encode::encode_response_citations(
+                                cites,
+                                &format!("content[{}].citations", self.open_index),
+                            )?
+                        } else {
+                            (None, Vec::new())
+                        };
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
@@ -150,7 +154,7 @@ impl StreamEncoder {
                                 }),
                                 ..Default::default()
                             }],
-                            Vec::new(),
+                            cite_losses,
                         ))
                     }
                     Block::Thinking {

@@ -371,6 +371,39 @@ fn validate_citation_value(val_str: &str) -> Result<(), Error> {
     Ok(())
 }
 
+fn validate_citation(src: &str, val_str: &str) -> Result<(), Error> {
+    match src {
+        "anthropic" => validate_citation_value(val_str),
+        "openai" => {
+            if val_str.is_empty() {
+                return Err(Error::Custom("ir: citation value cannot be empty".into()));
+            }
+            let obj: Value = serde_json::from_str(val_str).map_err(|e| {
+                Error::Custom(format!("ir: citation value must be a JSON object: {e}"))
+            })?;
+            let Value::Object(map) = obj else {
+                return Err(Error::Custom(
+                    "ir: citation value must be a JSON object".into(),
+                ));
+            };
+            let Some(Value::String(cite_type)) = map.get("type") else {
+                return Err(Error::Custom(
+                    "ir: citation value requires type field".into(),
+                ));
+            };
+            if cite_type.is_empty() {
+                return Err(Error::Custom(
+                    "ir: citation type must be a non-empty string".into(),
+                ));
+            }
+            Ok(())
+        }
+        _ => Err(Error::Custom(format!(
+            "ir: unknown citation source {src:?}"
+        ))),
+    }
+}
+
 fn check_citations(val: &Value) -> Result<(), Error> {
     if let Value::Object(map) = val {
         if map.get("type").and_then(Value::as_str) == Some("web_search_call") {
@@ -378,31 +411,30 @@ fn check_citations(val: &Value) -> Result<(), Error> {
         }
         if let Some(Value::Array(cites)) = map.get("citations") {
             for c in cites {
-                if let Some(src) = c.get("source").and_then(Value::as_str)
-                    && src != "anthropic"
-                {
-                    return Err(Error::Custom(format!(
-                        "ir: unknown citation source {src:?}"
-                    )));
-                }
-                if let Some(v) = c.get("value").and_then(Value::as_str) {
-                    validate_citation_value(v)?;
+                if let Some(src) = c.get("source").and_then(Value::as_str) {
+                    if src != "anthropic" && src != "openai" {
+                        return Err(Error::Custom(format!(
+                            "ir: unknown citation source {src:?}"
+                        )));
+                    }
+                    if let Some(v) = c.get("value").and_then(Value::as_str) {
+                        validate_citation(src, v)?;
+                    }
                 }
             }
         }
         if let Some(delta) = map.get("delta")
             && delta.get("type").and_then(Value::as_str) == Some("citation_delta")
             && let Some(c) = delta.get("citation")
+            && let Some(src) = c.get("source").and_then(Value::as_str)
         {
-            if let Some(src) = c.get("source").and_then(Value::as_str)
-                && src != "anthropic"
-            {
+            if src != "anthropic" && src != "openai" {
                 return Err(Error::Custom(format!(
                     "ir: unknown citation source {src:?}"
                 )));
             }
             if let Some(v) = c.get("value").and_then(Value::as_str) {
-                validate_citation_value(v)?;
+                validate_citation(src, v)?;
             }
         }
         for v in map.values() {

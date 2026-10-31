@@ -1,6 +1,7 @@
 //! Face → IR conversions (spec/11 §4).
 
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use oxa_ir::{
     Block, CustomToolFormat, CustomToolOutput, InputTokensDetails, Loss, LossReason,
@@ -671,17 +672,35 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                         ));
                         continue;
                     }
+                    let mut cites: Vec<oxa_ir::TextCitation> = Vec::new();
                     if !part.annotations.is_empty() {
-                        losses.push(loss(
-                            format!("output[{item_index}].content[{content_index}].annotations"),
-                            "annotations",
-                            LossReason::UnmappedField,
-                            "Responses output annotations have no IR equivalent in v1.",
-                        ));
+                        for (k, ann) in part.annotations.iter().enumerate() {
+                            let Value::Object(map) = ann else {
+                                return Err(Error::new(format!(
+                                    "responses: output[{item_index}].content[{content_index}].annotations[{k}] must be an object"
+                                )));
+                            };
+                            let Some(Value::String(ann_type)) = map.get("type") else {
+                                return Err(Error::new(format!(
+                                    "responses: output[{item_index}].content[{content_index}].annotations[{k}] requires type field"
+                                )));
+                            };
+                            if ann_type.is_empty() {
+                                return Err(Error::new(format!(
+                                    "responses: output[{item_index}].content[{content_index}].annotations[{k}].type must be a non-empty string"
+                                )));
+                            }
+                            let compact = serde_json::to_string(map)
+                                .map_err(|e| Error::new(e.to_string()))?;
+                            cites.push(oxa_ir::TextCitation {
+                                source: "openai".into(),
+                                value: compact,
+                            });
+                        }
                     }
                     text.push(Block::Text {
                         text: part.text.clone(),
-                        citations: None,
+                        citations: if cites.is_empty() { None } else { Some(cites) },
                         native: Vec::new(),
                     });
                 }

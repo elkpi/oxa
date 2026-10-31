@@ -1,5 +1,7 @@
 //! IR → face conversions (spec/11 §4).
 
+use serde_json::Value;
+
 use oxa_ir::{
     Block, CustomToolOutput, Loss, LossReason, ReasoningEffort, Request as IrRequest,
     Response as IrResponse, ResponseFormat, StopReason, ToolType, Usage,
@@ -262,6 +264,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .ok_or_else(|| Error::new("responses: derived total_tokens exceeds int64"))?;
     let mut losses = Vec::new();
     let mut thinkings = Vec::new();
+    let mut annotations: Vec<Value> = Vec::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut calls = Vec::new();
@@ -279,12 +282,24 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 if let Some(cites) = citations
                     && !cites.is_empty()
                 {
-                    losses.push(loss(
-                        format!("content[{index}].citations"),
-                        "citations",
-                        LossReason::UnsupportedSemantic,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-                    ));
+                    let mut has_anthropic = false;
+                    for c in cites {
+                        if c.source == "openai" {
+                            if let Ok(v) = serde_json::from_str(&c.value) {
+                                annotations.push(v);
+                            }
+                        } else if c.source == "anthropic" {
+                            has_anthropic = true;
+                        }
+                    }
+                    if has_anthropic {
+                        losses.push(loss(
+                            format!("content[{index}].citations"),
+                            "citations",
+                            LossReason::UnsupportedSemantic,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        ));
+                    }
                 }
             }
             Block::RedactedThinking { .. } => {
@@ -463,7 +478,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 content: vec![OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text,
-                    annotations: Vec::new(),
+                    annotations,
                 }],
                 ..OutputItem::default()
             },

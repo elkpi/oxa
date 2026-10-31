@@ -463,6 +463,9 @@ fn anthropic_metadata(
     };
     let mut user_id = None;
     for (key, item) in object {
+        if key.is_empty() {
+            return Err(Error::new("anthropic: metadata key cannot be empty"));
+        }
         if key != "user_id" {
             losses.push(loss(
                 format!("metadata.{key}"),

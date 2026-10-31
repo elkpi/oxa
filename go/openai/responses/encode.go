@@ -26,10 +26,16 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.Metadata) > 0 {
-		out.Metadata = make(map[string]string, len(req.Metadata))
-		for key, value := range req.Metadata {
-			out.Metadata[key] = value
+		for key := range req.Metadata {
+			if key == "" {
+				return nil, nil, fmt.Errorf("responses: metadata key cannot be empty")
+			}
 		}
+		md := make(map[string]string, len(req.Metadata))
+		for key, value := range req.Metadata {
+			md[key] = value
+		}
+		out.Metadata = md
 	}
 	var leadingSystemItems []InputItem
 	if len(req.System) > 0 {

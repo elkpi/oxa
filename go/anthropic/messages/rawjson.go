@@ -29,6 +29,7 @@ type rawJSONSchema struct {
 	fields  map[string]*rawJSONSchema
 	items   *rawJSONSchema
 	variant func(*rawJSONNode) *rawJSONSchema
+	opaque  bool
 }
 
 type rawJSONLoss struct {
@@ -652,6 +653,12 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 					},
 				},
 			}
+			schema.fields["metadata"] = &rawJSONSchema{
+				opaque: true,
+				fields: map[string]*rawJSONSchema{
+					"user_id": nil,
+				},
+			}
 		case reflect.TypeOf(Response{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForResponseBlock(seen)}
 		}
@@ -919,6 +926,9 @@ func rawJSONStringField(node *rawJSONNode, name string) (string, bool) {
 func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byte {
 	if node == nil || schema == nil {
 		return raw
+	}
+	if schema.opaque {
+		return raw[node.start:node.end]
 	}
 	if schema.variant != nil {
 		v := schema.variant(node)

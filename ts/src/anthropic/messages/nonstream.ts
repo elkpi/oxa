@@ -1531,10 +1531,11 @@ function anthropicMetadata(
   losses: Loss[],
 ): Record<string, string> | undefined {
   if (value === undefined || value === null) return undefined;
-  if (typeof value !== "object" || Array.isArray(value))
+  if (typeof value !== "object" || Array.isArray(value) || isJsonNumber(value))
     fail("anthropic: metadata must be an object");
-  const out: Record<string, string> = {};
+  const out: Record<string, string> = Object.create(null);
   for (const [key, child] of Object.entries(value)) {
+    if (key.length === 0) fail("anthropic: metadata key cannot be empty");
     if (key === "user_id") {
       if (typeof child !== "string")
         fail("anthropic: metadata.user_id must be a string");
@@ -1549,7 +1550,7 @@ function anthropicMetadata(
         "Anthropic request metadata only preserves user_id; this key is dropped.",
     });
   }
-  return Object.keys(out).length === 0 ? undefined : out;
+  return out.user_id !== undefined ? { user_id: out.user_id } : undefined;
 }
 
 function encodeAnthropicMetadata(
@@ -1559,6 +1560,7 @@ function encodeAnthropicMetadata(
   if (metadata === undefined) return undefined;
   let userID: string | undefined;
   for (const key of Object.keys(metadata).sort()) {
+    if (key.length === 0) fail("anthropic: metadata key cannot be empty");
     if (key === "user_id") {
       userID = metadata[key];
       continue;

@@ -221,8 +221,18 @@ func TestMetadataRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if len(losses) != 0 || out.Metadata["k"] != "v" {
+	got, ok := out.Metadata.(map[string]string)
+	if !ok || got["k"] != "v" || len(losses) != 0 {
 		t.Fatalf("rendered = %+v losses=%+v", out.Metadata, losses)
+	}
+	for _, bad := range []string{
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"job":null}}`,
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"job":123}}`,
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"":"v"}}`,
+	} {
+		if _, _, err := DecodeRequestJSON([]byte(bad)); err == nil {
+			t.Fatalf("expected structural error for %s", bad)
+		}
 	}
 }
 

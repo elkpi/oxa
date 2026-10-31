@@ -37,6 +37,19 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         ));
     }
 
+    let metadata = match &wire.metadata {
+        Some(md) => {
+            if md.keys().any(String::is_empty) {
+                return Err(Error::new("responses: metadata key cannot be empty"));
+            }
+            if md.is_empty() {
+                None
+            } else {
+                Some(md.clone())
+            }
+        }
+        None => None,
+    };
     let mut request = IrRequest {
         model: config.map_model(&wire.model),
         system: Vec::new(),
@@ -44,10 +57,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tools: None,
         tool_choice: None,
         params: None,
-        metadata: wire
-            .metadata
-            .clone()
-            .filter(|metadata| !metadata.is_empty()),
+        metadata,
         native: Vec::new(),
     };
     if let Some(instructions) = &wire.instructions {

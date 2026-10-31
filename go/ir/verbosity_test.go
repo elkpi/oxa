@@ -14,3 +14,14 @@ func TestRequestVerbosityRejectsInvalidValues(t *testing.T) {
 		t.Error("invalid in-memory verbosity should be rejected")
 	}
 }
+
+func TestRequestMetadataRejectsEmptyKeys(t *testing.T) {
+	raw := []byte(`{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"metadata":{"":"val"}}`)
+	if _, err := UnmarshalRequest(raw); err == nil {
+		t.Error("empty metadata key should be rejected on unmarshal")
+	}
+	req := &Request{Model: "m", Messages: []Message{{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}}}, Metadata: map[string]string{"": "val"}}
+	if _, err := MarshalRequest(req); err == nil {
+		t.Error("empty metadata key should be rejected on marshal")
+	}
+}

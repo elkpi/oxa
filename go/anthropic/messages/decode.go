@@ -1316,39 +1316,54 @@ func anthropicMetadata(v any) (map[string]string, []ir.Loss, error) {
 	if v == nil {
 		return nil, nil, nil
 	}
-	var obj map[string]any
+	var rawMap map[string]json.RawMessage
 	switch raw := v.(type) {
-	case map[string]any:
-		obj = raw
-	case map[string]string:
-		if len(raw) == 0 {
-			return nil, nil, nil
-		}
-		obj = make(map[string]any, len(raw))
-		for key, value := range raw {
-			obj[key] = value
-		}
 	case json.RawMessage:
 		if len(raw) == 0 || string(raw) == "null" {
 			return nil, nil, nil
 		}
-		if err := json.Unmarshal(raw, &obj); err != nil {
+		if err := json.Unmarshal(raw, &rawMap); err != nil {
 			return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
+		}
+	case map[string]any:
+		if len(raw) == 0 {
+			return nil, nil, nil
+		}
+		rawMap = make(map[string]json.RawMessage, len(raw))
+		for key, value := range raw {
+			b, err := json.Marshal(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("anthropic: metadata: %w", err)
+			}
+			rawMap[key] = b
+		}
+	case map[string]string:
+		if len(raw) == 0 {
+			return nil, nil, nil
+		}
+		rawMap = make(map[string]json.RawMessage, len(raw))
+		for key, value := range raw {
+			b, _ := json.Marshal(value)
+			rawMap[key] = b
 		}
 	default:
 		return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
 	}
-	if obj == nil {
+	if rawMap == nil {
 		return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
 	}
-	keys := make([]string, 0, len(obj))
-	for key := range obj {
+	keys := make([]string, 0, len(rawMap))
+	for key := range rawMap {
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
 	var losses []ir.Loss
 	var out map[string]string
 	for _, key := range keys {
+		if key == "" {
+			return nil, nil, fmt.Errorf("anthropic: metadata key cannot be empty")
+		}
+		rawVal := rawMap[key]
 		if key != "user_id" {
 			losses = append(losses, ir.Loss{
 				Path:   "metadata." + key,
@@ -1358,11 +1373,11 @@ func anthropicMetadata(v any) (map[string]string, []ir.Loss, error) {
 			})
 			continue
 		}
-		value, ok := obj[key].(string)
-		if !ok {
+		var str string
+		if err := json.Unmarshal(rawVal, &str); err != nil {
 			return nil, nil, fmt.Errorf("anthropic: metadata.user_id must be a string")
 		}
-		out = map[string]string{"user_id": value}
+		out = map[string]string{"user_id": str}
 	}
 	return out, losses, nil
 }

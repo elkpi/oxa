@@ -41,6 +41,11 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         tool.validate_strict().map_err(Error::new)?;
     }
     oxa_ir::validate_native_request(req).map_err(|e| Error::new(e.to_string()))?;
+    if let Some(metadata) = &req.metadata
+        && metadata.keys().any(String::is_empty)
+    {
+        return Err(Error::new("anthropic: metadata key cannot be empty"));
+    }
     let mut losses = Vec::new();
     let metadata = encode_anthropic_metadata(req.metadata.as_ref(), &mut losses);
     let mut out = Request {

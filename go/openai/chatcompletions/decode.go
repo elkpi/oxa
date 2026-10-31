@@ -438,6 +438,9 @@ func openAIMetadata(v any) (map[string]string, error) {
 		}
 		out := make(map[string]string, len(metadata))
 		for key, value := range metadata {
+			if key == "" {
+				return nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+			}
 			out[key] = value
 		}
 		return out, nil
@@ -456,6 +459,9 @@ func openAIMetadata(v any) (map[string]string, error) {
 	sort.Strings(keys)
 	out := make(map[string]string, len(keys))
 	for _, key := range keys {
+		if key == "" {
+			return nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+		}
 		value, ok := obj[key].(string)
 		if !ok {
 			return nil, fmt.Errorf("chatcompletions: metadata.%s must be a string", key)

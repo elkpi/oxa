@@ -789,6 +789,11 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	if req.Params.Verbosity != "" && !validVerbosity(req.Params.Verbosity) {
 		return nil, fmt.Errorf("ir: invalid params.verbosity")
 	}
+	for k := range req.Metadata {
+		if k == "" {
+			return nil, fmt.Errorf("ir: metadata key cannot be empty")
+		}
+	}
 	if req.Params.ResponseFormat != nil {
 		rf := req.Params.ResponseFormat
 		if err := validateWireResponseFormat(&wireResponseFormat{
@@ -885,6 +890,11 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 	if w.Params != nil {
 		if err := validateWireResponseFormat(w.Params.ResponseFormat); err != nil {
 			return nil, err
+		}
+	}
+	for k := range w.Metadata {
+		if k == "" {
+			return nil, fmt.Errorf("ir: metadata key cannot be empty")
 		}
 	}
 	req := &Request{Model: w.Model, Metadata: w.Metadata, Native: w.Native}

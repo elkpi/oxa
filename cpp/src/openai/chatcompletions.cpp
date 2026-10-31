@@ -308,6 +308,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         if (!md->is_object()) return invalid_argument("chatcompletions: metadata must be an object");
         std::map<std::string, std::string> parsed;
         for (const auto& [key, value] : md->as_object()) {
+            if (key.empty())
+                return invalid_argument("chatcompletions: metadata key cannot be empty");
             if (!value.is_string())
                 return invalid_argument("chatcompletions: metadata." + key + " must be a string");
             parsed.emplace(key, value.as_string());
@@ -707,8 +709,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
     if (req.metadata.has_value() && !req.metadata->empty()) {
         json::Value md = json::Value::object();
-        for (const auto& [key, value] : *req.metadata)
+        for (const auto& [key, value] : *req.metadata) {
+            if (key.empty()) return invalid_argument("chatcompletions: metadata key cannot be empty");
             md.set(key, json::Value::string(value));
+        }
         out.set("metadata", std::move(md));
     }
 

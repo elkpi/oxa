@@ -352,7 +352,11 @@ export function decodeRequest(document: JsonValue): Request {
       : {
           metadata: Object.fromEntries(
             Object.entries(object(root.metadata, "request.metadata")).map(
-              ([key, value]) => [key, string(value, `request.metadata.${key}`)],
+              ([key, value]) => {
+                if (key.length === 0)
+                  fail("request.metadata key cannot be empty");
+                return [key, string(value, `request.metadata.${key}`)];
+              },
             ),
           ),
         }),
@@ -371,6 +375,11 @@ export function decodeRequest(document: JsonValue): Request {
 /** Enforces request conversation invariants INV-2 through INV-4. */
 export function validateRequest(request: Request): void {
   validateNativeRequest(request);
+  if (request.metadata !== undefined) {
+    for (const key of Object.keys(request.metadata)) {
+      if (key.length === 0) invalid("metadata key cannot be empty");
+    }
+  }
   for (const tool of request.tools ?? []) {
     if (
       tool.strict !== undefined &&

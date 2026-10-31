@@ -225,7 +225,6 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
         out.set("text", json::Value::string(t->text));
-        if (t->role == "developer") out.set("role", json::Value::string(t->role));
         if (t->citations.has_value() && !t->citations->empty()) {
             json::Value cites = json::Value::array();
             for (const auto& c : *t->citations) {
@@ -451,10 +450,8 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
             }
             if (!cites.empty()) block.citations = std::move(cites);
         }
-        if (const auto* role = v.find("role"); role != nullptr) {
-            if (!role->is_string() || role->as_string() != "developer")
-                return invalid_argument("ir: system role is not supported");
-            block.role = role->as_string();
+        if (v.find("role") != nullptr) {
+            return invalid_argument("ir: role is only permitted on system blocks");
         }
         return Block(std::move(block));
     }
@@ -680,6 +677,21 @@ Status validate_tool_strict(const Request& req) {
     return ok_status();
 }
 
+json::Value dump_system_block(const SystemBlock& s) {
+    json::Value out = json::Value::object();
+    out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
+    out.set("text", json::Value::string(s.text));
+    if (s.role == "developer") {
+        out.set("role", json::Value::string("developer"));
+    }
+    if (!s.native.empty()) {
+        json::Value native_arr = json::Value::array();
+        for (const auto& a : s.native) native_arr.push_back(dump_native_annotation(a));
+        out.set("native", std::move(native_arr));
+    }
+    return out;
+}
+
 json::Value dump_request(const Request& r) {
     json::Value out = json::Value::object();
     out.set("specVersion", json::Value::string(std::string(SPEC_VERSION)));
@@ -706,7 +718,7 @@ json::Value dump_request(const Request& r) {
     if (!r.system.empty()) {
         json::Value system = json::Value::array();
         for (const auto& s : r.system) {
-            system.push_back(dump_request_block(s));
+            system.push_back(dump_system_block(s));
         }
         out.set("system", std::move(system));
     }
@@ -804,6 +816,11 @@ json::Value dump_request(const Request& r) {
 StatusOr<json::Value> dump_request_checked(const Request& r) {
     OXA_RETURN_IF_ERROR(validate_tool_strict(r));
     OXA_RETURN_IF_ERROR(validate_native_request(r));
+    if (r.metadata.has_value()) {
+        for (const auto& [k, _] : *r.metadata) {
+            if (k.empty()) return invalid_argument("metadata key cannot be empty");
+        }
+    }
     json::Value out = dump_request(r);
     auto parsed = load_request(out);
     if (!parsed.ok()) return parsed.status();
@@ -821,6 +838,27 @@ StatusOr<std::string> dump_request_json(const Request& r) {
         *target = std::move(schema);
     }
     return json::serialize(out);
+}
+
+StatusOr<SystemBlock> load_system_block(const json::Value& v) {
+    if (!v.is_object()) return invalid_argument("system block must be an object");
+    OXA_ASSIGN_OR_RETURN(std::string kind, kind_of(v));
+    if (kind != BLOCK_TYPE_TEXT) return invalid_argument("system block must be text");
+    OXA_ASSIGN_OR_RETURN(std::string txt, require_string(v, "text", "system block"));
+    SystemBlock sb;
+    sb.text = std::move(txt);
+    if (const auto* role = v.find("role"); role != nullptr) {
+        if (!role->is_string() || role->as_string() != "developer")
+            return invalid_argument("ir: system role is not supported");
+        sb.role = role->as_string();
+    }
+    if (const auto* nat = v.find("native"); nat != nullptr && nat->is_array()) {
+        for (const auto& item : nat->as_array()) {
+            OXA_ASSIGN_OR_RETURN(auto ann, load_native_annotation(item));
+            sb.native.push_back(std::move(ann));
+        }
+    }
+    return sb;
 }
 
 StatusOr<Request> load_request(const json::Value& v) {
@@ -842,11 +880,8 @@ StatusOr<Request> load_request(const json::Value& v) {
     if (system != nullptr) {
         if (!system->is_array()) return invalid_argument("request system must be an array");
         for (const auto& sb : system->as_array()) {
-            OXA_ASSIGN_OR_RETURN(Block b, load_request_block(sb));
-            if (!std::holds_alternative<TextBlock>(b)) {
-                return invalid_argument("system block must be text");
-            }
-            r.system.push_back(std::get<TextBlock>(b));
+            OXA_ASSIGN_OR_RETURN(SystemBlock b, load_system_block(sb));
+            r.system.push_back(std::move(b));
         }
     }
 
@@ -1079,6 +1114,7 @@ StatusOr<Request> load_request(const json::Value& v) {
         if (!md->is_object()) return invalid_argument("request metadata must be an object");
         std::map<std::string, std::string> out;
         for (const auto& [k, val] : md->as_object()) {
+            if (k.empty()) return invalid_argument("metadata key cannot be empty");
             if (!val.is_string()) return invalid_argument("metadata value must be a string");
             out.emplace(k, val.as_string());
         }

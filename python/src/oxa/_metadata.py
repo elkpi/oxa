@@ -14,6 +14,8 @@ def string_metadata(value: Any, face: str) -> dict[str, str] | None:
         raise ValueError(f"{face}: metadata must be an object")
     out: dict[str, str] = {}
     for key, item in value.items():
+        if not key:
+            raise ValueError(f"{face}: metadata key cannot be empty")
         if not isinstance(item, str):
             raise ValueError(f"{face}: metadata.{key} must be a string")
         out[key] = item
@@ -28,6 +30,8 @@ def anthropic_metadata(value: Any) -> tuple[dict[str, str] | None, list[Loss]]:
     losses: list[Loss] = []
     user_id: str | None = None
     for key, item in value.items():
+        if not key:
+            raise ValueError("anthropic: metadata key cannot be empty")
         if key != "user_id":
             losses.append(
                 Loss(
@@ -54,6 +58,8 @@ def encode_anthropic_metadata(
     losses: list[Loss] = []
     user_id: str | None = None
     for key in sorted(metadata):
+        if not key:
+            raise ValueError("anthropic: metadata key cannot be empty")
         if key == "user_id":
             user_id = metadata[key]
             continue

@@ -22,6 +22,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.Metadata) > 0 {
+		for key := range req.Metadata {
+			if key == "" {
+				return nil, nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+			}
+		}
 		copied := make(map[string]string, len(req.Metadata))
 		for key, value := range req.Metadata {
 			copied[key] = value

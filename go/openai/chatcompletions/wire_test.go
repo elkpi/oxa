@@ -345,6 +345,13 @@ func TestMetadataRoundTrip(t *testing.T) {
 	}); err == nil {
 		t.Fatal("non-string metadata value must be a structural error")
 	}
+	if _, _, err := DecodeRequest(&Request{
+		Model:    "gpt-4o-mini",
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Metadata: map[string]any{"": "v"},
+	}); err == nil {
+		t.Fatal("empty metadata key must be a structural error")
+	}
 }
 
 func TestDecodeRequestToolCallsAndConsecutiveResults(t *testing.T) {

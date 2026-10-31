@@ -38,7 +38,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	var losses []ir.Loss
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
-	if encoded, metaLosses := encodeAnthropicMetadata(req.Metadata); encoded != nil || len(metaLosses) > 0 {
+	encoded, metaLosses, err := encodeAnthropicMetadata(req.Metadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	if encoded != nil || len(metaLosses) > 0 {
 		out.Metadata = encoded
 		losses = append(losses, metaLosses...)
 	}
@@ -786,12 +790,15 @@ func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
 	return json.Marshal(items)
 }
 
-func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss) {
+func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss, error) {
 	if len(metadata) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	keys := make([]string, 0, len(metadata))
 	for key := range metadata {
+		if key == "" {
+			return nil, nil, fmt.Errorf("anthropic: metadata key cannot be empty")
+		}
 		keys = append(keys, key)
 	}
 	sort.Strings(keys)
@@ -812,7 +819,7 @@ func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss) {
 		})
 	}
 	if !hasUserID {
-		return nil, losses
+		return nil, losses, nil
 	}
-	return map[string]string{"user_id": userID}, losses
+	return map[string]string{"user_id": userID}, losses, nil
 }

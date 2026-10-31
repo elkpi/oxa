@@ -582,6 +582,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         if (!md->is_object()) return invalid_argument("anthropic: metadata must be an object");
         std::map<std::string, std::string> parsed;
         for (const auto& [key, value] : md->as_object()) {
+            if (key.empty())
+                return invalid_argument("anthropic: metadata key cannot be empty");
             if (key == "user_id") {
                 if (!value.is_string())
                     return invalid_argument("anthropic: metadata.user_id must be a string");
@@ -920,6 +922,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     if (req.metadata.has_value() && !req.metadata->empty()) {
         json::Value md = json::Value::object();
         for (const auto& [key, value] : *req.metadata) {
+            if (key.empty()) return invalid_argument("anthropic: metadata key cannot be empty");
             if (key == "user_id") {
                 md.set(key, json::Value::string(value));
                 continue;

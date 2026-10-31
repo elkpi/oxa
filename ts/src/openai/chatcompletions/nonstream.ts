@@ -20,6 +20,7 @@ import {
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
+import { stringMetadata } from "../metadata.js";
 import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
 import type {
   Block,
@@ -1372,22 +1373,6 @@ function decodeVerbosity(
   if (v === "low" || v === "medium" || v === "high") return { verbosity: v };
   losses.push(loss(path, "verbosity", "unmapped-value"));
   return {};
-}
-
-function stringMetadata(
-  value: JsonValue | undefined,
-  face: string,
-): { metadata: Record<string, string> } | Record<string, never> {
-  if (value === undefined || value === null) return {};
-  if (typeof value !== "object" || Array.isArray(value))
-    fail(`${face}: metadata must be an object`);
-  const metadata: Record<string, string> = {};
-  for (const [key, child] of Object.entries(value)) {
-    if (typeof child !== "string")
-      fail(`${face}: metadata.${key} must be a string`);
-    metadata[key] = child;
-  }
-  return Object.keys(metadata).length === 0 ? {} : { metadata };
 }
 
 function loss(path: string, field: string, reason: LossReason): Loss {

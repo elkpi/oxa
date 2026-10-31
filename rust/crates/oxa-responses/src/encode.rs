@@ -59,6 +59,11 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
         }
     }
+    if let Some(metadata) = &req.metadata
+        && metadata.keys().any(String::is_empty)
+    {
+        return Err(Error::new("responses: metadata key cannot be empty"));
+    }
     let mut out = Request {
         model: config.map_model(&req.model),
         metadata: req.metadata.clone().filter(|metadata| !metadata.is_empty()),

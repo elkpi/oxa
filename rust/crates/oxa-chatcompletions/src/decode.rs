@@ -706,6 +706,9 @@ fn string_metadata(value: &Value, face: &str) -> Result<Option<BTreeMap<String, 
     };
     let mut out = BTreeMap::new();
     for (key, item) in object {
+        if key.is_empty() {
+            return Err(Error::new(format!("{face}: metadata key cannot be empty")));
+        }
         let Some(text) = item.as_str() else {
             return Err(Error::new(format!(
                 "{face}: metadata.{key} must be a string"

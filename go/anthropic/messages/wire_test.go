@@ -693,6 +693,19 @@ func TestMetadataUserIDRoundTripAndExtraKeyLoss(t *testing.T) {
 	if len(losses) != 1 || losses[0].Path != "metadata.k" || losses[0].Field != "k" {
 		t.Fatalf("encode loss = %+v", losses)
 	}
+	// Large number in unmapped metadata must not trigger float overflow.
+	raw := []byte(`{"model":"claude","max_tokens":16,"messages":[{"role":"user","content":"Hi"}],"metadata":{"extra":1e1000,"user_id":"u1"}}`)
+	reqRaw, rawLosses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("decode raw large float: %v", err)
+	}
+	if reqRaw.Metadata["user_id"] != "u1" || len(rawLosses) != 1 {
+		t.Fatalf("raw losses = %+v", rawLosses)
+	}
+	// Empty key in metadata must be rejected.
+	if _, _, err := DecodeRequestJSON([]byte(`{"model":"claude","max_tokens":16,"messages":[{"role":"user","content":"Hi"}],"metadata":{"":"v"}}`)); err == nil {
+		t.Fatal("empty metadata key must be rejected")
+	}
 }
 
 func TestWithModelMap(t *testing.T) {

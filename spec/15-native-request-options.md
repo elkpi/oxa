@@ -69,7 +69,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 - `thinking.budget_tokens` 必须为正整数。
 - `thinking.display` 必须为 `"summarized"`、`"omitted"` 或 `"updates"` 之一。未知值产生针对 leaf 的 `unmapped-value` loss，不生成 `thinking_display` 附加项。
 - `output_config.effort` 必须为 `"low"`、`"medium"`、`"high"`、`"xhigh"`、`"max"` 之一。
-- 映射关系：显式 `output_config.effort` 映射至 `Params.ReasoningEffort`；当且仅当无显式 effort 时，`enabled` 的 `budget_tokens` 依预算表近似映射至 `Params.ReasoningEffort`（`≤2048→low`，`≤8192→medium`，其余→`high`），并携带 `origin: "budget"` 投影。`adaptive` 与 `between_tools` 单独存在时，`Params.ReasoningEffort` 保持为空，不合成默认 effort。
+- 映射关系：显式 `output_config.effort` 映射至 `Params.ReasoningEffort`；当且仅当无显式 effort 时，`enabled` 的 `budget_tokens` 依预算表近似映射至 `Params.ReasoningEffort`（`≤1024→minimal`，`≤2048→low`，`≤8192→medium`，其余→`high`），并携带 `origin: "budget"` 投影。`adaptive` 与 `between_tools` 单独存在时，`Params.ReasoningEffort` 保持为空，不合成默认 effort。
 
 ### 3.2 Cache Control
 - `type` 必须为 `"ephemeral"`。

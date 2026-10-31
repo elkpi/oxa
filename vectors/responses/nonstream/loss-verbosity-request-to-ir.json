@@ -1,6 +1,6 @@
 {
   "name": "responses.nonstream.loss-verbosity-request-to-ir",
-  "description": "The Responses text.verbosity parameter has no IR equivalent and is dropped with an unmapped-field loss.",
+  "description": "Responses text.verbosity maps to the IR verbosity preference.",
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "to-ir",
@@ -15,15 +15,9 @@
     "model": "gpt-4o-mini",
     "messages": [
       { "role": "user", "content": [{ "type": "text", "text": "Hello" }] }
-    ]
+    ],
+    "params": { "verbosity": "low" }
   },
-  "expected_losses": [
-    {
-      "path": "text.verbosity",
-      "field": "verbosity",
-      "reason": "unmapped-field",
-      "detail": "Responses output verbosity has no IR equivalent in v1."
-    }
-  ],
+  "expected_losses": [],
   "tags": ["loss", "request", "verbosity"]
 }

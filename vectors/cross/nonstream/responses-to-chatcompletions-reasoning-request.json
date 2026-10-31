@@ -1,0 +1,28 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-reasoning-request",
+  "description": "Cross-protocol: Responses reasoning.effort high converts to Chat Completions reasoning_effort high losslessly (N-R-13, N-CC-12).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "o3-mini",
+    "input": "Solve this puzzle.",
+    "reasoning": {
+      "effort": "high"
+    }
+  },
+  "expected_output": {
+    "model": "o3-mini",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve this puzzle."
+      }
+    ],
+    "reasoning_effort": "high"
+  },
+  "expected_losses": [],
+  "tags": ["cross", "reasoning", "request", "n-r-13", "n-cc-12"]
+}

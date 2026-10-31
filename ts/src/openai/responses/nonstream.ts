@@ -20,6 +20,7 @@ import type { ConversionResult, Loss, LossReason } from "../../loss.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
 import {
   parseUsageInteger,
+  validateCitation,
   validateRequest,
   omittedNativeRequestLosses,
   DEFER_LOADING_LOSS_DETAIL,
@@ -825,13 +826,18 @@ function decodeResponseObject(
                   `${annPath}.type must be a non-empty string`,
                 );
               }
-              const sorted: Record<string, unknown> = {};
+              const sorted: Record<string, JsonValue> = Object.create(null);
               for (const key of Object.keys(obj).sort()) {
-                sorted[key] = obj[key];
+                Object.defineProperty(sorted, key, {
+                  value: obj[key]!,
+                  enumerable: true,
+                  writable: true,
+                  configurable: true,
+                });
               }
               return {
                 source: "openai" as const,
-                value: JSON.stringify(sorted),
+                value: stringifyJson(sorted),
               };
             });
           }
@@ -1074,13 +1080,31 @@ export function encodeRequest(
           text += block.text;
           hasText = true;
           if (block.citations && block.citations.length > 0) {
-            losses.push({
-              path: `messages[${index}].content[${child}].citations`,
-              field: "citations",
-              reason: "unsupported-semantic",
-              detail:
-                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-            });
+            let hasAnthropic = false;
+            let hasOpenAI = false;
+            for (const c of block.citations) {
+              validateCitation(c.source, c.value);
+              if (c.source === "openai") hasOpenAI = true;
+              else hasAnthropic = true;
+            }
+            if (hasAnthropic) {
+              losses.push({
+                path: `messages[${index}].content[${child}].citations`,
+                field: "citations",
+                reason: "unsupported-semantic",
+                detail:
+                  "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+              });
+            }
+            if (hasOpenAI) {
+              losses.push({
+                path: `messages[${index}].content[${child}].citations`,
+                field: "citations",
+                reason: "unsupported-semantic",
+                detail:
+                  "openai text annotations; the target face cannot preserve source locations and replay metadata",
+              });
+            }
           }
         } else if (block.type === "redacted_thinking") {
           losses.push({
@@ -1275,27 +1299,21 @@ export function encodeResponse(
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
   const losses: Loss[] = [];
-  let text = "";
-  let hasText = false;
   const thinking: string[] = [];
-  const annotations: JsonValue[] = [];
+  const textParts: JsonValue[] = [];
   const calls: JsonValue[] = [];
   let apcIndex = 0;
   let apcoIndex = 0;
   for (let index = 0; index < response.content.length; index += 1) {
     const block = response.content[index]!;
     if (block.type === "text") {
-      text += block.text;
-      hasText = true;
+      const partAnnotations: JsonValue[] = [];
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
         for (const c of block.citations) {
+          validateCitation(c.source, c.value);
           if (c.source === "openai") {
-            try {
-              annotations.push(JSON.parse(c.value));
-            } catch {
-              // ignore
-            }
+            partAnnotations.push(parseJson(c.value));
           } else if (c.source === "anthropic") {
             hasAnthropic = true;
           }
@@ -1310,6 +1328,11 @@ export function encodeResponse(
           });
         }
       }
+      textParts.push({
+        type: "output_text",
+        text: block.text,
+        annotations: partAnnotations,
+      });
     } else if (block.type === "redacted_thinking") {
       losses.push({
         path: `content[${index}]`,
@@ -1398,13 +1421,19 @@ export function encodeResponse(
         annotations: [],
       })),
     });
-  if (hasText || response.content.length === 0)
+  if (
+    textParts.length > 0 ||
+    (response.content.length === 0 && thinking.length === 0)
+  )
     output.push({
       type: "message",
       id: "msg_abc123",
       status: "completed",
       role: "assistant",
-      content: [{ type: "output_text", text, annotations }],
+      content:
+        textParts.length > 0
+          ? textParts
+          : [{ type: "output_text", text: "", annotations: [] }],
     });
   output.push(...calls);
   let status = "completed";
@@ -1709,13 +1738,31 @@ function encodeUserContent(
       textBlocks += 1;
       parts.push({ type: "input_text", text: block.text });
       if (block.citations && block.citations.length > 0) {
-        losses.push({
-          path: `${path}[${index}].citations`,
-          field: "citations",
-          reason: "unsupported-semantic",
-          detail:
-            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-        });
+        let hasAnthropic = false;
+        let hasOpenAI = false;
+        for (const c of block.citations) {
+          validateCitation(c.source, c.value);
+          if (c.source === "openai") hasOpenAI = true;
+          else hasAnthropic = true;
+        }
+        if (hasAnthropic) {
+          losses.push({
+            path: `${path}[${index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+          });
+        }
+        if (hasOpenAI) {
+          losses.push({
+            path: `${path}[${index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "openai text annotations; the target face cannot preserve source locations and replay metadata",
+          });
+        }
       }
     } else if (block.type === "redacted_thinking") {
       otherBlocks += 1;

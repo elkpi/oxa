@@ -7,7 +7,12 @@ import {
   encodeRequest,
   encodeResponse,
 } from "../src/openai/responses/index.js";
-import { integer, parseJson, type JsonObject } from "../src/json/index.js";
+import {
+  integer,
+  parseJson,
+  stringifyJson,
+  type JsonObject,
+} from "../src/json/index.js";
 import { runNonstreamVectors } from "./nonstream-vector-runner.js";
 
 test("runs every Responses non-stream vector", () => {
@@ -295,4 +300,119 @@ test("decodes empty user content as one empty text block", () => {
     { role: "user", content: [{ type: "text", text: "" }] },
   ]);
   assert.deepEqual(decoded.losses, []);
+});
+
+test("decodes and encodes annotations preserving numeric tokens and multiple text blocks", () => {
+  const raw = {
+    id: "resp_ann_test",
+    object: "response",
+    model: "gpt-4o",
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        id: "msg_1",
+        role: "assistant",
+        status: "completed",
+        content: [
+          { type: "output_text", text: "AAAA", annotations: [] },
+          {
+            type: "output_text",
+            text: "Docs",
+            annotations: [
+              {
+                type: "url_citation",
+                url: "https://example.test",
+                title: "Docs",
+                start_index: integer(0n),
+                end_index: integer(4n),
+              },
+            ],
+          },
+        ],
+      },
+    ],
+    usage: {
+      input_tokens: integer(10n),
+      output_tokens: integer(10n),
+      total_tokens: integer(20n),
+    },
+  };
+
+  const decoded = decodeResponse(raw);
+  assert.equal(decoded.value.content.length, 2);
+  const tb1 = decoded.value.content[0] as {
+    type: "text";
+    text: string;
+    citations?: any[];
+  };
+  const tb2 = decoded.value.content[1] as {
+    type: "text";
+    text: string;
+    citations?: any[];
+  };
+  assert.equal(tb1.text, "AAAA");
+  assert.equal(tb1.citations, undefined);
+  assert.equal(tb2.text, "Docs");
+  assert.equal(tb2.citations?.length, 1);
+  assert.equal(tb2.citations![0].source, "openai");
+  assert.equal(
+    tb2.citations![0].value,
+    '{"end_index":4,"start_index":0,"title":"Docs","type":"url_citation","url":"https://example.test"}',
+  );
+
+  const encoded = encodeResponse(decoded.value);
+  assert.equal(encoded.losses.length, 0);
+  const msg = (encoded.value.output as any[])[0];
+  assert.equal(msg.content.length, 2);
+  assert.equal(msg.content[0].text, "AAAA");
+  assert.deepEqual(msg.content[0].annotations, []);
+  assert.equal(msg.content[1].text, "Docs");
+  assert.equal(msg.content[1].annotations.length, 1);
+  assert.equal(
+    stringifyJson(msg.content[1].annotations[0]),
+    '{"end_index":4,"start_index":0,"title":"Docs","type":"url_citation","url":"https://example.test"}',
+  );
+});
+
+test("rejects non-array annotations and invalid typed citations", () => {
+  assert.throws(
+    () =>
+      decodeResponse({
+        id: "resp_bad_ann",
+        object: "response",
+        model: "m",
+        status: "completed",
+        output: [
+          {
+            type: "message",
+            content: [
+              { type: "output_text", text: "t", annotations: "not-an-array" },
+            ],
+          },
+        ],
+        usage: { input_tokens: integer(0n), output_tokens: integer(0n) },
+      }),
+    /annotations/,
+  );
+
+  for (const badVal of ["not-json", "[]", '{"type":4}']) {
+    assert.throws(
+      () =>
+        encodeResponse({
+          id: "r",
+          model: "m",
+          stop_reason: "end_turn",
+          content: [
+            {
+              type: "text",
+              text: "Docs",
+              citations: [{ source: "openai", value: badVal }],
+            },
+          ],
+          usage: { input_tokens: 0n, output_tokens: 0n },
+        }),
+      /citation/,
+    );
+  }
 });

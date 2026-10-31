@@ -4,6 +4,7 @@ export {
   decodeResponse,
   encodeRequest,
   encodeResponse,
+  validateCitation,
   validateCitationValue,
   validateRequest,
 } from "./nonstream.js";

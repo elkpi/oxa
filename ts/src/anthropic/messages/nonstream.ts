@@ -1195,39 +1195,58 @@ function encodeContent(
     if (block.type === "text") {
       let rawCitations: JsonValue[] | undefined;
       if (block.citations && block.citations.length > 0) {
-        if (isRequest) {
-          rawCitations = block.citations.map((c, cIdx) => {
-            if (c.source !== "anthropic") {
-              throw new OxaError(
-                "invalid-input",
-                `unknown citation source: ${c.source}`,
-              );
-            }
-            validateCitationValue(c.value);
-            const parsed = { ...(parseJson(c.value) as JsonObject) };
-            if (parsed.file_id !== undefined && parsed.file_id !== null) {
-              losses.push({
-                path: `${path}[${index}].citations[${cIdx}].file_id`,
-                field: "file_id",
-                reason: "unmapped-field",
-                detail:
-                  "response citation file_id has no request-side representation",
-              });
-            }
-            delete (parsed as Record<string, JsonValue>).file_id;
-            return parsed;
+        let hasOpenAI = false;
+        const validAnthropic = block.citations.filter((c) => {
+          if (c.source === "openai") {
+            hasOpenAI = true;
+            return false;
+          }
+          return true;
+        });
+        if (hasOpenAI) {
+          losses.push({
+            path: `${path}[${index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "openai text annotations; the target face cannot preserve source locations and replay metadata",
           });
-        } else {
-          rawCitations = block.citations.map((c) => {
-            if (c.source !== "anthropic") {
-              throw new OxaError(
-                "invalid-input",
-                `unknown citation source: ${c.source}`,
-              );
-            }
-            validateCitationValue(c.value);
-            return parseJson(c.value);
-          });
+        }
+        if (validAnthropic.length > 0) {
+          if (isRequest) {
+            rawCitations = validAnthropic.map((c, cIdx) => {
+              if (c.source !== "anthropic") {
+                throw new OxaError(
+                  "invalid-input",
+                  `unknown citation source: ${c.source}`,
+                );
+              }
+              validateCitationValue(c.value);
+              const parsed = { ...(parseJson(c.value) as JsonObject) };
+              if (parsed.file_id !== undefined && parsed.file_id !== null) {
+                losses.push({
+                  path: `${path}[${index}].citations[${cIdx}].file_id`,
+                  field: "file_id",
+                  reason: "unmapped-field",
+                  detail:
+                    "response citation file_id has no request-side representation",
+                });
+              }
+              delete (parsed as Record<string, JsonValue>).file_id;
+              return parsed;
+            });
+          } else {
+            rawCitations = validAnthropic.map((c) => {
+              if (c.source !== "anthropic") {
+                throw new OxaError(
+                  "invalid-input",
+                  `unknown citation source: ${c.source}`,
+                );
+              }
+              validateCitationValue(c.value);
+              return parseJson(c.value);
+            });
+          }
         }
       }
       output.push({

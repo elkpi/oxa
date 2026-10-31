@@ -39,6 +39,7 @@ import type {
   Tool,
   ToolChoice,
   ToolResultBlock,
+  TextCitation,
   WebSearchCallBlock,
 } from "../../ir/index.js";
 
@@ -807,23 +808,38 @@ function decodeResponseObject(
           );
           continue;
         }
-        if (
-          part.annotations !== undefined &&
-          array(
+        let citations: TextCitation[] | undefined;
+        if (part.annotations !== undefined && part.annotations !== null) {
+          const annList = array(
             part.annotations,
             `output[${index}].content[${child}].annotations`,
-          ).length > 0
-        )
-          losses.push(
-            loss(
-              `output[${index}].content[${child}].annotations`,
-              "annotations",
-              "unmapped-field",
-            ),
           );
+          if (annList.length > 0) {
+            citations = annList.map((ann, k) => {
+              const annPath = `output[${index}].content[${child}].annotations[${k}]`;
+              const obj = object(ann, annPath);
+              const annType = string(obj.type, `${annPath}.type`);
+              if (annType.length === 0) {
+                throw new OxaError(
+                  "type-violation",
+                  `${annPath}.type must be a non-empty string`,
+                );
+              }
+              const sorted: Record<string, unknown> = {};
+              for (const key of Object.keys(obj).sort()) {
+                sorted[key] = obj[key];
+              }
+              return {
+                source: "openai" as const,
+                value: JSON.stringify(sorted),
+              };
+            });
+          }
+        }
         texts.push({
           type: "text",
           text: string(part.text, `output[${index}].content[${child}].text`),
+          ...(citations && citations.length > 0 ? { citations } : {}),
         });
       }
     } else if (item.type === "reasoning") {
@@ -1262,6 +1278,7 @@ export function encodeResponse(
   let text = "";
   let hasText = false;
   const thinking: string[] = [];
+  const annotations: JsonValue[] = [];
   const calls: JsonValue[] = [];
   let apcIndex = 0;
   let apcoIndex = 0;
@@ -1271,13 +1288,27 @@ export function encodeResponse(
       text += block.text;
       hasText = true;
       if (block.citations && block.citations.length > 0) {
-        losses.push({
-          path: `content[${index}].citations`,
-          field: "citations",
-          reason: "unsupported-semantic",
-          detail:
-            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-        });
+        let hasAnthropic = false;
+        for (const c of block.citations) {
+          if (c.source === "openai") {
+            try {
+              annotations.push(JSON.parse(c.value));
+            } catch {
+              // ignore
+            }
+          } else if (c.source === "anthropic") {
+            hasAnthropic = true;
+          }
+        }
+        if (hasAnthropic) {
+          losses.push({
+            path: `content[${index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+          });
+        }
       }
     } else if (block.type === "redacted_thinking") {
       losses.push({
@@ -1373,7 +1404,7 @@ export function encodeResponse(
       id: "msg_abc123",
       status: "completed",
       role: "assistant",
-      content: [{ type: "output_text", text, annotations: [] }],
+      content: [{ type: "output_text", text, annotations }],
     });
   output.push(...calls);
   let status = "completed";

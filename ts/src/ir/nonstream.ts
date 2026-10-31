@@ -744,11 +744,11 @@ function decodeBlockBase(
         cites = block.citations.map((c) => {
           const obj = object(c, "citation");
           const source = string(obj.source, "citation.source");
-          if (source !== "anthropic")
+          if (source !== "anthropic" && source !== "openai")
             fail(`unknown citation source: ${source}`);
           const val = string(obj.value, "citation.value");
-          validateCitationValue(val);
-          return { source: "anthropic" as const, value: val };
+          validateCitation(source, val);
+          return { source: source as "anthropic" | "openai", value: val };
         });
       }
       return {
@@ -1563,4 +1563,28 @@ export function validateCitationValue(val: string): void {
     default:
       fail(`ir: unknown citation type "${type}"`);
   }
+}
+
+export function validateCitation(source: string, val: string): void {
+  if (source === "anthropic") {
+    validateCitationValue(val);
+    return;
+  }
+  if (source === "openai") {
+    if (!val) fail("ir: citation value cannot be empty");
+    let obj: any;
+    try {
+      obj = JSON.parse(val);
+    } catch {
+      fail("ir: citation value must be a JSON object");
+    }
+    if (typeof obj !== "object" || obj === null || Array.isArray(obj)) {
+      fail("ir: citation value must be a JSON object");
+    }
+    if (typeof obj.type !== "string" || obj.type.length === 0) {
+      fail("ir: citation type must be a non-empty string");
+    }
+    return;
+  }
+  fail(`unknown citation source: ${source}`);
 }

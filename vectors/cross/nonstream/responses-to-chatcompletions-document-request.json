@@ -1,0 +1,45 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-document-request",
+  "description": "Cross-protocol: Responses input_file with file_id converts losslessly to Chat Completions file content part (N-R-19, N-CC-14).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o",
+    "max_output_tokens": 1024,
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "input_file", "file_id": "file_123" },
+          { "type": "input_text", "text": "Analyze the file." }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "file",
+            "file": {
+              "file_id": "file_123"
+            }
+          },
+          {
+            "type": "text",
+            "text": "Analyze the file."
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["cross", "document", "request", "n-r-19", "n-cc-14"]
+}

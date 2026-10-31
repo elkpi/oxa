@@ -1,6 +1,6 @@
 {
   "name": "cross.nonstream.anthropic-to-responses-document-request",
-  "description": "Cross-protocol: an Anthropic document block converts to Responses as exactly one whole-block unsupported-semantic loss; annotations inside the dropped block add no further losses (N-AN-16), and the sibling text survives as the user item content.",
+  "description": "Cross-protocol: an Anthropic document block converts to Responses as input_file; metadata annotations record omission losses per spec/15 §3.5, and the document content survives.",
   "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
@@ -49,6 +49,10 @@
         "role": "user",
         "content": [
           {
+            "type": "input_file",
+            "file_data": "JVBERi0xLjcK"
+          },
+          {
             "type": "input_text",
             "text": "Summarize the documents."
           }
@@ -58,16 +62,35 @@
   },
   "expected_losses": [
     {
-      "path": "messages[0].content[0]",
-      "field": "content",
+      "path": "messages[0].content[0].native[0]",
+      "field": "title",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native document title; the target face has no document representation"
+    },
+    {
+      "path": "messages[0].content[0].native[1]",
+      "field": "context",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native document context; the target face has no document representation"
+    },
+    {
+      "path": "messages[0].content[0].native[2]",
+      "field": "citations",
       "reason": "unsupported-semantic",
-      "detail": "IR ir.DocumentBlock cannot be rendered in a Responses user message item"
+      "detail": "anthropic-native document citations; citations alter response semantics and the target face has no document representation"
+    },
+    {
+      "path": "messages[0].content[0].native[3]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
     }
   ],
   "tags": [
     "cross",
     "document",
     "request",
-    "n-an-16"
+    "n-an-16",
+    "n-r-19"
   ]
 }

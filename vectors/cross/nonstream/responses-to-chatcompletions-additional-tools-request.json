@@ -1,0 +1,58 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-additional-tools-request",
+  "description": "Cross-protocol: Responses input additional_tools items are hoisted and convert to Chat Completions request tools (N-R-15).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-5.5",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Use additional tool."
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Calculator",
+            "parameters": {
+              "type": "object"
+            },
+            "strict": true
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Use additional tool."
+      }
+    ],
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "calc",
+          "description": "Calculator",
+          "parameters": {
+            "type": "object"
+          },
+          "strict": true
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["cross", "tools", "request", "additional_tools", "N-R-15"]
+}

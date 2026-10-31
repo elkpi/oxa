@@ -2847,6 +2847,18 @@
       "sha256": "d25bb768dc15373c1a65862df7834783cb2abce13486108d51cbdff08c8749d7"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-additional-tools-request",
+      "file": "cross/nonstream/responses-to-anthropic-additional-tools-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "14086a601d240596fa75322b5a50b8a1522b68cc8c1fd3d74806f4a539cf143c"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-container-defer-loading",
       "file": "cross/nonstream/responses-to-anthropic-container-defer-loading.json",
       "tags": [
@@ -2968,6 +2980,18 @@
       "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-tool-container",
+      "file": "cross/nonstream/responses-to-anthropic-tool-container.json",
+      "tags": [
+        "cross",
+        "request",
+        "container",
+        "namespace",
+        "N-R-15"
+      ],
+      "sha256": "3a7edf8ace0162404118f2c46fe059cdee5ca5a05e0d45aab16a0514023918c0"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-verbosity",
       "file": "cross/nonstream/responses-to-anthropic-verbosity.json",
       "tags": [
@@ -2989,6 +3013,30 @@
         "n-r-16"
       ],
       "sha256": "58a6605c2cbebe739d930c8100be8d145dda711b64cfbccbd9489ffcb525371c"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-web-search-call-response",
+      "file": "cross/nonstream/responses-to-anthropic-web-search-call-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "1349937d01e9b99df0ba4141c680a8afe8937f923b95d81a3aa961d34c5c6ea6"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-additional-tools-request",
+      "file": "cross/nonstream/responses-to-chatcompletions-additional-tools-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "ff274277973a5bee639f5532a69acb2c966e8acfc09fbd9d153430ed0c434318"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-custom-tool",
@@ -3108,6 +3156,18 @@
         "n-r-16"
       ],
       "sha256": "8667d3850f137a024e63849b71df19bc2f093c8bb540e5e08929587cef538a82"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-web-search-call-response",
+      "file": "cross/nonstream/responses-to-chatcompletions-web-search-call-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "web-search",
+        "loss",
+        "n-r-16"
+      ],
+      "sha256": "be56490e455e07c109e597790c16bae0e3311ad3d487eadd8bab56288a93d217"
     },
     {
       "name": "cross.nonstream.responses-to-responses-web-search-extra-request",

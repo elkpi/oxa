@@ -530,7 +530,7 @@ struct BlockOmissionCollector {
         }
     }
     void operator()(const DocumentBlock& b) const {
-        if (target == "chatcompletions" && b.url.has_value() && !b.url->empty()) {
+        if (target == "chatcompletions" && ((b.url.has_value() && !b.url->empty()) || (b.media_type.has_value() && *b.media_type != "application/pdf"))) {
             return;
         }
         for (std::size_t i = 0; i < b.native.size(); ++i) {
@@ -566,6 +566,9 @@ struct BlockOmissionCollector {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
         for (std::size_t k = 0; k < b.content.size(); ++k) {
+            if (std::holds_alternative<DocumentBlock>(b.content[k].block)) {
+                continue;
+            }
             collect_block_omissions(losses, b.content[k].block, std::string(path) + ".content[" + std::to_string(k) + "]", target);
         }
     }
@@ -575,6 +578,9 @@ struct BlockOmissionCollector {
         }
         if (const auto* vec = std::get_if<std::vector<BlockHolder>>(&b.output)) {
             for (std::size_t k = 0; k < vec->size(); ++k) {
+                if (std::holds_alternative<DocumentBlock>((*vec)[k].block)) {
+                    continue;
+                }
                 collect_block_omissions(losses, (*vec)[k].block, std::string(path) + ".output.content[" + std::to_string(k) + "]", target);
             }
         }
@@ -801,6 +807,9 @@ StatusOr<std::vector<Loss>> omitted_native_request_losses(const Request& req, st
     for (std::size_t m_idx = 0; m_idx < req.messages.size(); ++m_idx) {
         const auto& msg = req.messages[m_idx];
         for (std::size_t c_idx = 0; c_idx < msg.content.size(); ++c_idx) {
+            if (std::holds_alternative<DocumentBlock>(msg.content[c_idx]) && msg.role != ir::ROLE_USER) {
+                continue;
+            }
             std::string content_path = "messages[" + std::to_string(m_idx) + "].content[" + std::to_string(c_idx) + "]";
             collect_block_omissions(losses, msg.content[c_idx], content_path, target);
         }

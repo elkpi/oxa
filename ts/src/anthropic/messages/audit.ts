@@ -319,6 +319,7 @@ export const ANTHROPIC_REQUEST: WireAuditSpec = {
     cache_control: undefined,
     output_config: OUTPUT_CONFIG,
     context_management: CONTEXT_MANAGEMENT,
+    metadata: { fields: { user_id: undefined } },
   },
 };
 

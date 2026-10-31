@@ -38,6 +38,8 @@ pub enum SystemBlock {
     Text {
         #[serde(rename = "text")]
         text: String,
+        #[serde(default, rename = "role", skip_serializing_if = "String::is_empty")]
+        role: String,
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
@@ -732,6 +734,8 @@ pub struct Params {
         skip_serializing_if = "Option::is_none"
     )]
     pub reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verbosity: Option<String>,
     #[serde(
         rename = "response_format",
         default,

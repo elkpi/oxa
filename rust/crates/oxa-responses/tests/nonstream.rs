@@ -71,6 +71,7 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: None,
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,

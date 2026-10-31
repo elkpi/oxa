@@ -61,6 +61,7 @@ export interface TextCitation {
 export interface TextBlock {
   readonly type: "text";
   readonly text: string;
+  readonly role?: "developer";
   readonly citations?: readonly TextCitation[];
   readonly native?: readonly NativeAnnotation[];
 }
@@ -335,6 +336,7 @@ export interface Params {
   readonly max_tokens?: bigint;
   readonly stop_sequences?: readonly string[];
   readonly reasoning_effort?: ReasoningEffort;
+  readonly verbosity?: "low" | "medium" | "high";
   readonly response_format?: ResponseFormat;
 }
 export interface Request {

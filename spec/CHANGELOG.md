@@ -5,6 +5,13 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.5.0 - unreleased
+
+- 在 IR 请求参数中增加可选 `verbosity`，Chat Completions 与 Responses 双向映射；Anthropic 编码时明确报损。
+
+- 请求 `metadata` 接通到 `Request.Metadata`。Chat Completions 与 Responses 的字符串图双向零损失。Anthropic 只保留 `user_id`；其余键逐条 `unmapped-field`。IR contract 保持 `0.2.0`。
+- system 块可选 `role: "developer"`。Responses 的 developer 指令可以同脸回转。Anthropic 没有该角色时文本仍进入 system，并逐块记 `degraded`。没有 developer 块时，既有 system 折叠行为不变。
+
 ## 2.4.13 - 2026-10-30
 
 - 更新 N-AN-12，映射 Anthropic `output_config.format` JSON Schema 并保留 schema 原文；未知类型与嵌套字段按规范报损。

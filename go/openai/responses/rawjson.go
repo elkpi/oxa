@@ -485,12 +485,10 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 				return rawObjectSchema(reflect.TypeOf(ToolChoiceWire{}), []string{"type", "name", "namespace"}, nil, seen)
 			}}
 			schema.fields["reasoning"] = &rawJSONSchema{fields: map[string]*rawJSONSchema{"effort": nil, "summary": nil}}
-			delete(schema.fields, "metadata")
 			delete(schema.fields, "parallel_tool_calls")
 			delete(schema.fields, "store")
 		case reflect.TypeOf(TextParams{}):
 			schema.fields["format"] = schemaForRawTypeSeen(reflect.TypeOf(TextFormatWire{}), seen)
-			delete(schema.fields, "verbosity")
 		case reflect.TypeOf(InputItem{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ContentPart{}), seen)}
 		}

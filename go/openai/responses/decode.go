@@ -3,6 +3,7 @@ package responses
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -30,10 +31,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		present bool
 		detail  string
 	}{
-		{"metadata", "metadata", len(wire.Metadata) > 0,
-			"Responses request metadata has no IR equivalent in v1."},
-		{"text.verbosity", "verbosity", wire.Text != nil && wire.Text.Verbosity != nil,
-			"Responses output verbosity has no IR equivalent in v1."},
 		{"parallel_tool_calls", "parallel_tool_calls", wire.ParallelToolCalls != nil,
 			"Responses parallel tool calls have no IR equivalent in v1."},
 	} {
@@ -44,6 +41,19 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
+	if wire.Text != nil && wire.Text.Verbosity != nil {
+		switch *wire.Text.Verbosity {
+		case "low", "medium", "high":
+			req.Params.Verbosity = *wire.Text.Verbosity
+		default:
+			losses = append(losses, loss("text.verbosity", "verbosity", ir.LossUnmappedValue, "unknown output verbosity"))
+		}
+	}
+	metadata, err := responsesMetadata(wire.Metadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	req.Metadata = metadata
 
 	if wire.Reasoning != nil {
 		if m, ok := wire.Reasoning.(map[string]any); ok {
@@ -116,19 +126,17 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		case "", ItemTypeMessage:
 			switch item.Role {
 			case RoleSystem, RoleDeveloper:
-				if item.Role == RoleDeveloper {
-					losses = append(losses, loss(
-						fmt.Sprintf("input[%d].role", i), "role", ir.LossDegraded,
-						"Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-					))
-				}
 				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
 				if err != nil {
 					return nil, nil, err
 				}
+				role := ""
+				if item.Role == RoleDeveloper {
+					role = ir.SystemRoleDeveloper
+				}
 				for j, block := range content {
 					if text, ok := block.(ir.TextBlock); ok {
-						req.System = append(req.System, ir.SystemBlock{Text: text.Text, Native: text.Native})
+						req.System = append(req.System, ir.SystemBlock{Text: text.Text, Role: role, Native: text.Native})
 						continue
 					}
 					losses = append(losses, loss(
@@ -921,4 +929,47 @@ func decodeStatus(wire *Response, hasToolUse bool) (ir.StopReason, []ir.Loss, er
 			fmt.Sprintf("Responses status %q has no IR equivalent", wire.Status),
 		)}, nil
 	}
+}
+
+func responsesMetadata(v any) (map[string]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if metadata, ok := v.(map[string]string); ok {
+		if len(metadata) == 0 {
+			return nil, nil
+		}
+		out := make(map[string]string, len(metadata))
+		for key, value := range metadata {
+			if key == "" {
+				return nil, fmt.Errorf("responses: metadata key cannot be empty")
+			}
+			out[key] = value
+		}
+		return out, nil
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("responses: metadata must be an object")
+	}
+	if len(obj) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			return nil, fmt.Errorf("responses: metadata key cannot be empty")
+		}
+		value, ok := obj[key].(string)
+		if !ok {
+			return nil, fmt.Errorf("responses: metadata.%s must be a string", key)
+		}
+		out[key] = value
+	}
+	return out, nil
 }

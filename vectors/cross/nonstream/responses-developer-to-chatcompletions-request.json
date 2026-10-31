@@ -4,28 +4,79 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
-  "source": { "protocol": "responses" },
-  "target": { "protocol": "chatcompletions" },
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
   "input": {
     "model": "m",
     "instructions": "First.\n",
     "input": [
-      { "role": "developer", "content": "Second.\n" },
-      { "role": "user", "content": "Hi" },
-      { "role": "system", "content": "Third.\n" },
-      { "role": "developer", "content": [{ "type": "input_text", "text": "Fourth.\n" }, { "type": "input_text", "text": "Fifth.\n" }] }
+      {
+        "role": "developer",
+        "content": "Second.\n"
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      },
+      {
+        "role": "system",
+        "content": "Third.\n"
+      },
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Fourth.\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Fifth.\n"
+          }
+        ]
+      }
     ]
   },
   "expected_output": {
     "model": "m",
     "messages": [
-      { "role": "system", "content": "First.\nSecond.\nThird.\nFourth.\nFifth.\n" },
-      { "role": "user", "content": "Hi" }
+      {
+        "role": "system",
+        "content": "First.\n"
+      },
+      {
+        "role": "developer",
+        "content": "Second.\n"
+      },
+      {
+        "role": "system",
+        "content": "Third.\n"
+      },
+      {
+        "role": "developer",
+        "content": "Fourth.\n"
+      },
+      {
+        "role": "developer",
+        "content": "Fifth.\n"
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      }
     ]
   },
-  "expected_losses": [
-    { "path": "input[0].role", "field": "role", "reason": "degraded" },
-    { "path": "input[3].role", "field": "role", "reason": "degraded" }
-  ],
-  "tags": ["cross", "developer", "system", "request", "loss", "N-R-1"]
+  "expected_losses": [],
+  "tags": [
+    "cross",
+    "developer",
+    "system",
+    "request",
+    "loss",
+    "N-R-1"
+  ]
 }

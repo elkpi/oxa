@@ -4,20 +4,74 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "to-ir",
-  "source": { "protocol": "responses" },
+  "source": {
+    "protocol": "responses"
+  },
   "input": {
     "model": "m",
     "input": [
-      { "role": "developer", "content": [{ "type": "input_text", "text": "One.\n" }, { "type": "input_text", "text": "" }, { "type": "input_text", "text": "Two.\n" }] },
-      { "role": "user", "content": "Hi" }
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "One.\n"
+          },
+          {
+            "type": "input_text",
+            "text": ""
+          },
+          {
+            "type": "input_text",
+            "text": "Two.\n"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      }
     ]
   },
   "expected_ir": {
     "specVersion": "0.1.0",
     "model": "m",
-    "system": [{ "type": "text", "text": "One.\n" }, { "type": "text", "text": "" }, { "type": "text", "text": "Two.\n" }],
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+    "system": [
+      {
+        "type": "text",
+        "text": "One.\n",
+        "role": "developer"
+      },
+      {
+        "type": "text",
+        "text": "",
+        "role": "developer"
+      },
+      {
+        "type": "text",
+        "text": "Two.\n",
+        "role": "developer"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hi"
+          }
+        ]
+      }
+    ]
   },
-  "expected_losses": [{ "path": "input[0].role", "field": "role", "reason": "degraded" }],
-  "tags": ["developer", "system", "request", "loss", "N-R-1", "N-R-3"]
+  "expected_losses": [],
+  "tags": [
+    "developer",
+    "system",
+    "request",
+    "loss",
+    "N-R-1",
+    "N-R-3"
+  ]
 }

@@ -3,7 +3,6 @@ package responses
 import (
 	"encoding/json"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -27,7 +26,7 @@ func TestDecodeRequestDeveloperTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantSystem := []ir.SystemBlock{{Text: "First.\n"}, {Text: "Second.\n"}, {Text: "Third.\n"}, {Text: "Fourth.\n"}, {Text: "Fifth.\n"}}
+	wantSystem := []ir.SystemBlock{{Text: "First.\n"}, {Text: "Second.\n", Role: ir.SystemRoleDeveloper}, {Text: "Third.\n"}, {Text: "Fourth.\n", Role: ir.SystemRoleDeveloper}, {Text: "Fifth.\n", Role: ir.SystemRoleDeveloper}}
 	if !reflect.DeepEqual(req.System, wantSystem) {
 		t.Fatalf("system = %#v, want %#v", req.System, wantSystem)
 	}
@@ -35,20 +34,18 @@ func TestDecodeRequestDeveloperTyped(t *testing.T) {
 	if !reflect.DeepEqual(req.Messages, wantMessages) {
 		t.Fatalf("messages = %#v, want %#v", req.Messages, wantMessages)
 	}
-	if len(losses) != 2 {
-		t.Fatalf("losses = %#v, want two developer role degradations", losses)
-	}
-	for i, path := range []string{"input[0].role", "input[3].role"} {
-		if losses[i].Path != path || losses[i].Field != "role" || losses[i].Reason != ir.LossDegraded || !strings.Contains(losses[i].Detail, "developer") {
-			t.Fatalf("loss[%d] = %#v, want developer degradation at %s", i, losses[i], path)
-		}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %#v, want no developer role degradation", losses)
 	}
 	encoded, encodeLosses, err := EncodeRequest(req)
 	if err != nil || len(encodeLosses) != 0 {
 		t.Fatalf("encode: err=%v losses=%#v", err, encodeLosses)
 	}
-	if encoded.Instructions == nil || *encoded.Instructions != "First.\nSecond.\nThird.\nFourth.\nFifth.\n" {
+	if encoded.Instructions == nil || *encoded.Instructions != "First.\n" {
 		t.Fatalf("encoded instructions = %#v", encoded.Instructions)
+	}
+	if len(encoded.Input.Items) < 4 || encoded.Input.Items[0].Role != RoleDeveloper || encoded.Input.Items[1].Role != RoleSystem {
+		t.Fatalf("encoded input = %#v", encoded.Input.Items)
 	}
 }
 
@@ -61,15 +58,12 @@ func TestDecodeRequestDeveloperJSONLossOrder(t *testing.T) {
 	if len(req.System) != 1 || req.System[0].Text != "Keep." {
 		t.Fatalf("system = %#v", req.System)
 	}
-	wantPaths := []string{"input[0].content[0].extra", "input[0].role", "input[0].extra", "store"}
+	wantPaths := []string{"input[0].content[0].extra", "input[0].extra", "store"}
 	if len(losses) != len(wantPaths) {
 		t.Fatalf("losses = %#v, want paths %v", losses, wantPaths)
 	}
 	for i, path := range wantPaths {
 		wantReason := ir.LossUnmappedField
-		if i == 1 {
-			wantReason = ir.LossDegraded
-		}
 		if losses[i].Path != path || losses[i].Reason != wantReason {
 			t.Fatalf("loss[%d] = %#v, want %s at %s", i, losses[i], wantReason, path)
 		}
@@ -104,14 +98,14 @@ func TestDecodeRequestDeveloperOnlyTyped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(req.System, []ir.SystemBlock{{Text: "Answer briefly."}}) {
+	if !reflect.DeepEqual(req.System, []ir.SystemBlock{{Text: "Answer briefly.", Role: ir.SystemRoleDeveloper}}) {
 		t.Fatalf("system = %#v", req.System)
 	}
 	wantMessages := []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: ""}}}}
 	if !reflect.DeepEqual(req.Messages, wantMessages) {
 		t.Fatalf("messages = %#v, want %#v", req.Messages, wantMessages)
 	}
-	if len(losses) != 2 || losses[0].Reason != ir.LossDegraded || losses[0].Path != "input[0].role" || losses[1].Reason != ir.LossDegraded || losses[1].Path != "input" {
+	if len(losses) != 1 || losses[0].Reason != ir.LossDegraded || losses[0].Path != "input" {
 		t.Fatalf("losses = %#v, want role degradation and empty user normalization", losses)
 	}
 }

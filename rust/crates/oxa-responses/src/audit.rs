@@ -288,6 +288,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("tool_choice", "tool_choice"),
             ("text", "text_params"),
             ("reasoning", "reasoning"),
+            ("metadata", ""),
         ]),
         "response" => Some(&[
             ("id", ""),
@@ -482,7 +483,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         },
         "apply_patch_choice" => Some(&[("type", "")]),
         "named_choice" => Some(&[("type", ""), ("name", ""), ("namespace", "")]),
-        "text_params" => Some(&[("format", "format")]),
+        "text_params" => Some(&[("format", "format"), ("verbosity", "")]),
         "format" => match tag(object, "type") {
             Some(value) => match value.as_str() {
                 "text" => shape("plain_format", object),

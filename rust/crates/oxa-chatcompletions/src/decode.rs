@@ -7,7 +7,7 @@ use oxa_ir::{
     Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
 };
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -52,11 +52,6 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             wire.top_logprobs.is_some(),
             "Chat Completions log-probability sampling has no IR equivalent in v1.",
         ),
-        (
-            "metadata",
-            wire.metadata.is_some(),
-            "Chat Completions request metadata has no IR equivalent in v1.",
-        ),
     ] {
         if present {
             losses.push(loss(name, name, LossReason::UnmappedField, detail));
@@ -73,6 +68,9 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         metadata: None,
         native: Vec::new(),
     };
+    if let Some(value) = &wire.metadata {
+        req.metadata = string_metadata(value, "chatcompletions")?;
+    }
     if let Some(wire_tools) = &wire.tools {
         let mut tools = Vec::with_capacity(wire_tools.len());
         for (index, tool) in wire_tools.iter().enumerate() {
@@ -211,7 +209,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 "Chat Completions reasoning_content is defined only for assistant messages",
             ));
         }
-        if message.role != ROLE_SYSTEM && content.is_empty() {
+        if message.role != ROLE_SYSTEM && message.role != "developer" && content.is_empty() {
             // IR conversation messages cannot have empty content (spec/01 §3.3).
             content.push(Block::Text {
                 text: String::new(),
@@ -220,8 +218,14 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             });
         }
         match message.role.as_str() {
-            ROLE_SYSTEM => {
-                let (system_blocks, system_losses) = content_system(content, &content_path);
+            ROLE_SYSTEM | "developer" => {
+                let (mut system_blocks, system_losses) = content_system(content, &content_path);
+                if message.role == "developer" {
+                    for block in &mut system_blocks {
+                        let oxa_ir::SystemBlock::Text { role, .. } = block;
+                        *role = "developer".to_string();
+                    }
+                }
                 system.extend(system_blocks);
                 losses.extend(system_losses);
             }
@@ -413,12 +417,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;
+    let verbosity = match wire.verbosity.as_deref() {
+        None => None,
+        Some(value @ ("low" | "medium" | "high")) => Some(value.to_string()),
+        Some(_) => {
+            losses.push(loss(
+                "verbosity",
+                "verbosity",
+                LossReason::UnmappedValue,
+                "unknown output verbosity",
+            ));
+            None
+        }
+    };
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens,
         stop_sequences: stop,
         reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
+        verbosity,
         response_format,
     };
     let params_set = params.temperature.is_some()
@@ -426,6 +444,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         || params.max_tokens.is_some()
         || params.stop_sequences.is_some()
         || params.reasoning_effort.is_some()
+        || params.verbosity.is_some()
         || params.response_format.is_some();
     if params_set {
         req.params = Some(params);
@@ -675,5 +694,31 @@ pub(crate) fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<L
                 format!("Chat Completions finish_reason {other:?} has no IR equivalent"),
             )),
         )),
+    }
+}
+
+fn string_metadata(value: &Value, face: &str) -> Result<Option<BTreeMap<String, String>>, Error> {
+    if value.is_null() {
+        return Ok(None);
+    }
+    let Some(object) = value.as_object() else {
+        return Err(Error::new(format!("{face}: metadata must be an object")));
+    };
+    let mut out = BTreeMap::new();
+    for (key, item) in object {
+        if key.is_empty() {
+            return Err(Error::new(format!("{face}: metadata key cannot be empty")));
+        }
+        let Some(text) = item.as_str() else {
+            return Err(Error::new(format!(
+                "{face}: metadata.{key} must be a string"
+            )));
+        };
+        out.insert(key.clone(), text.to_string());
+    }
+    if out.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(out))
     }
 }

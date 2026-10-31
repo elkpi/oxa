@@ -3,6 +3,7 @@ package chatcompletions
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -26,7 +27,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		{"function_call", wire.FunctionCall != nil, "legacy Chat Completions function_call has no IR equivalent in v1."},
 		{"logprobs", wire.Logprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
 		{"top_logprobs", wire.TopLogprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
-		{"metadata", wire.Metadata != nil, "Chat Completions request metadata has no IR equivalent in v1."},
 	} {
 		if field.present {
 			losses = append(losses, loss(field.name, field.name, ir.LossUnmappedField, field.detail))
@@ -34,7 +34,11 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	}
 
 	o := newOptions(opts...)
-	req := &ir.Request{Model: o.models.Map(wire.Model)}
+	metadata, err := openAIMetadata(wire.Metadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	req := &ir.Request{Model: o.models.Map(wire.Model), Metadata: metadata}
 	for i, tool := range wire.Tools {
 		if tool.Type == ir.ToolTypeCustom {
 			if tool.Custom == nil || tool.Custom.Name == "" {
@@ -124,8 +128,13 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			content = []ir.Block{ir.TextBlock{Text: ""}}
 		}
 		switch message.Role {
-		case RoleSystem:
+		case RoleSystem, RoleDeveloper:
 			system, systemLosses := contentSystem(content, fmt.Sprintf("messages[%d].content", i))
+			if message.Role == RoleDeveloper {
+				for j := range system {
+					system[j].Role = ir.SystemRoleDeveloper
+				}
+			}
 			req.System = append(req.System, system...)
 			losses = append(losses, systemLosses...)
 		case RoleUser:
@@ -235,6 +244,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Value:    string(b),
 			Omission: om,
 		})
+	}
+	if wire.Verbosity != nil {
+		switch *wire.Verbosity {
+		case "low", "medium", "high":
+			req.Params.Verbosity = *wire.Verbosity
+		default:
+			losses = append(losses, loss("verbosity", "verbosity", ir.LossUnmappedValue, "unknown output verbosity"))
+		}
 	}
 	switch wire.ReasoningEffort {
 	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:
@@ -409,4 +426,47 @@ func decodeFinishReason(finish string) (ir.StopReason, *ir.Loss, error) {
 			Detail: fmt.Sprintf("Chat Completions finish_reason %q has no IR equivalent", finish),
 		}, nil
 	}
+}
+
+func openAIMetadata(v any) (map[string]string, error) {
+	if v == nil {
+		return nil, nil
+	}
+	if metadata, ok := v.(map[string]string); ok {
+		if len(metadata) == 0 {
+			return nil, nil
+		}
+		out := make(map[string]string, len(metadata))
+		for key, value := range metadata {
+			if key == "" {
+				return nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+			}
+			out[key] = value
+		}
+		return out, nil
+	}
+	obj, ok := v.(map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("chatcompletions: metadata must be an object")
+	}
+	if len(obj) == 0 {
+		return nil, nil
+	}
+	keys := make([]string, 0, len(obj))
+	for key := range obj {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	out := make(map[string]string, len(keys))
+	for _, key := range keys {
+		if key == "" {
+			return nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+		}
+		value, ok := obj[key].(string)
+		if !ok {
+			return nil, fmt.Errorf("chatcompletions: metadata.%s must be a string", key)
+		}
+		out[key] = value
+	}
+	return out, nil
 }

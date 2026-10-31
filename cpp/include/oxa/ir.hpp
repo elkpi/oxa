@@ -168,6 +168,7 @@ struct TextBlock {
     std::string text;
     std::optional<std::vector<TextCitation>> citations;
     std::vector<NativeAnnotation> native;
+    std::string role;
 
     TextBlock() = default;
     explicit TextBlock(std::string t, std::vector<NativeAnnotation> nat = {})
@@ -370,6 +371,7 @@ struct Params {
     std::optional<std::int64_t> max_tokens;
     std::optional<std::vector<std::string>> stop_sequences;
     std::optional<std::string> reasoning_effort;
+    std::optional<std::string> verbosity;
     std::optional<ResponseFormat> response_format;
 };
 

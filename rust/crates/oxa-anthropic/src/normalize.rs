@@ -85,6 +85,7 @@ pub(crate) fn decode_system(
         crate::types::SystemValue::Text(text) => Ok((
             vec![SystemBlock::Text {
                 text: text.clone(),
+                role: String::new(),
                 native: Vec::new(),
             }],
             Vec::new(),
@@ -122,6 +123,7 @@ pub(crate) fn decode_system(
                 }
                 out.push(SystemBlock::Text {
                     text: block.text.clone(),
+                    role: String::new(),
                     native,
                 });
             }
@@ -135,7 +137,7 @@ pub(crate) fn encode_system(system: &[SystemBlock]) -> Vec<SystemBlockWire> {
     system
         .iter()
         .map(|block| match block {
-            SystemBlock::Text { text, native } => SystemBlockWire {
+            SystemBlock::Text { text, native, .. } => SystemBlockWire {
                 kind: BLOCK_TYPE_TEXT.to_string(),
                 text: text.clone(),
                 cache_control: crate::native::get_block_cache_control(native),

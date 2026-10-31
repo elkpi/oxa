@@ -34,8 +34,9 @@ The wire objects in scope are:
 - **Request**: `model`, `messages[]`, `temperature`, `top_p`,
   `max_tokens`, `stop`, `tools[]`, `tool_choice`, and the unsupported
   `parallel_tool_calls`, `functions`, `function_call`,
-  `response_format`, `logprobs`, `top_logprobs`, `metadata`.
-- **Message**: `role` (`system` | `user` | `assistant` | `tool`),
+  `response_format`, `logprobs`, `top_logprobs`. `metadata` is a string
+  map and maps to `Request.Metadata` (since 2.5.0).
+- **Message**: `role` (`system` | `developer` | `user` | `assistant` | `tool`),
   `content` (string or content-parts array), `tool_calls[]`
   (assistant), `tool_call_id` (tool), `function_call` (legacy).
 - **ContentPart**: `type` (`text` | `image_url`), `text`,
@@ -71,8 +72,9 @@ The wire objects in scope are:
 | `stream_options` | `Request.Native` (`kind: "stream_options"`) | 流式选项，包含 include_usage 校验与未知子字段审计；跨面降级为 degraded 损失（N-NAT-2/3，规范 2.4.10） |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
+| `verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `verbosity`; non-strings are structural errors |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
-| `metadata` | — | unmapped-field loss, both directions as a single loss each way |
+| `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object, non-string value, or empty key (`""`) is a structural error |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | `functions`, `function_call` | — | unmapped-field loss |
 | `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
@@ -84,10 +86,12 @@ non-null value MUST be a boolean. On encode an absent `Tool.Strict` is omitted;
 this does not preserve the original `null` spelling. Canonical IR continues
 to forbid `null` (spec/01 §2).
 
-On encode (IR → CC), `Request.System` is rendered as exactly one leading
-`role: "system"` message whose string content is the concatenation of all
-system block texts (N-CC-1); `Params.StopSequences` renders as `stop`;
-all other params render 1:1 with their omitempty semantics.
+On encode (IR → CC), when no system block carries `role: "developer"`,
+`Request.System` is rendered as exactly one leading `role: "system"` message
+whose string content is the concatenation of all system block texts (N-CC-1).
+When any system block carries `role: "developer"`, each system block renders
+as its own `system` or `developer` message in order. `Params.StopSequences`
+renders as `stop`; all other params render 1:1 with their omitempty semantics.
 
 来源限定的 `Tool[type=native]` 及指向它的 named choice 不映射为 CC function/custom，按 [spec/16](16-native-tool-declarations.md) 逐声明省略并记录 `unsupported-semantic` loss。
 
@@ -137,11 +141,13 @@ MUST NOT be cited for streaming behavior.
 Each rule has a stable ID usable as a vector tag.
 
 - **N-CC-1 (system extraction and concatenation).** Every
-  `role: "system"` message, in wire order, converts to IR system blocks
-  (text parts only; non-text parts in a system message are
-  unsupported-semantic losses). On encode, all IR system blocks MUST be
+  `role: "system"` or `role: "developer"` message, in wire order, converts to IR system blocks
+  (text parts only; non-text parts in a system/developer message are
+  unsupported-semantic losses; `developer` messages set `role: "developer"` on each extracted block since 2.5.0).
+  On encode, when no system block carries `role: "developer"`, all IR system blocks MUST be
   concatenated, in order, into exactly one leading system message whose
-  content is the concatenated string.
+  content is the concatenated string. When any system block carries `role: "developer"`,
+  each system block renders as its own `system` or `developer` message in order.
 - **N-CC-2 (content normalization).** String content becomes one IR
   `TextBlock`. A parts array becomes one block per part (`text` →
   `TextBlock`, `image_url` → `ImageBlock` via N-CC-3); part types other
@@ -251,7 +257,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 |---|---|---|---|
 | `usage.total_tokens` | exempt (derived) | both | recomputed as prompt + completion on encode |
 | `object`, `created`, `choices[].index`, `message.role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
-| `metadata` | unmapped-field | request, both directions (single loss each way) | CC request metadata has no IR equivalent; the IR metadata map has no CC field. Dropped symmetrically as one loss per direction. |
 | `logprobs`, `top_logprobs` | unmapped-field | request → IR | log-probability sampling has no IR equivalent |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |

@@ -199,40 +199,40 @@ func TestDecodeRequestStopSequenceLossOnEncode(t *testing.T) {
 	}
 }
 
-func TestMetadataLossesBothDirections(t *testing.T) {
-	// face -> IR: wire metadata present is dropped with one unmapped-field loss.
+func TestMetadataRoundTrip(t *testing.T) {
+	text := "Hi"
 	wire := &Request{
 		Model:    "gpt-4o-mini",
-		Input:    Input{Text: ptr("Hi")},
+		Input:    Input{Text: &text},
 		Metadata: map[string]string{"user_id": "u1"},
 	}
 	req, losses, err := DecodeRequest(wire)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if req.Metadata != nil {
-		t.Fatalf("wire metadata must be dropped: %+v", req.Metadata)
+	if len(losses) != 0 || req.Metadata["user_id"] != "u1" {
+		t.Fatalf("metadata = %+v losses=%+v", req.Metadata, losses)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("decode metadata loss wrong: %+v", losses)
-	}
-	// IR -> face: IR metadata map is dropped with one unmapped-field loss.
-	irReq := &ir.Request{
+	out, losses, err := EncodeRequest(&ir.Request{
 		Model:    "gpt-4o-mini",
 		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
 		Metadata: map[string]string{"k": "v"},
-	}
-	out, losses, err := EncodeRequest(irReq)
+	})
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if out.Metadata != nil {
-		t.Fatalf("IR metadata must not be rendered: %+v", out.Metadata)
+	got, ok := out.Metadata.(map[string]string)
+	if !ok || got["k"] != "v" || len(losses) != 0 {
+		t.Fatalf("rendered = %+v losses=%+v", out.Metadata, losses)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	for _, bad := range []string{
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"job":null}}`,
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"job":123}}`,
+		`{"model":"gpt-4o-mini","input":"Hi","metadata":{"":"v"}}`,
+	} {
+		if _, _, err := DecodeRequestJSON([]byte(bad)); err == nil {
+			t.Fatalf("expected structural error for %s", bad)
+		}
 	}
 }
 
@@ -537,8 +537,8 @@ func TestUnknownInputItemAndVerbosityLosses(t *testing.T) {
 	if len(req.Messages) != 1 {
 		t.Fatalf("messages: %+v", req.Messages)
 	}
-	if len(losses) != 3 {
-		t.Fatalf("want three losses (item type, verbosity, format), got %+v", losses)
+	if req.Params.Verbosity != "low" || len(losses) != 2 {
+		t.Fatalf("want preserved verbosity and two losses (item type, format), got verbosity=%q losses=%+v", req.Params.Verbosity, losses)
 	}
 }
 

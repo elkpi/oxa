@@ -786,6 +786,7 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
         match block {
             Block::Text { text, .. } => out.push(SystemBlock::Text {
                 text,
+                role: String::new(),
                 native: Vec::new(),
             }),
             _ => losses.push(loss(

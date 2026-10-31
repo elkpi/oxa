@@ -142,6 +142,7 @@ fn tool_choice_named_requires_a_name() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -228,6 +229,7 @@ fn single_text_message_renders_the_string_shorthand() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -243,6 +245,7 @@ fn single_text_message_renders_the_string_shorthand() {
     let mut with_system = req;
     with_system.system = vec![oxa_ir::SystemBlock::Text {
         text: "be brief".to_string(),
+        role: String::new(),
         native: Vec::new(),
     }];
     let (wire, _) = encode_request(&with_system, &Config::default()).expect("encode");
@@ -297,6 +300,7 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: None,
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -416,6 +420,7 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
             max_tokens: Some(8),
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::Minimal),
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -664,6 +669,7 @@ fn test_mid_conversation_system_messages() {
     assert_eq!(t1, "Terse mode.");
     let oxa_ir::SystemBlock::Text {
         text: t2,
+        role: _,
         native: n2,
     } = &req.system[2];
     assert_eq!(t2, "Under 20 words.");

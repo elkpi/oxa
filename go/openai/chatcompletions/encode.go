@@ -19,14 +19,20 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, loss(
-			"metadata", "metadata", ir.LossUnmappedField,
-			"Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-		))
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
+	if len(req.Metadata) > 0 {
+		for key := range req.Metadata {
+			if key == "" {
+				return nil, nil, fmt.Errorf("chatcompletions: metadata key cannot be empty")
+			}
+		}
+		copied := make(map[string]string, len(req.Metadata))
+		for key, value := range req.Metadata {
+			copied[key] = value
+		}
+		out.Metadata = copied
+	}
 	if len(req.Tools) > 0 {
 		out.Tools = make([]ToolWire, 0, len(req.Tools))
 		for i, tool := range req.Tools {
@@ -78,11 +84,28 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = nil
 	}
 	if len(req.System) > 0 {
-		text := ""
+		hasDeveloper := false
 		for _, system := range req.System {
-			text += system.Text
+			if system.Role == ir.SystemRoleDeveloper {
+				hasDeveloper = true
+				break
+			}
 		}
-		out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+		if !hasDeveloper {
+			text := ""
+			for _, system := range req.System {
+				text += system.Text
+			}
+			out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+		} else {
+			for _, system := range req.System {
+				role := RoleSystem
+				if system.Role == ir.SystemRoleDeveloper {
+					role = RoleDeveloper
+				}
+				out.Messages = append(out.Messages, Message{Role: role, Content: system.Text})
+			}
+		}
 	}
 	for i, message := range req.Messages {
 		switch message.Role {
@@ -171,6 +194,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.TopP = req.Params.TopP
 	out.MaxTokens = req.Params.MaxTokens
 	out.ReasoningEffort = req.Params.ReasoningEffort
+	if req.Params.Verbosity != "" {
+		v := req.Params.Verbosity
+		out.Verbosity = &v
+	}
 	if rf := req.Params.ResponseFormat; rf != nil {
 		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
 			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "name", Reason: ir.LossUnsupportedSemantic, Detail: "Chat Completions requires a non-empty schema name"})

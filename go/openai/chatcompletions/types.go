@@ -27,6 +27,7 @@ type Request struct {
 	StreamOptions       *StreamOptionsWire `json:"stream_options,omitempty"`
 	Stop                []string           `json:"stop,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"`
+	Verbosity           *string            `json:"verbosity,omitempty"`
 	Tools               []ToolWire         `json:"tools,omitempty"`
 	ToolChoice          any                `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
 
@@ -68,6 +69,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		StreamOptions       json.RawMessage `json:"stream_options,omitempty"`
 		Stop                []string        `json:"stop,omitempty"`
 		ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+		Verbosity           *string         `json:"verbosity,omitempty"`
 		Tools               []ToolWire      `json:"tools,omitempty"`
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
@@ -90,6 +92,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	r.MaxCompletionTokens = s.MaxCompletionTokens
 	r.Stop = s.Stop
 	r.ReasoningEffort = s.ReasoningEffort
+	r.Verbosity = s.Verbosity
 	r.Tools = s.Tools
 	r.ToolChoice = s.ToolChoice
 	r.ParallelToolCalls = s.ParallelToolCalls
@@ -177,6 +180,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		StreamOptions       json.RawMessage `json:"stream_options,omitempty"`
 		Stop                []string        `json:"stop,omitempty"`
 		ReasoningEffort     string          `json:"reasoning_effort,omitempty"`
+		Verbosity           *string         `json:"verbosity,omitempty"`
 		Tools               []ToolWire      `json:"tools,omitempty"`
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
@@ -196,6 +200,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		MaxCompletionTokens: r.MaxCompletionTokens,
 		Stop:                r.Stop,
 		ReasoningEffort:     r.ReasoningEffort,
+		Verbosity:           r.Verbosity,
 		Tools:               r.Tools,
 		ToolChoice:          r.ToolChoice,
 		ParallelToolCalls:   r.ParallelToolCalls,

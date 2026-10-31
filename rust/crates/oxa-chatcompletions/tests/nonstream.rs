@@ -212,6 +212,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::High),
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -598,24 +599,28 @@ fn model_map_applies_on_both_directions() {
 }
 
 #[test]
-fn request_metadata_losses_are_symmetric() {
-    // Request side: presence of wire metadata is one unmapped-field loss.
+fn request_metadata_round_trips() {
     let mut wire = minimal_request();
     wire["metadata"] = serde_json::json!({ "request_id": "abc" });
     let (req, losses) = decode_request(&wire_request(wire), &Config::default()).expect("decode");
-    let loss = loss_with(&losses, "metadata", "metadata");
-    assert_eq!(loss.reason, LossReason::UnmappedField);
-
-    // IR side: a populated metadata map loses on encode.
-    let mut ir_req = req;
-    ir_req.metadata = Some(
-        [("request_id".to_string(), "abc".to_string())]
-            .into_iter()
-            .collect(),
+    assert!(losses.is_empty(), "{losses:?}");
+    assert_eq!(
+        req.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("request_id"))
+            .map(String::as_str),
+        Some("abc")
     );
-    let (_, encode_losses) = encode_request(&ir_req, &Config::default()).expect("encode");
-    let loss = loss_with(&encode_losses, "metadata", "metadata");
-    assert_eq!(loss.reason, LossReason::UnmappedField);
+    let (encoded, encode_losses) = encode_request(&req, &Config::default()).expect("encode");
+    assert!(encode_losses.is_empty(), "{encode_losses:?}");
+    assert_eq!(
+        encoded
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("request_id"))
+            .and_then(|value| value.as_str()),
+        Some("abc")
+    );
 }
 
 #[test]

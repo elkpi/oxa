@@ -71,7 +71,7 @@ A conversation to be sent to a model, face-neutral.
 | `Tools` | `tools` | `[]Tool` | no | absent means no tools |
 | `ToolChoice` | `tool_choice` | `ToolChoice` | no | absent defers to the target's default |
 | `Params` | `params` | `Params` | no | absent means all fields unset |
-| `Metadata` | `metadata` | `map[string]string` | no | string-to-string map |
+| `Metadata` | `metadata` | `map[string]string` | no | string-to-string map. Since 2.5.0 the three faces map it: OpenAI round-trips every key; Anthropic round-trips only `user_id` |
 
 ### 3.2 SystemBlock
 
@@ -80,6 +80,8 @@ System prompt content. Sealed; exactly one variant in v1:
 | Variant | JSON `type` |
 |---------|-------------|
 | `TextBlock` | `text` |
+
+Since 2.5.0 a system block may carry optional `role`. Absent means a system-tier instruction (`instructions`, `role: "system"`, or Anthropic `system`). `"developer"` is the developer instruction tier. Any other value is a structural error. The field is omitted when absent.
 
 ### 3.3 Message
 
@@ -222,6 +224,7 @@ The exactly-one-of-three rule is enforced by the schema: a document carrying non
 | `StopSequences` | `stop_sequences` | `[]string` | no | |
 | `ReasoningEffort` | `reasoning_effort` | enum `minimal` \| `low` \| `medium` \| `high` \| `xhigh` \| `max` | no | absent means unset; unknown inbound values are dropped with unmapped-value (since 2.0; xhigh and max since 2.4) |
 | `ResponseFormat` | `response_format` | `*ResponseFormat` | no | structured output formatting preference (since 2.1) |
+| `Verbosity` | `verbosity` | enum `low` \| `medium` \| `high` | no | output verbosity preference (since 2.5.0); absence means unset |
 
 ### 3.7.1 ResponseFormat
 

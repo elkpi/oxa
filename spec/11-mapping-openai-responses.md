@@ -44,7 +44,7 @@ The wire objects in scope are:
 
 - **Request**: `model`, `input` (string or item array), `instructions`,
   `temperature`, `top_p`, `max_output_tokens`, `tools[]`, `tool_choice`,
-  `metadata`, and the unsupported `text` (`verbosity`, `format`),
+  `metadata` (string map, `Request.Metadata`, since 2.5.0), and the unsupported `text` (`verbosity`, `format`),
   `reasoning`, `parallel_tool_calls`. Responses has NO stop-sequences
   parameter.
 - **Tool**: flat `type: "function"` with `name`, `description`,
@@ -92,9 +92,9 @@ The wire objects in scope are:
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_output_tokens` | `Params.MaxTokens` | name mapping only; loss-free both directions (N-R-7) |
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
-| `metadata` | — | unmapped-field loss, both directions as a single loss each way |
+| `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object, non-string value, or empty key (`""`) is a structural error |
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
-| `text.verbosity` | — | unmapped-field loss |
+| `text.verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `text.verbosity`; non-strings are structural errors. Encoding preserves `text.format` when both are present |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | function `tools[].strict` | `Tools[].Strict` | optional boolean mapped loss-free in both directions, including nested containers and `additional_tools` (N-R-15) |
@@ -182,14 +182,18 @@ Each rule has a stable ID usable as a vector tag.
   `input`. This rule does not infer an additional precedence relation between
   system and developer instructions.
 
-  The current IR cannot distinguish developer from system instructions.
-  Each developer item MUST therefore record exactly one `degraded` loss at
-  `input[i].role`, field `role`, even when all its text is carried. This loss
-  MUST explain that the developer/system distinction is not preserved; it
-  remains part of the composed loss list for every target face (spec/02 §6).
-  On encode, all IR system blocks MUST be concatenated, in order, into the
-  `instructions` string. Conversion through IR is not a role-preserving
-  round-trip, including when the target face itself supports developer.
+  Since 2.5.0 each text block taken from a `role: "developer"` item is an IR
+  system block with `role: "developer"`. `instructions` and `role: "system"`
+  items stay system-tier blocks with `role` absent. Decoding a developer item
+  records no role loss. On encode, when no system block has `role: "developer"`,
+  every system block is still concatenated into `instructions`. When any block
+  is developer, the leading run of system-tier blocks becomes `instructions`
+  and each later block becomes its own `system` or `developer` input message,
+  in order. Anthropic has no developer role: the text is still carried as
+  system content, and each developer block records one `degraded` loss at
+  `system[i].role`. Chat Completions keeps the single concatenated system
+  message when no block is developer; otherwise each block is its own
+  `system` or `developer` message.
 
   When instruction extraction leaves no conversation messages but at least
   one system block, the decoder MUST synthesize one user message containing
@@ -249,9 +253,9 @@ Each rule has a stable ID usable as a vector tag.
   directions. Responses has NO stop-sequences parameter: IR
   `Params.StopSequences` cannot round-trip, and a non-empty value on
   encode records exactly one unmapped-field loss.
-- **N-R-8 (unmapped request fields).** `metadata` (string-valued map),
-  `text.verbosity`, and `parallel_tool_calls` have no IR equivalent and are
-  dropped with unmapped-field losses (metadata as a single loss per direction).
+- **N-R-8 (unmapped request fields).** `parallel_tool_calls` has no IR equivalent and is dropped with an
+  unmapped-field loss. Since 2.5.0 `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
+  `Request.Metadata` (since 2.5.0).
   `text.format` and `reasoning.effort` map as described above; unsupported
   members retain their documented losses. Function-tool `strict` maps to
   `Tool.Strict` without loss, including in containers and `additional_tools`.
@@ -365,15 +369,13 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `usage` absent | exempt (envelope) | response → IR | IR usage carries zeros |
 | `object`, `status` on encode, `output[].id`, `output[].status`, `output[].role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
 | empty `annotations` | exempt (envelope) | both | structural part of output_text |
-| `metadata` | unmapped-field | request, both directions (single loss each way) | Responses metadata is string-valued with no IR equivalent; the IR metadata map has no Responses field. Dropped symmetrically as one loss per direction. |
-| `text.verbosity` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `text.verbosity` unknown string | unmapped-value | request → IR | unknown verbosity values are dropped |
 | `text.format.type` unknown value | unmapped-value | request → IR | unknown text.format type dropped (N-R-14) |
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
 | `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
-| `input[i].role` = `developer` | degraded | request → IR | text is retained in `Request.System` but the developer/system distinction is lost (N-R-1) |
 | instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |
 | content part `type` ∉ {`input_text`,`output_text`,`input_image`} | unsupported-semantic | request → IR | part has no IR equivalent |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |

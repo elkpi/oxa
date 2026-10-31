@@ -4,18 +4,55 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "to-ir",
-  "source": { "protocol": "responses" },
+  "source": {
+    "protocol": "responses"
+  },
   "input": {
     "model": "m",
     "instructions": "Instructions first.\n",
-    "input": [{ "role": "developer", "content": "Developer second.\n" }, { "role": "user", "content": "Hi" }]
+    "input": [
+      {
+        "role": "developer",
+        "content": "Developer second.\n"
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      }
+    ]
   },
   "expected_ir": {
     "specVersion": "0.1.0",
     "model": "m",
-    "system": [{ "type": "text", "text": "Instructions first.\n" }, { "type": "text", "text": "Developer second.\n" }],
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+    "system": [
+      {
+        "type": "text",
+        "text": "Instructions first.\n"
+      },
+      {
+        "type": "text",
+        "text": "Developer second.\n",
+        "role": "developer"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hi"
+          }
+        ]
+      }
+    ]
   },
-  "expected_losses": [{ "path": "input[0].role", "field": "role", "reason": "degraded" }],
-  "tags": ["developer", "system", "request", "loss", "N-R-1"]
+  "expected_losses": [],
+  "tags": [
+    "developer",
+    "system",
+    "request",
+    "loss",
+    "N-R-1"
+  ]
 }

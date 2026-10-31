@@ -6,6 +6,8 @@ import json
 from dataclasses import replace
 from typing import Any, cast
 
+from oxa._metadata import string_metadata
+from oxa._verbosity import decode_verbosity
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -55,6 +57,7 @@ from oxa.openai.chatcompletions.constants import (
     FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS,
     ROLE_ASSISTANT,
+    ROLE_DEVELOPER,
     ROLE_SYSTEM,
     ROLE_TOOL,
     ROLE_USER,
@@ -88,7 +91,6 @@ def decode_request(
         ("function_call", "legacy Chat Completions function_call has no IR equivalent in v1."),
         ("logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
         ("top_logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
-        ("metadata", "Chat Completions request metadata has no IR equivalent in v1."),
     ]
     for name, detail in unmapped_fields:
         if wire.get(name) is not None:
@@ -204,11 +206,13 @@ def decode_request(
                 )
             content.insert(0, ThinkingBlock(thinking=reasoning_content))
 
-        if role != ROLE_SYSTEM and not content:
+        if role not in (ROLE_SYSTEM, ROLE_DEVELOPER) and not content:
             content = [TextBlock(text="")]
 
-        if role == ROLE_SYSTEM:
+        if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
             sys_blocks, sys_losses = content_system(content, content_path)
+            if role == ROLE_DEVELOPER:
+                sys_blocks = [replace(block, role="developer") for block in sys_blocks]
             system.extend(sys_blocks)
             losses.extend(sys_losses)
         elif role == ROLE_USER:
@@ -342,6 +346,7 @@ def decode_request(
                 )
             )
 
+    verbosity = decode_verbosity(wire.get("verbosity"), "verbosity", losses)
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
     response_format = decode_response_format(wire.get("response_format"), losses)
     if isinstance(response_format, ResponseFormatJsonSchema):
@@ -354,6 +359,7 @@ def decode_request(
         or max_tokens is not None
         or stop_sequences is not None
         or reasoning_effort is not None
+        or verbosity is not None
         or response_format is not None
     ):
         params = Params(
@@ -362,6 +368,7 @@ def decode_request(
             max_tokens=max_tokens,
             stop_sequences=stop_sequences,
             reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             response_format=response_format,
         )
 
@@ -374,6 +381,7 @@ def decode_request(
             tool_choice=tool_choice,
             params=params,
             native=tuple(native) if native else None,
+            metadata=string_metadata(wire.get("metadata"), "chatcompletions"),
         ),
         losses,
     )

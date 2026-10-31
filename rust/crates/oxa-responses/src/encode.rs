@@ -59,31 +59,23 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             }
         }
     }
-    if req
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| !metadata.is_empty())
+    if let Some(metadata) = &req.metadata
+        && metadata.keys().any(String::is_empty)
     {
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-        ));
+        return Err(Error::new("responses: metadata key cannot be empty"));
     }
     let mut out = Request {
         model: config.map_model(&req.model),
+        metadata: req.metadata.clone().filter(|metadata| !metadata.is_empty()),
         ..Request::default()
     };
-    if !req.system.is_empty() {
-        let mut instructions = String::new();
-        for block in &req.system {
-            match block {
-                oxa_ir::SystemBlock::Text { text, .. } => instructions.push_str(text),
-            }
-        }
-        out.instructions = Some(instructions);
-    }
+    let leading_system_items = if !req.system.is_empty() {
+        let (instructions, items) = encode_system_instructions(&req.system);
+        out.instructions = instructions;
+        items
+    } else {
+        Vec::new()
+    };
     if let Some(tools) = &req.tools {
         out.tools = encode_responses_grouped_tools(tools, &mut losses)?;
     }
@@ -138,7 +130,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     out.tool_choice = choice;
 
-    let mut items = Vec::new();
+    let mut items = leading_system_items;
     for (index, message) in req.messages.iter().enumerate() {
         match message.role {
             oxa_ir::Role::User => {
@@ -224,10 +216,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     }
                 };
                 out.text = Some(TextParams {
-                    verbosity: None,
+                    verbosity: params.verbosity.clone(),
                     format: Some(format_val),
                 });
             }
+        }
+        if out.text.is_none() && params.verbosity.is_some() {
+            out.text = Some(TextParams {
+                verbosity: params.verbosity.clone(),
+                format: None,
+            });
         }
         if params
             .stop_sequences
@@ -914,4 +912,55 @@ fn validate_usage(usage: &Usage) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+fn encode_system_instructions(
+    blocks: &[oxa_ir::SystemBlock],
+) -> (Option<String>, Vec<crate::types::InputItem>) {
+    let has_developer = blocks.iter().any(
+        |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
+    );
+    if !has_developer {
+        let mut text = String::new();
+        for block in blocks {
+            let oxa_ir::SystemBlock::Text { text: value, .. } = block;
+            text.push_str(value);
+        }
+        return (Some(text), Vec::new());
+    }
+    let mut index = 0;
+    let instructions = if matches!(
+        blocks.first(),
+        Some(oxa_ir::SystemBlock::Text { role, .. }) if role == "developer"
+    ) {
+        None
+    } else {
+        let mut text = String::new();
+        while index < blocks.len()
+            && !matches!(
+                &blocks[index],
+                oxa_ir::SystemBlock::Text { role, .. } if role == "developer"
+            )
+        {
+            let oxa_ir::SystemBlock::Text { text: value, .. } = &blocks[index];
+            text.push_str(value);
+            index += 1;
+        }
+        Some(text)
+    };
+    let mut items = Vec::new();
+    while index < blocks.len() {
+        let oxa_ir::SystemBlock::Text { text, role, .. } = &blocks[index];
+        items.push(crate::types::InputItem {
+            role: if role == "developer" {
+                "developer".to_string()
+            } else {
+                "system".to_string()
+            },
+            content: Some(crate::types::ContentValue::Text(text.clone())),
+            ..Default::default()
+        });
+        index += 1;
+    }
+    (instructions, items)
 }

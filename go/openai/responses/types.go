@@ -82,15 +82,15 @@ const (
 // Request is the Responses wire request for the supported non-streaming
 // subset.
 type Request struct {
-	Model           string            `json:"model"`
-	Input           Input             `json:"input"`
-	Instructions    *string           `json:"instructions,omitempty"`
-	Temperature     *float64          `json:"temperature,omitempty"`
-	TopP            *float64          `json:"top_p,omitempty"`
-	MaxOutputTokens *int64            `json:"max_output_tokens,omitempty"`
-	Tools           []ToolDef         `json:"tools,omitempty"`
-	ToolChoice      any               `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
-	Metadata        map[string]string `json:"metadata,omitempty"`
+	Model           string    `json:"model"`
+	Input           Input     `json:"input"`
+	Instructions    *string   `json:"instructions,omitempty"`
+	Temperature     *float64  `json:"temperature,omitempty"`
+	TopP            *float64  `json:"top_p,omitempty"`
+	MaxOutputTokens *int64    `json:"max_output_tokens,omitempty"`
+	Tools           []ToolDef `json:"tools,omitempty"`
+	ToolChoice      any       `json:"tool_choice,omitempty"` // auto | none | required | ToolChoiceWire
+	Metadata        any       `json:"metadata,omitempty"`
 
 	// Text carries output-shaping parameters. Verbosity and Format have no IR
 	// equivalent in v1 and are dropped with unmapped-field losses (N-R-8).

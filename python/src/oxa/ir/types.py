@@ -61,6 +61,7 @@ class TextBlock:
     text: str
     native: tuple[NativeAnnotation, ...] = ()
     citations: tuple[TextCitation, ...] | None = None
+    role: str = ""
     type: str = field(default=BLOCK_TYPE_TEXT, init=False)
 
     def __post_init__(self) -> None:
@@ -397,6 +398,7 @@ class Params:
     max_tokens: int | None = None
     stop_sequences: list[str] | None = None
     reasoning_effort: ReasoningEffort | None = None
+    verbosity: str | None = None
     response_format: ResponseFormat | None = None
 
 

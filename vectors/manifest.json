@@ -188,6 +188,48 @@
       "sha256": "fb4cef8001c7d62ecaef14b7eae636329692b1937af04cd471f41da8bc9f70e3"
     },
     {
+      "name": "anthropic.nonstream.metadata-extra-key-request-from-ir",
+      "file": "anthropic/nonstream/metadata-extra-key-request-from-ir.json",
+      "tags": [
+        "request",
+        "metadata",
+        "loss",
+        "N-AN-8"
+      ],
+      "sha256": "f658e2b90295ddf35a48c5e0767e58be84f66729d73ef080972190d377dbb27a"
+    },
+    {
+      "name": "anthropic.nonstream.metadata-extra-key-request-to-ir",
+      "file": "anthropic/nonstream/metadata-extra-key-request-to-ir.json",
+      "tags": [
+        "request",
+        "metadata",
+        "loss",
+        "N-AN-8"
+      ],
+      "sha256": "9f53ac59d4ac4167ba7dbc8fd6a4663372401f4f12e0ec7ef07683b98f71e67f"
+    },
+    {
+      "name": "anthropic.nonstream.metadata-user-id-request-from-ir",
+      "file": "anthropic/nonstream/metadata-user-id-request-from-ir.json",
+      "tags": [
+        "request",
+        "metadata",
+        "N-AN-8"
+      ],
+      "sha256": "939aa451e53982462a1c3b1d885741d938a22a56d0cbe58ec6b7e580ba5d59ba"
+    },
+    {
+      "name": "anthropic.nonstream.metadata-user-id-request-to-ir",
+      "file": "anthropic/nonstream/metadata-user-id-request-to-ir.json",
+      "tags": [
+        "request",
+        "metadata",
+        "N-AN-8"
+      ],
+      "sha256": "7ca9c3a613c1d38ce18525acbf1631270689b78b5da7b46c993c836e2676fb6c"
+    },
+    {
       "name": "anthropic.nonstream.mid-conversation-system-blocks-to-ir",
       "file": "anthropic/nonstream/mid-conversation-system-blocks-to-ir.json",
       "tags": [
@@ -1576,6 +1618,24 @@
       "sha256": "128a6d7700c8fdb1a072982befcf7cf224fa0d4de8b12a4e7aad56849d17a89a"
     },
     {
+      "name": "chatcompletions.nonstream.metadata-request-from-ir",
+      "file": "chatcompletions/nonstream/metadata-request-from-ir.json",
+      "tags": [
+        "request",
+        "metadata"
+      ],
+      "sha256": "be585cdbee60f1d52569b9ec1adc30b8cb2b140c6c69fa2ea723d57713dfeddc"
+    },
+    {
+      "name": "chatcompletions.nonstream.metadata-request-to-ir",
+      "file": "chatcompletions/nonstream/metadata-request-to-ir.json",
+      "tags": [
+        "request",
+        "metadata"
+      ],
+      "sha256": "b6e396ae25cdfc49f8bff75767bb964b10ac1db017524625dbce759859c01750"
+    },
+    {
       "name": "chatcompletions.nonstream.minimal-text-request-from-ir",
       "file": "chatcompletions/nonstream/minimal-text-request-from-ir.json",
       "tags": [
@@ -2014,6 +2074,15 @@
       "sha256": "dfd4d723f7fed8b076b667b9da2483b119fb446152fe69a55eecf2afe2cc4496"
     },
     {
+      "name": "chatcompletions.nonstream.verbosity-request-to-ir",
+      "file": "chatcompletions/nonstream/verbosity-request-to-ir.json",
+      "tags": [
+        "request",
+        "verbosity"
+      ],
+      "sha256": "686a9ba456c529771d7d3ff871e8266978f4fd66f487a9a26558928009af7e91"
+    },
+    {
       "name": "chatcompletions.stream.custom-tool-call-from-ir",
       "file": "chatcompletions/stream/custom-tool-call-from-ir.json",
       "tags": [
@@ -2264,7 +2333,7 @@
         "params",
         "loss"
       ],
-      "sha256": "23dbfe5b14539525be57444fbbfd9c8e9b0a1bd35d8d49ab202192cfeaf36ff5"
+      "sha256": "94a995e85984dfa0e3211b8d3ccb63a7ff7d5946c1bd11c3c7ce3da166793211"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-response",
@@ -2420,7 +2489,7 @@
         "params",
         "loss"
       ],
-      "sha256": "0061035e609ccb5ab86f171a6507a9e5d9d9a11d0675a05306d1d5d90ca731d6"
+      "sha256": "51dc937fe901e0c25680295db5228b4203381fc3c78bf595e8c787cfbc34d4ae"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-response",
@@ -2597,6 +2666,16 @@
       "sha256": "2facda14e44afdf4f15fdd2048391b948dde83d33047a17d7d408a10ab157477"
     },
     {
+      "name": "cross.nonstream.chatcompletions-to-responses-verbosity",
+      "file": "cross/nonstream/chatcompletions-to-responses-verbosity.json",
+      "tags": [
+        "cross",
+        "request",
+        "verbosity"
+      ],
+      "sha256": "e3e68092c28816f33e71cbf12caa05187d2510fa54cb74bcab1f7ec63e9f336b"
+    },
+    {
       "name": "cross.nonstream.responses-developer-only-to-chatcompletions-request",
       "file": "cross/nonstream/responses-developer-only-to-chatcompletions-request.json",
       "tags": [
@@ -2607,7 +2686,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "146a539a16e215321f342f9182f910433051d83238283c96a058f32d3a858da0"
+      "sha256": "6aea2ceb8fda85c195b8c11bcb11ef479ca1c4d4a3673a4e8d421f46d783e909"
     },
     {
       "name": "cross.nonstream.responses-developer-to-anthropic-request",
@@ -2620,7 +2699,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "2ca3eca282ecd265de211f4415ab4f0339afd71653d3af5fc48810f78e0364db"
+      "sha256": "a38c2d896486d174a497835e098c5c6c6ca625c398e4a0c102eddbecfa552c0c"
     },
     {
       "name": "cross.nonstream.responses-developer-to-chatcompletions-request",
@@ -2633,7 +2712,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "04bb5bc2e61b5ac386a3ed2cb29fc50b27f0bc193d88fd9819b247cc49c50b6c"
+      "sha256": "d25bb768dc15373c1a65862df7834783cb2abce13486108d51cbdff08c8749d7"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-container-defer-loading",
@@ -2692,7 +2771,7 @@
         "params",
         "loss"
       ],
-      "sha256": "d0cdd6602ed3f00b3df21a63fc20a68b6ef5578a5e077fd281df205b9ca24515"
+      "sha256": "32b56eb7d2c329a87f97cd50af3887901718a9dac1db6baf8d24c0eabc7e5efc"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-response",
@@ -2717,6 +2796,17 @@
         "n-an-11"
       ],
       "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-verbosity",
+      "file": "cross/nonstream/responses-to-anthropic-verbosity.json",
+      "tags": [
+        "cross",
+        "request",
+        "verbosity",
+        "loss"
+      ],
+      "sha256": "bd8497a872ee61345f54e68b4166c3e89fd84978e84be959716fcc26d0c3490c"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-web-search-call-request",
@@ -2762,7 +2852,7 @@
         "params",
         "loss"
       ],
-      "sha256": "e96f17aaa6e104bf3dd09a8401023f8961f49a82b12c2b5fdb184e308c244d7c"
+      "sha256": "d61284ab7caacbeb0c1b37cb9885972f254b4778e39732ea0f76c68956a6e267"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-response",
@@ -3639,7 +3729,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "5842dfaa7ef885d5303678eddc35c5e3413b4adcef9ec7758b5b25ad9534ae95"
+      "sha256": "7524a9e1b083e8a903fb9c9f725796d9cc5ab18642a7746acf20e9f87cccdfe7"
     },
     {
       "name": "responses.nonstream.developer-message-request-to-ir",
@@ -3651,7 +3741,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "9d84a274634e48ee659d9a9d0e2e3accc7422a147034083f6b99077073bab14d"
+      "sha256": "6a143c0ddc043ba5f54ead0642968af744a8cfcd1772d63a9ad471dbfd4690f6"
     },
     {
       "name": "responses.nonstream.developer-nontext-loss-request-to-ir",
@@ -3664,7 +3754,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "2ff611c0eda26c2b8278a102ef2601ec1e21761f2a4b29021ea63ae64c0d1c6b"
+      "sha256": "7ee188036247af29e4a61c2b76dc247a52d1aa99ea3156d0391e003025e85cff"
     },
     {
       "name": "responses.nonstream.developer-only-request-to-ir",
@@ -3676,7 +3766,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "8e569da09923650f138c8b861c5413567e4371194f2e2da90aca774838666083"
+      "sha256": "f3849db9d556bc12d892911b322037448a0e121f8cb519a874eecda43110aed7"
     },
     {
       "name": "responses.nonstream.developer-text-parts-request-to-ir",
@@ -3689,7 +3779,7 @@
         "N-R-1",
         "N-R-3"
       ],
-      "sha256": "cf88b8af0ee7128c773a8e0d6f0da0dec6ee61d9c5d1a2ecfb2c16a8a7e8f188"
+      "sha256": "8f43c518049d03ba9e3f263d89857b428c18757d88feaff8f2fbe3174323e5c3"
     },
     {
       "name": "responses.nonstream.failed-response-to-ir",
@@ -3772,7 +3862,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "9cf1478bdd49f02295e8eebde46501de384c4187836fa7e4505c2a82b15f95ee"
+      "sha256": "3c831699a5fb45d14887e0d20509d53235aeb40f167290deed299acdd982b53e"
     },
     {
       "name": "responses.nonstream.instructions-only-request-to-ir",
@@ -3793,29 +3883,43 @@
         "request",
         "verbosity"
       ],
-      "sha256": "c9814503372babda10dad5dca9c2af4ee72a4438fd7213f74d47e0a16220376d"
+      "sha256": "9ac8ba87ce3ca2ce76e87325619aadbd47245aaa8c6c7ccfc9c180b55d61ca8c"
     },
     {
       "name": "responses.nonstream.metadata-loss-request-from-ir",
       "file": "responses/nonstream/metadata-loss-request-from-ir.json",
       "tags": [
-        "loss",
         "request",
-        "metadata",
-        "N-R-8"
+        "metadata"
       ],
-      "sha256": "c257b6f483653bde3649a5a19aa63b904e54b5096a27c2ad682a42ee6fa82b29"
+      "sha256": "9f65baa70708af77bbe3aaf82cc3482895c958d4b0637123ef19edd7e46cefca"
     },
     {
       "name": "responses.nonstream.metadata-loss-request-to-ir",
       "file": "responses/nonstream/metadata-loss-request-to-ir.json",
       "tags": [
-        "loss",
         "request",
-        "metadata",
-        "N-R-8"
+        "metadata"
       ],
-      "sha256": "26486eb64b9d21fd6560eb0b5b98da5851cec46db347886efd0edeaa201e89af"
+      "sha256": "fea13f83da6466d531739a22915719b03685062b714409e770bc98f18ef4a437"
+    },
+    {
+      "name": "responses.nonstream.metadata-request-from-ir",
+      "file": "responses/nonstream/metadata-request-from-ir.json",
+      "tags": [
+        "request",
+        "metadata"
+      ],
+      "sha256": "35e5a9e2592eb87146474e9009ef0526a35e0ee4188a1c22481a2153349257ec"
+    },
+    {
+      "name": "responses.nonstream.metadata-request-to-ir",
+      "file": "responses/nonstream/metadata-request-to-ir.json",
+      "tags": [
+        "request",
+        "metadata"
+      ],
+      "sha256": "96af6ac027d211c8c6cbd6335a5463ae04bbb6e7c057c0f604d193185b12a23f"
     },
     {
       "name": "responses.nonstream.minimal-text-request-from-ir",
@@ -4137,7 +4241,7 @@
         "loss",
         "N-R-1"
       ],
-      "sha256": "a2053894482c24c67dcd1eb4308f8bacb0c8cb7e26cd4dc37603e05e16c8a432"
+      "sha256": "46dd7dc950c35da75722ea4d81bb488184fc3b6ac5fab14ccedc56805d4b850c"
     },
     {
       "name": "responses.nonstream.system-item-request-to-ir",
@@ -4596,6 +4700,16 @@
         "N-R-12"
       ],
       "sha256": "e1f64d0b56b95cd57e3ae44c14836ec7973f8812bdb3e865f5bdb6bbae62d772"
+    },
+    {
+      "name": "responses.nonstream.verbosity-format-request-to-ir",
+      "file": "responses/nonstream/verbosity-format-request-to-ir.json",
+      "tags": [
+        "request",
+        "verbosity",
+        "response-format"
+      ],
+      "sha256": "175d18681f014cec1e6c2763d2c58710a137d023c2f8708e595d536b2a9bf728"
     },
     {
       "name": "responses.nonstream.web-search-call-actions-request-to-ir",

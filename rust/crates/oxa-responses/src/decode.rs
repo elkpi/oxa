@@ -28,36 +28,28 @@ use crate::types::{
 /// type violations of known fields (spec/02 §4).
 pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let mut losses = Vec::new();
-    for (path, field, present, detail) in [
-        (
-            "metadata",
-            "metadata",
-            wire.metadata
-                .as_ref()
-                .is_some_and(|metadata| !metadata.is_empty()),
-            "Responses request metadata has no IR equivalent in v1.",
-        ),
-        (
-            "text.verbosity",
-            "verbosity",
-            wire.text
-                .as_ref()
-                .and_then(|text| text.verbosity.as_ref())
-                .is_some(),
-            "Responses output verbosity has no IR equivalent in v1.",
-        ),
-        (
+    if wire.parallel_tool_calls.is_some() {
+        losses.push(loss(
             "parallel_tool_calls",
             "parallel_tool_calls",
-            wire.parallel_tool_calls.is_some(),
+            LossReason::UnmappedField,
             "Responses parallel tool calls have no IR equivalent in v1.",
-        ),
-    ] {
-        if present {
-            losses.push(loss(path, field, LossReason::UnmappedField, detail));
-        }
+        ));
     }
 
+    let metadata = match &wire.metadata {
+        Some(md) => {
+            if md.keys().any(String::is_empty) {
+                return Err(Error::new("responses: metadata key cannot be empty"));
+            }
+            if md.is_empty() {
+                None
+            } else {
+                Some(md.clone())
+            }
+        }
+        None => None,
+    };
     let mut request = IrRequest {
         model: config.map_model(&wire.model),
         system: Vec::new(),
@@ -65,12 +57,13 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         tools: None,
         tool_choice: None,
         params: None,
-        metadata: None,
+        metadata,
         native: Vec::new(),
     };
     if let Some(instructions) = &wire.instructions {
         request.system.push(oxa_ir::SystemBlock::Text {
             text: instructions.clone(),
+            role: String::new(),
             native: Vec::new(),
         });
     }
@@ -115,18 +108,16 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 match item.kind.as_str() {
                     "" | ITEM_TYPE_MESSAGE => match item.role.as_str() {
                         ROLE_SYSTEM | ROLE_DEVELOPER => {
-                            if item.role == ROLE_DEVELOPER {
-                                losses.push(loss(
-                                    format!("input[{index}].role"),
-                                    "role",
-                                    LossReason::Degraded,
-                                    "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-                                ));
-                            }
                             let path = format!("input[{index}].content");
                             let (content, content_losses) =
                                 decode_content(item.content.as_ref(), &path);
-                            let (system, system_losses) = content_system(content, &path);
+                            let (mut system, system_losses) = content_system(content, &path);
+                            if item.role == ROLE_DEVELOPER {
+                                for block in &mut system {
+                                    let oxa_ir::SystemBlock::Text { role, .. } = block;
+                                    *role = "developer".to_string();
+                                }
+                            }
                             request.system.extend(system);
                             losses.extend(content_losses);
                             losses.extend(system_losses);
@@ -257,18 +248,37 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         wire.text.as_ref().and_then(|text| text.format.as_ref()),
         &mut losses,
     )?;
+    let verbosity = match wire
+        .text
+        .as_ref()
+        .and_then(|text| text.verbosity.as_deref())
+    {
+        None => None,
+        Some(value @ ("low" | "medium" | "high")) => Some(value.to_string()),
+        Some(_) => {
+            losses.push(loss(
+                "text.verbosity",
+                "verbosity",
+                LossReason::UnmappedValue,
+                "unknown output verbosity",
+            ));
+            None
+        }
+    };
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens: wire.max_output_tokens,
         stop_sequences: None,
         reasoning_effort,
+        verbosity,
         response_format,
     };
     if params.temperature.is_some()
         || params.top_p.is_some()
         || params.max_tokens.is_some()
         || params.reasoning_effort.is_some()
+        || params.verbosity.is_some()
         || params.response_format.is_some()
     {
         request.params = Some(params);

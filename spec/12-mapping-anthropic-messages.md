@@ -19,7 +19,7 @@ array (`text`, `image`, `document`, `tool_use`, `tool_result`). Mid-conversation
 system messages (`role: "system"` in `messages[]`) are supported and
 folded into the request-level `system` list with a `degraded` loss (N-AN-15).
 Conversion is near-identity for the supported subset; Anthropic-only
-annotations (`cache_control`, `disable_parallel_tool_use`, `metadata.user_id`)
+annotations (`cache_control`, `disable_parallel_tool_use`)
 are dropped with losses rather than errors (spec/02). Errors are reserved
 for structural violations: a missing or non-positive `max_tokens`,
 unknown `role` values, invalid `role: "system"` placement or content,
@@ -84,8 +84,9 @@ The wire objects in scope are:
 | `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
 | `tool_choice.disable_parallel_tool_use` | `Request.Native` (`kind: "disable_parallel_tool_use"`) | N-AN-19; boolean; preserved as native option in IR (spec/15) |
-| `metadata` | — | single unmapped-field loss, both directions (N-AN-8) |
+| `metadata` | `Request.Metadata` | only the string key `user_id` round-trips; every other key is one `unmapped-field` loss (N-AN-8, since 2.5.0) |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
+| — | `Params.Verbosity` | dropped on encode with one `unmapped-field` loss at `params.verbosity`, field `verbosity` (since 2.5.0) |
 
 For ordinary function tools, a present `strict` MUST be a boolean; `null` and
 other types are structural errors, including when the input schema matches a
@@ -206,12 +207,17 @@ Each rule has a stable ID usable as a vector tag.
   `Params.StopSequences` in both directions; response
   `stop_reason: "stop_sequence"` carries the matched sequence in
   `stop_sequence`, preserved in the IR and re-emitted on encode.
-- **N-AN-8 (metadata).** Anthropic request `metadata` is the specific
-  `{user_id}` semantic, not an arbitrary string map, so it has no IR
-  destination; conversely the IR metadata map has no Messages field.
-  Presence of wire `metadata` on decode, or a non-empty IR metadata
-  map on encode, records exactly one unmapped-field loss per
-  direction.
+- **N-AN-8 (metadata).** Since 2.5.0, Anthropic request `metadata` is
+  an object. The string key `user_id` maps to `Request.Metadata["user_id"]`
+  in both directions with no loss. Every other key is dropped. On decode
+  each extra key records one `unmapped-field` loss at `metadata.<key>`
+  with field `<key>` and detail `Anthropic request metadata only preserves user_id; this key is dropped.`
+  On encode each IR key other than `user_id` records one `unmapped-field`
+  loss at the same path, with detail `Anthropic request metadata only preserves user_id; this IR metadata key is dropped.`
+  Absent, JSON null, and `{}` produce no metadata and no loss. A
+  non-object value, an empty key (`""`), or a `user_id` that is not a string, is a structural
+  error. OpenAI faces round-trip the whole string map, so a map that
+  contains only `user_id` crosses to Anthropic with no metadata loss.
 - **N-AN-9 (unknown semantics).** A block or image source whose type
   has no IR equivalent is dropped as one whole-block
   unsupported-semantic loss. When such an unknown block also carries
@@ -399,8 +405,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | unknown block type or unknown image/document source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9/N-AN-16 |
 | unknown document `source.type` | unsupported-semantic | request → IR | one whole-block loss, N-AN-16 |
 | IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
-| `metadata` | unmapped-field | request, both directions (single loss each way) | N-AN-8 |
-| `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
+| `metadata.<key>` other than `user_id` | unmapped-field | request, both directions (one loss per key) | N-AN-8, since 2.5.0 || `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `redacted_thinking` block (cross-face) | unsupported-semantic | IR → target face | anthropic encrypted thinking replay state; the target face cannot preserve this block (N-AN-17) |
 | `text.citations` (cross-face) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
 | `text.citations[k].file_id` (request encode replay) | unmapped-field | IR → request | response citation file_id has no request-side representation (N-AN-18) |

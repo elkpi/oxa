@@ -25,6 +25,7 @@ import {
   DEFER_LOADING_LOSS_DETAIL,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
+import { stringMetadata } from "../../json/metadata.js";
 import { RESPONSES_REQUEST, RESPONSES_RESPONSE } from "./audit.js";
 import type {
   ApplyPatchOperation,
@@ -99,12 +100,15 @@ function decodeRequestObject(
   const losses: Loss[] = [];
   let effortValue: ReasoningEffort | undefined;
   let formatValue: ResponseFormat | undefined;
-  if (wire.metadata !== undefined)
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
-  if (wire.text !== undefined) {
+  let verbosityValue: "low" | "medium" | "high" | undefined;
+  if (wire.text !== undefined && wire.text !== null) {
     const text = object(wire.text, "text");
-    if (text.verbosity !== undefined)
-      losses.push(loss("text.verbosity", "verbosity", "unmapped-field"));
+    if (text.verbosity !== undefined && text.verbosity !== null) {
+      const verbosity = string(text.verbosity, "text.verbosity");
+      if (verbosity === "low" || verbosity === "medium" || verbosity === "high")
+        verbosityValue = verbosity;
+      else losses.push(loss("text.verbosity", "verbosity", "unmapped-value"));
+    }
     if (text.format !== undefined)
       formatValue = decodeTextFormat(text.format, losses);
   }
@@ -131,7 +135,11 @@ function decodeRequestObject(
       loss("parallel_tool_calls", "parallel_tool_calls", "unmapped-field"),
     );
 
-  const system: { readonly type: "text"; readonly text: string }[] = [];
+  const system: {
+    readonly type: "text";
+    readonly text: string;
+    readonly role?: "developer";
+  }[] = [];
   if (wire.instructions !== undefined)
     system.push({
       type: "text",
@@ -366,14 +374,6 @@ function decodeRequestObject(
       }
       if (type === "message") {
         const role = string(item.role, `input[${index}].role`);
-        if (role === "developer")
-          losses.push({
-            path: `input[${index}].role`,
-            field: "role",
-            reason: "degraded",
-            detail:
-              "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved.",
-          });
         const content = decodeContent(
           item.content,
           `input[${index}].content`,
@@ -382,7 +382,12 @@ function decodeRequestObject(
         if (role === "system" || role === "developer") {
           for (let child = 0; child < content.length; child += 1) {
             const block = content[child]!;
-            if (block.type === "text") system.push(block);
+            if (block.type === "text")
+              system.push(
+                role === "developer"
+                  ? { ...block, role: "developer" as const }
+                  : block,
+              );
             else
               losses.push(
                 loss(
@@ -447,6 +452,7 @@ function decodeRequestObject(
           max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
     ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
+    ...(verbosityValue === undefined ? {} : { verbosity: verbosityValue }),
     ...(formatValue === undefined ? {} : { response_format: formatValue }),
   };
   const request: Request = {
@@ -456,6 +462,7 @@ function decodeRequestObject(
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
+    ...stringMetadata(wire.metadata, "responses"),
   };
   validateRequest(request);
   return { value: request, losses };
@@ -1036,11 +1043,6 @@ export function encodeRequest(
 ): ConversionResult<JsonObject> {
   validateRequest(request);
   const losses: Loss[] = [];
-  if (
-    request.metadata !== undefined &&
-    Object.keys(request.metadata).length > 0
-  )
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
   const items: JsonValue[] = [];
   let requestOrdinal = 0;
   for (let index = 0; index < request.messages.length; index += 1) {
@@ -1144,6 +1146,8 @@ export function encodeRequest(
     }
     encodeUserMessage(items, message, index, losses);
   }
+  const systemPlan = encodeSystemPlan(request.system);
+  if (systemPlan.items.length > 0) items.unshift(...systemPlan.items);
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&
     items.length === 1 &&
@@ -1213,11 +1217,9 @@ export function encodeRequest(
     value: {
       model: mapModel(options.modelMapper, request.model),
       input: shorthand ?? items,
-      ...(request.system === undefined || request.system.length === 0
+      ...(systemPlan.instructions === undefined
         ? {}
-        : {
-            instructions: request.system.map((block) => block.text).join(""),
-          }),
+        : { instructions: systemPlan.instructions }),
       ...(storeVal !== undefined ? { store: storeVal } : {}),
       ...(params?.temperature === undefined
         ? {}
@@ -1231,11 +1233,22 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning: { effort: params.reasoning_effort } }),
-      ...(format === undefined || unnamedSchema
+      ...(params?.verbosity === undefined &&
+      (format === undefined || unnamedSchema)
         ? {}
-        : { text: { format: encodeTextFormat(format) } }),
+        : {
+            text: {
+              ...(params?.verbosity === undefined
+                ? {}
+                : { verbosity: params.verbosity }),
+              ...(format === undefined || unnamedSchema
+                ? {}
+                : { format: encodeTextFormat(format) }),
+            },
+          }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+      ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
     },
     losses,
   };
@@ -2285,6 +2298,38 @@ function encodeResponsesGroupedTools(
     i++;
   }
   return out;
+}
+
+function encodeSystemPlan(system: Request["system"]): {
+  instructions?: string;
+  items: JsonObject[];
+} {
+  if (system === undefined || system.length === 0) return { items: [] };
+  if (!system.some((block) => block.role === "developer"))
+    return {
+      instructions: system.map((block) => block.text).join(""),
+      items: [],
+    };
+  let index = 0;
+  let instructions: string | undefined;
+  if (system[0]!.role !== "developer") {
+    const text: string[] = [];
+    while (index < system.length && system[index]!.role !== "developer") {
+      text.push(system[index]!.text);
+      index += 1;
+    }
+    instructions = text.join("");
+  }
+  const items: JsonObject[] = [];
+  while (index < system.length) {
+    const block = system[index]!;
+    items.push({
+      role: block.role === "developer" ? "developer" : "system",
+      content: block.text,
+    });
+    index += 1;
+  }
+  return instructions === undefined ? { items } : { instructions, items };
 }
 
 function loss(path: string, field: string, reason: LossReason): Loss {

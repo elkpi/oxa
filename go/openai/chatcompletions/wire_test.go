@@ -307,40 +307,50 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 	}
 }
 
-func TestMetadataLossesBothDirections(t *testing.T) {
-	// face -> IR: wire metadata present is dropped with one unmapped-field loss.
+func TestMetadataRoundTrip(t *testing.T) {
 	wire := &Request{
 		Model:    "gpt-4o-mini",
 		Messages: []Message{{Role: "user", Content: "Hi"}},
-		Metadata: map[string]any{"user_id": "u1"},
+		Metadata: map[string]any{"user_id": "u1", "job": "x"},
 	}
 	req, losses, err := DecodeRequest(wire)
 	if err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if req.Metadata != nil {
-		t.Fatalf("wire metadata must be dropped: %+v", req.Metadata)
+	if len(losses) != 0 {
+		t.Fatalf("string metadata must not loss: %+v", losses)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("decode metadata loss wrong: %+v", losses)
+	if req.Metadata["user_id"] != "u1" || req.Metadata["job"] != "x" {
+		t.Fatalf("metadata = %+v", req.Metadata)
 	}
-	// IR -> face: IR metadata map is dropped with one unmapped-field loss.
-	irReq := &ir.Request{
-		Model:    "gpt-4o-mini",
-		Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "Hi"}}}},
-		Metadata: map[string]string{"k": "v"},
-	}
-	out, losses, err := EncodeRequest(irReq)
+	out, losses, err := EncodeRequest(req)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}
-	if out.Metadata != nil {
-		t.Fatalf("IR metadata must not be rendered: %+v", out.Metadata)
+	if len(losses) != 0 {
+		t.Fatalf("encode losses: %+v", losses)
 	}
-	if len(losses) != 1 || losses[0].Path != "metadata" || losses[0].Field != "metadata" ||
-		losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("encode metadata loss wrong: %+v", losses)
+	got, ok := out.Metadata.(map[string]string)
+	if !ok || got["user_id"] != "u1" || got["job"] != "x" {
+		t.Fatalf("rendered metadata = %#v", out.Metadata)
+	}
+	decoded, losses, err := DecodeRequest(out)
+	if err != nil || len(losses) != 0 || decoded.Metadata["user_id"] != "u1" || decoded.Metadata["job"] != "x" {
+		t.Fatalf("typed round-trip: decoded=%+v losses=%+v err=%v", decoded, losses, err)
+	}
+	if _, _, err := DecodeRequest(&Request{
+		Model:    "gpt-4o-mini",
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Metadata: map[string]any{"n": 1},
+	}); err == nil {
+		t.Fatal("non-string metadata value must be a structural error")
+	}
+	if _, _, err := DecodeRequest(&Request{
+		Model:    "gpt-4o-mini",
+		Messages: []Message{{Role: "user", Content: "Hi"}},
+		Metadata: map[string]any{"": "v"},
+	}); err == nil {
+		t.Fatal("empty metadata key must be a structural error")
 	}
 }
 

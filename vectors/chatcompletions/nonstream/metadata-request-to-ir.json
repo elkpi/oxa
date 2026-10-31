@@ -1,0 +1,23 @@
+{
+  "name": "chatcompletions.nonstream.metadata-request-to-ir",
+  "description": "Chat Completions request metadata round-trips into Request.Metadata with no loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o-mini",
+    "metadata": { "user_id": "u1", "job": "x" },
+    "messages": [{ "role": "user", "content": "Hi" }]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o-mini",
+    "metadata": { "job": "x", "user_id": "u1" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "metadata"]
+}

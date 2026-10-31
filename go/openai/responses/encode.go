@@ -23,20 +23,25 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, loss(
-			"metadata", "metadata", ir.LossUnmappedField,
-			"Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-		))
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
-	if len(req.System) > 0 {
-		text := ""
-		for _, system := range req.System {
-			text += system.Text
+	if len(req.Metadata) > 0 {
+		for key := range req.Metadata {
+			if key == "" {
+				return nil, nil, fmt.Errorf("responses: metadata key cannot be empty")
+			}
 		}
-		out.Instructions = &text
+		md := make(map[string]string, len(req.Metadata))
+		for key, value := range req.Metadata {
+			md[key] = value
+		}
+		out.Metadata = md
+	}
+	var leadingSystemItems []InputItem
+	if len(req.System) > 0 {
+		instructions, items := encodeSystemInstructions(req.System)
+		out.Instructions = instructions
+		leadingSystemItems = items
 	}
 	if len(req.Tools) > 0 {
 		groupedTools, toolLosses, err := encodeGroupedTools(req.Tools)
@@ -79,7 +84,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		out.Tools = nil
 	}
 
-	items := make([]InputItem, 0)
+	items := append([]InputItem{}, leadingSystemItems...)
 	for i, message := range req.Messages {
 		switch message.Role {
 		case ir.RoleAssistant:
@@ -123,6 +128,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	out.MaxOutputTokens = req.Params.MaxTokens
 	if req.Params.ReasoningEffort != "" {
 		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
+	}
+	if req.Params.Verbosity != "" {
+		v := req.Params.Verbosity
+		out.Text = &TextParams{Verbosity: &v}
 	}
 	if rf := req.Params.ResponseFormat; rf != nil {
 		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
@@ -580,4 +589,40 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		out.Status = StatusIncomplete
 	}
 	return out, losses, nil
+}
+
+func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
+	hasDeveloper := false
+	for _, block := range blocks {
+		if block.Role == ir.SystemRoleDeveloper {
+			hasDeveloper = true
+			break
+		}
+	}
+	if !hasDeveloper {
+		text := ""
+		for _, block := range blocks {
+			text += block.Text
+		}
+		return &text, nil
+	}
+	var instructions *string
+	i := 0
+	if blocks[0].Role != ir.SystemRoleDeveloper {
+		text := ""
+		for i < len(blocks) && blocks[i].Role != ir.SystemRoleDeveloper {
+			text += blocks[i].Text
+			i++
+		}
+		instructions = &text
+	}
+	items := make([]InputItem, 0)
+	for ; i < len(blocks); i++ {
+		role := RoleSystem
+		if blocks[i].Role == ir.SystemRoleDeveloper {
+			role = RoleDeveloper
+		}
+		items = append(items, InputItem{Role: role, Content: blocks[i].Text})
+	}
+	return instructions, items
 }

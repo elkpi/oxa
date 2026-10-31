@@ -432,6 +432,19 @@ def dump_block(block: Block) -> dict[str, Any]:
     raise CodecError(f"unknown block type: {type(block)}")
 
 
+def dump_system_block(block: TextBlock) -> dict[str, Any]:
+    if not isinstance(block, TextBlock):
+        raise CodecError("system block must be text")
+    out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+    if block.role:
+        if block.role != "developer":
+            raise CodecError(f"ir: system role {block.role!r} is not supported")
+        out["role"] = block.role
+    if block.native:
+        out["native"] = [dump_native_annotation(a) for a in block.native]
+    return out
+
+
 def dump_request_block(block: Block) -> dict[str, Any]:
     if isinstance(block, TextBlock):
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
@@ -441,6 +454,8 @@ def dump_request_block(block: Block) -> dict[str, Any]:
                     raise CodecError(f"ir: unknown citation source {c.source!r}")
                 validate_citation_value(c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
+        if block.role:
+            raise CodecError("role is only permitted on system blocks")
     elif isinstance(block, RedactedThinkingBlock):
         out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     elif isinstance(block, ThinkingBlock):
@@ -698,6 +713,8 @@ def load_block(data: dict[str, Any]) -> Block:
 
 
 def load_request_block(data: dict[str, Any]) -> Block:
+    if "role" in data:
+        raise CodecError("role is only permitted on system blocks")
     native = tuple(load_native_annotation(a) for a in data.get("native", []))
     kind = data.get("type")
     if kind == BLOCK_TYPE_TEXT:
@@ -927,7 +944,7 @@ def dump_request(req: Request) -> dict[str, Any]:
     if req.native:
         out["native"] = [dump_native_annotation(a) for a in req.native]
     if req.system:
-        out["system"] = [dump_request_block(b) for b in req.system]
+        out["system"] = [dump_system_block(b) for b in req.system]
     if req.tools:
         tools_out: list[dict[str, Any]] = []
         for t in req.tools:
@@ -985,11 +1002,18 @@ def dump_request(req: Request) -> dict[str, Any]:
             p_dict["stop_sequences"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             p_dict["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.verbosity is not None:
+            if req.params.verbosity not in ("low", "medium", "high"):
+                raise CodecError("invalid params.verbosity")
+            p_dict["verbosity"] = req.params.verbosity
         if req.params.response_format is not None:
             p_dict["response_format"] = dump_response_format(req.params.response_format)
         if p_dict:
             out["params"] = p_dict
     if req.metadata:
+        for k in req.metadata:
+            if not k:
+                raise CodecError("metadata key cannot be empty")
         out["metadata"] = req.metadata
     return out
 
@@ -1077,6 +1101,18 @@ def load_response_format(data: dict[str, Any]) -> ResponseFormat:
     raise CodecError(f"unknown response_format discriminant: {kind}")
 
 
+def load_system_block(data: dict[str, Any]) -> TextBlock:
+    if data.get("type") != BLOCK_TYPE_TEXT:
+        raise CodecError("system block must be text")
+    if not isinstance(data.get("text"), str):
+        raise CodecError("system block text must be a string")
+    role = data.get("role", "")
+    if role not in ("", "developer"):
+        raise CodecError(f"ir: system role {role!r} is not supported")
+    native = tuple(load_native_annotation(a) for a in data.get("native", []))
+    return TextBlock(text=data["text"], native=native, role=role)
+
+
 def load_request(data: dict[str, Any] | str) -> Request:
     raw: dict[str, Any] = json.loads(data) if isinstance(data, str) else data
     version = raw.get("specVersion")
@@ -1090,10 +1126,7 @@ def load_request(data: dict[str, Any] | str) -> Request:
     system: list[TextBlock] = []
     if "system" in raw:
         for b in raw["system"]:
-            blk = load_request_block(b)
-            if not isinstance(blk, TextBlock):
-                raise CodecError("system block must be text")
-            system.append(blk)
+            system.append(load_system_block(b))
 
     messages: list[Message] = []
     for m in raw.get("messages", []):
@@ -1184,6 +1217,8 @@ def load_request(data: dict[str, Any] | str) -> Request:
         effort = p.get("reasoning_effort")
         if effort is not None and effort not in ("minimal", "low", "medium", "high", "xhigh", "max"):
             raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
+        if "verbosity" in p and p["verbosity"] not in ("low", "medium", "high"):
+            raise CodecError("invalid params.verbosity")
         rf_data = p.get("response_format")
         response_format = load_response_format(rf_data) if rf_data is not None else None
         if isinstance(data, str) and isinstance(response_format, ResponseFormatJsonSchema):
@@ -1197,10 +1232,19 @@ def load_request(data: dict[str, Any] | str) -> Request:
             max_tokens=p.get("max_tokens"),
             stop_sequences=p.get("stop_sequences"),
             reasoning_effort=effort,
+            verbosity=p.get("verbosity"),
             response_format=response_format,
         )
 
     metadata = raw.get("metadata")
+    if metadata is not None:
+        if not isinstance(metadata, dict):
+            raise CodecError("metadata must be an object")
+        for k, v in metadata.items():
+            if not k:
+                raise CodecError("metadata key cannot be empty")
+            if not isinstance(v, str):
+                raise CodecError(f"metadata.{k} must be a string")
 
     return Request(
         model=raw["model"],

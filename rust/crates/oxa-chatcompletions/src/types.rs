@@ -58,6 +58,8 @@ pub struct Request {
     pub stop: Option<Vec<String>>,
     #[serde(rename = "reasoning_effort", skip_serializing_if = "Option::is_none")]
     pub reasoning_effort: Option<String>,
+    #[serde(rename = "verbosity", skip_serializing_if = "Option::is_none")]
+    pub verbosity: Option<String>,
     #[serde(rename = "tools", skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolWire>>,
     /// auto | none | required | a named-function object; kept raw so the

@@ -23,23 +23,17 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	if wire.MaxTokens <= 0 {
 		return nil, nil, fmt.Errorf("anthropic: max_tokens is required and must be positive")
 	}
-	if wire.Metadata != nil {
-		// Anthropic's wire metadata is the specific {user_id} semantic, not
-		// an arbitrary string map, so it is dropped symmetrically with a
-		// single unmapped-field loss (spec/12 will pin this in the loss
-		// catalog).
-		losses = append(losses, ir.Loss{
-			Path:   "metadata",
-			Field:  "metadata",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic request metadata (user_id) has no IR equivalent in v1.",
-		})
+	metadata, metaLosses, err := anthropicMetadata(wire.Metadata)
+	if err != nil {
+		return nil, nil, err
 	}
+	losses = append(losses, metaLosses...)
 	o := newOptions(opts...)
 	maxTokens := wire.MaxTokens
 	req := &ir.Request{
-		Model:  o.models.Map(wire.Model),
-		Params: ir.Params{MaxTokens: &maxTokens},
+		Model:    o.models.Map(wire.Model),
+		Params:   ir.Params{MaxTokens: &maxTokens},
+		Metadata: metadata,
 	}
 	declaredTools := make(map[string]bool)
 	customTools := make(map[string]bool)
@@ -1316,4 +1310,74 @@ func getRequiredInt(obj map[string]json.RawMessage, field, itemPath string) (int
 		return 0, fmt.Errorf("anthropic: %s.%s must be an integer", itemPath, field)
 	}
 	return n, nil
+}
+
+func anthropicMetadata(v any) (map[string]string, []ir.Loss, error) {
+	if v == nil {
+		return nil, nil, nil
+	}
+	var rawMap map[string]json.RawMessage
+	switch raw := v.(type) {
+	case json.RawMessage:
+		if len(raw) == 0 || string(raw) == "null" {
+			return nil, nil, nil
+		}
+		if err := json.Unmarshal(raw, &rawMap); err != nil {
+			return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
+		}
+	case map[string]any:
+		if len(raw) == 0 {
+			return nil, nil, nil
+		}
+		rawMap = make(map[string]json.RawMessage, len(raw))
+		for key, value := range raw {
+			b, err := json.Marshal(value)
+			if err != nil {
+				return nil, nil, fmt.Errorf("anthropic: metadata: %w", err)
+			}
+			rawMap[key] = b
+		}
+	case map[string]string:
+		if len(raw) == 0 {
+			return nil, nil, nil
+		}
+		rawMap = make(map[string]json.RawMessage, len(raw))
+		for key, value := range raw {
+			b, _ := json.Marshal(value)
+			rawMap[key] = b
+		}
+	default:
+		return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
+	}
+	if rawMap == nil {
+		return nil, nil, fmt.Errorf("anthropic: metadata must be an object")
+	}
+	keys := make([]string, 0, len(rawMap))
+	for key := range rawMap {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var losses []ir.Loss
+	var out map[string]string
+	for _, key := range keys {
+		if key == "" {
+			return nil, nil, fmt.Errorf("anthropic: metadata key cannot be empty")
+		}
+		rawVal := rawMap[key]
+		if key != "user_id" {
+			losses = append(losses, ir.Loss{
+				Path:   "metadata." + key,
+				Field:  key,
+				Reason: ir.LossUnmappedField,
+				Detail: "Anthropic request metadata only preserves user_id; this key is dropped.",
+			})
+			continue
+		}
+		var str string
+		if err := json.Unmarshal(rawVal, &str); err != nil {
+			return nil, nil, fmt.Errorf("anthropic: metadata.user_id must be a string")
+		}
+		out = map[string]string{"user_id": str}
+	}
+	return out, losses, nil
 }

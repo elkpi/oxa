@@ -42,6 +42,7 @@ from oxa.openai.chatcompletions.constants import (
     FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS,
     OBJECT_CHAT_COMPLETION,
+    ROLE_DEVELOPER,
     ROLE_SYSTEM,
     ROLE_USER,
     TOOL_TYPE_FUNCTION,
@@ -63,16 +64,6 @@ def encode_request(
     """Converts an IR request to a Chat Completions wire request (IR → face)."""
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-            )
-        )
-
     model = req.model
     if table is not None:
         model = table.map(model)
@@ -81,6 +72,8 @@ def encode_request(
         "model": model,
         "messages": [],
     }
+    if req.metadata:
+        out["metadata"] = dict(req.metadata)
 
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
@@ -154,8 +147,13 @@ def encode_request(
         losses.append(choice_loss)
 
     if req.system:
-        text = "".join(block.text for block in req.system)
-        out["messages"].append({"role": ROLE_SYSTEM, "content": text})
+        if any(getattr(block, "role", "") == "developer" for block in req.system):
+            for block in req.system:
+                role = ROLE_DEVELOPER if getattr(block, "role", "") == "developer" else ROLE_SYSTEM
+                out["messages"].append({"role": role, "content": block.text})
+        else:
+            text = "".join(block.text for block in req.system)
+            out["messages"].append({"role": ROLE_SYSTEM, "content": text})
 
     for index, message in enumerate(req.messages):
         if message.role == IR_ROLE_ASSISTANT:
@@ -218,6 +216,8 @@ def encode_request(
             out["stop"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             out["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.verbosity is not None:
+            out["verbosity"] = req.params.verbosity
         if req.params.response_format is not None:
             rf = req.params.response_format
             if isinstance(rf, ResponseFormatJsonSchema) and not rf.name:

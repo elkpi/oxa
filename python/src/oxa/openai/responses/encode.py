@@ -246,16 +246,6 @@ def encode_request(
     """Converts an IR request to a Responses wire request (IR → face)."""
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped.",
-            )
-        )
-
     model = req.model
     if table is not None:
         model = table.map(model)
@@ -263,10 +253,15 @@ def encode_request(
     out: dict[str, Any] = {
         "model": model,
     }
+    if req.metadata:
+        out["metadata"] = dict(req.metadata)
 
     if req.system:
-        instructions = "".join(b.text for b in req.system)
-        out["instructions"] = instructions
+        instructions, leading = _encode_system_instructions(req.system)
+        if instructions is not None:
+            out["instructions"] = instructions
+    else:
+        leading = []
 
     tools_wire: list[dict[str, Any]] = []
     if req.tools:
@@ -300,7 +295,7 @@ def encode_request(
     if choice_loss is not None:
         losses.append(choice_loss)
 
-    items: list[dict[str, Any]] = []
+    items: list[dict[str, Any]] = list(leading)
     for index, message in enumerate(req.messages):
         if message.role == IR_ROLE_USER:
             msg_items, m_losses = encode_user_message(message, f"messages[{index}]")
@@ -338,6 +333,8 @@ def encode_request(
                 losses.append(loss("params.response_format", "name", LOSS_UNSUPPORTED_SEMANTIC, "Responses requires a non-empty schema name"))
             else:
                 out["text"] = {"format": encode_text_format(rf)}
+        if req.params.verbosity is not None:
+            out.setdefault("text", {})["verbosity"] = req.params.verbosity
         if req.params.stop_sequences:
             losses.append(
                 loss(
@@ -603,3 +600,24 @@ def encode_response(
         out["error"] = error
 
     return out, losses
+
+
+def _encode_system_instructions(blocks):
+    has_developer = any(getattr(block, "role", "") == "developer" for block in blocks)
+    if not has_developer:
+        return "".join(block.text for block in blocks), []
+    index = 0
+    instructions = None
+    if getattr(blocks[0], "role", "") != "developer":
+        text = []
+        while index < len(blocks) and getattr(blocks[index], "role", "") != "developer":
+            text.append(blocks[index].text)
+            index += 1
+        instructions = "".join(text)
+    items = []
+    while index < len(blocks):
+        block = blocks[index]
+        role = "developer" if getattr(block, "role", "") == "developer" else "system"
+        items.append({"role": role, "content": block.text})
+        index += 1
+    return instructions, items

@@ -41,24 +41,30 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         tool.validate_strict().map_err(Error::new)?;
     }
     oxa_ir::validate_native_request(req).map_err(|e| Error::new(e.to_string()))?;
-    let mut losses = Vec::new();
-    if req
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| !metadata.is_empty())
+    if let Some(metadata) = &req.metadata
+        && metadata.keys().any(String::is_empty)
     {
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
-        ));
+        return Err(Error::new("anthropic: metadata key cannot be empty"));
     }
+    let mut losses = Vec::new();
+    let metadata = encode_anthropic_metadata(req.metadata.as_ref(), &mut losses);
     let mut out = Request {
         model: config.map_model(&req.model),
+        metadata,
         ..Request::default()
     };
     if !req.system.is_empty() {
+        for (index, block) in req.system.iter().enumerate() {
+            let oxa_ir::SystemBlock::Text { role, .. } = block;
+            if role == "developer" {
+                losses.push(loss(
+                    format!("system[{index}].role"),
+                    "role",
+                    LossReason::Degraded,
+                    "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+                ));
+            }
+        }
         out.system = Some(crate::types::SystemValue::Blocks(encode_system(
             &req.system,
         )));
@@ -322,6 +328,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(params) = &req.params {
         out.temperature = params.temperature;
         out.top_p = params.top_p;
+        if params.verbosity.is_some() {
+            losses.push(loss(
+                "params.verbosity",
+                "verbosity",
+                LossReason::UnmappedField,
+                "",
+            ));
+        }
         out.stop_sequences = params
             .stop_sequences
             .clone()
@@ -1126,4 +1140,25 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
             false,
         )),
     }
+}
+
+fn encode_anthropic_metadata(
+    metadata: Option<&std::collections::BTreeMap<String, String>>,
+    losses: &mut Vec<Loss>,
+) -> Option<serde_json::Value> {
+    let metadata = metadata.filter(|value| !value.is_empty())?;
+    let mut user_id = None;
+    for (key, value) in metadata {
+        if key == "user_id" {
+            user_id = Some(value.clone());
+            continue;
+        }
+        losses.push(loss(
+            format!("metadata.{key}"),
+            key,
+            LossReason::UnmappedField,
+            "Anthropic request metadata only preserves user_id; this IR metadata key is dropped.",
+        ));
+    }
+    user_id.map(|value| serde_json::json!({ "user_id": value }))
 }

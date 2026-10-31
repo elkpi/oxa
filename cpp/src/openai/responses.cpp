@@ -841,16 +841,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!wire.is_object()) return invalid_argument("responses: request must be an object");
     std::vector<ir::Loss> losses;
 
-    if (wire.find("metadata") != nullptr) {
-        losses.push_back(make_resp_loss("metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-                                        "Responses request metadata has no IR equivalent in v1."));
-    }
-    if (const auto* txt = wire.find("text"); txt && txt->is_object()) {
-        if (txt->find("verbosity") != nullptr) {
-            losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD,
-                                            "Responses output verbosity has no IR equivalent in v1."));
-        }
-    }
     if (wire.find("parallel_tool_calls") != nullptr) {
         losses.push_back(make_resp_loss("parallel_tool_calls", "parallel_tool_calls", ir::LOSS_UNMAPPED_FIELD,
                                         "Responses parallel tool calls have no IR equivalent in v1."));
@@ -860,6 +850,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     const auto* mv = wire.find("model");
     if (!mv || !mv->is_string()) return invalid_argument("responses: request missing model");
     req.model = opts.model_map.map(mv->as_string());
+    if (const auto* md = wire.find("metadata"); md && !md->is_null()) {
+        if (!md->is_object()) return invalid_argument("responses: metadata must be an object");
+        std::map<std::string, std::string> parsed;
+        for (const auto& [key, value] : md->as_object()) {
+            if (key.empty())
+                return invalid_argument("responses: metadata key cannot be empty");
+            if (!value.is_string())
+                return invalid_argument("responses: metadata." + key + " must be a string");
+            parsed.emplace(key, value.as_string());
+        }
+        if (!parsed.empty()) req.metadata = std::move(parsed);
+    }
 
     if (const auto* inst = wire.find("instructions"); inst && inst->is_string()) {
         req.system.push_back(ir::TextBlock{inst->as_string()});
@@ -902,16 +904,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 const auto* role_val = item.find("role");
                 std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
                 if (role == ROLE_SYSTEM || role == ROLE_DEVELOPER) {
-                    if (role == ROLE_DEVELOPER) {
-                        losses.push_back(make_resp_loss(
-                            "input[" + std::to_string(index) + "].role", "role", ir::LOSS_DEGRADED,
-                            "Responses developer instructions are carried as IR system content; the developer/system role distinction is not preserved."));
-                    }
                     std::string path = "input[" + std::to_string(index) + "].content";
                     auto [blocks, bl_losses] = decode_content(item.find("content"), path);
                     losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                     for (std::size_t child = 0; child < blocks.size(); ++child) {
                         if (auto* tb = std::get_if<ir::TextBlock>(&blocks[child])) {
+                            if (role == ROLE_DEVELOPER) tb->role = "developer";
                             req.system.push_back(std::move(*tb));
                         } else {
                             losses.push_back(make_resp_loss(
@@ -1175,6 +1173,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
     }
     if (const auto* text = wire.find("text"); text != nullptr && text->is_object()) {
+        if (const auto* verb_val = text->find("verbosity"); verb_val && !verb_val->is_null()) {
+            if (!verb_val->is_string()) {
+                return invalid_argument("responses: text.verbosity must be a string");
+            }
+            const std::string val = verb_val->as_string();
+            if (val == "low" || val == "medium" || val == "high") {
+                params.verbosity = val;
+                has_params = true;
+            } else {
+                losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_VALUE, "unknown output verbosity"));
+            }
+        }
         if (const auto* format = text->find("format"); format != nullptr) {
             OXA_ASSIGN_OR_RETURN(auto decoded_format, decode_text_format(*format, losses));
             if (decoded_format.has_value()) {
@@ -1406,19 +1416,43 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
-    if (req.metadata.has_value() && !req.metadata->empty()) {
-        losses.push_back(make_resp_loss(
-            "metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-            "Responses requests have a string-valued metadata field with no IR equivalent; the IR metadata map is dropped."));
-    }
-
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
+    if (req.metadata.has_value() && !req.metadata->empty()) {
+        json::Value md = json::Value::object();
+        for (const auto& [key, value] : *req.metadata) {
+            if (key.empty()) return invalid_argument("responses: metadata key cannot be empty");
+            md.set(key, json::Value::string(value));
+        }
+        out.set("metadata", std::move(md));
+    }
 
+    std::vector<json::Value> leading_system_items;
     if (!req.system.empty()) {
-        std::string inst;
-        for (const auto& s : req.system) inst += s.text;
-        out.set("instructions", json::Value::string(std::move(inst)));
+        bool has_developer = false;
+        for (const auto& s : req.system) if (s.role == "developer") has_developer = true;
+        if (!has_developer) {
+            std::string inst;
+            for (const auto& s : req.system) inst += s.text;
+            out.set("instructions", json::Value::string(std::move(inst)));
+        } else {
+            std::size_t index = 0;
+            if (req.system[0].role != "developer") {
+                std::string inst;
+                while (index < req.system.size() && req.system[index].role != "developer") {
+                    inst += req.system[index].text;
+                    ++index;
+                }
+                out.set("instructions", json::Value::string(std::move(inst)));
+            }
+            while (index < req.system.size()) {
+                json::Value item = json::Value::object();
+                item.set("role", json::Value::string(req.system[index].role == "developer" ? "developer" : "system"));
+                item.set("content", json::Value::string(req.system[index].text));
+                leading_system_items.push_back(std::move(item));
+                ++index;
+            }
+        }
     }
 
     bool all_tools_dropped = false;
@@ -1497,7 +1531,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
-    std::vector<json::Value> items;
+    std::vector<json::Value> items = std::move(leading_system_items);
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
         const auto& m = req.messages[i];
         if (m.role == ir::ROLE_USER) {
@@ -1734,6 +1768,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             reasoning.set("effort", json::Value::string(*p.reasoning_effort));
             out.set("reasoning", std::move(reasoning));
         }
+        json::Value text_val = json::Value::object();
+        bool has_text_val = false;
+        if (p.verbosity.has_value()) {
+            text_val.set("verbosity", json::Value::string(*p.verbosity));
+            has_text_val = true;
+        }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;
             if (rf.type == "json_schema" && rf.name.empty()) {
@@ -1749,10 +1789,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (rf.schema.has_value()) format.set("schema", *rf.schema);
                     if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
                 }
-                json::Value text = json::Value::object();
-                text.set("format", std::move(format));
-                out.set("text", std::move(text));
+                text_val.set("format", std::move(format));
+                has_text_val = true;
             }
+        }
+        if (has_text_val) {
+            out.set("text", std::move(text_val));
         }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(

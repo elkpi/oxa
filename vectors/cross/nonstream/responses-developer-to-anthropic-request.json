@@ -4,29 +4,93 @@
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
-  "source": { "protocol": "responses" },
-  "target": { "protocol": "anthropic" },
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
   "input": {
     "model": "m",
     "max_output_tokens": 64,
     "instructions": "First.\n",
     "input": [
-      { "role": "system", "content": "Second.\n" },
-      { "role": "developer", "content": [{ "type": "input_text", "text": "Third.\n" }, { "type": "input_text", "text": "Fourth.\n" }] },
-      { "role": "user", "content": "Hi" }
+      {
+        "role": "system",
+        "content": "Second.\n"
+      },
+      {
+        "role": "developer",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Third.\n"
+          },
+          {
+            "type": "input_text",
+            "text": "Fourth.\n"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      }
     ]
   },
   "expected_output": {
     "model": "m",
     "max_tokens": 64,
     "system": [
-      { "type": "text", "text": "First.\n" },
-      { "type": "text", "text": "Second.\n" },
-      { "type": "text", "text": "Third.\n" },
-      { "type": "text", "text": "Fourth.\n" }
+      {
+        "type": "text",
+        "text": "First.\n"
+      },
+      {
+        "type": "text",
+        "text": "Second.\n"
+      },
+      {
+        "type": "text",
+        "text": "Third.\n"
+      },
+      {
+        "type": "text",
+        "text": "Fourth.\n"
+      }
     ],
-    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Hi" }] }]
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hi"
+          }
+        ]
+      }
+    ]
   },
-  "expected_losses": [{ "path": "input[1].role", "field": "role", "reason": "degraded" }],
-  "tags": ["cross", "developer", "system", "request", "loss", "N-R-1"]
+  "expected_losses": [
+    {
+      "path": "system[2].role",
+      "field": "role",
+      "reason": "degraded",
+      "detail": "developer instruction is carried as Anthropic system content; Anthropic has no developer role"
+    },
+    {
+      "path": "system[3].role",
+      "field": "role",
+      "reason": "degraded",
+      "detail": "developer instruction is carried as Anthropic system content; Anthropic has no developer role"
+    }
+  ],
+  "tags": [
+    "cross",
+    "developer",
+    "system",
+    "request",
+    "loss",
+    "N-R-1"
+  ]
 }

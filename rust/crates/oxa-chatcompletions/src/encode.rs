@@ -25,20 +25,25 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         tool.validate_strict().map_err(Error::new)?;
     }
     let mut losses = Vec::new();
-    if req
-        .metadata
-        .as_ref()
-        .is_some_and(|metadata| !metadata.is_empty())
+    if let Some(metadata) = &req.metadata
+        && metadata.keys().any(String::is_empty)
     {
-        losses.push(loss(
-            "metadata",
-            "metadata",
-            LossReason::UnmappedField,
-            "Chat Completions requests have no metadata field; the IR metadata map is dropped.",
-        ));
+        return Err(Error::new("chatcompletions: metadata key cannot be empty"));
     }
     let mut out = Request {
         model: config.map_model(&req.model),
+        metadata: req
+            .metadata
+            .as_ref()
+            .filter(|metadata| !metadata.is_empty())
+            .map(|metadata| {
+                serde_json::Value::Object(
+                    metadata
+                        .iter()
+                        .map(|(key, value)| (key.clone(), serde_json::Value::String(value.clone())))
+                        .collect(),
+                )
+            }),
         ..Request::default()
     };
     if let Some(tools) = &req.tools {
@@ -164,17 +169,36 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         losses.push(loss);
     }
     if !req.system.is_empty() {
-        let mut text = String::new();
-        for block in &req.system {
-            match block {
-                oxa_ir::SystemBlock::Text { text: value, .. } => text.push_str(value),
+        let has_developer = req.system.iter().any(
+            |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
+        );
+        if !has_developer {
+            let mut text = String::new();
+            for block in &req.system {
+                let oxa_ir::SystemBlock::Text { text: value, .. } = block;
+                text.push_str(value);
+            }
+            out.messages.push(Message {
+                role: ROLE_SYSTEM.to_string(),
+                content: Some(ContentValue::Text(text)),
+                ..Message::default()
+            });
+        } else {
+            for block in &req.system {
+                let oxa_ir::SystemBlock::Text {
+                    text: value, role, ..
+                } = block;
+                out.messages.push(Message {
+                    role: if role == "developer" {
+                        "developer".to_string()
+                    } else {
+                        ROLE_SYSTEM.to_string()
+                    },
+                    content: Some(ContentValue::Text(value.clone())),
+                    ..Message::default()
+                });
             }
         }
-        out.messages.push(Message {
-            role: ROLE_SYSTEM.to_string(),
-            content: Some(ContentValue::Text(text)),
-            ..Message::default()
-        });
     }
     for (index, message) in req.messages.iter().enumerate() {
         match message.role {
@@ -259,6 +283,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(params) = &req.params {
         out.temperature = params.temperature;
         out.top_p = params.top_p;
+        out.verbosity = params.verbosity.clone();
         out.max_tokens = params.max_tokens;
         let stop = params
             .stop_sequences

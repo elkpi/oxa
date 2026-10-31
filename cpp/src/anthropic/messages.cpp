@@ -574,16 +574,28 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         return invalid_argument("anthropic: max_tokens is required and must be positive");
     }
 
-    if (wire.find("metadata") != nullptr) {
-        losses.push_back(make_ant_loss(
-            "metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-            "Anthropic request metadata (user_id) has no IR equivalent in v1."));
-    }
-
     ir::Request req;
     const auto* mv = wire.find("model");
     if (!mv || !mv->is_string()) return invalid_argument("anthropic: request missing model");
     req.model = opts.model_map.map(mv->as_string());
+    if (const auto* md = wire.find("metadata"); md && !md->is_null()) {
+        if (!md->is_object()) return invalid_argument("anthropic: metadata must be an object");
+        std::map<std::string, std::string> parsed;
+        for (const auto& [key, value] : md->as_object()) {
+            if (key.empty())
+                return invalid_argument("anthropic: metadata key cannot be empty");
+            if (key == "user_id") {
+                if (!value.is_string())
+                    return invalid_argument("anthropic: metadata.user_id must be a string");
+                parsed.emplace(key, value.as_string());
+                continue;
+            }
+            losses.push_back(make_ant_loss(
+                "metadata." + key, key, ir::LOSS_UNMAPPED_FIELD,
+                "Anthropic request metadata only preserves user_id; this key is dropped."));
+        }
+        if (!parsed.empty()) req.metadata = std::move(parsed);
+    }
 
     std::set<std::string> custom_tools;
     std::set<std::string> declared_tools;
@@ -905,18 +917,32 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     OXA_RETURN_IF_ERROR(ir::validate_native_request(req));
     std::vector<ir::Loss> losses;
-    if (req.metadata.has_value() && !req.metadata->empty()) {
-        losses.push_back(make_ant_loss(
-            "metadata", "metadata", ir::LOSS_UNMAPPED_FIELD,
-            "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped."));
-    }
-
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
+    if (req.metadata.has_value() && !req.metadata->empty()) {
+        json::Value md = json::Value::object();
+        for (const auto& [key, value] : *req.metadata) {
+            if (key.empty()) return invalid_argument("anthropic: metadata key cannot be empty");
+            if (key == "user_id") {
+                md.set(key, json::Value::string(value));
+                continue;
+            }
+            losses.push_back(make_ant_loss(
+                "metadata." + key, key, ir::LOSS_UNMAPPED_FIELD,
+                "Anthropic request metadata only preserves user_id; this IR metadata key is dropped."));
+        }
+        if (!md.as_object().empty()) out.set("metadata", std::move(md));
+    }
 
     if (!req.system.empty()) {
         json::Value sys_arr = json::Value::array();
-        for (const auto& s : req.system) {
+        for (std::size_t i = 0; i < req.system.size(); ++i) {
+            const auto& s = req.system[i];
+            if (s.role == "developer") {
+                losses.push_back(make_ant_loss(
+                    "system[" + std::to_string(i) + "].role", "role", ir::LOSS_DEGRADED,
+                    "developer instruction is carried as Anthropic system content; Anthropic has no developer role"));
+            }
             json::Value sb = json::Value::object();
             sb.set("type", json::Value::string("text"));
             sb.set("text", json::Value::string(s.text));
@@ -1424,6 +1450,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     }
 
     OXA_RETURN_IF_ERROR(encode_request_native(req, out, losses));
+    if (req.params.has_value() && req.params->verbosity.has_value()) {
+        losses.push_back(make_ant_loss("params.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD, ""));
+    }
     if (req.params && req.params->response_format) {
         const auto& rf = *req.params->response_format;
         if (rf.type == "json_schema") {

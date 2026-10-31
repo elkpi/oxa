@@ -3,6 +3,7 @@
 from typing import Final
 
 ROLE_SYSTEM: Final = "system"
+ROLE_DEVELOPER: Final = "developer"
 ROLE_USER: Final = "user"
 ROLE_ASSISTANT: Final = "assistant"
 ROLE_TOOL: Final = "tool"

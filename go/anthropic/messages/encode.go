@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/elkpi/oxa/go/v2/ir"
 )
@@ -35,19 +36,27 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		return nil, nil, err
 	}
 	var losses []ir.Loss
-	if len(req.Metadata) > 0 {
-		losses = append(losses, ir.Loss{
-			Path:   "metadata",
-			Field:  "metadata",
-			Reason: ir.LossUnmappedField,
-			Detail: "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
-		})
-	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
+	encoded, metaLosses, err := encodeAnthropicMetadata(req.Metadata)
+	if err != nil {
+		return nil, nil, err
+	}
+	if encoded != nil || len(metaLosses) > 0 {
+		out.Metadata = encoded
+		losses = append(losses, metaLosses...)
+	}
 	if len(req.System) > 0 {
 		blocks := make([]SystemBlockWire, 0, len(req.System))
-		for _, s := range req.System {
+		for i, s := range req.System {
+			if s.Role == ir.SystemRoleDeveloper {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("system[%d].role", i),
+					Field:  "role",
+					Reason: ir.LossDegraded,
+					Detail: "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+				})
+			}
 			sbw := SystemBlockWire{Type: BlockTypeText, Text: s.Text}
 			if cc := getBlockCacheControl(s); len(cc) > 0 {
 				sbw.CacheControl = cc
@@ -221,6 +230,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	out.Temperature = req.Params.Temperature
 	out.TopP = req.Params.TopP
+	if req.Params.Verbosity != "" {
+		losses = append(losses, ir.Loss{Path: "params.verbosity", Field: "verbosity", Reason: ir.LossUnmappedField})
+	}
 	if len(req.Params.StopSequences) > 0 {
 		out.StopSequences = req.Params.StopSequences
 	}
@@ -776,4 +788,38 @@ func encodeResponseCitations(cites []ir.TextCitation) (json.RawMessage, error) {
 		items = append(items, json.RawMessage(c.Value))
 	}
 	return json.Marshal(items)
+}
+
+func encodeAnthropicMetadata(metadata map[string]string) (any, []ir.Loss, error) {
+	if len(metadata) == 0 {
+		return nil, nil, nil
+	}
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		if key == "" {
+			return nil, nil, fmt.Errorf("anthropic: metadata key cannot be empty")
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	var losses []ir.Loss
+	var userID string
+	var hasUserID bool
+	for _, key := range keys {
+		if key == "user_id" {
+			userID = metadata[key]
+			hasUserID = true
+			continue
+		}
+		losses = append(losses, ir.Loss{
+			Path:   "metadata." + key,
+			Field:  key,
+			Reason: ir.LossUnmappedField,
+			Detail: "Anthropic request metadata only preserves user_id; this IR metadata key is dropped.",
+		})
+	}
+	if !hasUserID {
+		return nil, losses, nil
+	}
+	return map[string]string{"user_id": userID}, losses, nil
 }

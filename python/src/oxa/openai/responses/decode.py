@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, cast
 
+from oxa._metadata import string_metadata
+from oxa._verbosity import decode_verbosity
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -102,18 +104,6 @@ def decode_request(
     text_config = wire.get("text")
     unmapped_fields = [
         (
-            "metadata",
-            "metadata",
-            wire.get("metadata") is not None,
-            "Responses request metadata has no IR equivalent in v1.",
-        ),
-        (
-            "text.verbosity",
-            "verbosity",
-            isinstance(text_config, dict) and text_config.get("verbosity") is not None,
-            "Responses output verbosity has no IR equivalent in v1.",
-        ),
-        (
             "parallel_tool_calls",
             "parallel_tool_calls",
             wire.get("parallel_tool_calls") is not None,
@@ -159,19 +149,11 @@ def decode_request(
             if kind in ("", ITEM_TYPE_MESSAGE):
                 role = item.get("role", "")
                 if role in (ROLE_SYSTEM, ROLE_DEVELOPER):
-                    if role == ROLE_DEVELOPER:
-                        losses.append(
-                            loss(
-                                f"input[{index}].role",
-                                "role",
-                                LOSS_DEGRADED,
-                                "Responses developer instructions are carried as IR system "
-                                "content; the developer/system role distinction is not preserved.",
-                            )
-                        )
                     path = f"input[{index}].content"
                     content, c_losses = decode_content(item.get("content"), path)
                     sys_blocks, s_losses = content_system(content, path)
+                    if role == ROLE_DEVELOPER:
+                        sys_blocks = [replace(block, role="developer") for block in sys_blocks]
                     req.system.extend(sys_blocks)
                     losses.extend(c_losses)
                     losses.extend(s_losses)
@@ -280,6 +262,7 @@ def decode_request(
                 )
             )
 
+    verbosity = decode_verbosity(text_config.get("verbosity") if isinstance(text_config, dict) else None, "text.verbosity", losses)
     max_tokens = wire.get("max_output_tokens")
     format_raw = text_config.get("format") if isinstance(text_config, dict) else None
     response_format = decode_text_format(format_raw, losses)
@@ -291,6 +274,7 @@ def decode_request(
         or wire.get("top_p") is not None
         or max_tokens is not None
         or reasoning_effort is not None
+        or verbosity is not None
         or response_format is not None
     ):
         params = Params(
@@ -298,6 +282,7 @@ def decode_request(
             top_p=wire.get("top_p"),
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             response_format=response_format,
         )
 
@@ -309,6 +294,7 @@ def decode_request(
             tools=tools if tools else None,
             tool_choice=tool_choice,
             params=params,
+            metadata=string_metadata(wire.get("metadata"), "responses"),
         ),
         losses,
     )

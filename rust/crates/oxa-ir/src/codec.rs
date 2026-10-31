@@ -416,6 +416,63 @@ fn check_citations(val: &Value) -> Result<(), Error> {
     Ok(())
 }
 
+fn check_params(val: &Value) -> Result<(), Error> {
+    if let Some(verb) = val
+        .get("params")
+        .and_then(Value::as_object)
+        .and_then(|params| params.get("verbosity"))
+        && (verb.is_null()
+            || !verb
+                .as_str()
+                .is_some_and(|s| s == "low" || s == "medium" || s == "high"))
+    {
+        return Err(Error::Custom("ir: invalid params.verbosity".into()));
+    }
+    Ok(())
+}
+
+fn check_system(val: &Value) -> Result<(), Error> {
+    if let Some(system) = val.get("system").and_then(Value::as_array) {
+        for s in system {
+            if let Some(role) = s.get("role")
+                && (role.is_null() || role.as_str() != Some("developer"))
+            {
+                return Err(Error::Custom("ir: invalid system role".into()));
+            }
+        }
+    }
+    if let Some(messages) = val.get("messages").and_then(Value::as_array) {
+        for m in messages {
+            if let Some(content) = m.get("content").and_then(Value::as_array) {
+                for b in content {
+                    if b.get("role").is_some() {
+                        return Err(Error::Custom(
+                            "ir: role is only permitted on system blocks".into(),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn check_metadata(val: &Value) -> Result<(), Error> {
+    if let Some(metadata) = val.get("metadata").and_then(Value::as_object) {
+        for (key, v) in metadata {
+            if key.is_empty() {
+                return Err(Error::Custom("ir: metadata key cannot be empty".into()));
+            }
+            if !v.is_string() {
+                return Err(Error::Custom(format!(
+                    "ir: metadata.{key} must be a string"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Serializes one IR document (`Request`, `Response`, or `EventStream`) to
 /// its JSON form, inserting the `specVersion` property.
 pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
@@ -425,6 +482,9 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
     }
     check_no_document(&document)?;
     check_citations(&document)?;
+    check_params(&document)?;
+    check_system(&document)?;
+    check_metadata(&document)?;
     crate::web_search::check_web_search_blocks(&document)?;
     let object = document.as_object_mut().ok_or(Error::MissingSpecVersion)?;
     object.insert(
@@ -443,6 +503,9 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     }
     check_no_document(&document)?;
     check_citations(&document)?;
+    check_params(&document)?;
+    check_system(&document)?;
+    check_metadata(&document)?;
     crate::web_search::check_web_search_blocks(&document)?;
     if let Some(format) = document
         .get("params")

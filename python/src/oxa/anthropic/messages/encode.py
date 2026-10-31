@@ -6,6 +6,7 @@ import json
 from decimal import Decimal
 from typing import Any
 
+from oxa._metadata import encode_anthropic_metadata
 from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_IMAGE,
@@ -103,15 +104,8 @@ def encode_request(
     validate_native_request(req)
     losses: list[Loss] = []
 
-    if req.metadata:
-        losses.append(
-            loss(
-                "metadata",
-                "metadata",
-                LOSS_UNMAPPED_FIELD,
-                "Anthropic request metadata is the user_id semantic, not an arbitrary string map; the IR metadata map is dropped.",
-            )
-        )
+    metadata, meta_losses = encode_anthropic_metadata(req.metadata)
+    losses.extend(meta_losses)
 
     model = req.model
     if table is not None:
@@ -121,8 +115,20 @@ def encode_request(
         "model": model,
         "messages": [],
     }
+    if metadata:
+        out["metadata"] = metadata
 
     if req.system:
+        for index, block in enumerate(req.system):
+            if getattr(block, "role", "") == "developer":
+                losses.append(
+                    Loss(
+                        path=f"system[{index}].role",
+                        field="role",
+                        reason="degraded",
+                        detail="developer instruction is carried as Anthropic system content; Anthropic has no developer role",
+                    )
+                )
         out["system"] = encode_system(req.system)
 
     tools_wire: list[dict[str, Any]] = []
@@ -318,6 +324,8 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.stop_sequences:
             out["stop_sequences"] = req.params.stop_sequences
+    if req.params and req.params.verbosity is not None:
+        losses.append(loss("params.verbosity", "verbosity", LOSS_UNMAPPED_FIELD, ""))
     native_losses = encode_request_native(req, out)
     losses.extend(native_losses)
 

@@ -1,0 +1,24 @@
+{
+  "name": "responses.nonstream.metadata-request-from-ir",
+  "description": "Request.Metadata round-trips onto a Responses request with no loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o-mini",
+    "metadata": { "k": "v" },
+    "messages": [
+      { "role": "user", "content": [{ "type": "text", "text": "Hi" }] }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o-mini",
+    "metadata": { "k": "v" },
+    "input": "Hi"
+  },
+  "expected_losses": [],
+  "tags": ["request", "metadata"]
+}

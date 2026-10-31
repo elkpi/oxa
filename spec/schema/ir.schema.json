@@ -46,6 +46,7 @@
         },
         "metadata": {
           "type": "object",
+          "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": "string" },
           "description": "String-to-string map."
         },
@@ -64,6 +65,7 @@
       "properties": {
         "type": { "const": "text" },
         "text": { "type": "string" },
+        "role": { "const": "developer", "description": "Developer instruction tier (spec/01, since 2.5.0). Absent means system tier." },
         "native": {
           "type": "array",
           "items": { "$ref": "#/$defs/nativeAnnotation" }
@@ -710,6 +712,7 @@
         "reasoning_effort": {
           "$ref": "#/$defs/reasoningEffort"
         },
+        "verbosity": { "enum": ["low", "medium", "high"] },
         "response_format": {
           "$ref": "#/$defs/responseFormat"
         }

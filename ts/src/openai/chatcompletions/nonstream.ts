@@ -20,6 +20,7 @@ import {
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
+import { stringMetadata } from "../../json/metadata.js";
 import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
 import type {
   Block,
@@ -68,7 +69,6 @@ function decodeRequestObject(
     "function_call",
     "logprobs",
     "top_logprobs",
-    "metadata",
   ])
     if (wire[field] !== undefined)
       losses.push(loss(field, field, "unmapped-field"));
@@ -243,10 +243,13 @@ function decodeRequestObject(
       `messages[${index}].content`,
       losses,
     );
-    if (role === "system") {
+    if (role === "system" || role === "developer") {
       for (let blockIndex = 0; blockIndex < content.length; blockIndex += 1) {
         const block = content[blockIndex]!;
-        if (block.type === "text") system.push(block);
+        if (block.type === "text")
+          system.push(
+            role === "developer" ? { ...block, role: "developer" } : block,
+          );
         else
           losses.push(
             loss(
@@ -405,6 +408,7 @@ function decodeRequestObject(
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
     ...decodeReasoningEffort(wire.reasoning_effort, losses),
+    ...decodeVerbosity(wire.verbosity, "verbosity", losses),
     ...(responseFormat === undefined
       ? {}
       : { response_format: responseFormat }),
@@ -417,6 +421,7 @@ function decodeRequestObject(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
     ...(native.length === 0 ? {} : { native }),
+    ...stringMetadata(wire.metadata, "chatcompletions"),
   };
   validateRequest(request);
   return { value: request, losses };
@@ -534,17 +539,20 @@ export function encodeRequest(
 ): ConversionResult<JsonObject> {
   validateRequest(request);
   const losses: Loss[] = [];
-  if (
-    request.metadata !== undefined &&
-    Object.keys(request.metadata).length > 0
-  )
-    losses.push(loss("metadata", "metadata", "unmapped-field"));
   const messages: JsonValue[] = [];
-  if (request.system !== undefined && request.system.length > 0)
-    messages.push({
-      role: "system",
-      content: request.system.map((block) => block.text).join(""),
-    });
+  if (request.system !== undefined && request.system.length > 0) {
+    if (request.system.some((block) => block.role === "developer")) {
+      for (const block of request.system)
+        messages.push({
+          role: block.role === "developer" ? "developer" : "system",
+          content: block.text,
+        });
+    } else
+      messages.push({
+        role: "system",
+        content: request.system.map((block) => block.text).join(""),
+      });
+  }
   for (let index = 0; index < request.messages.length; index += 1) {
     const message = request.messages[index]!;
     if (message.role === "assistant") {
@@ -774,11 +782,13 @@ export function encodeRequest(
     ...(params?.reasoning_effort === undefined
       ? {}
       : { reasoning_effort: params.reasoning_effort }),
+    ...(params?.verbosity === undefined ? {} : { verbosity: params.verbosity }),
     ...(format === undefined || unnamedSchema
       ? {}
       : { response_format: encodeResponseFormat(format) }),
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
   };
   const omissionLosses = omittedNativeRequestLosses(request, "chatcompletions");
   losses.push(...omissionLosses);
@@ -1351,6 +1361,18 @@ function encodeImage(image: ImageBlock, path: string): JsonObject | undefined {
     } catch {}
   }
   return undefined;
+}
+
+function decodeVerbosity(
+  value: JsonValue | undefined,
+  path: string,
+  losses: Loss[],
+): { verbosity?: "low" | "medium" | "high" } {
+  if (value === undefined || value === null) return {};
+  const v = string(value, path);
+  if (v === "low" || v === "medium" || v === "high") return { verbosity: v };
+  losses.push(loss(path, "verbosity", "unmapped-value"));
+  return {};
 }
 
 function loss(path: string, field: string, reason: LossReason): Loss {

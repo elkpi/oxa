@@ -394,7 +394,9 @@ pub fn decode_request_native(
                             projection: None,
                         });
                     } else {
-                        let mapped = if budget <= 2048 {
+                        let mapped = if budget <= 1024 {
+                            ReasoningEffort::Minimal
+                        } else if budget <= 2048 {
                             ReasoningEffort::Low
                         } else if budget <= 8192 {
                             ReasoningEffort::Medium

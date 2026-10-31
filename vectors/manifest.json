@@ -1532,6 +1532,16 @@
       "sha256": "f9115d53ac23949641cac60fa48676da64253ef2b949d5dc2104f3f8c7548813"
     },
     {
+      "name": "chatcompletions.nonstream.document-file-data-url-request-to-ir",
+      "file": "chatcompletions/nonstream/document-file-data-url-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14"
+      ],
+      "sha256": "1d556dca8dc0f33102a80a9a2f4028b31287acaa8c86093a4b1b22f9866eae66"
+    },
+    {
       "name": "chatcompletions.nonstream.document-file-id-request-from-ir",
       "file": "chatcompletions/nonstream/document-file-id-request-from-ir.json",
       "tags": [
@@ -1561,6 +1571,17 @@
         "loss"
       ],
       "sha256": "bbac3ce5ad090af4acb51aa663f3a946714cb612ba8d53064a77496b663b5269"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-non-pdf-loss-request-from-ir",
+      "file": "chatcompletions/nonstream/document-non-pdf-loss-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14",
+        "loss"
+      ],
+      "sha256": "32c0c541a41d27563927384c511c271844e0463ed9f728582b9b96fd9acb2c0e"
     },
     {
       "name": "chatcompletions.nonstream.document-url-loss-request-from-ir",
@@ -3952,6 +3973,16 @@
         "N-R-19"
       ],
       "sha256": "3d0d59d733d4269ab74dbb6809c4b40291d2b25213caa7ca041a5029cf2b2fe6"
+    },
+    {
+      "name": "responses.nonstream.document-file-data-url-request-to-ir",
+      "file": "responses/nonstream/document-file-data-url-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "8606c07617959db35ad71f0c115eac64f65fc35bbc85bda94944835f99799ec0"
     },
     {
       "name": "responses.nonstream.document-file-id-request-from-ir",

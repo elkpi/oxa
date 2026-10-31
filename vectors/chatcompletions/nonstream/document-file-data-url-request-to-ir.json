@@ -1,0 +1,35 @@
+{
+  "name": "chatcompletions.nonstream.document-file-data-url-request-to-ir",
+  "description": "Chat Completions request file part with data URL in file_data decodes to IR DocumentBlock with extracted media_type and raw payload (N-CC-14).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "file", "file": { "file_data": "data:application/pdf;base64,JVBERi0xLjcK" } },
+          { "type": "text", "text": "Extract text." }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "document", "media_type": "application/pdf", "data": "JVBERi0xLjcK" },
+          { "type": "text", "text": "Extract text." }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["document", "request", "N-CC-14"]
+}

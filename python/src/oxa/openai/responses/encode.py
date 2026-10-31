@@ -396,6 +396,7 @@ def encode_response(
     """Converts an IR response to a Responses wire response (IR → face)."""
     losses: list[Loss] = []
     thinkings: list[dict[str, Any]] = []
+    annotations: list[Any] = []
     text_chunks: list[str] = []
     has_text = False
     calls: list[dict[str, Any]] = []
@@ -407,14 +408,24 @@ def encode_response(
             text_chunks.append(block.text)
             has_text = True
             if block.citations:
-                losses.append(
-                    loss(
-                        f"content[{index}].citations",
-                        "citations",
-                        LOSS_UNSUPPORTED_SEMANTIC,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                has_anthropic = False
+                for c in block.citations:
+                    if c.source == "openai":
+                        try:
+                            annotations.append(json.loads(c.value))
+                        except Exception:
+                            pass
+                    elif c.source == "anthropic":
+                        has_anthropic = True
+                if has_anthropic:
+                    losses.append(
+                        loss(
+                            f"content[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        )
                     )
-                )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(
@@ -528,7 +539,7 @@ def encode_response(
                     {
                         "type": PART_TYPE_OUTPUT_TEXT,
                         "text": "".join(text_chunks),
-                        "annotations": [],
+                        "annotations": annotations,
                     }
                 ],
             },

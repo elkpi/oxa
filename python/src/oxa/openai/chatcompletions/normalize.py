@@ -370,14 +370,26 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
             parts.append({"type": CONTENT_PART_TYPE_TEXT, "text": block.text})
             text_chunks.append(block.text)
             if block.citations:
-                losses.append(
-                    loss(
-                        f"{path}[{index}].citations",
-                        "citations",
-                        LOSS_UNSUPPORTED_SEMANTIC,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                has_anthropic = any(c.source != "openai" for c in block.citations)
+                has_openai = any(c.source == "openai" for c in block.citations)
+                if has_anthropic:
+                    losses.append(
+                        loss(
+                            f"{path}[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        )
                     )
-                )
+                if has_openai:
+                    losses.append(
+                        loss(
+                            f"{path}[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                        )
+                    )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(
@@ -424,14 +436,26 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
         if isinstance(block, TextBlock):
             text_chunks.append(block.text)
             if block.citations:
-                losses.append(
-                    loss(
-                        f"{path}[{index}].citations",
-                        "citations",
-                        LOSS_UNSUPPORTED_SEMANTIC,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                has_anthropic = any(c.source != "openai" for c in block.citations)
+                has_openai = any(c.source == "openai" for c in block.citations)
+                if has_anthropic:
+                    losses.append(
+                        loss(
+                            f"{path}[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        )
                     )
-                )
+                if has_openai:
+                    losses.append(
+                        loss(
+                            f"{path}[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                        )
+                    )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(

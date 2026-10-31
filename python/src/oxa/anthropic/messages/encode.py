@@ -379,8 +379,20 @@ def encode_request_block(
     if isinstance(block, TextBlock):
         encoded = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
+            has_openai = any(c.source == "openai" for c in block.citations)
+            if has_openai:
+                losses.append(
+                    loss(
+                        f"{path}.citations",
+                        "citations",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                    )
+                )
             raw_cites = []
             for c_idx, c in enumerate(block.citations):
+                if c.source == "openai":
+                    continue
                 if c.source != "anthropic":
                     raise ValueError(f"anthropic: unknown citation source {c.source!r}")
                 validate_citation_value(c.value)
@@ -822,16 +834,29 @@ def encode_response_block(
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     if isinstance(block, TextBlock):
         encoded: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
+        losses = []
         if block.citations:
+            has_openai = any(c.source == "openai" for c in block.citations)
+            if has_openai:
+                losses.append(
+                    loss(
+                        f"{path}.citations",
+                        "citations",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                    )
+                )
             raw_cites = []
             for c in block.citations:
+                if c.source == "openai":
+                    continue
                 if c.source != "anthropic":
                     raise ValueError(f"anthropic: unknown citation source {c.source!r}")
                 validate_citation_value(c.value)
                 raw_cites.append(json.loads(c.value))
             if raw_cites:
                 encoded["citations"] = raw_cites
-        return encoded, [], True
+        return encoded, losses, True
     if isinstance(block, RedactedThinkingBlock):
         return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}, [], True
     if isinstance(block, ThinkingBlock):

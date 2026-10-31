@@ -8,6 +8,19 @@ const PART: WireAuditSpec = {
       return {
         fields: { type: undefined, image_url: { fields: { url: undefined } } },
       };
+    if (part.type === "file")
+      return {
+        fields: {
+          type: undefined,
+          file: {
+            fields: {
+              file_id: undefined,
+              file_data: undefined,
+              filename: undefined,
+            },
+          },
+        },
+      };
     return undefined;
   },
 };

@@ -22,11 +22,34 @@ const INPUT_PART: WireAuditSpec = {
       return {
         fields: { type: undefined, image_url: undefined, detail: undefined },
       };
+    if (part.type === "input_file")
+      return {
+        fields: {
+          type: undefined,
+          file_id: undefined,
+          file_url: undefined,
+          file_data: undefined,
+          filename: undefined,
+          detail: undefined,
+        },
+      };
     return undefined;
   },
 };
 
 const INPUT_CONTENT: WireAuditSpec = { items: INPUT_PART };
+
+const CUSTOM_OUTPUT_PART: WireAuditSpec = {
+  variant: (part) => {
+    if (part.type === "input_text")
+      return { fields: { type: undefined, text: undefined } };
+    if (part.type === "input_image")
+      return {
+        fields: { type: undefined, image_url: undefined, detail: undefined },
+      };
+    return undefined;
+  },
+};
 
 const APPLY_PATCH_OPERATION: WireAuditSpec = {
   variant: (op) => {
@@ -118,7 +141,7 @@ const INPUT_ITEM: WireAuditSpec = {
           fields: {
             type: undefined,
             call_id: undefined,
-            output: { items: INPUT_PART },
+            output: { items: CUSTOM_OUTPUT_PART },
           },
         };
       case "reasoning":
@@ -326,7 +349,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             type: undefined,
             id: undefined,
             call_id: undefined,
-            output: { items: INPUT_PART },
+            output: { items: CUSTOM_OUTPUT_PART },
           },
         };
       case "reasoning":

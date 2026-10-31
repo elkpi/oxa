@@ -72,6 +72,7 @@ The wire objects in scope are:
 | `stream_options` | `Request.Native` (`kind: "stream_options"`) | 流式选项，包含 include_usage 校验与未知子字段审计；跨面降级为 degraded 损失（N-NAT-2/3，规范 2.4.10） |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
+| `verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `verbosity`; non-strings are structural errors |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
 | `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object or a non-string value is a structural error |
 | `parallel_tool_calls` | — | unmapped-field loss |

@@ -86,6 +86,7 @@ The wire objects in scope are:
 | `tool_choice.disable_parallel_tool_use` | `Request.Native` (`kind: "disable_parallel_tool_use"`) | N-AN-19; boolean; preserved as native option in IR (spec/15) |
 | `metadata` | `Request.Metadata` | only the string key `user_id` round-trips; every other key is one `unmapped-field` loss (N-AN-8, since 2.5.0) |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
+| — | `Params.Verbosity` | dropped on encode with one `unmapped-field` loss at `params.verbosity`, field `verbosity` (since 2.5.0) |
 
 For ordinary function tools, a present `strict` MUST be a boolean; `null` and
 other types are structural errors, including when the input schema matches a

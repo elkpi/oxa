@@ -94,7 +94,7 @@ The wire objects in scope are:
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
 | `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object or a non-string value is a structural error |
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
-| `text.verbosity` | — | unmapped-field loss |
+| `text.verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `text.verbosity`; non-strings are structural errors. Encoding preserves `text.format` when both are present |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
 | `parallel_tool_calls` | — | unmapped-field loss |
 | function `tools[].strict` | `Tools[].Strict` | optional boolean mapped loss-free in both directions, including nested containers and `additional_tools` (N-R-15) |
@@ -253,9 +253,8 @@ Each rule has a stable ID usable as a vector tag.
   directions. Responses has NO stop-sequences parameter: IR
   `Params.StopSequences` cannot round-trip, and a non-empty value on
   encode records exactly one unmapped-field loss.
-- **N-R-8 (unmapped request fields).** `text.verbosity` and
-  `parallel_tool_calls` have no IR equivalent and are dropped with
-  unmapped-field losses. `metadata` is not in this set: it maps 1:1 to
+- **N-R-8 (unmapped request fields).** `parallel_tool_calls` has no IR equivalent and is dropped with an
+  unmapped-field loss. Since 2.5.0 `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
   `Request.Metadata` (since 2.5.0).
   `text.format` and `reasoning.effort` map as described above; unsupported
   members retain their documented losses. Function-tool `strict` maps to
@@ -370,7 +369,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `usage` absent | exempt (envelope) | response → IR | IR usage carries zeros |
 | `object`, `status` on encode, `output[].id`, `output[].status`, `output[].role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
 | empty `annotations` | exempt (envelope) | both | structural part of output_text |
-| `text.verbosity` | unmapped-field | request → IR | no IR equivalent in v1 |
+| `text.verbosity` unknown string | unmapped-value | request → IR | unknown verbosity values are dropped |
 | `text.format.type` unknown value | unmapped-value | request → IR | unknown text.format type dropped (N-R-14) |
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
 | `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |

@@ -711,6 +711,7 @@
         "reasoning_effort": {
           "$ref": "#/$defs/reasoningEffort"
         },
+        "verbosity": { "enum": ["low", "medium", "high"] },
         "response_format": {
           "$ref": "#/$defs/responseFormat"
         }

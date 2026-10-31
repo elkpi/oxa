@@ -138,6 +138,7 @@ private:
     bool open_custom_ = false;
     bool open_redacted_ = false;
     bool tool_seen_ = false;
+    bool citation_loss_seen_ = false;
     std::string thinking_input_;
     std::optional<std::string> thinking_signature_;
     std::vector<std::string> thinking_parts_;

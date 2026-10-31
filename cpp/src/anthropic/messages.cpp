@@ -2179,12 +2179,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             open_tool_ = false;
             open_thinking_ = false;
             open_redacted_ = false;
+            citation_loss_seen_ = false;
             cb.set("type", json::Value::string("text"));
             if (!tb->text.empty()) cb.set("text", json::Value::string(tb->text));
             if (tb->citations.has_value() && !tb->citations->empty()) {
                 OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations, "content[" + std::to_string(open_ir_index_) + "].citations", losses));
                 if (!cites.as_array().empty()) {
                     cb.set("citations", std::move(cites));
+                }
+                for (const auto& l : losses) {
+                    if (l.field == "citations") {
+                        citation_loss_seen_ = true;
+                        break;
+                    }
                 }
             }
         } else {
@@ -2242,6 +2249,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                 delta.set("type", json::Value::string("text_delta"));
                 delta.set("text", json::Value::string(td->text));
             } else if (const auto* cite = std::get_if<ir::CitationDelta>(&cbd->delta)) {
+                if (cite->citation.source == "openai") {
+                    if (!citation_loss_seen_) {
+                        citation_loss_seen_ = true;
+                        losses.push_back(make_ant_loss(
+                            "content[" + std::to_string(open_ir_index_) + "].citations", "citations",
+                            ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                    }
+                    return Conversion<std::vector<json::Value>>{{}, std::move(losses)};
+                }
+                if (cite->citation.source != "anthropic") {
+                    return invalid_argument("anthropic: unknown citation source \"" + cite->citation.source + "\"");
+                }
                 auto parsed = json::parse(cite->citation.value);
                 if (!parsed.ok() || !parsed->is_object()) {
                     return invalid_argument("anthropic: citation value must be a JSON object");

@@ -139,6 +139,51 @@ int main() {
         CHECK(!bad_delta.ok());
     }
 
+    // Multi-text-block response with citations preserves distinct parts
+    {
+        oxa::ir::Response r;
+        r.id = "r_multi";
+        r.model = "m";
+        r.stop_reason = oxa::ir::STOP_END_TURN;
+        r.content.push_back(oxa::ir::TextBlock{"AAAA"});
+        oxa::ir::TextBlock tb{"Docs"};
+        tb.citations = std::vector<oxa::ir::TextCitation>{
+            oxa::ir::TextCitation{"openai", R"({"end_index":4,"start_index":0,"title":"Docs","type":"url_citation","url":"https://example.test"})"}
+        };
+        r.content.push_back(std::move(tb));
+        auto enc = oxa::openai::responses::encode_response(r);
+        CHECK(enc.ok());
+        CHECK(enc->losses.empty());
+        const auto* out = enc->value.find("output");
+        CHECK(out && out->is_array() && out->as_array().size() == 1);
+        const auto* c_arr = out->as_array()[0].find("content");
+        CHECK(c_arr && c_arr->is_array() && c_arr->as_array().size() == 2);
+        CHECK(c_arr->as_array()[0].find("text")->as_string() == "AAAA");
+        CHECK(c_arr->as_array()[1].find("text")->as_string() == "Docs");
+        CHECK(c_arr->as_array()[1].find("annotations")->as_array().size() == 1);
+    }
+
+    // Invalid annotations container rejected
+    {
+        auto bad = oxa::openai::responses::decode_response(R"({"id":"r","model":"m","status":"completed","output":[{"type":"message","content":[{"type":"output_text","text":"t","annotations":"bad"}]}]})");
+        CHECK(!bad.ok());
+    }
+
+    // Invalid typed citation rejected
+    {
+        oxa::ir::Response r;
+        r.id = "r_bad";
+        r.model = "m";
+        r.stop_reason = oxa::ir::STOP_END_TURN;
+        oxa::ir::TextBlock tb{"Docs"};
+        tb.citations = std::vector<oxa::ir::TextCitation>{
+            oxa::ir::TextCitation{"openai", "not-json"}
+        };
+        r.content.push_back(std::move(tb));
+        auto bad_enc = oxa::openai::responses::encode_response(r);
+        CHECK(!bad_enc.ok());
+    }
+
     std::printf("test_responses: all %zu vectors passed\n", rep_res->executed);
     return 0;
 }

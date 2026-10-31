@@ -206,6 +206,28 @@ Status validate_citation_value(std::string_view val) {
     return ok_status();
 }
 
+Status validate_citation(std::string_view source, std::string_view val) {
+    if (source == "anthropic") {
+        return validate_citation_value(val);
+    }
+    if (source == "openai") {
+        if (val.empty()) {
+            return invalid_argument("ir: citation value cannot be empty");
+        }
+        auto parsed = json::parse(val);
+        if (!parsed.ok() || !parsed->is_object()) {
+            return invalid_argument("ir: citation value must be a JSON object");
+        }
+        const json::Value& obj = *parsed;
+        const auto* type_val = obj.find("type");
+        if (type_val == nullptr || !type_val->is_string() || type_val->as_string().empty()) {
+            return invalid_argument("ir: citation type must be a non-empty string");
+        }
+        return ok_status();
+    }
+    return invalid_argument("ir: unknown citation source \"" + std::string(source) + "\"");
+}
+
 // ---- blocks ----------------------------------------------------------------
 
 namespace {
@@ -441,11 +463,11 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
             for (const auto& c : cites_val->as_array()) {
                 if (!c.is_object()) return invalid_argument("citation must be an object");
                 OXA_ASSIGN_OR_RETURN(std::string source, require_string(c, "source", "citation"));
-                if (source != "anthropic") {
+                if (source != "anthropic" && source != "openai") {
                     return invalid_argument("ir: unknown citation source \"" + source + "\"");
                 }
                 OXA_ASSIGN_OR_RETURN(std::string value, require_string(c, "value", "citation"));
-                OXA_RETURN_IF_ERROR(validate_citation_value(value));
+                OXA_RETURN_IF_ERROR(validate_citation(source, value));
                 cites.push_back(TextCitation{std::move(source), std::move(value)});
             }
             if (!cites.empty()) block.citations = std::move(cites);
@@ -1331,11 +1353,11 @@ StatusOr<Event> load_event(const json::Value& v) {
             OXA_ASSIGN_OR_RETURN(auto cite_val, require_object(d, "citation", "citation_delta"));
             const json::Value& c = cite_val.get();
             OXA_ASSIGN_OR_RETURN(std::string source, require_string(c, "source", "citation"));
-            if (source != "anthropic") {
+            if (source != "anthropic" && source != "openai") {
                 return invalid_argument("ir: unknown citation source \"" + source + "\"");
             }
             OXA_ASSIGN_OR_RETURN(std::string value, require_string(c, "value", "citation"));
-            OXA_RETURN_IF_ERROR(validate_citation_value(value));
+            OXA_RETURN_IF_ERROR(validate_citation(source, value));
             delta = CitationDelta{TextCitation{std::move(source), std::move(value)}};
         } else {
             return invalid_argument("unknown delta discriminant: " + dkind);

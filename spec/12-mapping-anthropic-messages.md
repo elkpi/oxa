@@ -374,6 +374,9 @@ Each rule has a stable ID usable as a vector tag.
   - **Cross-face.** Target faces without citation replay representation omit the citation list,
     preserve the text, and emit exactly one `unsupported-semantic` loss per text block with detail
     `anthropic text citations; the target face cannot preserve source locations and replay metadata`.
+    When encoding IR carrying citations with `source: "openai"` to Anthropic, the encoder omits
+    the citations, preserves text, and emits exactly one `unsupported-semantic` loss per text block with detail
+    `openai text annotations; the target face cannot preserve source locations and replay metadata`.
 
 - **N-AN-19 (thinking between_tools, top_k, and tool choice parallel control, since 2.4.11).**
   - **between_tools.** `thinking.type = "between_tools"` is preserved as `NativeAnnotation`
@@ -407,7 +410,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
 | `metadata.<key>` other than `user_id` | unmapped-field | request, both directions (one loss per key) | N-AN-8, since 2.5.0 || `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `redacted_thinking` block (cross-face) | unsupported-semantic | IR → target face | anthropic encrypted thinking replay state; the target face cannot preserve this block (N-AN-17) |
-| `text.citations` (cross-face) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
+| `text.citations` (cross-face: anthropic) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
+| `text.citations` (cross-face: openai) | unsupported-semantic | IR → Anthropic | openai text annotations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
 | `text.citations[k].file_id` (request encode replay) | unmapped-field | IR → request | response citation file_id has no request-side representation (N-AN-18) |
 | `unknown citation type` | unsupported-semantic | request/response → IR | unsupported citation type; dropped at leaf index (N-AN-18) |
 | `max_tokens` default on encode | degraded | IR → request | N-AN-2: default 4096 applied when IR lacks `Params.MaxTokens` |

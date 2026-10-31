@@ -134,7 +134,7 @@ always renders as a string.
 | `usage.total_tokens` | — | DERIVED, exempt (recomputed on encode) |
 | `usage` absent | zero usage | ENVELOPE-exempt, no loss |
 | `object`, `output[].id`, `output[].status`, `output[].role` | — | ENVELOPE, exempt |
-| empty `annotations` | — | ENVELOPE, exempt; non-empty `annotations` record an unmapped-field loss |
+| empty `annotations` | — | ENVELOPE, exempt; non-empty `annotations` map to TextBlock.Citations (N-R-18, since 2.5.0) |
 | output content `type` ≠ `output_text` | — | unsupported-semantic loss |
 
 `status` mapping (N-R-11): `error` present or `status` `"failed"` → IR
@@ -358,6 +358,21 @@ Each rule has a stable ID usable as a vector tag.
      - Tool `defer_loading: true` is natively supported by both Responses and Anthropic Messages, round-tripping losslessly between them; encoding to Chat Completions records a `degraded` loss per spec/15.
      - Native tools with `source: "openai"` sent to other faces record an `unsupported-semantic` loss and are omitted per spec/16.
 
+- **N-R-18 (text annotations, since 2.5.0).** Responses `output_text` content parts
+  carry an optional `annotations` array mapping to `TextBlock.Citations`.
+  - **Decode.** Each annotation element must be a JSON object containing a string `type`
+    property (e.g. `"url_citation"`, `"file_citation"`). Each valid annotation is audited and
+    retained as `TextCitation{Source: "openai", Value: "<compact JSON>"}` in `TextBlock.Citations`.
+    Decoding valid annotations produces zero losses. Non-object items or items without a string
+    `type` are structural errors. Empty `annotations: []` remains exempt (no loss, no IR citations).
+  - **Encode.** `TextBlock.Citations` entries with `source: "openai"` are parsed and restored
+    into wire `annotations` objects with zero losses. Entries with `source: "anthropic"`
+    record an `unsupported-semantic` loss per text block
+    (`anthropic text citations; the target face cannot preserve source locations and replay metadata`,
+    N-AN-18) and render `annotations: []`.
+  - **Reasoning Summary.** Reasoning summary parts are not text blocks; non-empty `annotations`
+    on reasoning summaries continue to record an `unmapped-field` loss per N-R-13.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -383,7 +398,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `params.stop_sequences` | unmapped-field | IR → request | Responses has no stop-sequences parameter; one loss when non-empty |
 | `output[i]` `type` other than `message`, `function_call`, `reasoning` | unsupported-semantic | response → IR | one loss per item |
 | output content `type` ≠ `output_text` | unsupported-semantic | response → IR | part has no IR equivalent |
-| non-empty message-content `annotations` | unmapped-field | response → IR | annotations have no IR equivalent in v1 |
+| `text.citations` (cross-face: anthropic → responses) | unsupported-semantic | IR → response | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-R-18, N-AN-18) |
 | non-empty `summary[i].annotations` on a recognized reasoning part | unmapped-field | request/response → IR | one loss at the annotations path; empty annotations remain exempt (N-R-13) |
 | reasoning `summary[i].type` unknown or absent | unsupported-semantic | request/response → IR | one whole-part loss at the part path with field `type`; no empty ThinkingBlock or additional empty-summary loss (N-R-13) |
 | `incomplete_details.reason` ≠ `max_output_tokens` | unmapped-value | response → IR | maps to IR `other` |

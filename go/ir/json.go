@@ -732,7 +732,31 @@ type wireParams struct {
 	MaxTokens       *int64              `json:"max_tokens,omitempty"`
 	StopSequences   []string            `json:"stop_sequences,omitempty"`
 	ReasoningEffort string              `json:"reasoning_effort,omitempty"`
+	Verbosity       string              `json:"verbosity,omitempty"`
 	ResponseFormat  *wireResponseFormat `json:"response_format,omitempty"`
+}
+
+func (p *wireParams) UnmarshalJSON(data []byte) error {
+	type plain wireParams
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	if value, present := fields["verbosity"]; present {
+		if string(value) == "null" || !validVerbosity(decoded.Verbosity) {
+			return fmt.Errorf("ir: invalid params.verbosity")
+		}
+	}
+	*p = wireParams(decoded)
+	return nil
+}
+
+func validVerbosity(value string) bool {
+	return value == "low" || value == "medium" || value == "high"
 }
 
 func validateWireResponseFormat(rf *wireResponseFormat) error {
@@ -761,6 +785,9 @@ func validateWireResponseFormat(rf *wireResponseFormat) error {
 func MarshalRequest(req *Request) ([]byte, error) {
 	if req == nil {
 		return nil, fmt.Errorf("ir: nil request")
+	}
+	if req.Params.Verbosity != "" && !validVerbosity(req.Params.Verbosity) {
+		return nil, fmt.Errorf("ir: invalid params.verbosity")
 	}
 	if req.Params.ResponseFormat != nil {
 		rf := req.Params.ResponseFormat
@@ -813,6 +840,7 @@ func MarshalRequest(req *Request) ([]byte, error) {
 			MaxTokens:       req.Params.MaxTokens,
 			StopSequences:   req.Params.StopSequences,
 			ReasoningEffort: req.Params.ReasoningEffort,
+			Verbosity:       req.Params.Verbosity,
 		}
 		if req.Params.ResponseFormat != nil {
 			params.ResponseFormat = &wireResponseFormat{
@@ -893,6 +921,7 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 			MaxTokens:       w.Params.MaxTokens,
 			StopSequences:   w.Params.StopSequences,
 			ReasoningEffort: w.Params.ReasoningEffort,
+			Verbosity:       w.Params.Verbosity,
 		}
 		if w.Params.ResponseFormat != nil {
 			req.Params.ResponseFormat = &ResponseFormat{

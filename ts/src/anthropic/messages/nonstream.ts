@@ -740,6 +740,8 @@ export function encodeRequest(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
   };
   encodeRequestNative(request, outValue, losses);
+  if (request.params?.verbosity !== undefined)
+    losses.push(loss("params.verbosity", "verbosity", "unmapped-field"));
   const format = request.params?.response_format;
   let outputConfig: JsonObject | undefined;
   if (format?.type === "json_schema") {

@@ -334,6 +334,10 @@ func TestMetadataRoundTrip(t *testing.T) {
 	if !ok || got["user_id"] != "u1" || got["job"] != "x" {
 		t.Fatalf("rendered metadata = %#v", out.Metadata)
 	}
+	decoded, losses, err := DecodeRequest(out)
+	if err != nil || len(losses) != 0 || decoded.Metadata["user_id"] != "u1" || decoded.Metadata["job"] != "x" {
+		t.Fatalf("typed round-trip: decoded=%+v losses=%+v err=%v", decoded, losses, err)
+	}
 	if _, _, err := DecodeRequest(&Request{
 		Model:    "gpt-4o-mini",
 		Messages: []Message{{Role: "user", Content: "Hi"}},

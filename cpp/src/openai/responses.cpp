@@ -841,12 +841,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!wire.is_object()) return invalid_argument("responses: request must be an object");
     std::vector<ir::Loss> losses;
 
-    if (const auto* txt = wire.find("text"); txt && txt->is_object()) {
-        if (txt->find("verbosity") != nullptr) {
-            losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD,
-                                            "Responses output verbosity has no IR equivalent in v1."));
-        }
-    }
     if (wire.find("parallel_tool_calls") != nullptr) {
         losses.push_back(make_resp_loss("parallel_tool_calls", "parallel_tool_calls", ir::LOSS_UNMAPPED_FIELD,
                                         "Responses parallel tool calls have no IR equivalent in v1."));
@@ -1177,6 +1171,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         }
     }
     if (const auto* text = wire.find("text"); text != nullptr && text->is_object()) {
+        if (const auto* verb_val = text->find("verbosity"); verb_val && !verb_val->is_null()) {
+            if (!verb_val->is_string()) {
+                return invalid_argument("responses: text.verbosity must be a string");
+            }
+            const std::string val = verb_val->as_string();
+            if (val == "low" || val == "medium" || val == "high") {
+                params.verbosity = val;
+                has_params = true;
+            } else {
+                losses.push_back(make_resp_loss("text.verbosity", "verbosity", ir::LOSS_UNMAPPED_VALUE, "unknown output verbosity"));
+            }
+        }
         if (const auto* format = text->find("format"); format != nullptr) {
             OXA_ASSIGN_OR_RETURN(auto decoded_format, decode_text_format(*format, losses));
             if (decoded_format.has_value()) {
@@ -1758,6 +1764,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             reasoning.set("effort", json::Value::string(*p.reasoning_effort));
             out.set("reasoning", std::move(reasoning));
         }
+        json::Value text_val = json::Value::object();
+        bool has_text_val = false;
+        if (p.verbosity.has_value()) {
+            text_val.set("verbosity", json::Value::string(*p.verbosity));
+            has_text_val = true;
+        }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;
             if (rf.type == "json_schema" && rf.name.empty()) {
@@ -1773,10 +1785,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (rf.schema.has_value()) format.set("schema", *rf.schema);
                     if (rf.strict.has_value()) format.set("strict", json::Value::boolean(*rf.strict));
                 }
-                json::Value text = json::Value::object();
-                text.set("format", std::move(format));
-                out.set("text", std::move(text));
+                text_val.set("format", std::move(format));
+                has_text_val = true;
             }
+        }
+        if (has_text_val) {
+            out.set("text", std::move(text_val));
         }
         if (p.stop_sequences.has_value() && !p.stop_sequences->empty()) {
             losses.push_back(make_resp_loss(

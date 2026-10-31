@@ -198,7 +198,10 @@ export function decodeRequest(document: JsonValue): Request {
                 : array(obj.native, "system_block.native").map(
                     decodeNativeAnnotation,
                   );
-            const role = obj.role === undefined ? undefined : string(obj.role, "system_block.role");
+            const role =
+              obj.role === undefined
+                ? undefined
+                : string(obj.role, "system_block.role");
             if (role !== undefined && role !== "developer")
               fail(`ir: system role ${role} is not supported`);
             return {
@@ -977,6 +980,7 @@ function encodeParams(params: Params): JsonObject {
     ...(params.reasoning_effort === undefined
       ? {}
       : { reasoning_effort: params.reasoning_effort }),
+    ...(params.verbosity === undefined ? {} : { verbosity: params.verbosity }),
     ...(params.response_format === undefined
       ? {}
       : { response_format: encodeResponseFormat(params.response_format) }),
@@ -1091,12 +1095,20 @@ function decodeParams(value: JsonValue): Params {
             "params.reasoning_effort",
           ),
         }),
+    ...(params.verbosity === undefined
+      ? {}
+      : { verbosity: parseVerbosity(params.verbosity) }),
     ...(params.response_format === undefined
       ? {}
       : {
           response_format: decodeResponseFormat(params.response_format),
         }),
   };
+}
+
+function parseVerbosity(value: JsonValue): "low" | "medium" | "high" {
+  if (value === "low" || value === "medium" || value === "high") return value;
+  return fail("invalid params.verbosity");
 }
 
 function paramsSet(params: Params): boolean {
@@ -1106,6 +1118,7 @@ function paramsSet(params: Params): boolean {
     params.max_tokens !== undefined ||
     (params.stop_sequences !== undefined && params.stop_sequences.length > 0) ||
     params.reasoning_effort !== undefined ||
+    params.verbosity !== undefined ||
     params.response_format !== undefined
   );
 }

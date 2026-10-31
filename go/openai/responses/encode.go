@@ -123,6 +123,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req.Params.ReasoningEffort != "" {
 		out.Reasoning = map[string]any{"effort": req.Params.ReasoningEffort}
 	}
+	if req.Params.Verbosity != "" {
+		v := req.Params.Verbosity
+		out.Text = &TextParams{Verbosity: &v}
+	}
 	if rf := req.Params.ResponseFormat; rf != nil {
 		if rf.Type == ir.ResponseFormatJSONSchema && rf.Name == "" {
 			losses = append(losses, ir.Loss{Path: "params.response_format", Field: "name", Reason: ir.LossUnsupportedSemantic, Detail: "Responses requires a non-empty schema name"})

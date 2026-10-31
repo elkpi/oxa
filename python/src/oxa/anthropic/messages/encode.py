@@ -324,6 +324,8 @@ def encode_request(
             out["top_p"] = req.params.top_p
         if req.params.stop_sequences:
             out["stop_sequences"] = req.params.stop_sequences
+    if req.params and req.params.verbosity is not None:
+        losses.append(loss("params.verbosity", "verbosity", LOSS_UNMAPPED_FIELD, ""))
     native_losses = encode_request_native(req, out)
     losses.extend(native_losses)
 

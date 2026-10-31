@@ -216,6 +216,8 @@ def encode_request(
             out["stop"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             out["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.verbosity is not None:
+            out["verbosity"] = req.params.verbosity
         if req.params.response_format is not None:
             rf = req.params.response_format
             if isinstance(rf, ResponseFormatJsonSchema) and not rf.name:

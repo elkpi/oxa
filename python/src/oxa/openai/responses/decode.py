@@ -6,6 +6,7 @@ from dataclasses import replace
 from typing import Any, cast
 
 from oxa._metadata import string_metadata
+from oxa._verbosity import decode_verbosity
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -102,12 +103,6 @@ def decode_request(
 
     text_config = wire.get("text")
     unmapped_fields = [
-        (
-            "text.verbosity",
-            "verbosity",
-            isinstance(text_config, dict) and text_config.get("verbosity") is not None,
-            "Responses output verbosity has no IR equivalent in v1.",
-        ),
         (
             "parallel_tool_calls",
             "parallel_tool_calls",
@@ -267,6 +262,7 @@ def decode_request(
                 )
             )
 
+    verbosity = decode_verbosity(text_config.get("verbosity") if isinstance(text_config, dict) else None, "text.verbosity", losses)
     max_tokens = wire.get("max_output_tokens")
     format_raw = text_config.get("format") if isinstance(text_config, dict) else None
     response_format = decode_text_format(format_raw, losses)
@@ -278,6 +274,7 @@ def decode_request(
         or wire.get("top_p") is not None
         or max_tokens is not None
         or reasoning_effort is not None
+        or verbosity is not None
         or response_format is not None
     ):
         params = Params(
@@ -285,6 +282,7 @@ def decode_request(
             top_p=wire.get("top_p"),
             max_tokens=max_tokens,
             reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             response_format=response_format,
         )
 

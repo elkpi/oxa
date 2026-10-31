@@ -774,6 +774,9 @@ json::Value dump_request(const Request& r) {
         if (r.params->reasoning_effort.has_value()) {
             p.set("reasoning_effort", json::Value::string(*r.params->reasoning_effort));
         }
+        if (r.params->verbosity.has_value()) {
+            p.set("verbosity", json::Value::string(*r.params->verbosity));
+        }
         if (r.params->response_format.has_value()) {
             const auto& rf = *r.params->response_format;
             json::Value format = json::Value::object();
@@ -1021,6 +1024,14 @@ StatusOr<Request> load_request(const json::Value& v) {
                 return invalid_argument("invalid params reasoning_effort: " + effort);
             }
             p.reasoning_effort = effort;
+        }
+        if ((f = params->find("verbosity")) != nullptr) {
+            if (!f->is_string()) return invalid_argument("params verbosity must be a string");
+            const std::string verb = f->as_string();
+            if (verb != "low" && verb != "medium" && verb != "high") {
+                return invalid_argument("invalid params verbosity: " + verb);
+            }
+            p.verbosity = verb;
         }
         if ((f = params->find("response_format")) != nullptr) {
             if (!f->is_object()) return invalid_argument("params response_format must be an object");

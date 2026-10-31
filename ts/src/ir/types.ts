@@ -336,6 +336,7 @@ export interface Params {
   readonly max_tokens?: bigint;
   readonly stop_sequences?: readonly string[];
   readonly reasoning_effort?: ReasoningEffort;
+  readonly verbosity?: "low" | "medium" | "high";
   readonly response_format?: ResponseFormat;
 }
 export interface Request {

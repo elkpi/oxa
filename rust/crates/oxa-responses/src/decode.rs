@@ -28,23 +28,12 @@ use crate::types::{
 /// type violations of known fields (spec/02 §4).
 pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let mut losses = Vec::new();
-    for (path, field, present, detail) in [
-        (
-            "text.verbosity",
-            "verbosity",
-            wire.text
-                .as_ref()
-                .and_then(|text| text.verbosity.as_ref())
-                .is_some(),
-            "Responses output verbosity has no IR equivalent in v1.",
-        ),
-        (
-            "parallel_tool_calls",
-            "parallel_tool_calls",
-            wire.parallel_tool_calls.is_some(),
-            "Responses parallel tool calls have no IR equivalent in v1.",
-        ),
-    ] {
+    for (path, field, present, detail) in [(
+        "parallel_tool_calls",
+        "parallel_tool_calls",
+        wire.parallel_tool_calls.is_some(),
+        "Responses parallel tool calls have no IR equivalent in v1.",
+    )] {
         if present {
             losses.push(loss(path, field, LossReason::UnmappedField, detail));
         }
@@ -251,18 +240,37 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         wire.text.as_ref().and_then(|text| text.format.as_ref()),
         &mut losses,
     )?;
+    let verbosity = match wire
+        .text
+        .as_ref()
+        .and_then(|text| text.verbosity.as_deref())
+    {
+        None => None,
+        Some(value @ ("low" | "medium" | "high")) => Some(value.to_string()),
+        Some(_) => {
+            losses.push(loss(
+                "text.verbosity",
+                "verbosity",
+                LossReason::UnmappedValue,
+                "unknown output verbosity",
+            ));
+            None
+        }
+    };
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens: wire.max_output_tokens,
         stop_sequences: None,
         reasoning_effort,
+        verbosity,
         response_format,
     };
     if params.temperature.is_some()
         || params.top_p.is_some()
         || params.max_tokens.is_some()
         || params.reasoning_effort.is_some()
+        || params.verbosity.is_some()
         || params.response_format.is_some()
     {
         request.params = Some(params);

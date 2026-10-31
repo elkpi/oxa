@@ -30,8 +30,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		present bool
 		detail  string
 	}{
-		{"text.verbosity", "verbosity", wire.Text != nil && wire.Text.Verbosity != nil,
-			"Responses output verbosity has no IR equivalent in v1."},
 		{"parallel_tool_calls", "parallel_tool_calls", wire.ParallelToolCalls != nil,
 			"Responses parallel tool calls have no IR equivalent in v1."},
 	} {
@@ -42,6 +40,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
+	if wire.Text != nil && wire.Text.Verbosity != nil {
+		switch *wire.Text.Verbosity {
+		case "low", "medium", "high":
+			req.Params.Verbosity = *wire.Text.Verbosity
+		default:
+			losses = append(losses, loss("text.verbosity", "verbosity", ir.LossUnmappedValue, "unknown output verbosity"))
+		}
+	}
 	if len(wire.Metadata) > 0 {
 		req.Metadata = make(map[string]string, len(wire.Metadata))
 		for key, value := range wire.Metadata {

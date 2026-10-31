@@ -246,7 +246,9 @@ function decodeRequestObject(
       for (let blockIndex = 0; blockIndex < content.length; blockIndex += 1) {
         const block = content[blockIndex]!;
         if (block.type === "text")
-          system.push(role === "developer" ? { ...block, role: "developer" } : block);
+          system.push(
+            role === "developer" ? { ...block, role: "developer" } : block,
+          );
         else
           losses.push(
             loss(
@@ -405,6 +407,7 @@ function decodeRequestObject(
       ? {}
       : { stop_sequences: strings(wire.stop, "stop") }),
     ...decodeReasoningEffort(wire.reasoning_effort, losses),
+    ...decodeVerbosity(wire.verbosity, "verbosity", losses),
     ...(responseFormat === undefined
       ? {}
       : { response_format: responseFormat }),
@@ -778,6 +781,7 @@ export function encodeRequest(
     ...(params?.reasoning_effort === undefined
       ? {}
       : { reasoning_effort: params.reasoning_effort }),
+    ...(params?.verbosity === undefined ? {} : { verbosity: params.verbosity }),
     ...(format === undefined || unnamedSchema
       ? {}
       : { response_format: encodeResponseFormat(format) }),
@@ -1356,6 +1360,18 @@ function encodeImage(image: ImageBlock, path: string): JsonObject | undefined {
     } catch {}
   }
   return undefined;
+}
+
+function decodeVerbosity(
+  value: JsonValue | undefined,
+  path: string,
+  losses: Loss[],
+): { verbosity?: "low" | "medium" | "high" } {
+  if (value === undefined || value === null) return {};
+  const v = string(value, path);
+  if (v === "low" || v === "medium" || v === "high") return { verbosity: v };
+  losses.push(loss(path, "verbosity", "unmapped-value"));
+  return {};
 }
 
 function stringMetadata(

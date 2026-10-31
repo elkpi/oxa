@@ -99,10 +99,15 @@ function decodeRequestObject(
   const losses: Loss[] = [];
   let effortValue: ReasoningEffort | undefined;
   let formatValue: ResponseFormat | undefined;
-  if (wire.text !== undefined) {
+  let verbosityValue: "low" | "medium" | "high" | undefined;
+  if (wire.text !== undefined && wire.text !== null) {
     const text = object(wire.text, "text");
-    if (text.verbosity !== undefined)
-      losses.push(loss("text.verbosity", "verbosity", "unmapped-field"));
+    if (text.verbosity !== undefined && text.verbosity !== null) {
+      const verbosity = string(text.verbosity, "text.verbosity");
+      if (verbosity === "low" || verbosity === "medium" || verbosity === "high")
+        verbosityValue = verbosity;
+      else losses.push(loss("text.verbosity", "verbosity", "unmapped-value"));
+    }
     if (text.format !== undefined)
       formatValue = decodeTextFormat(text.format, losses);
   }
@@ -378,7 +383,9 @@ function decodeRequestObject(
             const block = content[child]!;
             if (block.type === "text")
               system.push(
-                role === "developer" ? { ...block, role: "developer" as const } : block,
+                role === "developer"
+                  ? { ...block, role: "developer" as const }
+                  : block,
               );
             else
               losses.push(
@@ -444,6 +451,7 @@ function decodeRequestObject(
           max_tokens: whole(wire.max_output_tokens, "max_output_tokens"),
         }),
     ...(effortValue === undefined ? {} : { reasoning_effort: effortValue }),
+    ...(verbosityValue === undefined ? {} : { verbosity: verbosityValue }),
     ...(formatValue === undefined ? {} : { response_format: formatValue }),
   };
   const request: Request = {
@@ -1224,9 +1232,19 @@ export function encodeRequest(
       ...(params?.reasoning_effort === undefined
         ? {}
         : { reasoning: { effort: params.reasoning_effort } }),
-      ...(format === undefined || unnamedSchema
+      ...(params?.verbosity === undefined &&
+      (format === undefined || unnamedSchema)
         ? {}
-        : { text: { format: encodeTextFormat(format) } }),
+        : {
+            text: {
+              ...(params?.verbosity === undefined
+                ? {}
+                : { verbosity: params.verbosity }),
+              ...(format === undefined || unnamedSchema
+                ? {}
+                : { format: encodeTextFormat(format) }),
+            },
+          }),
       ...(tools.length === 0 ? {} : { tools }),
       ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
       ...(request.metadata === undefined ? {} : { metadata: request.metadata }),

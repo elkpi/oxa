@@ -27,14 +27,18 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     let mut losses = Vec::new();
     let mut out = Request {
         model: config.map_model(&req.model),
-        metadata: req.metadata.as_ref().filter(|metadata| !metadata.is_empty()).map(|metadata| {
-            serde_json::Value::Object(
-                metadata
-                    .iter()
-                    .map(|(key, value)| (key.clone(), serde_json::Value::String(value.clone())))
-                    .collect(),
-            )
-        }),
+        metadata: req
+            .metadata
+            .as_ref()
+            .filter(|metadata| !metadata.is_empty())
+            .map(|metadata| {
+                serde_json::Value::Object(
+                    metadata
+                        .iter()
+                        .map(|(key, value)| (key.clone(), serde_json::Value::String(value.clone())))
+                        .collect(),
+                )
+            }),
         ..Request::default()
     };
     if let Some(tools) = &req.tools {
@@ -160,9 +164,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         losses.push(loss);
     }
     if !req.system.is_empty() {
-        let has_developer = req.system.iter().any(|block| {
-            matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer")
-        });
+        let has_developer = req.system.iter().any(
+            |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
+        );
         if !has_developer {
             let mut text = String::new();
             for block in &req.system {
@@ -176,7 +180,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             });
         } else {
             for block in &req.system {
-                let oxa_ir::SystemBlock::Text { text: value, role, .. } = block;
+                let oxa_ir::SystemBlock::Text {
+                    text: value, role, ..
+                } = block;
                 out.messages.push(Message {
                     role: if role == "developer" {
                         "developer".to_string()
@@ -272,6 +278,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(params) = &req.params {
         out.temperature = params.temperature;
         out.top_p = params.top_p;
+        out.verbosity = params.verbosity.clone();
         out.max_tokens = params.max_tokens;
         let stop = params
             .stop_sequences

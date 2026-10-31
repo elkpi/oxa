@@ -398,6 +398,7 @@ class Params:
     max_tokens: int | None = None
     stop_sequences: list[str] | None = None
     reasoning_effort: ReasoningEffort | None = None
+    verbosity: str | None = None
     response_format: ResponseFormat | None = None
 
 

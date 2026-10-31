@@ -527,8 +527,8 @@ func TestUnknownInputItemAndVerbosityLosses(t *testing.T) {
 	if len(req.Messages) != 1 {
 		t.Fatalf("messages: %+v", req.Messages)
 	}
-	if len(losses) != 3 {
-		t.Fatalf("want three losses (item type, verbosity, format), got %+v", losses)
+	if req.Params.Verbosity != "low" || len(losses) != 2 {
+		t.Fatalf("want preserved verbosity and two losses (item type, format), got verbosity=%q losses=%+v", req.Params.Verbosity, losses)
 	}
 }
 

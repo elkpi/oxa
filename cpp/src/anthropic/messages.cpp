@@ -1447,6 +1447,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     }
 
     OXA_RETURN_IF_ERROR(encode_request_native(req, out, losses));
+    if (req.params.has_value() && req.params->verbosity.has_value()) {
+        losses.push_back(make_ant_loss("params.verbosity", "verbosity", ir::LOSS_UNMAPPED_FIELD, ""));
+    }
     if (req.params && req.params->response_format) {
         const auto& rf = *req.params->response_format;
         if (rf.type == "json_schema") {

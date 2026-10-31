@@ -370,6 +370,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         max_tokens: Some(wire.max_tokens),
         stop_sequences: stop,
         reasoning_effort: None,
+        verbosity: None,
         response_format: None,
     };
     req.params = Some(params);
@@ -472,9 +473,7 @@ fn anthropic_metadata(
             continue;
         }
         let Some(text) = item.as_str() else {
-            return Err(Error::new(
-                "anthropic: metadata.user_id must be a string",
-            ));
+            return Err(Error::new("anthropic: metadata.user_id must be a string"));
         };
         user_id = Some(text.to_string());
     }

@@ -23,7 +23,7 @@ inline const detail::AuditProfile& wire_profile() {
          {"named_choice", {{"type", ""}, {"name", ""}, {"namespace", ""}}},
          {"custom_choice", {{"type", ""}, {"name", ""}, {"namespace", ""}}},
          {"custom_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"format", "format"}, {"defer_loading", ""}}},
-         {"text_params", {{"format", "format"}}},
+         {"text_params", {{"format", "format"}, {"verbosity", ""}}},
          {"plain_format", {{"type", ""}}},
          {"schema_format", {{"type", ""}, {"name", ""}, {"description", ""}, {"schema", ""}, {"strict", ""}}},
          {"custom_grammar_format", {{"type", ""}, {"syntax", ""}, {"definition", ""}}},

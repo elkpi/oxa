@@ -992,6 +992,10 @@ def dump_request(req: Request) -> dict[str, Any]:
             p_dict["stop_sequences"] = req.params.stop_sequences
         if req.params.reasoning_effort is not None:
             p_dict["reasoning_effort"] = req.params.reasoning_effort
+        if req.params.verbosity is not None:
+            if req.params.verbosity not in ("low", "medium", "high"):
+                raise CodecError("invalid params.verbosity")
+            p_dict["verbosity"] = req.params.verbosity
         if req.params.response_format is not None:
             p_dict["response_format"] = dump_response_format(req.params.response_format)
         if p_dict:
@@ -1191,6 +1195,8 @@ def load_request(data: dict[str, Any] | str) -> Request:
         effort = p.get("reasoning_effort")
         if effort is not None and effort not in ("minimal", "low", "medium", "high", "xhigh", "max"):
             raise CodecError(f"invalid params.reasoning_effort value {effort!r}")
+        if "verbosity" in p and p["verbosity"] not in ("low", "medium", "high"):
+            raise CodecError("invalid params.verbosity")
         rf_data = p.get("response_format")
         response_format = load_response_format(rf_data) if rf_data is not None else None
         if isinstance(data, str) and isinstance(response_format, ResponseFormatJsonSchema):
@@ -1204,6 +1210,7 @@ def load_request(data: dict[str, Any] | str) -> Request:
             max_tokens=p.get("max_tokens"),
             stop_sequences=p.get("stop_sequences"),
             reasoning_effort=effort,
+            verbosity=p.get("verbosity"),
             response_format=response_format,
         )
 

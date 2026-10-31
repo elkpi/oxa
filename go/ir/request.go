@@ -74,7 +74,8 @@ type Params struct {
 	TopP            *float64
 	MaxTokens       *int64
 	StopSequences   []string
-	ReasoningEffort string          // minimal | low | medium | high (since 2.0)
+	ReasoningEffort string // minimal | low | medium | high (since 2.0)
+	Verbosity       string
 	ResponseFormat  *ResponseFormat // structured output formatting preference (since 2.1)
 }
 
@@ -105,5 +106,5 @@ const (
 // set reports whether any parameter carries a value; the canonical codec
 // omits the whole params object when it does not.
 func (p Params) set() bool {
-	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != "" || p.ResponseFormat != nil
+	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != "" || p.Verbosity != "" || p.ResponseFormat != nil
 }

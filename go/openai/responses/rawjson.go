@@ -489,7 +489,6 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			delete(schema.fields, "store")
 		case reflect.TypeOf(TextParams{}):
 			schema.fields["format"] = schemaForRawTypeSeen(reflect.TypeOf(TextFormatWire{}), seen)
-			delete(schema.fields, "verbosity")
 		case reflect.TypeOf(InputItem{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ContentPart{}), seen)}
 		}

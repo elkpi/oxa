@@ -20,6 +20,7 @@ export interface IrSchemaRequest {
 export interface IrSchemaSystemBlock {
   readonly type: "text";
   readonly text: string;
+  readonly role?: "developer";
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
@@ -219,6 +220,7 @@ export interface IrSchemaParams {
   readonly max_tokens?: number;
   readonly stop_sequences?: readonly (string)[];
   readonly reasoning_effort?: IrSchemaReasoningEffort;
+  readonly verbosity?: "low" | "medium" | "high";
   readonly response_format?: IrSchemaResponseFormat;
 }
 

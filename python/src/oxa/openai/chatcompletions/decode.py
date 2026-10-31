@@ -7,6 +7,7 @@ from dataclasses import replace
 from typing import Any, cast
 
 from oxa._metadata import string_metadata
+from oxa._verbosity import decode_verbosity
 from oxa._wire import RawDocument, audit_decode, raw_field
 from oxa.ir import (
     LOSS_DEGRADED,
@@ -345,6 +346,7 @@ def decode_request(
                 )
             )
 
+    verbosity = decode_verbosity(wire.get("verbosity"), "verbosity", losses)
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)
     response_format = decode_response_format(wire.get("response_format"), losses)
     if isinstance(response_format, ResponseFormatJsonSchema):
@@ -357,6 +359,7 @@ def decode_request(
         or max_tokens is not None
         or stop_sequences is not None
         or reasoning_effort is not None
+        or verbosity is not None
         or response_format is not None
     ):
         params = Params(
@@ -365,6 +368,7 @@ def decode_request(
             max_tokens=max_tokens,
             stop_sequences=stop_sequences,
             reasoning_effort=reasoning_effort,
+            verbosity=verbosity,
             response_format=response_format,
         )
 

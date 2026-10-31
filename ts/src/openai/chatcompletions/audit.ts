@@ -151,6 +151,7 @@ export const CHAT_REQUEST: WireAuditSpec = {
     stream_options: STREAM_OPTIONS,
     stop: { items: undefined },
     reasoning_effort: undefined,
+    verbosity: undefined,
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
     response_format: RESPONSE_FORMAT,

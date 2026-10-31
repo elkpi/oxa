@@ -371,6 +371,7 @@ struct Params {
     std::optional<std::int64_t> max_tokens;
     std::optional<std::vector<std::string>> stop_sequences;
     std::optional<std::string> reasoning_effort;
+    std::optional<std::string> verbosity;
     std::optional<ResponseFormat> response_format;
 };
 

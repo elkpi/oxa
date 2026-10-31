@@ -417,12 +417,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;
+    let verbosity = match wire.verbosity.as_deref() {
+        None => None,
+        Some(value @ ("low" | "medium" | "high")) => Some(value.to_string()),
+        Some(_) => {
+            losses.push(loss(
+                "verbosity",
+                "verbosity",
+                LossReason::UnmappedValue,
+                "unknown output verbosity",
+            ));
+            None
+        }
+    };
     let params = Params {
         temperature: wire.temperature,
         top_p: wire.top_p,
         max_tokens,
         stop_sequences: stop,
         reasoning_effort: decode_reasoning_effort(wire.reasoning_effort.as_deref(), &mut losses),
+        verbosity,
         response_format,
     };
     let params_set = params.temperature.is_some()
@@ -430,6 +444,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         || params.max_tokens.is_some()
         || params.stop_sequences.is_some()
         || params.reasoning_effort.is_some()
+        || params.verbosity.is_some()
         || params.response_format.is_some();
     if params_set {
         req.params = Some(params);
@@ -682,10 +697,7 @@ pub(crate) fn decode_finish_reason(finish: &str) -> Result<(StopReason, Option<L
     }
 }
 
-fn string_metadata(
-    value: &Value,
-    face: &str,
-) -> Result<Option<BTreeMap<String, String>>, Error> {
+fn string_metadata(value: &Value, face: &str) -> Result<Option<BTreeMap<String, String>>, Error> {
     if value.is_null() {
         return Ok(None);
     }

@@ -23,7 +23,7 @@ class ChatCompletionsVectorsTest(unittest.TestCase):
             return
 
         vectors = load_vectors(root, "chatcompletions", "nonstream")
-        self.assertEqual(len(vectors), 60, "expected 60 nonstream chatcompletions vectors")
+        self.assertEqual(len(vectors), 61, "expected 61 nonstream chatcompletions vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

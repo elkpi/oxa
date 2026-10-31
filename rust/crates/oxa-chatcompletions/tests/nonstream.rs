@@ -212,6 +212,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
             max_tokens: None,
             stop_sequences: None,
             reasoning_effort: Some(ReasoningEffort::High),
+            verbosity: None,
             response_format: None,
         }),
         metadata: None,
@@ -604,13 +605,20 @@ fn request_metadata_round_trips() {
     let (req, losses) = decode_request(&wire_request(wire), &Config::default()).expect("decode");
     assert!(losses.is_empty(), "{losses:?}");
     assert_eq!(
-        req.metadata.as_ref().and_then(|metadata| metadata.get("request_id")).map(String::as_str),
+        req.metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("request_id"))
+            .map(String::as_str),
         Some("abc")
     );
     let (encoded, encode_losses) = encode_request(&req, &Config::default()).expect("encode");
     assert!(encode_losses.is_empty(), "{encode_losses:?}");
     assert_eq!(
-        encoded.metadata.as_ref().and_then(|metadata| metadata.get("request_id")).and_then(|value| value.as_str()),
+        encoded
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("request_id"))
+            .and_then(|value| value.as_str()),
         Some("abc")
     );
 }

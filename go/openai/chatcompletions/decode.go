@@ -245,6 +245,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			Omission: om,
 		})
 	}
+	if wire.Verbosity != nil {
+		switch *wire.Verbosity {
+		case "low", "medium", "high":
+			req.Params.Verbosity = *wire.Verbosity
+		default:
+			losses = append(losses, loss("verbosity", "verbosity", ir.LossUnmappedValue, "unknown output verbosity"))
+		}
+	}
 	switch wire.ReasoningEffort {
 	case "", ir.ReasoningEffortMinimal, ir.ReasoningEffortLow, ir.ReasoningEffortMedium, ir.ReasoningEffortHigh, ir.ReasoningEffortXHigh, ir.ReasoningEffortMax:
 		req.Params.ReasoningEffort = wire.ReasoningEffort
@@ -423,6 +431,16 @@ func decodeFinishReason(finish string) (ir.StopReason, *ir.Loss, error) {
 func openAIMetadata(v any) (map[string]string, error) {
 	if v == nil {
 		return nil, nil
+	}
+	if metadata, ok := v.(map[string]string); ok {
+		if len(metadata) == 0 {
+			return nil, nil
+		}
+		out := make(map[string]string, len(metadata))
+		for key, value := range metadata {
+			out[key] = value
+		}
+		return out, nil
 	}
 	obj, ok := v.(map[string]any)
 	if !ok {

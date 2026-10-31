@@ -323,6 +323,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(params) = &req.params {
         out.temperature = params.temperature;
         out.top_p = params.top_p;
+        if params.verbosity.is_some() {
+            losses.push(loss(
+                "params.verbosity",
+                "verbosity",
+                LossReason::UnmappedField,
+                "",
+            ));
+        }
         out.stop_sequences = params
             .stop_sequences
             .clone()

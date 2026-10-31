@@ -61,10 +61,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     let mut out = Request {
         model: config.map_model(&req.model),
-        metadata: req
-            .metadata
-            .clone()
-            .filter(|metadata| !metadata.is_empty()),
+        metadata: req.metadata.clone().filter(|metadata| !metadata.is_empty()),
         ..Request::default()
     };
     let leading_system_items = if !req.system.is_empty() {
@@ -214,10 +211,16 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     }
                 };
                 out.text = Some(TextParams {
-                    verbosity: None,
+                    verbosity: params.verbosity.clone(),
                     format: Some(format_val),
                 });
             }
+        }
+        if out.text.is_none() && params.verbosity.is_some() {
+            out.text = Some(TextParams {
+                verbosity: params.verbosity.clone(),
+                format: None,
+            });
         }
         if params
             .stop_sequences
@@ -909,9 +912,9 @@ fn validate_usage(usage: &Usage) -> Result<(), Error> {
 fn encode_system_instructions(
     blocks: &[oxa_ir::SystemBlock],
 ) -> (Option<String>, Vec<crate::types::InputItem>) {
-    let has_developer = blocks.iter().any(|block| {
-        matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer")
-    });
+    let has_developer = blocks.iter().any(
+        |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
+    );
     if !has_developer {
         let mut text = String::new();
         for block in blocks {
@@ -944,14 +947,14 @@ fn encode_system_instructions(
     while index < blocks.len() {
         let oxa_ir::SystemBlock::Text { text, role, .. } = &blocks[index];
         items.push(crate::types::InputItem {
-                role: if role == "developer" {
-                    "developer".to_string()
-                } else {
-                    "system".to_string()
-                },
-                content: Some(crate::types::ContentValue::Text(text.clone())),
-                ..Default::default()
-            });
+            role: if role == "developer" {
+                "developer".to_string()
+            } else {
+                "system".to_string()
+            },
+            content: Some(crate::types::ContentValue::Text(text.clone())),
+            ..Default::default()
+        });
         index += 1;
     }
     (instructions, items)

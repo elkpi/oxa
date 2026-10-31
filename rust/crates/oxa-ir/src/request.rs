@@ -734,6 +734,8 @@ pub struct Params {
         skip_serializing_if = "Option::is_none"
     )]
     pub reasoning_effort: Option<ReasoningEffort>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub verbosity: Option<String>,
     #[serde(
         rename = "response_format",
         default,

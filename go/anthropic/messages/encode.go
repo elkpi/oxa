@@ -226,6 +226,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	out.Temperature = req.Params.Temperature
 	out.TopP = req.Params.TopP
+	if req.Params.Verbosity != "" {
+		losses = append(losses, ir.Loss{Path: "params.verbosity", Field: "verbosity", Reason: ir.LossUnmappedField})
+	}
 	if len(req.Params.StopSequences) > 0 {
 		out.StopSequences = req.Params.StopSequences
 	}

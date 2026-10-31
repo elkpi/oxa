@@ -646,6 +646,18 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             has_params = true;
         }
     }
+    if (const auto* verb_val = wire.find("verbosity"); verb_val && !verb_val->is_null()) {
+        if (!verb_val->is_string()) {
+            return invalid_argument("chatcompletions: verbosity must be a string");
+        }
+        const std::string val = verb_val->as_string();
+        if (val == "low" || val == "medium" || val == "high") {
+            params.verbosity = val;
+            has_params = true;
+        } else {
+            losses.push_back(make_cc_loss("verbosity", "verbosity", ir::LOSS_UNMAPPED_VALUE, "unknown output verbosity"));
+        }
+    }
     if (const auto* effort = wire.find("reasoning_effort"); effort && !effort->is_null()) {
         if (!effort->is_string()) {
             return invalid_argument("chatcompletions: reasoning_effort must be a string");
@@ -1107,6 +1119,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         if (p.reasoning_effort.has_value()) {
             out.set("reasoning_effort", json::Value::string(*p.reasoning_effort));
+        }
+        if (p.verbosity.has_value()) {
+            out.set("verbosity", json::Value::string(*p.verbosity));
         }
         if (p.response_format.has_value()) {
             const auto& rf = *p.response_format;

@@ -333,6 +333,8 @@ def encode_request(
                 losses.append(loss("params.response_format", "name", LOSS_UNSUPPORTED_SEMANTIC, "Responses requires a non-empty schema name"))
             else:
                 out["text"] = {"format": encode_text_format(rf)}
+        if req.params.verbosity is not None:
+            out.setdefault("text", {})["verbosity"] = req.params.verbosity
         if req.params.stop_sequences:
             losses.append(
                 loss(

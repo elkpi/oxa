@@ -20,7 +20,7 @@ import {
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
-import { stringMetadata } from "../metadata.js";
+import { stringMetadata } from "../../json/metadata.js";
 import { CHAT_REQUEST, CHAT_RESPONSE } from "./audit.js";
 import type {
   Block,

@@ -1,5 +1,5 @@
 import { OxaError } from "../error.js";
-import { isJsonNumber, type JsonValue } from "../json/index.js";
+import { isJsonNumber, type JsonValue } from "./index.js";
 
 export function stringMetadata(
   value: JsonValue | undefined,

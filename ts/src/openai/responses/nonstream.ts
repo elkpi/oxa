@@ -25,7 +25,7 @@ import {
   DEFER_LOADING_LOSS_DETAIL,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
-import { stringMetadata } from "../metadata.js";
+import { stringMetadata } from "../../json/metadata.js";
 import { RESPONSES_REQUEST, RESPONSES_RESPONSE } from "./audit.js";
 import type {
   ApplyPatchOperation,

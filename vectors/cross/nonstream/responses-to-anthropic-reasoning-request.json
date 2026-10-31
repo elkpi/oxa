@@ -8,6 +8,7 @@
   "target": { "protocol": "anthropic" },
   "input": {
     "model": "o3-mini",
+    "max_output_tokens": 4096,
     "input": "Solve this puzzle.",
     "reasoning": {
       "effort": "minimal"

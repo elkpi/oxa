@@ -26,14 +26,14 @@
     "output": [
       {
         "type": "reasoning",
-        "id": "rs_0",
+        "id": "rs_abc123",
         "summary": [
           { "type": "output_text", "text": "Thinking through the steps.", "annotations": [] }
         ]
       },
       {
         "type": "message",
-        "id": "msg_0",
+        "id": "msg_abc123",
         "role": "assistant",
         "status": "completed",
         "content": [

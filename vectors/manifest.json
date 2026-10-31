@@ -2620,7 +2620,7 @@
         "n-an-11",
         "n-r-13"
       ],
-      "sha256": "0129d3d622e340099f36f17b5b14b734c9d6b81d0b888903e975f2e168e30ab1"
+      "sha256": "a25f34d7cede8fdcec75c180a5abf9c62bff191277d43dfe606b407c5f5e8ade"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",
@@ -2915,7 +2915,7 @@
         "n-r-13",
         "n-an-11"
       ],
-      "sha256": "466f607d60833a1ada429d29d5454e2c86323cb3e547cb6e6282c6f1b4c82a90"
+      "sha256": "678c8116448051346c4a948a4d962edf85dfd7dad78c87f28b5bb7c654fe05e1"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-request",

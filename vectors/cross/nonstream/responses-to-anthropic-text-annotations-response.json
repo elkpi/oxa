@@ -1,0 +1,59 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-text-annotations-response",
+  "description": "Cross-protocol: Responses response with text annotations converts to Anthropic dropping annotations with unsupported-semantic loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "id": "resp_cite_cross_an",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "See docs.",
+            "annotations": [
+              { "type": "url_citation", "url": "https://example.test", "title": "Docs" }
+            ]
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_output": {
+    "id": "resp_cite_cross_an",
+    "type": "message",
+    "role": "assistant",
+    "model": "gpt-4o-mini",
+    "content": [
+      {
+        "type": "text",
+        "text": "See docs."
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 9,
+      "output_tokens": 3
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0].citations",
+      "field": "citations",
+      "reason": "unsupported-semantic",
+      "detail": "openai text annotations; the target face cannot preserve source locations and replay metadata"
+    }
+  ],
+  "tags": ["cross", "citations", "annotations", "text", "response", "n-an-18", "n-r-18"]
+}

@@ -1,0 +1,54 @@
+{
+  "name": "responses.nonstream.annotations-response-from-ir",
+  "description": "IR text block with openai citations renders onto Responses output_text annotations.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "id": "resp_5",
+    "model": "gpt-4o-mini",
+    "content": [
+      {
+        "type": "text",
+        "text": "See docs.",
+        "citations": [
+          {
+            "source": "openai",
+            "value": "{\"title\":\"Docs\",\"type\":\"url_citation\",\"url\":\"https://example.test\"}"
+          }
+        ]
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 9, "output_tokens": 3 }
+  },
+  "expected_output": {
+    "id": "resp_5",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          {
+            "type": "output_text",
+            "text": "See docs.",
+            "annotations": [
+              { "title": "Docs", "type": "url_citation", "url": "https://example.test" }
+            ]
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "citations", "annotations", "N-R-18"]
+}

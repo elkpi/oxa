@@ -1,7 +1,7 @@
 {
   "name": "responses.nonstream.annotations-loss-response-to-ir",
-  "description": "Non-empty output annotations have no IR equivalent and record an unmapped-field loss; empty annotations are exempt.",
-  "spec_version": "0.1.0",
+  "description": "Non-empty output annotations map to TextBlock.Citations in IR. The historical whole-array loss no longer applies.",
+  "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "to-ir",
   "source": { "protocol": "responses" },
@@ -30,20 +30,24 @@
     "usage": { "input_tokens": 9, "output_tokens": 3, "total_tokens": 12 }
   },
   "expected_ir": {
-    "specVersion": "0.1.0",
+    "specVersion": "0.2.0",
     "id": "resp_5",
     "model": "gpt-4o-mini",
-    "content": [{ "type": "text", "text": "See docs." }],
+    "content": [
+      {
+        "type": "text",
+        "text": "See docs.",
+        "citations": [
+          {
+            "source": "openai",
+            "value": "{\"title\":\"Docs\",\"type\":\"url_citation\",\"url\":\"https://example.test\"}"
+          }
+        ]
+      }
+    ],
     "stop_reason": "end_turn",
     "usage": { "input_tokens": 9, "output_tokens": 3 }
   },
-  "expected_losses": [
-    {
-      "path": "output[0].content[0].annotations",
-      "field": "annotations",
-      "reason": "unmapped-field",
-      "detail": "Responses output annotations have no IR equivalent in v1."
-    }
-  ],
-  "tags": ["loss", "response", "N-R-12"]
+  "expected_losses": [],
+  "tags": ["response", "citations", "annotations", "N-R-18"]
 }

@@ -1,0 +1,50 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-refusal-response",
+  "description": "Cross-protocol: Responses refusal content part converts to Chat Completions message.refusal loss-free.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "id": "resp_ref_cross_2",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_ref_2",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "refusal",
+            "refusal": "I cannot fulfill this request."
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 10, "output_tokens": 8, "total_tokens": 18 }
+  },
+  "expected_output": {
+    "id": "resp_ref_cross_2",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": "I cannot fulfill this request."
+        },
+        "finish_reason": "content_filter"
+      }
+    ],
+    "usage": { "prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18 }
+  },
+  "expected_losses": [],
+  "tags": ["cross", "response", "refusal", "n-r-20", "n-cc-15"]
+}

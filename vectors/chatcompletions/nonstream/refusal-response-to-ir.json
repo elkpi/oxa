@@ -1,0 +1,41 @@
+{
+  "name": "chatcompletions.nonstream.refusal-response-to-ir",
+  "description": "Chat Completions assistant refusal with content_filter finish reason maps to RefusalBlock and StopReason refusal.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "id": "chatcmpl-refusal-1",
+    "object": "chat.completion",
+    "created": 1720000000,
+    "model": "gpt-4o-mini",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": null,
+          "refusal": "I cannot fulfill this request."
+        },
+        "finish_reason": "content_filter"
+      }
+    ],
+    "usage": { "prompt_tokens": 10, "completion_tokens": 8, "total_tokens": 18 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "chatcmpl-refusal-1",
+    "model": "gpt-4o-mini",
+    "content": [
+      {
+        "type": "refusal",
+        "refusal": "I cannot fulfill this request."
+      }
+    ],
+    "stop_reason": "refusal",
+    "usage": { "input_tokens": 10, "output_tokens": 8 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "refusal", "n-cc-15"]
+}

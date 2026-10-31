@@ -58,6 +58,7 @@ def loss(path: str, field_name: str, reason: str, detail: str) -> Loss:
 def decode_content(
     content: Any,
     path: str,
+    is_user: bool = True,
 ) -> tuple[list[Block], list[Loss]]:
     """N-CC-1 normalizes Chat Completions string and parts-array content into IR blocks."""
     if content is None:
@@ -69,7 +70,7 @@ def decode_content(
         losses: list[Loss] = []
         for index, part in enumerate(content):
             if isinstance(part, dict):
-                part_blocks, part_losses = decode_content_part(part, path, index)
+                part_blocks, part_losses = decode_content_part(part, path, index, is_user=is_user)
                 blocks.extend(part_blocks)
                 losses.extend(part_losses)
         return blocks, losses
@@ -77,7 +78,7 @@ def decode_content(
 
 
 def decode_content_part(
-    part: dict[str, Any], path: str, index: usize_or_int
+    part: dict[str, Any], path: str, index: usize_or_int, is_user: bool = True
 ) -> tuple[list[Block], list[Loss]]:
     kind = part.get("type", "")
     if kind == CONTENT_PART_TYPE_TEXT:
@@ -90,6 +91,15 @@ def decode_content_part(
             return [], [img_loss]
         return [block], []
     if kind == "file":
+        if not is_user:
+            return [], [
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Chat Completions content part type 'file' has no IR equivalent",
+                )
+            ]
         f_obj = part.get("file")
         if not isinstance(f_obj, dict):
             raise TypeError(f"chatcompletions: {path}[{index}].file must be an object")
@@ -109,6 +119,13 @@ def decode_content_part(
         fdata = f_obj["file_data"]
         if not isinstance(fdata, str) or not fdata:
             raise TypeError(f"{path}[{index}].file.file_data must be a non-empty string")
+        if fdata.startswith("data:"):
+            idx = fdata.find(";base64,")
+            if idx == -1:
+                raise ValueError(f"chatcompletions: {path}[{index}].file.file_data: malformed data file URL")
+            mt = fdata[5:idx] or "application/pdf"
+            payload = fdata[idx + len(";base64,"):]
+            return [DocumentBlock(data=payload, media_type=mt)], losses
         return [DocumentBlock(data=fdata, media_type="application/pdf")], losses
     return [], [
         loss(
@@ -431,6 +448,27 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                 has_image = True
                 parts.append(part)
         elif isinstance(block, DocumentBlock):
+            s_count = sum(1 for x in (block.file_id, block.url, block.data) if x)
+            if s_count == 0:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock carries no supported file source",
+                    )
+                )
+                continue
+            if s_count > 1:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock carries conflicting file sources",
+                    )
+                )
+                continue
             if block.url:
                 losses.append(
                     loss(
@@ -441,20 +479,21 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                     )
                 )
                 continue
-            has_image = True
-            if block.file_id:
-                parts.append({"type": "file", "file": {"file_id": block.file_id}})
-            elif block.data:
-                parts.append({"type": "file", "file": {"file_data": block.data}})
-            else:
+            if block.data and block.media_type and block.media_type != "application/pdf":
                 losses.append(
                     loss(
                         f"{path}[{index}]",
                         "content",
                         LOSS_UNSUPPORTED_SEMANTIC,
-                        "IR DocumentBlock carries no supported file source",
+                        "Chat Completions file content parts do not support non-PDF media types; file dropped",
                     )
                 )
+                continue
+            has_image = True
+            if block.file_id:
+                parts.append({"type": "file", "file": {"file_id": block.file_id}})
+            else:
+                parts.append({"type": "file", "file": {"file_data": block.data}})
         else:
             losses.append(
                 loss(
@@ -555,6 +594,15 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                     "content",
                     LOSS_UNSUPPORTED_SEMANTIC,
                     "IR tool_result block cannot be rendered in a Chat Completions assistant message",
+                )
+            )
+        elif isinstance(block, DocumentBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "content",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "IR DocumentBlock cannot be rendered in a Chat Completions assistant message",
                 )
             )
 

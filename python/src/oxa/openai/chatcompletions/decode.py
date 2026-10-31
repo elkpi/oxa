@@ -196,7 +196,7 @@ def decode_request(
             continue
 
         content_path = f"messages[{index}].content"
-        content, content_losses = decode_content(msg.get("content"), content_path)
+        content, content_losses = decode_content(msg.get("content"), content_path, is_user=(role == ROLE_USER))
         losses.extend(content_losses)
         if role == ROLE_ASSISTANT and msg.get("reasoning_content") is not None:
             reasoning_content = msg["reasoning_content"]
@@ -465,7 +465,7 @@ def decode_response(
 
     choice = choices[0]
     msg = choice.get("message", {})
-    content, losses = decode_content(msg.get("content"), "choices[0].message.content")
+    content, losses = decode_content(msg.get("content"), "choices[0].message.content", is_user=False)
     if msg.get("reasoning_content") is not None:
         reasoning_content = msg["reasoning_content"]
         if not isinstance(reasoning_content, str):

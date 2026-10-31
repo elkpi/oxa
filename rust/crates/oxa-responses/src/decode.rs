@@ -111,7 +111,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         ROLE_SYSTEM | ROLE_DEVELOPER => {
                             let path = format!("input[{index}].content");
                             let (content, content_losses) =
-                                decode_content(item.content.as_ref(), &path)?;
+                                decode_content(item.content.as_ref(), &path, false)?;
                             let (mut system, system_losses) = content_system(content, &path);
                             if item.role == ROLE_DEVELOPER {
                                 for block in &mut system {
@@ -128,6 +128,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             let (mut content, content_losses) = decode_content(
                                 item.content.as_ref(),
                                 &format!("input[{index}].content"),
+                                true,
                             )?;
                             if content.is_empty() {
                                 content.push(Block::Text {

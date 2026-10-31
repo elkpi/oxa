@@ -184,9 +184,10 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             continue;
         }
 
+        let is_user = message.role == ROLE_USER;
         let content_path = format!("messages[{index}].content");
         let (mut content, content_losses) =
-            decode_content(message.content.as_ref(), &content_path)?;
+            decode_content(message.content.as_ref(), &content_path, is_user)?;
         losses.extend(content_losses);
         if message.role == ROLE_ASSISTANT {
             if let Some(reasoning) = &message.reasoning_content
@@ -617,6 +618,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let (mut blocks, content_losses) = decode_content(
         choice.message.content.as_ref(),
         "choices[0].message.content",
+        false,
     )?;
     losses.extend(content_losses);
     if choice.message.role == ROLE_ASSISTANT {

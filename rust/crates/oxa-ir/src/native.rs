@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::codec::Error;
 use crate::loss::{Loss, LossReason};
-use crate::request::{Block, NativeAnnotation, Request, SystemBlock, ToolChoiceMode};
+use crate::request::{Block, NativeAnnotation, Request, Role, SystemBlock, ToolChoiceMode};
 
 pub const NATIVE_KIND_THINKING_MODE: &str = "thinking_mode";
 pub const NATIVE_KIND_THINKING_BUDGET: &str = "thinking_budget";
@@ -588,6 +588,9 @@ pub fn omitted_native_request_losses(request: &Request, target: &str) -> Result<
 
     for (m_idx, msg) in request.messages.iter().enumerate() {
         for (c_idx, blk) in msg.content.iter().enumerate() {
+            if matches!(blk, Block::Document { .. }) && msg.role != Role::User {
+                continue;
+            }
             collect_block_omissions(
                 &mut losses,
                 blk,
@@ -627,7 +630,14 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),
-        Block::Document { url, .. } if target == "chatcompletions" && url.is_some() => {
+        Block::Document {
+            url, media_type, ..
+        } if target == "chatcompletions"
+            && (url.is_some()
+                || media_type
+                    .as_deref()
+                    .is_some_and(|m| m != "application/pdf")) =>
+        {
             static EMPTY: Vec<NativeAnnotation> = Vec::new();
             (&EMPTY, None)
         }
@@ -659,6 +669,9 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
 
     if let Some(ch) = children {
         for (k, child) in ch.iter().enumerate() {
+            if matches!(child, Block::Document { .. }) {
+                continue;
+            }
             collect_block_omissions(losses, child, &format!("{path}.content[{k}]"), target);
         }
     }

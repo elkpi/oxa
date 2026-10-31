@@ -22,6 +22,7 @@ inline constexpr std::string_view TOOL_TYPE_FUNCTION = "function";
 
 inline constexpr std::string_view CONTENT_PART_TYPE_TEXT = "text";
 inline constexpr std::string_view CONTENT_PART_TYPE_IMAGE_URL = "image_url";
+inline constexpr std::string_view CONTENT_PART_TYPE_FILE = "file";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_NONE = "none";

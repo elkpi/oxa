@@ -96,17 +96,17 @@ bool is_valid_https_url(std::string_view raw) {
     return !host.empty();
 }
 
-std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_content(
+StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content(
     const json::Value* content, const std::string& path) {
     std::vector<ir::Block> blocks;
     std::vector<ir::Loss> losses;
     if (!content || content->is_null()) {
         blocks.push_back(ir::TextBlock{""});
-        return {blocks, losses};
+        return std::make_pair(std::move(blocks), std::move(losses));
     }
     if (content->is_string()) {
         blocks.push_back(ir::TextBlock{content->as_string()});
-        return {blocks, losses};
+        return std::make_pair(std::move(blocks), std::move(losses));
     }
     if (content->is_array()) {
         const auto& arr = content->as_array();
@@ -169,15 +169,51 @@ std::pair<std::vector<ir::Block>, std::vector<ir::Loss>> decode_content(
                                                     ir::LOSS_UNSUPPORTED_SEMANTIC,
                                                     "only https and base64 data image URLs are supported"));
                 }
+            } else if (kind == "input_file") {
+                const auto* fid = part.find("file_id");
+                const auto* furl = part.find("file_url");
+                const auto* fdata = part.find("file_data");
+                int count = 0;
+                if (fid && !fid->is_null()) count++;
+                if (furl && !furl->is_null()) count++;
+                if (fdata && !fdata->is_null()) count++;
+                if (count != 1) {
+                    return invalid_argument("responses: " + part_path + ": input_file must specify exactly one of file_id, file_url, or file_data");
+                }
+                if (const auto* fn = part.find("filename"); fn && !fn->is_null()) {
+                    if (!fn->is_string()) return invalid_argument(part_path + ".filename must be a string");
+                    losses.push_back(make_resp_loss(part_path + ".filename", "filename", ir::LOSS_UNMAPPED_FIELD, "Responses input_file filename has no IR equivalent"));
+                }
+                if (const auto* dt = part.find("detail"); dt && !dt->is_null()) {
+                    if (!dt->is_string()) return invalid_argument(part_path + ".detail must be a string");
+                    losses.push_back(make_resp_loss(part_path + ".detail", "detail", ir::LOSS_UNMAPPED_FIELD, "Responses input_file detail has no IR equivalent"));
+                }
+                if (fid && !fid->is_null()) {
+                    if (!fid->is_string() || fid->as_string().empty()) return invalid_argument(part_path + ".file_id must be a non-empty string");
+                    ir::DocumentBlock doc;
+                    doc.file_id = fid->as_string();
+                    blocks.push_back(std::move(doc));
+                } else if (furl && !furl->is_null()) {
+                    if (!furl->is_string() || furl->as_string().empty()) return invalid_argument(part_path + ".file_url must be a non-empty string");
+                    ir::DocumentBlock doc;
+                    doc.url = furl->as_string();
+                    blocks.push_back(std::move(doc));
+                } else {
+                    if (!fdata->is_string() || fdata->as_string().empty()) return invalid_argument(part_path + ".file_data must be a non-empty string");
+                    ir::DocumentBlock doc;
+                    doc.data = fdata->as_string();
+                    doc.media_type = "application/pdf";
+                    blocks.push_back(std::move(doc));
+                }
             } else {
                 losses.push_back(make_resp_loss(
                     part_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "Responses input content part type \"" + kind + "\" has no IR equivalent"));
             }
         }
-        return {blocks, losses};
+        return std::make_pair(std::move(blocks), std::move(losses));
     }
-    return {blocks, losses};
+    return std::make_pair(std::move(blocks), std::move(losses));
 }
 
 StatusOr<ir::Block> decode_tool_call_item(const json::Value& item, bool custom) {
@@ -216,7 +252,7 @@ StatusOr<std::variant<std::string, std::vector<ir::BlockHolder>>> decode_custom_
             parts.push_back(ir::BlockHolder{ir::TextBlock{text && text->is_string() ? text->as_string() : ""}});
         } else if (kind == "input_image") {
             json::Value one = json::Value::array(); one.push_back(part);
-            auto decoded = decode_content(&one, path);
+            OXA_ASSIGN_OR_RETURN(auto decoded, decode_content(&one, path));
             losses.insert(losses.end(), decoded.second.begin(), decoded.second.end());
             for (auto& block : decoded.first) if (std::holds_alternative<ir::ImageBlock>(block))
                 parts.push_back(ir::BlockHolder{std::move(block)});
@@ -905,7 +941,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
                 if (role == ROLE_SYSTEM || role == ROLE_DEVELOPER) {
                     std::string path = "input[" + std::to_string(index) + "].content";
-                    auto [blocks, bl_losses] = decode_content(item.find("content"), path);
+                    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(item.find("content"), path));
+                    auto [blocks, bl_losses] = std::move(c_res);
                     losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                     for (std::size_t child = 0; child < blocks.size(); ++child) {
                         if (auto* tb = std::get_if<ir::TextBlock>(&blocks[child])) {
@@ -920,7 +957,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     ++index;
                 } else if (role == "user") {
                     std::string path = "input[" + std::to_string(index) + "].content";
-                    auto [blocks, bl_losses] = decode_content(item.find("content"), path);
+                    OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(item.find("content"), path));
+                    auto [blocks, bl_losses] = std::move(c_res);
                     losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                     if (blocks.empty()) blocks.push_back(ir::TextBlock{""});
                     req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(blocks)});
@@ -968,7 +1006,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                             std::string crole = cr && cr->is_string() ? cr->as_string() : "";
                             if (crole == "assistant") {
                                 std::string path = "input[" + std::to_string(index) + "].content";
-                                auto [blocks, bl_losses] = decode_content(cur.find("content"), path);
+                                OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(cur.find("content"), path));
+                                auto [blocks, bl_losses] = std::move(c_res);
                                 losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                                 text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                                    std::make_move_iterator(blocks.end()));
@@ -1029,7 +1068,8 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         std::string crole = cr && cr->is_string() ? cr->as_string() : "";
                         if (crole == "assistant") {
                             std::string path = "input[" + std::to_string(index) + "].content";
-                            auto [blocks, bl_losses] = decode_content(cur.find("content"), path);
+                            OXA_ASSIGN_OR_RETURN(auto c_res, decode_content(cur.find("content"), path));
+                            auto [blocks, bl_losses] = std::move(c_res);
                             losses.insert(losses.end(), bl_losses.begin(), bl_losses.end());
                             text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                                std::make_move_iterator(blocks.end()));
@@ -1547,12 +1587,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     results.push_back(&b);
                     last_result = bi;
-                } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
-                    losses.push_back(make_resp_loss(
-                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                        "IR ir.DocumentBlock cannot be rendered in a Responses user message item"));
-                    normal.push_back(&b);
+                } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&b)) {
+                    if (!doc->file_id.has_value() && !doc->url.has_value() && !doc->data.has_value()) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "IR DocumentBlock carries no supported file source"));
+                    } else {
+                        if (!first_normal.has_value()) first_normal = bi;
+                        normal.push_back(&b);
+                    }
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1661,6 +1705,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 part.set("image_url", json::Value::string("data:" + mt + ";base64," + *img->data));
                             } else if (img->url.has_value()) {
                                 part.set("image_url", json::Value::string(*img->url));
+                            }
+                            parts.push_back(std::move(part));
+                        } else if (const auto* doc = std::get_if<ir::DocumentBlock>(b)) {
+                            json::Value part = json::Value::object();
+                            part.set("type", json::Value::string("input_file"));
+                            if (doc->file_id.has_value() && !doc->file_id->empty()) {
+                                part.set("file_id", json::Value::string(*doc->file_id));
+                            } else if (doc->url.has_value() && !doc->url->empty()) {
+                                part.set("file_url", json::Value::string(*doc->url));
+                            } else if (doc->data.has_value() && !doc->data->empty()) {
+                                part.set("file_data", json::Value::string(*doc->data));
                             }
                             parts.push_back(std::move(part));
                         }

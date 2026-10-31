@@ -480,7 +480,10 @@ void append_omission_loss(std::vector<Loss>& losses,
     }
 
     if (ann.kind == NATIVE_KIND_THINKING_DISPLAY ||
-        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT) {
+        ann.kind == NATIVE_KIND_CONTEXT_MANAGEMENT ||
+        ann.kind == NATIVE_KIND_DOCUMENT_TITLE ||
+        ann.kind == NATIVE_KIND_DOCUMENT_CONTEXT ||
+        ann.kind == NATIVE_KIND_DOCUMENT_CITATIONS) {
         if (ann.omission.has_value()) {
             losses.push_back(Loss{
                 std::string(path),
@@ -526,10 +529,13 @@ struct BlockOmissionCollector {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }
     }
-    void operator()(const DocumentBlock& /*b*/) const {
-        // N-AN-16: a document block crossing to a face without document
-        // support is dropped as one whole-block loss; its annotations are
-        // part of it and are not reported a second time.
+    void operator()(const DocumentBlock& b) const {
+        if (target == "chatcompletions" && b.url.has_value() && !b.url->empty()) {
+            return;
+        }
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
+        }
     }
     void operator()(const RedactedThinkingBlock& /*b*/) const {
         // Whole-block drop; annotations are part of it and are not reported

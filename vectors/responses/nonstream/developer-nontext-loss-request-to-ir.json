@@ -1,6 +1,6 @@
 {
   "name": "responses.nonstream.developer-nontext-loss-request-to-ir",
-  "description": "Developer text is retained while a non-text part and the role distinction have separate explicit losses.",
+  "description": "Developer text is retained as a system block with developer role, while non-text parts report an unsupported-semantic loss.",
   "spec_version": "0.1.0",
   "mode": "nonstream",
   "conversion": "to-ir",

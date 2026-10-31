@@ -23,6 +23,7 @@ from oxa.ir import (
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
+    DocumentBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -119,6 +120,33 @@ def decode_content_part(
         return [block], []
     if kind == PART_TYPE_OUTPUT_TEXT:
         return [TextBlock(text=part.get("text", ""))], []
+    if kind == "input_file":
+        count = sum(1 for k in ("file_id", "file_url", "file_data") if part.get(k) is not None)
+        if count != 1:
+            raise ValueError(f"responses: {path}[{index}]: input_file must specify exactly one of file_id, file_url, or file_data")
+        losses = []
+        if "filename" in part and part["filename"] is not None:
+            if not isinstance(part["filename"], str):
+                raise TypeError(f"{path}[{index}].filename must be a string")
+            losses.append(loss(f"{path}[{index}].filename", "filename", LOSS_UNMAPPED_FIELD, "Responses input_file filename has no IR equivalent"))
+        if "detail" in part and part["detail"] is not None:
+            if not isinstance(part["detail"], str):
+                raise TypeError(f"{path}[{index}].detail must be a string")
+            losses.append(loss(f"{path}[{index}].detail", "detail", LOSS_UNMAPPED_FIELD, "Responses input_file detail has no IR equivalent"))
+        if part.get("file_id") is not None:
+            fid = part["file_id"]
+            if not isinstance(fid, str) or not fid:
+                raise TypeError(f"{path}[{index}].file_id must be a non-empty string")
+            return [DocumentBlock(file_id=fid)], losses
+        if part.get("file_url") is not None:
+            furl = part["file_url"]
+            if not isinstance(furl, str) or not furl:
+                raise TypeError(f"{path}[{index}].file_url must be a non-empty string")
+            return [DocumentBlock(url=furl)], losses
+        fdata = part["file_data"]
+        if not isinstance(fdata, str) or not fdata:
+            raise TypeError(f"{path}[{index}].file_data must be a non-empty string")
+        return [DocumentBlock(data=fdata, media_type="application/pdf")], losses
     return [], [
         loss(
             f"{path}[{index}]",
@@ -684,6 +712,23 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                 has_image = True
                 other_blocks += 1
                 parts.append(part)
+        elif isinstance(block, DocumentBlock):
+            other_blocks += 1
+            if block.file_id:
+                parts.append({"type": "input_file", "file_id": block.file_id})
+            elif block.url:
+                parts.append({"type": "input_file", "file_url": block.url})
+            elif block.data:
+                parts.append({"type": "input_file", "file_data": block.data})
+            else:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock carries no supported file source",
+                    )
+                )
         else:
             other_blocks += 1
             losses.append(

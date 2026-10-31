@@ -380,7 +380,10 @@ def omitted_native_request_losses(req: Any, target: str) -> list[Loss]:
 
 
 def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: str) -> None:
-    if getattr(blk, "type", "") in (BLOCK_TYPE_DOCUMENT, BLOCK_TYPE_REDACTED_THINKING):
+    blk_type = getattr(blk, "type", "")
+    if blk_type == BLOCK_TYPE_REDACTED_THINKING or (
+        blk_type == BLOCK_TYPE_DOCUMENT and target == "chatcompletions" and getattr(blk, "url", None)
+    ):
         # whole-block drop; annotations are part of it and are not reported a second time.
         return
     for i, ann in enumerate(getattr(blk, "native", ())):
@@ -615,6 +618,9 @@ def _append_omission_loss(
     if ann.kind in (
         NATIVE_KIND_THINKING_DISPLAY,
         NATIVE_KIND_CONTEXT_MANAGEMENT,
+        NATIVE_KIND_DOCUMENT_TITLE,
+        NATIVE_KIND_DOCUMENT_CONTEXT,
+        NATIVE_KIND_DOCUMENT_CITATIONS,
     ):
         if ann.omission is not None:
             losses.append(

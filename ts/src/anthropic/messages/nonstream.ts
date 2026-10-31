@@ -1264,7 +1264,7 @@ function encodeContent(
           : { signature: block.signature }),
         ...(cc ? { cache_control: cc } : {}),
       });
-      if (replay && block.signature === undefined)
+      if (block.signature === undefined)
         losses.push({
           path: `${path}[${index}]`,
           field: "signature",

@@ -360,16 +360,21 @@ Each rule has a stable ID usable as a vector tag.
 
 - **N-R-18 (text annotations, since 2.5.0).** Responses `output_text` content parts
   carry an optional `annotations` array mapping to `TextBlock.Citations`.
-  - **Decode.** Each annotation element must be a JSON object containing a string `type`
-    property (e.g. `"url_citation"`, `"file_citation"`). Each valid annotation is audited and
-    retained as `TextCitation{Source: "openai", Value: "<compact JSON>"}` in `TextBlock.Citations`.
-    Decoding valid annotations produces zero losses. Non-object items or items without a string
-    `type` are structural errors. Empty `annotations: []` remains exempt (no loss, no IR citations).
-  - **Encode.** `TextBlock.Citations` entries with `source: "openai"` are parsed and restored
-    into wire `annotations` objects with zero losses. Entries with `source: "anthropic"`
-    record an `unsupported-semantic` loss per text block
+  - **Decode.** Each annotation element must be a JSON object containing a non-empty string `type`
+    property (e.g. `"url_citation"`, `"file_citation"`). Each valid annotation object is retained
+    verbatim as compact JSON (with sorted keys, preserving exact number tokens without float coercion)
+    in `TextCitation{Source: "openai", Value: "<compact JSON>"}` in `TextBlock.Citations`.
+    Decoding valid annotations produces zero losses. Non-object items, non-array `annotations`,
+    or items without a non-empty string `type` are structural errors. Empty `annotations: []` remains exempt (no loss, no IR citations).
+  - **Response Encode.** In response encoding, each IR `TextBlock` renders its own `output_text` content
+    part within the assistant message item, restoring `TextBlock.Citations` entries with `source: "openai"`
+    into wire `annotations` objects with zero losses, preserving citation ranges and text chunking.
+    Entries with `source: "anthropic"` record an `unsupported-semantic` loss per text block
     (`anthropic text citations; the target face cannot preserve source locations and replay metadata`,
-    N-AN-18) and render `annotations: []`.
+    N-AN-18) and render `annotations: []`. Malformed citation values or unknown citation sources in typed IR are structural errors.
+  - **Request Encode.** Responses request message items carry no `annotations` array on content parts.
+    Text blocks carrying citations on request encode record an `unsupported-semantic` loss
+    (`openai text annotations; the target face cannot preserve source locations and replay metadata` for `source: "openai"`).
   - **Reasoning Summary.** Reasoning summary parts are not text blocks; non-empty `annotations`
     on reasoning summaries continue to record an `unmapped-field` loss per N-R-13.
 

@@ -410,6 +410,15 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     if let Some(stop_loss) = stop_loss {
         losses.push(stop_loss);
     }
+    if stop == StopReason::Refusal
+        && let Some(ref details) = wire.stop_details
+    {
+        content.push(oxa_ir::Block::Refusal {
+            refusal: details.explanation.clone().unwrap_or_default(),
+            category: details.category.clone(),
+            native: Vec::new(),
+        });
+    }
     let resp = IrResponse {
         id: wire.id.clone(),
         model: config.map_model(&wire.model),

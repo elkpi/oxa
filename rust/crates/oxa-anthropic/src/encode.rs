@@ -685,6 +685,16 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             )],
             false,
         )),
+        Block::Refusal { .. } => Ok((
+            BlockWire::default(),
+            vec![loss(
+                path,
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic does not support refusal content blocks in request history",
+            )],
+            false,
+        )),
     }
 }
 
@@ -1018,22 +1028,34 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .content
         .iter()
         .any(|block| matches!(block, Block::ApplyPatchToolUse { .. }));
-    let effective_stop =
-        if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
-            losses.push(loss(
-                "stop_reason",
-                "stop_reason",
-                LossReason::Degraded,
-                "apply_patch calls were dropped; tool_use normalized to end_turn",
-            ));
-            StopReason::EndTurn
-        } else {
-            resp.stop_reason
-        };
+    let refusal_block = resp.content.iter().find_map(|b| match b {
+        Block::Refusal { refusal, category, .. } => Some((refusal, category)),
+        _ => None,
+    });
+    let effective_stop = if refusal_block.is_some() {
+        StopReason::Refusal
+    } else if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
+        losses.push(loss(
+            "stop_reason",
+            "stop_reason",
+            LossReason::Degraded,
+            "apply_patch calls were dropped; tool_use normalized to end_turn",
+        ));
+        StopReason::EndTurn
+    } else {
+        resp.stop_reason
+    };
     let (reason, seq) = encode_stop_reason(effective_stop, resp.stop_sequence.as_deref())?;
     out.stop_reason = reason.to_string();
     if let Some(s) = seq {
         out.stop_sequence = s;
+    }
+    if effective_stop == StopReason::Refusal {
+        out.stop_details = Some(crate::types::StopDetailsWire {
+            kind: "refusal".to_string(),
+            category: refusal_block.and_then(|(_, cat)| cat.clone()),
+            explanation: refusal_block.map(|(refusal, _)| refusal.clone()),
+        });
     }
     Ok((out, losses))
 }
@@ -1170,6 +1192,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 true,
             ))
         }
+        Block::Refusal { .. } => Ok((BlockWire::default(), Vec::new(), false)),
         _ => Ok((
             BlockWire::default(),
             vec![unsupported_block_loss(

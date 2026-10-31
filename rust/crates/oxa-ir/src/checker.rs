@@ -313,6 +313,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::ApplyPatchToolResult { .. } => "apply_patch_tool_result",
         Block::ToolResult { .. } => "tool_result",
         Block::WebSearchCall { .. } => "web_search_call",
+        Block::Refusal { .. } => "refusal",
     }
 }
 

@@ -409,14 +409,37 @@ pub enum OutputValue {
 }
 
 /// One Responses message-output content part.
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Deserialize)]
 pub struct OutputPart {
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(rename = "text", default)]
     pub text: String,
+    #[serde(rename = "refusal", default)]
+    pub refusal: Option<String>,
     #[serde(rename = "annotations", default)]
     pub annotations: Vec<Value>,
+}
+
+impl Serialize for OutputPart {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeStruct;
+        if self.kind == "refusal" {
+            let mut state = serializer.serialize_struct("OutputPart", 2)?;
+            state.serialize_field("type", &self.kind)?;
+            state.serialize_field("refusal", self.refusal.as_deref().unwrap_or(""))?;
+            state.end()
+        } else {
+            let mut state = serializer.serialize_struct("OutputPart", 3)?;
+            state.serialize_field("type", &self.kind)?;
+            state.serialize_field("text", &self.text)?;
+            state.serialize_field("annotations", &self.annotations)?;
+            state.end()
+        }
+    }
 }
 
 fn deserialize_summary_parts<'de, D>(deserializer: D) -> Result<Vec<OutputPart>, D::Error>
@@ -439,6 +462,7 @@ where
             kind: part.kind,
             text: part.text,
             annotations: part.annotations,
+            ..Default::default()
         })
         .collect())
 }

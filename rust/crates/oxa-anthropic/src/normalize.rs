@@ -1026,6 +1026,7 @@ pub(crate) fn decode_block(
                     | Block::CustomToolUse { native, .. }
                     | Block::ApplyPatchToolUse { native, .. }
                     | Block::ApplyPatchToolResult { native, .. }
+                    | Block::Refusal { native, .. }
                     | Block::ToolResult { native, .. }
                     | Block::CustomToolResult { native, .. } => {
                         native.push(ann);

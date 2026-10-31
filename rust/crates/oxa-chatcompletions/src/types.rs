@@ -162,6 +162,8 @@ pub struct Message {
     pub role: String,
     #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
     pub content: Option<ContentValue>,
+    #[serde(rename = "refusal", skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<String>,
     #[serde(rename = "reasoning_content", skip_serializing_if = "Option::is_none")]
     pub reasoning_content: Option<String>,
     #[serde(rename = "tool_calls", skip_serializing_if = "Option::is_none")]
@@ -227,6 +229,7 @@ pub struct ImageURLWire {
 pub enum ContentValue {
     Text(String),
     Parts(Vec<ContentPart>),
+    Null(()),
 }
 
 /// The Chat Completions wire response object.

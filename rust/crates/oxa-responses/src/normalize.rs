@@ -1427,6 +1427,7 @@ pub(crate) fn encode_assistant_message(
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: thinking.clone(),
                     annotations: Vec::new(),
+                    ..Default::default()
                 });
                 if signature
                     .as_deref()
@@ -1497,6 +1498,18 @@ pub(crate) fn encode_assistant_message(
             Block::WebSearchCall { id, status, action, extra } => calls.push(InputItem {
                 kind: "web_search_call".into(), id: id.clone(), status: status.clone(), action: Some(action.clone()), extra: extra.clone(), ..InputItem::default()
             }),
+            Block::Refusal { refusal, category, .. } => {
+                if category.is_some() {
+                    losses.push(loss(
+                        format!("{path}[{index}].category"),
+                        "category",
+                        LossReason::UnsupportedSemantic,
+                        "Anthropic refusal category has no Responses equivalent",
+                    ));
+                }
+                text.push_str(refusal);
+                has_text = true;
+            }
             Block::Image { .. }
             | Block::Document { .. }
             | Block::ToolResult { .. }

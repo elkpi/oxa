@@ -661,6 +661,14 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             }
             ITEM_TYPE_MESSAGE => {
                 for (content_index, part) in item.content.iter().enumerate() {
+                    if part.kind == "refusal" {
+                        text.push(Block::Refusal {
+                            refusal: part.refusal.clone().unwrap_or_default(),
+                            category: None,
+                            native: Vec::new(),
+                        });
+                        continue;
+                    }
                     if part.kind != PART_TYPE_OUTPUT_TEXT {
                         losses.push(loss(
                             format!("output[{item_index}].content[{content_index}]"),
@@ -855,11 +863,14 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             )),
         }
     }
-    let (stop_reason, status_losses) = decode_status(wire, has_tool_use)?;
+    let (mut stop_reason, status_losses) = decode_status(wire, has_tool_use)?;
     losses.extend(status_losses);
     let mut content = thinkings;
     content.extend(text);
     content.extend(calls);
+    if content.iter().any(|b| matches!(b, Block::Refusal { .. })) && stop_reason == StopReason::EndTurn {
+        stop_reason = StopReason::Refusal;
+    }
     Ok((
         IrResponse {
             id: wire.id.clone(),
@@ -1280,6 +1291,9 @@ pub(crate) fn decode_status(
     has_tool_use: bool,
 ) -> Result<(StopReason, Vec<Loss>), Error> {
     if let Some(error) = &wire.error {
+        if error.code == "refusal" {
+            return Ok((StopReason::Refusal, Vec::new()));
+        }
         return Ok((
             StopReason::Other,
             vec![loss(

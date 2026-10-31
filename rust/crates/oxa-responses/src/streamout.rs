@@ -433,6 +433,7 @@ impl StreamEncoder {
             kind: PART_TYPE_OUTPUT_TEXT.to_string(),
             text: text.to_string(),
             annotations: Vec::new(),
+            ..Default::default()
         };
         active.content.push(part.clone());
         self.active_block = Some(StreamEncodeBlock {
@@ -492,6 +493,7 @@ impl StreamEncoder {
             kind: PART_TYPE_OUTPUT_TEXT.to_string(),
             text: thinking.to_string(),
             annotations: Vec::new(),
+            ..Default::default()
         };
         active.content.push(part.clone());
         self.active_block = Some(StreamEncodeBlock {

@@ -16,7 +16,7 @@ use crate::normalize::{
     loss,
 };
 use crate::types::{
-    FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
+    ContentValue, FINISH_REASON_CONTENT_FILTER, FINISH_REASON_LENGTH, FINISH_REASON_STOP,
     FINISH_REASON_TOOL_CALLS, ROLE_ASSISTANT, ROLE_SYSTEM, ROLE_TOOL, ROLE_USER, Request, Response,
     TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
 };
@@ -239,13 +239,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 let calls = message.tool_calls.as_deref().unwrap_or(&default_calls);
                 let (tool_blocks, tool_losses) =
                     decode_tool_calls(calls, &format!("messages[{index}].tool_calls"));
-                if message.content.is_none() && !tool_blocks.is_empty() {
+                let has_refusal = message
+                    .refusal
+                    .as_deref()
+                    .is_some_and(|r| !r.is_empty());
+                if (message.content.is_none() || matches!(message.content, Some(ContentValue::Null(_)))) && (!tool_blocks.is_empty() || has_refusal) {
                     // Drop only the empty placeholder; reasoning blocks remain.
                     content.retain(
                         |block| !matches!(block, Block::Text { text, .. } if text.is_empty()),
                     );
                 }
                 content.extend(tool_blocks);
+                if let Some(ref r) = message.refusal
+                    && !r.is_empty()
+                {
+                    content.push(Block::Refusal {
+                        refusal: r.clone(),
+                        category: None,
+                        native: Vec::new(),
+                    });
+                }
                 messages.push(oxa_ir::Message {
                     role: Role::Assistant,
                     content,
@@ -649,12 +662,26 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
         .as_deref()
         .unwrap_or(&default_calls);
     let (tool_blocks, tool_losses) = decode_tool_calls(calls, "choices[0].message.tool_calls");
-    if choice.message.content.is_none() && !tool_blocks.is_empty() {
+    let has_refusal = choice
+        .message
+        .refusal
+        .as_deref()
+        .is_some_and(|r| !r.is_empty());
+    if (choice.message.content.is_none() || matches!(choice.message.content, Some(ContentValue::Null(_)))) && (!tool_blocks.is_empty() || has_refusal) {
         // Drop only the empty placeholder; reasoning blocks remain.
         blocks.retain(|block| !matches!(block, Block::Text { text, .. } if text.is_empty()));
     }
     blocks.extend(tool_blocks);
     losses.extend(tool_losses);
+    if let Some(ref r) = choice.message.refusal
+        && !r.is_empty()
+    {
+        blocks.push(Block::Refusal {
+            refusal: r.clone(),
+            category: None,
+            native: Vec::new(),
+        });
+    }
     if choice.message.function_call.is_some() {
         losses.push(loss(
             "choices[0].message.function_call",

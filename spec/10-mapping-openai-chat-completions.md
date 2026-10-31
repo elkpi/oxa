@@ -254,17 +254,20 @@ Each rule has a stable ID usable as a vector tag.
   - **Decode.** Each `file` content part must be a JSON object containing a `file` object.
     The inner `file` object must specify exactly one of:
     - `file_id`: a non-empty string. Maps to `DocumentBlock{FileID: file_id}`.
-    - `file_data`: a non-empty string (base64). Maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`.
-    Missing `file` object, specifying none or both of `file_id` and `file_data`, or non-string/empty values, is a structural error.
+    - `file_data`: a non-empty string. May be raw base64 (maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`)
+      or a `data:<media>;base64,<payload>` URL (maps to `DocumentBlock{Data: payload, MediaType: media}`).
+    Missing `file` object, specifying none or more than one of `file_id` and `file_data`, or non-string/empty values, is a structural error.
     Optional wire fields: `file.filename` (string) is dropped with an `unmapped-field` loss.
     Unknown fields on the part or on `file` record `unmapped-field` losses in source order.
+    In response decoding, `file` content parts have no IR equivalent and record an `unsupported-semantic` loss.
   - **Encode.** In a user message, `DocumentBlock` renders as a `file` content part
     (forcing array representation of `content`):
+    - Conflicting sources (more than one of `FileID`, `Data`, `URL` non-empty) or missing sources record an `unsupported-semantic` loss.
     - `FileID` present: renders `{"type": "file", "file": {"file_id": *FileID}}` with zero loss.
-    - `Data` present: renders `{"type": "file", "file": {"file_data": *Data}}` with zero loss.
+    - `Data` present: if `MediaType` is present and not `"application/pdf"`, the non-PDF document cannot be represented in Chat Completions and records an `unsupported-semantic` loss (detail: `"Chat Completions file content parts do not support non-PDF media types; file dropped"`). Otherwise renders `{"type": "file", "file": {"file_data": *Data}}` with zero loss.
     - `URL` present: Chat Completions has no URL source form for files. The block is dropped with an `unsupported-semantic` loss
       (detail: `"Chat Completions file content parts do not support url sources; file dropped"`).
-    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss.
+    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss (detail: `"IR DocumentBlock cannot be rendered in a Chat Completions assistant message"`).
 
 ## 8. Loss Catalog
 

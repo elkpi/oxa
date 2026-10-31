@@ -284,7 +284,9 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 				} else {
 					// Enabled budget without explicit effort: projects to effort
 					mapped := "high"
-					if wire.Thinking.BudgetTokens <= 2048 {
+					if wire.Thinking.BudgetTokens <= 1024 {
+						mapped = "minimal"
+					} else if wire.Thinking.BudgetTokens <= 2048 {
 						mapped = "low"
 					} else if wire.Thinking.BudgetTokens <= 8192 {
 						mapped = "medium"

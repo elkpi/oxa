@@ -1,0 +1,40 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-reasoning-request",
+  "description": "Cross-protocol: Responses reasoning.effort minimal converts to Anthropic thinking with budget 1024 and degraded loss (N-R-13, N-AN-11).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "o3-mini",
+    "max_output_tokens": 4096,
+    "input": "Solve this puzzle.",
+    "reasoning": {
+      "effort": "minimal"
+    }
+  },
+  "expected_output": {
+    "model": "o3-mini",
+    "max_tokens": 4096,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Solve this puzzle."
+      }
+    ],
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 1024
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "params.reasoning_effort",
+      "field": "reasoning_effort",
+      "reason": "degraded",
+      "detail": "budget approximated"
+    }
+  ],
+  "tags": ["cross", "reasoning", "request", "n-r-13", "n-an-11"]
+}

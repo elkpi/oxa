@@ -1068,6 +1068,17 @@
       "sha256": "d7b3732f3305c95151dea4728e7fe3a4543545e78118eb53c78518ebb8617bbd"
     },
     {
+      "name": "anthropic.nonstream.thinking-budget-minimal-request-to-ir",
+      "file": "anthropic/nonstream/thinking-budget-minimal-request-to-ir.json",
+      "tags": [
+        "thinking",
+        "request",
+        "N-AN-11",
+        "N-AN-14"
+      ],
+      "sha256": "6dba36b33f42f0fcbeb65bd5c11fcf6996cd2c39029f7466186257d9411f24a5"
+    },
+    {
       "name": "anthropic.nonstream.thinking-budget-request-from-ir",
       "file": "anthropic/nonstream/thinking-budget-request-from-ir.json",
       "tags": [
@@ -2600,6 +2611,18 @@
       "sha256": "42a7c2e2e095dedba81e6580161c3d3621f12de60892c41a84c17d1d6a837875"
     },
     {
+      "name": "cross.nonstream.anthropic-to-responses-thinking-response",
+      "file": "cross/nonstream/anthropic-to-responses-thinking-response.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "response",
+        "n-an-11",
+        "n-r-13"
+      ],
+      "sha256": "a25f34d7cede8fdcec75c180a5abf9c62bff191277d43dfe606b407c5f5e8ade"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",
       "file": "cross/nonstream/anthropic-to-responses-tool-defer-loading.json",
       "tags": [
@@ -2883,6 +2906,18 @@
       "sha256": "c5b392052920b69559b8b890c61b086458d06c8cf6f1e9259c5ddf02a7f8b5c9"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-reasoning-request",
+      "file": "cross/nonstream/responses-to-anthropic-reasoning-request.json",
+      "tags": [
+        "cross",
+        "reasoning",
+        "request",
+        "n-r-13",
+        "n-an-11"
+      ],
+      "sha256": "678c8116448051346c4a948a4d962edf85dfd7dad78c87f28b5bb7c654fe05e1"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-request",
       "file": "cross/nonstream/responses-to-anthropic-request.json",
       "tags": [
@@ -2990,6 +3025,18 @@
       "sha256": "ae14e8403d3f8cb3279cadf90baddc9e1177e7770f47c6c148007893f97bfee7"
     },
     {
+      "name": "cross.nonstream.responses-to-chatcompletions-reasoning-request",
+      "file": "cross/nonstream/responses-to-chatcompletions-reasoning-request.json",
+      "tags": [
+        "cross",
+        "reasoning",
+        "request",
+        "n-r-13",
+        "n-cc-12"
+      ],
+      "sha256": "dbc5e2d778fd299ff2c97bd7e1ed7133f64ead396856922dfeb59533988c2fbf"
+    },
+    {
       "name": "cross.nonstream.responses-to-chatcompletions-request",
       "file": "cross/nonstream/responses-to-chatcompletions-request.json",
       "tags": [
@@ -3025,6 +3072,18 @@
         "n-r-18"
       ],
       "sha256": "1e50dc1ae703e838b53419f75efb34e224232b449a010b076996f9a655b496d4"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-thinking-response",
+      "file": "cross/nonstream/responses-to-chatcompletions-thinking-response.json",
+      "tags": [
+        "cross",
+        "thinking",
+        "response",
+        "n-r-13",
+        "n-cc-12"
+      ],
+      "sha256": "7567aa9ae1af8559ab10e5f45e22d00f056d89d7f73d7d842b01c715b43f29d5"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-tool-container",

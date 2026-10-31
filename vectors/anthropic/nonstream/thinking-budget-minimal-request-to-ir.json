@@ -1,0 +1,54 @@
+{
+  "name": "anthropic.nonstream.thinking-budget-minimal-request-to-ir",
+  "description": "Anthropic request thinking.budget_tokens <= 1024 decodes to IR reasoning_effort minimal with budget projection (N-AN-11, N-AN-14).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-3-7-sonnet-20250219",
+    "max_tokens": 16000,
+    "messages": [{ "role": "user", "content": "Solve this puzzle." }],
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 1024
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-3-7-sonnet-20250219",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "Solve this puzzle." }]
+      }
+    ],
+    "params": {
+      "max_tokens": 16000,
+      "reasoning_effort": "minimal"
+    },
+    "native": [
+      {
+        "source": "anthropic",
+        "kind": "thinking_mode",
+        "value": "\"enabled\""
+      },
+      {
+        "source": "anthropic",
+        "kind": "thinking_budget",
+        "value": "1024",
+        "omission": {
+          "field": "budget_tokens",
+          "reason": "degraded",
+          "detail": "budget approximated"
+        },
+        "projection": {
+          "origin": "budget",
+          "effort": "minimal"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["thinking", "request", "N-AN-11", "N-AN-14"]
+}

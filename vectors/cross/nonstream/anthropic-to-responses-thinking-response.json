@@ -1,0 +1,55 @@
+{
+  "name": "cross.nonstream.anthropic-to-responses-thinking-response",
+  "description": "Cross-protocol: Anthropic thinking response with signature converts to Responses reasoning item, dropping signature with unmapped-field loss (N-AN-11, N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "id": "msg_think_cross_resp",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-3-7-sonnet-20250219",
+    "content": [
+      { "type": "thinking", "thinking": "Thinking through the steps.", "signature": "sig_opaque_123" },
+      { "type": "text", "text": "The answer is 42." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 10, "output_tokens": 25 }
+  },
+  "expected_output": {
+    "id": "msg_think_cross_resp",
+    "object": "response",
+    "status": "completed",
+    "model": "claude-3-7-sonnet-20250219",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_abc123",
+        "summary": [
+          { "type": "output_text", "text": "Thinking through the steps.", "annotations": [] }
+        ]
+      },
+      {
+        "type": "message",
+        "id": "msg_abc123",
+        "role": "assistant",
+        "status": "completed",
+        "content": [
+          { "type": "output_text", "text": "The answer is 42.", "annotations": [] }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 10, "output_tokens": 25, "total_tokens": 35 }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0].signature",
+      "field": "signature",
+      "reason": "unmapped-field",
+      "detail": "Responses reasoning items carry no provider signature"
+    }
+  ],
+  "tags": ["cross", "thinking", "response", "n-an-11", "n-r-13"]
+}

@@ -524,7 +524,13 @@ export function decodeRequestNative(
           });
         } else {
           const mappedEffort =
-            b <= 2048n ? "low" : b <= 8192n ? "medium" : "high";
+            b <= 1024n
+              ? "minimal"
+              : b <= 2048n
+                ? "low"
+                : b <= 8192n
+                  ? "medium"
+                  : "high";
           reasoningEffort = mappedEffort;
           reqNative.push({
             source: NATIVE_SOURCE_ANTHROPIC,

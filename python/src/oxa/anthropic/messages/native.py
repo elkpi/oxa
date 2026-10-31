@@ -249,7 +249,7 @@ def decode_request_native(wire: dict[str, Any], req: Request) -> tuple[Request, 
                     )
                 else:
                     derived: ReasoningEffort = (
-                        "low" if budget <= 2048 else ("medium" if budget <= 8192 else "high")
+                        "minimal" if budget <= 1024 else ("low" if budget <= 2048 else ("medium" if budget <= 8192 else "high"))
                     )
                     if req.params is not None:
                         req = dataclasses.replace(

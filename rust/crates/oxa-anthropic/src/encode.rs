@@ -1029,7 +1029,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .iter()
         .any(|block| matches!(block, Block::ApplyPatchToolUse { .. }));
     let refusal_block = resp.content.iter().find_map(|b| match b {
-        Block::Refusal { refusal, category, .. } => Some((refusal, category)),
+        Block::Refusal {
+            refusal, category, ..
+        } => Some((refusal, category)),
         _ => None,
     });
     let effective_stop = if refusal_block.is_some() {

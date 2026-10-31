@@ -868,7 +868,9 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let mut content = thinkings;
     content.extend(text);
     content.extend(calls);
-    if content.iter().any(|b| matches!(b, Block::Refusal { .. })) && stop_reason == StopReason::EndTurn {
+    if content.iter().any(|b| matches!(b, Block::Refusal { .. }))
+        && stop_reason == StopReason::EndTurn
+    {
         stop_reason = StopReason::Refusal;
     }
     Ok((

@@ -489,7 +489,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     "this IR block cannot be rendered in a Responses output item",
                 ))
             }
-            Block::Refusal { refusal, category, .. } => {
+            Block::Refusal {
+                refusal, category, ..
+            } => {
                 if category.is_some() {
                     losses.push(loss(
                         format!("content[{index}].category"),

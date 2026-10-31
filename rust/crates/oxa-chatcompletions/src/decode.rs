@@ -239,11 +239,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 let calls = message.tool_calls.as_deref().unwrap_or(&default_calls);
                 let (tool_blocks, tool_losses) =
                     decode_tool_calls(calls, &format!("messages[{index}].tool_calls"));
-                let has_refusal = message
-                    .refusal
-                    .as_deref()
-                    .is_some_and(|r| !r.is_empty());
-                if (message.content.is_none() || matches!(message.content, Some(ContentValue::Null(_)))) && (!tool_blocks.is_empty() || has_refusal) {
+                let has_refusal = message.refusal.as_deref().is_some_and(|r| !r.is_empty());
+                if (message.content.is_none()
+                    || matches!(message.content, Some(ContentValue::Null(_))))
+                    && (!tool_blocks.is_empty() || has_refusal)
+                {
                     // Drop only the empty placeholder; reasoning blocks remain.
                     content.retain(
                         |block| !matches!(block, Block::Text { text, .. } if text.is_empty()),
@@ -667,7 +667,10 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
         .refusal
         .as_deref()
         .is_some_and(|r| !r.is_empty());
-    if (choice.message.content.is_none() || matches!(choice.message.content, Some(ContentValue::Null(_)))) && (!tool_blocks.is_empty() || has_refusal) {
+    if (choice.message.content.is_none()
+        || matches!(choice.message.content, Some(ContentValue::Null(_))))
+        && (!tool_blocks.is_empty() || has_refusal)
+    {
         // Drop only the empty placeholder; reasoning blocks remain.
         blocks.retain(|block| !matches!(block, Block::Text { text, .. } if text.is_empty()));
     }

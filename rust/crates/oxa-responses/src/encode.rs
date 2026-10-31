@@ -264,9 +264,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .ok_or_else(|| Error::new("responses: derived total_tokens exceeds int64"))?;
     let mut losses = Vec::new();
     let mut thinkings = Vec::new();
-    let mut annotations: Vec<Value> = Vec::new();
-    let mut text = String::new();
-    let mut has_text = false;
+    let mut text_parts: Vec<OutputPart> = Vec::new();
     let mut calls = Vec::new();
     let mut apc_index = 0usize;
     let mut apco_index = 0usize;
@@ -277,19 +275,38 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 citations,
                 ..
             } => {
-                text.push_str(value);
-                has_text = true;
+                let mut part_annotations: Vec<Value> = Vec::new();
                 if let Some(cites) = citations
                     && !cites.is_empty()
                 {
                     let mut has_anthropic = false;
                     for c in cites {
                         if c.source == "openai" {
-                            if let Ok(v) = serde_json::from_str(&c.value) {
-                                annotations.push(v);
+                            if c.value.is_empty() {
+                                return Err(Error::new("ir: citation value cannot be empty"));
                             }
+                            let obj: Value = serde_json::from_str(&c.value).map_err(|e| {
+                                Error::new(format!("ir: citation value must be a JSON object: {e}"))
+                            })?;
+                            let Value::Object(map) = &obj else {
+                                return Err(Error::new("ir: citation value must be a JSON object"));
+                            };
+                            let Some(Value::String(ann_type)) = map.get("type") else {
+                                return Err(Error::new("ir: citation value requires type field"));
+                            };
+                            if ann_type.is_empty() {
+                                return Err(Error::new(
+                                    "ir: citation type must be a non-empty string",
+                                ));
+                            }
+                            part_annotations.push(obj);
                         } else if c.source == "anthropic" {
                             has_anthropic = true;
+                        } else {
+                            return Err(Error::new(format!(
+                                "ir: unknown citation source {:?}",
+                                c.source
+                            )));
                         }
                     }
                     if has_anthropic {
@@ -301,6 +318,11 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         ));
                     }
                 }
+                text_parts.push(OutputPart {
+                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+                    text: value.clone(),
+                    annotations: part_annotations,
+                });
             }
             Block::RedactedThinking { .. } => {
                 losses.push(loss(
@@ -467,7 +489,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         }
     }
     let mut output = calls;
-    if has_text || resp.content.is_empty() {
+    if !text_parts.is_empty() || (resp.content.is_empty() && thinkings.is_empty()) {
         output.insert(
             0,
             OutputItem {
@@ -475,11 +497,15 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                 id: "msg_abc123".to_string(),
                 status: STATUS_COMPLETED.to_string(),
                 role: ROLE_ASSISTANT.to_string(),
-                content: vec![OutputPart {
-                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
-                    text,
-                    annotations,
-                }],
+                content: if text_parts.is_empty() {
+                    vec![OutputPart {
+                        kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+                        text: String::new(),
+                        annotations: Vec::new(),
+                    }]
+                } else {
+                    text_parts
+                },
                 ..OutputItem::default()
             },
         );

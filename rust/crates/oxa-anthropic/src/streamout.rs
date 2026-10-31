@@ -40,6 +40,7 @@ pub struct StreamEncoder {
     signature_seen: bool,
     tool_input: String,
     tool_parts: Vec<String>,
+    citation_loss_seen: bool,
     delta_seen: bool,
     done: bool,
 }
@@ -70,6 +71,7 @@ impl StreamEncoder {
             signature_seen: false,
             tool_input: String::new(),
             tool_parts: Vec::new(),
+            citation_loss_seen: false,
             delta_seen: false,
             done: false,
         }
@@ -134,10 +136,19 @@ impl StreamEncoder {
                         self.open_ir_index = *index;
                         self.open_index = self.next_wire_index;
                         self.next_wire_index += 1;
-                        let wire_cites = citations
-                            .as_ref()
-                            .map(|cites| crate::encode::encode_response_citations(cites))
-                            .transpose()?;
+                        self.citation_loss_seen = false;
+                        let (wire_cites, cite_losses) = if let Some(cites) = citations {
+                            let (wc, cl) = crate::encode::encode_response_citations(
+                                cites,
+                                &format!("content[{}].citations", self.open_index),
+                            )?;
+                            if cl.iter().any(|l| l.field == "citations") {
+                                self.citation_loss_seen = true;
+                            }
+                            (wc, cl)
+                        } else {
+                            (None, Vec::new())
+                        };
                         Ok((
                             vec![StreamEvent {
                                 kind: EVENT_TYPE_CONTENT_BLOCK_START.to_string(),
@@ -150,7 +161,7 @@ impl StreamEncoder {
                                 }),
                                 ..Default::default()
                             }],
-                            Vec::new(),
+                            cite_losses,
                         ))
                     }
                     Block::Thinking {
@@ -423,6 +434,25 @@ impl StreamEncoder {
                     Delta::CitationDelta { citation } => {
                         if self.open_tool || self.open_thinking {
                             return Err(Error::new("anthropic: CitationDelta on non-text block"));
+                        }
+                        if citation.source == "openai" {
+                            let mut losses = Vec::new();
+                            if !self.citation_loss_seen {
+                                self.citation_loss_seen = true;
+                                losses.push(Loss {
+                                    path: format!("content[{}].citations", self.open_index),
+                                    field: "citations".to_string(),
+                                    reason: LossReason::UnsupportedSemantic,
+                                    detail: "openai text annotations; the target face cannot preserve source locations and replay metadata".to_string(),
+                                });
+                            }
+                            return Ok((Vec::new(), losses));
+                        }
+                        if citation.source != "anthropic" {
+                            return Err(Error::new(format!(
+                                "anthropic: unknown citation source {:?}",
+                                citation.source
+                            )));
                         }
                         let cite_val: serde_json::Value = serde_json::from_str(&citation.value)
                             .map_err(|e| Error::new(e.to_string()))?;

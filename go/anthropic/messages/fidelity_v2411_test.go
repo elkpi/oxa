@@ -256,6 +256,45 @@ func TestFidelityV2411_TextCitations_RoundTrip(t *testing.T) {
 	}
 }
 
+func TestAnthropicStream_OpenAICitationAbsorbed(t *testing.T) {
+	enc := NewStreamEncoder()
+	_, _, err := enc.Apply(ir.MessageStart{ID: "msg_1", Model: "claude-3-7-sonnet-20250219"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cite := ir.TextCitation{
+		Source: ir.CitationSourceOpenAI,
+		Value:  `{"type":"url_citation","url":"https://example.test"}`,
+	}
+	events, losses, err := enc.Apply(ir.ContentBlockStart{
+		Index: 0,
+		Block: ir.TextBlock{Text: "Docs", Citations: []ir.TextCitation{cite}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 1 || losses[0].Field != "citations" || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Fatalf("expected 1 unsupported-semantic loss, got: %+v", losses)
+	}
+	if len(events) != 1 || events[0].ContentBlock.Citations != nil {
+		t.Fatalf("expected block start without citations, got: %+v", events)
+	}
+
+	events, losses, err = enc.Apply(ir.ContentBlockDelta{
+		Index: 0,
+		Delta: ir.CitationDelta{Citation: cite},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected 0 wire events, got: %+v", events)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("expected 0 losses (already reported on block), got: %+v", losses)
+	}
+}
+
 func TestFidelityV2411_CrossFace_Losses(t *testing.T) {
 	redactedReq := &ir.Request{
 		Model:  "claude-opus-5-5",

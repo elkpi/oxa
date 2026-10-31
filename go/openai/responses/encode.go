@@ -277,10 +277,27 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			text += value.Text
 			textBlocks++
 			if len(value.Citations) > 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
-					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
-				))
+				hasAnthropic := false
+				hasOpenAI := false
+				for _, c := range value.Citations {
+					if c.Source == ir.CitationSourceOpenAI {
+						hasOpenAI = true
+					} else {
+						hasAnthropic = true
+					}
+				}
+				if hasAnthropic {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
+				if hasOpenAI {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"openai text annotations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
 			}
 		case ir.RedactedThinkingBlock:
 			otherBlocks++
@@ -334,10 +351,27 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 			text += value.Text
 			hasText = true
 			if len(value.Citations) > 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
-					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
-				))
+				hasAnthropic := false
+				hasOpenAI := false
+				for _, c := range value.Citations {
+					if c.Source == ir.CitationSourceOpenAI {
+						hasOpenAI = true
+					} else {
+						hasAnthropic = true
+					}
+				}
+				if hasAnthropic {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
+				if hasOpenAI {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"openai text annotations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
 			}
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
@@ -430,21 +464,39 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var losses []ir.Loss
 	var output []OutputItem
 	var thinkings []OutputContent
-	text := ""
-	hasText := false
+	var textParts []OutputContent
 	apcIndex := 0
 	apcoIndex := 0
 	for i, block := range resp.Content {
 		switch value := block.(type) {
 		case ir.TextBlock:
-			text += value.Text
-			hasText = true
-			if len(value.Citations) > 0 {
+			var partAnnotations []json.RawMessage
+			hasAnthropic := false
+			for _, c := range value.Citations {
+				if err := ir.ValidateCitation(c.Source, c.Value); err != nil {
+					return nil, nil, fmt.Errorf("responses: content[%d].citations: %w", i, err)
+				}
+				switch c.Source {
+				case ir.CitationSourceOpenAI:
+					partAnnotations = append(partAnnotations, json.RawMessage(c.Value))
+				case ir.CitationSourceAnthropic:
+					hasAnthropic = true
+				default:
+					return nil, nil, fmt.Errorf("responses: content[%d].citations: unknown citation source %q", i, c.Source)
+				}
+			}
+			if hasAnthropic {
 				losses = append(losses, loss(
 					fmt.Sprintf("content[%d].citations", i), "citations", ir.LossUnsupportedSemantic,
 					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
 				))
 			}
+			if partAnnotations == nil {
+				partAnnotations = []json.RawMessage{}
+			}
+			textParts = append(textParts, OutputContent{
+				Type: PartTypeOutputText, Text: value.Text, Annotations: partAnnotations,
+			})
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,
@@ -523,12 +575,15 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			))
 		}
 	}
-	if hasText || (len(resp.Content) == 0 && len(thinkings) == 0) {
+	if len(textParts) > 0 || (len(resp.Content) == 0 && len(thinkings) == 0) {
+		if len(textParts) == 0 {
+			textParts = []OutputContent{{
+				Type: PartTypeOutputText, Text: "", Annotations: []json.RawMessage{},
+			}}
+		}
 		output = append([]OutputItem{{
 			Type: ItemTypeMessage, ID: "msg_abc123", Status: StatusCompleted, Role: RoleAssistant,
-			Content: []OutputContent{{
-				Type: PartTypeOutputText, Text: text, Annotations: []json.RawMessage{},
-			}},
+			Content: textParts,
 		}}, output...)
 	}
 	if len(thinkings) > 0 {

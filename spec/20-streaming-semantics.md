@@ -451,6 +451,7 @@ Anthropic 流式响应中的 `citations_delta` 映射为 `ContentBlockDelta` 且
 - `CitationDelta` 仅允许出现在已打开的 `TextBlock` 中，可与 `TextDelta` 依实际到达顺序交错出现。
 - 流式聚合器将累积的 `TextDelta.text` 拼接为最终的 `TextBlock.Text`，并将所有 `CitationDelta.citation` 收集为最终的 `TextBlock.Citations`。
 - 编码至 OpenAI 目标面（CC / RE）时：省略引文数据并照常转发 `TextDelta`；在打开该文本块并首次遇到引文（无论在 start 上预带还是在首个 `CitationDelta` 遇到）时记录恰好一条 `unsupported-semantic` 损失（`detail: "anthropic text citations; the target face cannot preserve source locations and replay metadata"`），同一块后续引文增量被吸收，不重复记录损失。
+- 编码至 Anthropic 目标面时：若 IR 文本块或 `CitationDelta` 携带 `source: "openai"` 引用/注释，Anthropic 流式编码器省略该引文（或吸收 `CitationDelta`，不发射 `citations_delta` 原生事件），并在打开该文本块并首次遇到 `openai` 引文时记录恰好一条 `unsupported-semantic` 损失（`detail: "openai text annotations; the target face cannot preserve source locations and replay metadata"`），同一块后续增量被吸收，不重复记录损失。
 
 ## 12. References
 

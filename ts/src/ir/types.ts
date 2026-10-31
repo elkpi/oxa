@@ -55,7 +55,7 @@ export interface Usage {
   readonly output_tokens_details?: OutputTokensDetails;
 }
 export interface TextCitation {
-  readonly source: "anthropic";
+  readonly source: "anthropic" | "openai";
   readonly value: string;
 }
 export interface TextBlock {

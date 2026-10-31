@@ -467,9 +467,9 @@
     },
     "textCitation": {
       "type": "object",
-      "description": "Provider text citation reference (spec/01 s3.4, since 2.4.11).",
+      "description": "Provider text citation reference (spec/01 s3.4, since 2.4.11; openai since 2.5.0).",
       "properties": {
-        "source": { "const": "anthropic" },
+        "source": { "type": "string", "enum": ["anthropic", "openai"] },
         "value": { "type": "string" }
       },
       "required": ["source", "value"],

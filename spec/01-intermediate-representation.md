@@ -122,8 +122,8 @@ Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), and `WebSearch
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| `Source` | `source` | string, enum `"anthropic"` | yes | citation provider dialect identifier |
-| `Value` | `value` | string — raw JSON text | yes | audited JSON representation of provider citation location |
+| `Source` | `source` | string, enum `"anthropic"` \| `"openai"` | yes | citation provider dialect identifier (since 2.4.11; `"openai"` since 2.5.0) |
+| `Value` | `value` | string — raw JSON text | yes | audited JSON representation of provider citation location (for anthropic); verbatim compact JSON representation of provider annotation object (for openai) |
 
 #### ThinkingBlock
 

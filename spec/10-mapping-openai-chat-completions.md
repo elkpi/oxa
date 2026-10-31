@@ -262,6 +262,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |
 | `response_format.type` unknown value | unmapped-value | request → IR | unknown response_format type dropped (N-CC-13) |
 | `content[i].signature` | unmapped-field | IR → response/request | Chat Completions carries no signature field on reasoning_content (N-CC-12) |
+| `content[i].citations` (cross-face: anthropic) | unsupported-semantic | IR → response/request | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
+| `content[i].citations` (cross-face: openai) | unsupported-semantic | IR → response/request | openai text annotations; the target face cannot preserve source locations and replay metadata (N-R-18) |
 | `messages[i].content[j]`, `content[i]` | unsupported-semantic | IR → request/response | `web_search_call` omitted; not rewritten as a function call (N-R-16) |
 | `reasoning_effort` unknown value | unmapped-value | request → IR | unknown effort values are dropped (N-CC-12) |
 | `tools[i].type` ∉ {`function`,`custom`} | unsupported-semantic | request → IR | tool variant has no IR equivalent |

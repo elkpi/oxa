@@ -1195,17 +1195,25 @@ function encodeContent(
     if (block.type === "text") {
       let rawCitations: JsonValue[] | undefined;
       if (block.citations && block.citations.length > 0) {
-        if (isRequest) {
-          rawCitations = block.citations.map((c, cIdx) => {
-            if (c.source !== "anthropic") {
-              throw new OxaError(
-                "invalid-input",
-                `unknown citation source: ${c.source}`,
-              );
-            }
-            validateCitationValue(c.value);
-            const parsed = { ...(parseJson(c.value) as JsonObject) };
-            if (parsed.file_id !== undefined && parsed.file_id !== null) {
+        let hasOpenAI = false;
+        const wireCites: JsonValue[] = [];
+        for (let cIdx = 0; cIdx < block.citations.length; cIdx += 1) {
+          const c = block.citations[cIdx]!;
+          if (c.source === "openai") {
+            hasOpenAI = true;
+            continue;
+          }
+          if (c.source !== "anthropic") {
+            throw new OxaError(
+              "invalid-input",
+              `unknown citation source: ${c.source}`,
+            );
+          }
+          validateCitationValue(c.value);
+          const parsed = parseJson(c.value) as JsonObject;
+          if (isRequest) {
+            const mutable = { ...parsed };
+            if (mutable.file_id !== undefined && mutable.file_id !== null) {
               losses.push({
                 path: `${path}[${index}].citations[${cIdx}].file_id`,
                 field: "file_id",
@@ -1214,20 +1222,23 @@ function encodeContent(
                   "response citation file_id has no request-side representation",
               });
             }
-            delete (parsed as Record<string, JsonValue>).file_id;
-            return parsed;
+            delete (mutable as Record<string, JsonValue>).file_id;
+            wireCites.push(mutable);
+          } else {
+            wireCites.push(parsed);
+          }
+        }
+        if (hasOpenAI) {
+          losses.push({
+            path: `${path}[${index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "openai text annotations; the target face cannot preserve source locations and replay metadata",
           });
-        } else {
-          rawCitations = block.citations.map((c) => {
-            if (c.source !== "anthropic") {
-              throw new OxaError(
-                "invalid-input",
-                `unknown citation source: ${c.source}`,
-              );
-            }
-            validateCitationValue(c.value);
-            return parseJson(c.value);
-          });
+        }
+        if (wireCites.length > 0) {
+          rawCitations = wireCites;
         }
       }
       output.push({

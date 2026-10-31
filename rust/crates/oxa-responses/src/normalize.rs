@@ -992,12 +992,24 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
         if let Some(cites) = citations
             && !cites.is_empty()
         {
-            losses.push(loss(
-                format!("{path}[0].citations"),
-                "citations",
-                LossReason::UnsupportedSemantic,
-                "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-            ));
+            let has_anthropic = cites.iter().any(|c| c.source != "openai");
+            let has_openai = cites.iter().any(|c| c.source == "openai");
+            if has_anthropic {
+                losses.push(loss(
+                    format!("{path}[0].citations"),
+                    "citations",
+                    LossReason::UnsupportedSemantic,
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                ));
+            }
+            if has_openai {
+                losses.push(loss(
+                    format!("{path}[0].citations"),
+                    "citations",
+                    LossReason::UnsupportedSemantic,
+                    "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                ));
+            }
         }
         return (ContentValue::Text(text.clone()), losses);
     }
@@ -1014,12 +1026,24 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     file_id: None,
                 });
                 if let Some(cites) = citations && !cites.is_empty() {
-                    losses.push(loss(
-                        format!("{path}[{index}].citations"),
-                        "citations",
-                        LossReason::UnsupportedSemantic,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-                    ));
+                    let has_anthropic = cites.iter().any(|c| c.source != "openai");
+                    let has_openai = cites.iter().any(|c| c.source == "openai");
+                    if has_anthropic {
+                        losses.push(loss(
+                            format!("{path}[{index}].citations"),
+                            "citations",
+                            LossReason::UnsupportedSemantic,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        ));
+                    }
+                    if has_openai {
+                        losses.push(loss(
+                            format!("{path}[{index}].citations"),
+                            "citations",
+                            LossReason::UnsupportedSemantic,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                        ));
+                    }
                 }
             }
             Block::RedactedThinking { .. } => losses.push(loss(
@@ -1221,12 +1245,24 @@ pub(crate) fn encode_assistant_message(
                 text.push_str(value);
                 has_text = true;
                 if let Some(cites) = citations && !cites.is_empty() {
-                    losses.push(loss(
-                        format!("{path}[{index}].citations"),
-                        "citations",
-                        LossReason::UnsupportedSemantic,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
-                    ));
+                    let has_anthropic = cites.iter().any(|c| c.source != "openai");
+                    let has_openai = cites.iter().any(|c| c.source == "openai");
+                    if has_anthropic {
+                        losses.push(loss(
+                            format!("{path}[{index}].citations"),
+                            "citations",
+                            LossReason::UnsupportedSemantic,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        ));
+                    }
+                    if has_openai {
+                        losses.push(loss(
+                            format!("{path}[{index}].citations"),
+                            "citations",
+                            LossReason::UnsupportedSemantic,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                        ));
+                    }
                 }
             }
             Block::RedactedThinking { .. } => losses.push(loss(

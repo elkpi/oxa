@@ -878,10 +878,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     text += tb->text;
                     if (tb->citations.has_value() && !tb->citations->empty()) {
-                        losses.push_back(make_cc_loss(
-                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
-                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        bool has_anthropic = false;
+                        bool has_openai = false;
+                        for (const auto& c : *tb->citations) {
+                            if (c.source == "openai") has_openai = true;
+                            else has_anthropic = true;
+                        }
+                        if (has_anthropic) {
+                            losses.push_back(make_cc_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        }
+                        if (has_openai) {
+                            losses.push_back(make_cc_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                        }
                     }
                 } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
@@ -968,10 +982,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else {
                     if (const auto* utb = std::get_if<ir::TextBlock>(&b);
                         utb && utb->citations.has_value() && !utb->citations->empty()) {
-                        losses.push_back(make_cc_loss(
-                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
-                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        bool has_anthropic = false;
+                        bool has_openai = false;
+                        for (const auto& c : *utb->citations) {
+                            if (c.source == "openai") has_openai = true;
+                            else has_anthropic = true;
+                        }
+                        if (has_anthropic) {
+                            losses.push_back(make_cc_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        }
+                        if (has_openai) {
+                            losses.push_back(make_cc_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                        }
                     }
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);
@@ -1300,10 +1328,24 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
             if (tb->citations.has_value() && !tb->citations->empty()) {
-                losses.push_back(make_cc_loss(
-                    "content[" + std::to_string(i) + "].citations", "citations",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                bool has_anthropic = false;
+                bool has_openai = false;
+                for (const auto& c : *tb->citations) {
+                    if (c.source == "openai") has_openai = true;
+                    else has_anthropic = true;
+                }
+                if (has_anthropic) {
+                    losses.push_back(make_cc_loss(
+                        "content[" + std::to_string(i) + "].citations", "citations",
+                        ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                }
+                if (has_openai) {
+                    losses.push_back(make_cc_loss(
+                        "content[" + std::to_string(i) + "].citations", "citations",
+                        ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                }
             }
         } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
             losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));

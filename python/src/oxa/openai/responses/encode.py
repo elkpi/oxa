@@ -35,6 +35,7 @@ from oxa.ir import (
     WebSearchCallBlock,
 )
 from oxa.ir.native import omitted_native_request_losses
+from oxa.ir.codec import validate_citation
 from oxa.ir import (
     ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
 )
@@ -396,25 +397,36 @@ def encode_response(
     """Converts an IR response to a Responses wire response (IR → face)."""
     losses: list[Loss] = []
     thinkings: list[dict[str, Any]] = []
-    text_chunks: list[str] = []
-    has_text = False
+    text_parts: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     apc_index = 0
     apco_index = 0
 
     for index, block in enumerate(resp.content):
         if isinstance(block, TextBlock):
-            text_chunks.append(block.text)
-            has_text = True
+            part_annotations: list[Any] = []
             if block.citations:
-                losses.append(
-                    loss(
-                        f"content[{index}].citations",
-                        "citations",
-                        LOSS_UNSUPPORTED_SEMANTIC,
-                        "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                has_anthropic = False
+                for c in block.citations:
+                    validate_citation(c.source, c.value)
+                    if c.source == "openai":
+                        part_annotations.append(json.loads(c.value))
+                    elif c.source == "anthropic":
+                        has_anthropic = True
+                if has_anthropic:
+                    losses.append(
+                        loss(
+                            f"content[{index}].citations",
+                            "citations",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                        )
                     )
-                )
+            text_parts.append({
+                "type": PART_TYPE_OUTPUT_TEXT,
+                "text": block.text,
+                "annotations": part_annotations,
+            })
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(
@@ -516,7 +528,7 @@ def encode_response(
             )
 
     output = list(calls)
-    if has_text or not resp.content:
+    if text_parts or (not resp.content and not thinkings):
         output.insert(
             0,
             {
@@ -524,10 +536,10 @@ def encode_response(
                 "id": "msg_abc123",
                 "status": STATUS_COMPLETED,
                 "role": ROLE_ASSISTANT,
-                "content": [
+                "content": text_parts if text_parts else [
                     {
                         "type": PART_TYPE_OUTPUT_TEXT,
-                        "text": "".join(text_chunks),
+                        "text": "",
                         "annotations": [],
                     }
                 ],

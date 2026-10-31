@@ -579,7 +579,12 @@ export interface AnthropicStreamEncoderOptions {
 }
 
 type EncoderBlock =
-  | { readonly kind: "text"; readonly index: number; readonly irIndex: number }
+  | {
+      readonly kind: "text";
+      readonly index: number;
+      readonly irIndex: number;
+      citationLossSeen?: boolean;
+    }
   | {
       readonly kind: "redacted_thinking";
       readonly index: number;
@@ -686,26 +691,53 @@ export class AnthropicStreamEncoder {
     const nativeIndex = event.index - this.#skippedBlocks;
     this.#nextIndex += 1;
     if (event.block.type === "text") {
+      let citationLossSeen = false;
+      let cites: JsonValue[] | undefined;
+      const losses: Loss[] = [];
+      if (event.block.citations && event.block.citations.length > 0) {
+        let hasOpenAI = false;
+        const validAnthropic: JsonValue[] = [];
+        for (const c of event.block.citations) {
+          if (c.source === "openai") {
+            hasOpenAI = true;
+          } else if (c.source === "anthropic") {
+            validAnthropic.push(JSON.parse(c.value));
+          }
+        }
+        if (hasOpenAI) {
+          citationLossSeen = true;
+          losses.push({
+            path: `content[${event.index}].citations`,
+            field: "citations",
+            reason: "unsupported-semantic",
+            detail:
+              "openai text annotations; the target face cannot preserve source locations and replay metadata",
+          });
+        }
+        if (validAnthropic.length > 0) {
+          cites = validAnthropic;
+        }
+      }
       this.#openBlock = {
         kind: "text",
         index: nativeIndex,
         irIndex: event.index,
+        citationLossSeen,
       };
-      const cites =
-        event.block.citations && event.block.citations.length > 0
-          ? event.block.citations.map((c) => JSON.parse(c.value))
-          : undefined;
-      return this.#result([
-        {
-          type: "content_block_start",
-          index: nativeIndex,
-          content_block: {
-            type: "text",
-            ...(event.block.text === "" ? {} : { text: event.block.text }),
-            ...(cites ? { citations: cites } : {}),
+      return this.#result(
+        [
+          {
+            type: "content_block_start",
+            index: nativeIndex,
+            content_block: {
+              type: "text",
+              ...(event.block.text === "" ? {} : { text: event.block.text }),
+              ...(cites ? { citations: cites } : {}),
+            },
           },
-        },
-      ]);
+        ],
+        losses,
+      );
     }
     if (event.block.type === "thinking") {
       this.#openBlock = {
@@ -855,6 +887,20 @@ export class AnthropicStreamEncoder {
         ]);
       }
       if (event.delta.type === "citation_delta") {
+        if (event.delta.citation.source === "openai") {
+          const deltaLosses: Loss[] = [];
+          if (!this.#openBlock.citationLossSeen) {
+            this.#openBlock.citationLossSeen = true;
+            deltaLosses.push({
+              path: `content[${this.#openBlock.irIndex}].citations`,
+              field: "citations",
+              reason: "unsupported-semantic",
+              detail:
+                "openai text annotations; the target face cannot preserve source locations and replay metadata",
+            });
+          }
+          return this.#result([], deltaLosses);
+        }
         const citeObj = JSON.parse(event.delta.citation.value);
         return this.#result([
           {
@@ -1060,8 +1106,8 @@ export class AnthropicStreamEncoder {
     };
   }
 
-  #result<T>(value: T): ConversionResult<T> {
-    return { value, losses: [] };
+  #result<T>(value: T, losses: readonly Loss[] = []): ConversionResult<T> {
+    return { value, losses };
   }
 
   #lifecycle(message: string): never {

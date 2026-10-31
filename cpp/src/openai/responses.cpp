@@ -1562,10 +1562,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else {
                     if (const auto* utb = std::get_if<ir::TextBlock>(&b);
                         utb && utb->citations.has_value() && !utb->citations->empty()) {
-                        losses.push_back(make_resp_loss(
-                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
-                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        bool has_anthropic = false;
+                        bool has_openai = false;
+                        for (const auto& c : *utb->citations) {
+                            if (c.source == "openai") has_openai = true;
+                            else has_anthropic = true;
+                        }
+                        if (has_anthropic) {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        }
+                        if (has_openai) {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                        }
                     }
                     if (!first_normal.has_value()) first_normal = bi;
                     normal.push_back(&b);
@@ -1680,10 +1694,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     a_txt += tb->text;
                     has_text = true;
                     if (tb->citations.has_value() && !tb->citations->empty()) {
-                        losses.push_back(make_resp_loss(
-                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
-                            "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                            "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        bool has_anthropic = false;
+                        bool has_openai = false;
+                        for (const auto& c : *tb->citations) {
+                            if (c.source == "openai") has_openai = true;
+                            else has_anthropic = true;
+                        }
+                        if (has_anthropic) {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                        }
+                        if (has_openai) {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].citations",
+                                "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                        }
                     }
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
@@ -1850,14 +1878,32 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                                 "Responses output content type \"" + pkind + "\" has no IR equivalent"));
                             continue;
                         }
-                        if (const auto* ann = part.find("annotations"); ann && ann->is_array() && !ann->as_array().empty()) {
-                            losses.push_back(make_resp_loss(
-                                item_path + ".content[" + std::to_string(ci) + "].annotations",
-                                "annotations", ir::LOSS_UNMAPPED_FIELD,
-                                "Responses output annotations have no IR equivalent in v1."));
+                        std::optional<std::vector<ir::TextCitation>> citations;
+                        const auto* ann = part.find("annotations");
+                        if (ann != nullptr && !ann->is_null()) {
+                            if (!ann->is_array()) {
+                                return invalid_argument("responses: " + item_path + ".content[" + std::to_string(ci) + "].annotations must be an array");
+                            }
+                            std::vector<ir::TextCitation> cites;
+                            for (std::size_t k = 0; k < ann->as_array().size(); ++k) {
+                                const auto& item_ann = ann->as_array()[k];
+                                if (!item_ann.is_object()) {
+                                    return invalid_argument("responses: " + item_path + ".content[" + std::to_string(ci) + "].annotations[" + std::to_string(k) + "] must be an object");
+                                }
+                                const auto* tval = item_ann.find("type");
+                                if (!tval || !tval->is_string() || tval->as_string().empty()) {
+                                    return invalid_argument("responses: " + item_path + ".content[" + std::to_string(ci) + "].annotations[" + std::to_string(k) + "].type must be a non-empty string");
+                                }
+                                cites.push_back(ir::TextCitation{"openai", json::serialize(item_ann)});
+                            }
+                            if (!cites.empty()) {
+                                citations = std::move(cites);
+                            }
                         }
                         if (const auto* txt = part.find("text"); txt && txt->is_string()) {
-                            resp.content.push_back(ir::TextBlock{txt->as_string()});
+                            ir::TextBlock tb{txt->as_string()};
+                            tb.citations = std::move(citations);
+                            resp.content.push_back(std::move(tb));
                         }
                     }
                 }
@@ -2007,24 +2053,44 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     out.set("object", json::Value::string("response"));
     out.set("model", json::Value::string(opts.model_map.map(resp.model)));
 
-    std::string text;
-    bool has_text = false;
     std::size_t next_apc = 0;
     std::size_t next_apco = 0;
     json::Value reasoning_parts = json::Value::array();
+    std::vector<json::Value> text_parts;
     std::vector<json::Value> calls;
 
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
         const auto& b = resp.content[i];
         if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
-            text += tb->text;
-            has_text = true;
+            json::Value part_annotations = json::Value::array();
             if (tb->citations.has_value() && !tb->citations->empty()) {
-                losses.push_back(make_resp_loss(
-                    "content[" + std::to_string(i) + "].citations", "citations",
-                    ir::LOSS_UNSUPPORTED_SEMANTIC,
-                    "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                bool has_anthropic = false;
+                for (const auto& c : *tb->citations) {
+                    OXA_RETURN_IF_ERROR(ir::validate_citation(c.source, c.value));
+                    if (c.source == "openai") {
+                        auto parsed = json::parse(c.value);
+                        if (!parsed.ok() || !parsed->is_object()) {
+                            return invalid_argument("openai citation must be a JSON object");
+                        }
+                        part_annotations.push_back(std::move(*parsed));
+                    } else if (c.source == "anthropic") {
+                        has_anthropic = true;
+                    } else {
+                        return invalid_argument("unknown citation source \"" + c.source + "\"");
+                    }
+                }
+                if (has_anthropic) {
+                    losses.push_back(make_resp_loss(
+                        "content[" + std::to_string(i) + "].citations", "citations",
+                        ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "anthropic text citations; the target face cannot preserve source locations and replay metadata"));
+                }
             }
+            json::Value op = json::Value::object();
+            op.set("type", json::Value::string("output_text"));
+            op.set("text", json::Value::string(tb->text));
+            op.set("annotations", std::move(part_annotations));
+            text_parts.push_back(std::move(op));
         } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -2130,19 +2196,23 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         reasoning.set("summary", std::move(reasoning_parts));
         output_arr.push_back(std::move(reasoning));
     }
-    if (has_text || resp.content.empty()) {
+    if (!text_parts.empty() || (resp.content.empty() && reasoning_parts.as_array().empty())) {
         json::Value msg = json::Value::object();
         msg.set("type", json::Value::string("message"));
         msg.set("id", json::Value::string("msg_abc123"));
         msg.set("status", json::Value::string("completed"));
         msg.set("role", json::Value::string("assistant"));
-        json::Value c_arr = json::Value::array();
-        json::Value op = json::Value::object();
-        op.set("type", json::Value::string("output_text"));
-        op.set("text", json::Value::string(std::move(text)));
-        op.set("annotations", json::Value::array());
-        c_arr.push_back(std::move(op));
-        msg.set("content", std::move(c_arr));
+        if (text_parts.empty()) {
+            json::Value c_arr = json::Value::array();
+            json::Value op = json::Value::object();
+            op.set("type", json::Value::string("output_text"));
+            op.set("text", json::Value::string(""));
+            op.set("annotations", json::Value::array());
+            c_arr.push_back(std::move(op));
+            msg.set("content", std::move(c_arr));
+        } else {
+            msg.set("content", json::Value::array(std::move(text_parts)));
+        }
         output_arr.push_back(std::move(msg));
     }
     for (auto& fc : calls) output_arr.push_back(std::move(fc));

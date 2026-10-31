@@ -367,10 +367,27 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			parts = append(parts, ContentPart{Type: ContentPartTypeText, Text: value.Text})
 			text += value.Text
 			if len(value.Citations) > 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
-					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
-				))
+				hasAnthropic := false
+				hasOpenAI := false
+				for _, c := range value.Citations {
+					if c.Source == ir.CitationSourceOpenAI {
+						hasOpenAI = true
+					} else {
+						hasAnthropic = true
+					}
+				}
+				if hasAnthropic {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
+				if hasOpenAI {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"openai text annotations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
 			}
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
@@ -414,10 +431,27 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 		case ir.TextBlock:
 			text += value.Text
 			if len(value.Citations) > 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
-					"anthropic text citations; the target face cannot preserve source locations and replay metadata",
-				))
+				hasAnthropic := false
+				hasOpenAI := false
+				for _, c := range value.Citations {
+					if c.Source == ir.CitationSourceOpenAI {
+						hasOpenAI = true
+					} else {
+						hasAnthropic = true
+					}
+				}
+				if hasAnthropic {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"anthropic text citations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
+				if hasOpenAI {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].citations", path, i), "citations", ir.LossUnsupportedSemantic,
+						"openai text annotations; the target face cannot preserve source locations and replay metadata",
+					))
+				}
 			}
 		case ir.ThinkingBlock:
 			out.ReasoningContent += value.Thinking

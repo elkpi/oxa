@@ -37,6 +37,7 @@ from oxa.ir import (
     ResponseFormatJsonSchema,
     ResponseFormatText,
     TextBlock,
+    TextCitation,
     ThinkingBlock,
     Tool,
     ToolUseBlock,
@@ -386,16 +387,23 @@ def decode_response(
                         )
                     )
                     continue
-                if part.get("annotations"):
-                    losses.append(
-                        loss(
-                            f"output[{item_index}].content[{content_index}].annotations",
-                            "annotations",
-                            LOSS_UNMAPPED_FIELD,
-                            "Responses output annotations have no IR equivalent in v1.",
-                        )
-                    )
-                text.append(TextBlock(text=part.get("text", "")))
+                citations = None
+                if "annotations" in part and part["annotations"] is not None:
+                    raw_anns = part["annotations"]
+                    if not isinstance(raw_anns, list):
+                        raise TypeError(f"output[{item_index}].content[{content_index}].annotations must be an array")
+                    cite_list = []
+                    for k, ann in enumerate(raw_anns):
+                        if not isinstance(ann, dict):
+                            raise TypeError(f"output[{item_index}].content[{content_index}].annotations[{k}] must be an object")
+                        ann_type = ann.get("type")
+                        if not isinstance(ann_type, str) or not ann_type:
+                            raise TypeError(f"output[{item_index}].content[{content_index}].annotations[{k}].type must be a non-empty string")
+                        compact = json.dumps(ann, sort_keys=True, separators=(',', ':'))
+                        cite_list.append(TextCitation(source="openai", value=compact))
+                    if cite_list:
+                        citations = tuple(cite_list)
+                text.append(TextBlock(text=part.get("text", ""), citations=citations))
         elif kind == ITEM_TYPE_REASONING:
             summary = item.get("summary", [])
             if not summary:

@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -817,13 +818,11 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 					))
 					continue
 				}
-				if len(part.Annotations) > 0 {
-					losses = append(losses, loss(
-						fmt.Sprintf("output[%d].content[%d].annotations", i, j), "annotations", ir.LossUnmappedField,
-						"Responses output annotations have no IR equivalent in v1.",
-					))
+				cites, err := decodeResponsesAnnotations(part.Annotations, fmt.Sprintf("output[%d].content[%d].annotations", i, j))
+				if err != nil {
+					return nil, nil, err
 				}
-				texts = append(texts, ir.TextBlock{Text: part.Text})
+				texts = append(texts, ir.TextBlock{Text: part.Text, Citations: cites})
 			}
 		case ItemTypeWebSearchCall:
 			block, callLosses, err := decodeWebSearchCall(item.ID, item.Status, item.Action, item.Extra, fmt.Sprintf("output[%d]", i))
@@ -970,6 +969,58 @@ func responsesMetadata(v any) (map[string]string, error) {
 			return nil, fmt.Errorf("responses: metadata.%s must be a string", key)
 		}
 		out[key] = value
+	}
+	return out, nil
+}
+
+func decodeResponsesAnnotations(raw []json.RawMessage, path string) ([]ir.TextCitation, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	var out []ir.TextCitation
+	for k, ann := range raw {
+		trimmed := bytes.TrimSpace(ann)
+		if len(trimmed) == 0 {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation cannot be empty", path, k)
+		}
+		if trimmed[0] != '{' {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation must be an object", path, k)
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &obj); err != nil {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation must be an object: %w", path, k, err)
+		}
+		typeVal, ok := obj["type"]
+		if !ok {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation requires type field", path, k)
+		}
+		var typeStr string
+		if err := json.Unmarshal(typeVal, &typeStr); err != nil || typeStr == "" {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation type must be a non-empty string", path, k)
+		}
+		keys := make([]string, 0, len(obj))
+		for key := range obj {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+
+		var buf bytes.Buffer
+		buf.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			kb, _ := json.Marshal(key)
+			buf.Write(kb)
+			buf.WriteByte(':')
+			buf.Write(bytes.TrimSpace(obj[key]))
+		}
+		buf.WriteByte('}')
+
+		out = append(out, ir.TextCitation{
+			Source: ir.CitationSourceOpenAI,
+			Value:  buf.String(),
+		})
 	}
 	return out, nil
 }

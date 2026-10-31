@@ -8,9 +8,9 @@ precedence between spec, vectors, and schemas is defined in
 ## 2.5.0 - unreleased
 
 - 在 IR 请求参数中增加可选 `verbosity`，Chat Completions 与 Responses 双向映射；Anthropic 编码时明确报损。
-
 - 请求 `metadata` 接通到 `Request.Metadata`。Chat Completions 与 Responses 的字符串图双向零损失。Anthropic 只保留 `user_id`；其余键逐条 `unmapped-field`。IR contract 保持 `0.2.0`。
 - system 块可选 `role: "developer"`。Responses 的 developer 指令可以同脸回转。Anthropic 没有该角色时文本仍进入 system，并逐块记 `degraded`。没有 developer 块时，既有 system 折叠行为不变。
+- 扩展 `TextCitation.source` 枚举支持 `"openai"`（与既有 `"anthropic"` 并立），用于承载 Responses `output_text.annotations` 文本注释（N-R-18）。Responses 非流式响应双向零损失保留注释对象并保持数值精度；每个 `TextBlock` 分别渲染其 `output_text` part，避免多块合并导致的引文区间偏移。Chat Completions 与 Anthropic 编码时对 `source: "openai"` 记录单次 `unsupported-semantic` 损失；Anthropic 流式遇到 `source: "openai"` 时省略/吸收原生事件并报损。穷尽匹配 `TextCitation.source` 的消费者必须增加对 `"openai"` 的处理分支。IR contract 保持 `0.2.0`。
 
 ## 2.4.13 - 2026-10-30
 

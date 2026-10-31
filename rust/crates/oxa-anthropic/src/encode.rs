@@ -389,7 +389,12 @@ fn encode_request_citations(
 ) -> Result<(Option<serde_json::Value>, Vec<Loss>), Error> {
     let mut losses = Vec::new();
     let mut items = Vec::new();
+    let mut has_openai = false;
     for (i, c) in cites.iter().enumerate() {
+        if c.source == "openai" {
+            has_openai = true;
+            continue;
+        }
         if c.source != "anthropic" {
             return Err(Error::new(format!(
                 "anthropic: {path}[{i}]: unknown citation source {:?}",
@@ -410,14 +415,34 @@ fn encode_request_citations(
         }
         items.push(serde_json::Value::Object(obj));
     }
-    Ok((Some(serde_json::Value::Array(items)), losses))
+    if has_openai {
+        losses.push(Loss {
+            path: path.to_string(),
+            field: "citations".to_string(),
+            reason: LossReason::UnsupportedSemantic,
+            detail: "openai text annotations; the target face cannot preserve source locations and replay metadata".to_string(),
+        });
+    }
+    let wire = if items.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Array(items))
+    };
+    Ok((wire, losses))
 }
 
 pub(crate) fn encode_response_citations(
     cites: &[oxa_ir::TextCitation],
-) -> Result<serde_json::Value, Error> {
+    path: &str,
+) -> Result<(Option<serde_json::Value>, Vec<Loss>), Error> {
+    let mut losses = Vec::new();
     let mut items = Vec::new();
+    let mut has_openai = false;
     for (i, c) in cites.iter().enumerate() {
+        if c.source == "openai" {
+            has_openai = true;
+            continue;
+        }
         if c.source != "anthropic" {
             return Err(Error::new(format!(
                 "anthropic: citations[{i}]: unknown citation source {:?}",
@@ -428,7 +453,20 @@ pub(crate) fn encode_response_citations(
             serde_json::from_str(&c.value).map_err(|e| Error::new(e.to_string()))?;
         items.push(val);
     }
-    Ok(serde_json::Value::Array(items))
+    if has_openai {
+        losses.push(Loss {
+            path: path.to_string(),
+            field: "citations".to_string(),
+            reason: LossReason::UnsupportedSemantic,
+            detail: "openai text annotations; the target face cannot preserve source locations and replay metadata".to_string(),
+        });
+    }
+    let wire = if items.is_empty() {
+        None
+    } else {
+        Some(serde_json::Value::Array(items))
+    };
+    Ok((wire, losses))
 }
 
 fn encode_request_blocks(
@@ -1025,10 +1063,11 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
         Block::Text {
             text, citations, ..
         } => {
-            let wire_cites = citations
-                .as_ref()
-                .map(|cites| encode_response_citations(cites))
-                .transpose()?;
+            let (wire_cites, cite_losses) = if let Some(cites) = citations {
+                encode_response_citations(cites, &format!("{path}.citations"))?
+            } else {
+                (None, Vec::new())
+            };
             Ok((
                 BlockWire {
                     kind: BLOCK_TYPE_TEXT.to_string(),
@@ -1036,7 +1075,7 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                     citations: wire_cites,
                     ..BlockWire::default()
                 },
-                Vec::new(),
+                cite_losses,
                 true,
             ))
         }

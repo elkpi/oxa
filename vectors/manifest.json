@@ -2785,6 +2785,20 @@
       "sha256": "596f932c4df1cf350b43b1aa9e62d0fd0964b1bfa6601dd9c7d1a57e3c6ebd38"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-text-annotations-response",
+      "file": "cross/nonstream/responses-to-anthropic-text-annotations-response.json",
+      "tags": [
+        "cross",
+        "citations",
+        "annotations",
+        "text",
+        "response",
+        "n-an-18",
+        "n-r-18"
+      ],
+      "sha256": "8f452b4b0e1d40bd4ad71d9b28fee77268f6622f62cf3423906aabbf9283bf18"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-thinking-response",
       "file": "cross/nonstream/responses-to-anthropic-thinking-response.json",
       "tags": [
@@ -2866,6 +2880,20 @@
       "sha256": "efab1e18a40333def1296fc9d0bbac4d36fa91fc3c2426819919c8c5e303ab98"
     },
     {
+      "name": "cross.nonstream.responses-to-chatcompletions-text-annotations-response",
+      "file": "cross/nonstream/responses-to-chatcompletions-text-annotations-response.json",
+      "tags": [
+        "cross",
+        "citations",
+        "annotations",
+        "text",
+        "response",
+        "n-cc-1",
+        "n-r-18"
+      ],
+      "sha256": "1e50dc1ae703e838b53419f75efb34e224232b449a010b076996f9a655b496d4"
+    },
+    {
       "name": "cross.nonstream.responses-to-chatcompletions-tool-container",
       "file": "cross/nonstream/responses-to-chatcompletions-tool-container.json",
       "tags": [
@@ -2905,11 +2933,23 @@
       "name": "responses.nonstream.annotations-loss-response-to-ir",
       "file": "responses/nonstream/annotations-loss-response-to-ir.json",
       "tags": [
-        "loss",
         "response",
-        "N-R-12"
+        "citations",
+        "annotations",
+        "N-R-18"
       ],
-      "sha256": "708b4e9aaed24d5586089683a082a1a9746b2403f3ed13b65b596b6f30306297"
+      "sha256": "0b69ac97546aa20eef2724fe8e360e025301ac5404b471dffcf05e94036bc1d8"
+    },
+    {
+      "name": "responses.nonstream.annotations-response-from-ir",
+      "file": "responses/nonstream/annotations-response-from-ir.json",
+      "tags": [
+        "response",
+        "citations",
+        "annotations",
+        "N-R-18"
+      ],
+      "sha256": "57626ee58441d07a18a4c16ea622f279faf81d6b8d884e4a76e754f3a911d757"
     },
     {
       "name": "responses.nonstream.apply-patch-call-create-file-completed-from-ir",

@@ -172,7 +172,7 @@ export interface IrSchemaTextBlock {
 }
 
 export interface IrSchemaTextCitation {
-  readonly source: "anthropic";
+  readonly source: "anthropic" | "openai";
   readonly value: string;
 }
 

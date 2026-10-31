@@ -82,6 +82,7 @@ class StreamEncoder:
         "_signature_seen",
         "_tool_input",
         "_tool_parts",
+        "_citation_loss_seen",
         "_delta_seen",
         "_done",
     )
@@ -108,6 +109,7 @@ class StreamEncoder:
         self._signature_seen = False
         self._tool_input = ""
         self._tool_parts: list[str] = []
+        self._citation_loss_seen = False
         self._delta_seen = False
         self._done = False
 
@@ -146,18 +148,33 @@ class StreamEncoder:
                 self._native_index = self._next_native_index
                 self._next_native_index += 1
                 self._open_tool = False
+                self._citation_loss_seen = False
                 content_block = {"type": BLOCK_TYPE_TEXT}
                 if ev.block.text:
                     content_block["text"] = ev.block.text
+                losses = []
                 if ev.block.citations:
-                    content_block["citations"] = [json.loads(c.value) for c in ev.block.citations]
+                    has_openai = any(c.source == "openai" for c in ev.block.citations)
+                    if has_openai:
+                        self._citation_loss_seen = True
+                        losses.append(
+                            loss(
+                                f"content[{ev.index}].citations",
+                                "citations",
+                                LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                            )
+                        )
+                    valid_anthropic = [c for c in ev.block.citations if c.source == "anthropic"]
+                    if valid_anthropic:
+                        content_block["citations"] = [json.loads(c.value) for c in valid_anthropic]
                 return [
                     {
                         "type": EVENT_TYPE_CONTENT_BLOCK_START,
                         "index": self._native_index,
                         "content_block": content_block,
                     }
-                ], []
+                ], losses
 
             if isinstance(ev.block, ThinkingBlock):
                 self._open_index = ev.index
@@ -315,6 +332,19 @@ class StreamEncoder:
                 raise ValueError("anthropic: ThinkingBlock received non-thinking delta")
 
             if isinstance(ev.delta, CitationDelta):
+                if ev.delta.citation.source == "openai":
+                    delta_losses = []
+                    if not self._citation_loss_seen:
+                        self._citation_loss_seen = True
+                        delta_losses.append(
+                            loss(
+                                f"content[{self._open_index}].citations",
+                                "citations",
+                                LOSS_UNSUPPORTED_SEMANTIC,
+                                "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                            )
+                        )
+                    return [], delta_losses
                 try:
                     cite_obj = json.loads(ev.delta.citation.value)
                 except Exception as e:

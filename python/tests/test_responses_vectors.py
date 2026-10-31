@@ -23,7 +23,7 @@ class ResponsesVectorsTest(unittest.TestCase):
             return
 
         vectors = load_vectors(root, "responses", "nonstream")
-        self.assertEqual(len(vectors), 163, "expected 163 nonstream responses vectors")
+        self.assertEqual(len(vectors), 164, "expected 164 nonstream responses vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):
@@ -34,6 +34,33 @@ class ResponsesVectorsTest(unittest.TestCase):
                     encode_request=encode_request,
                     encode_response=encode_response,
                 )
+
+    def test_annotations_type_and_multi_part_preservation(self) -> None:
+        from oxa.ir import TextBlock, TextCitation, Response as IrResponse, STOP_END_TURN, Usage
+        # Invalid annotations container
+        with self.assertRaises(TypeError):
+            decode_response({"id": "r", "model": "m", "status": "completed", "output": [{"type": "message", "content": [{"type": "output_text", "text": "t", "annotations": False}]}], "usage": {"input_tokens": 0, "output_tokens": 0}})
+
+        # Multiple text blocks preserve distinct parts and citations
+        resp = IrResponse(
+            id="r_multi",
+            model="m",
+            stop_reason=STOP_END_TURN,
+            usage=Usage(input_tokens=0, output_tokens=0),
+            content=[
+                TextBlock(text="AAAA"),
+                TextBlock(text="Docs", citations=(TextCitation(source="openai", value='{"end_index":4,"start_index":0,"title":"Docs","type":"url_citation","url":"https://example.test"}'),))
+            ]
+        )
+        wire, losses = encode_response(resp)
+        self.assertEqual(len(losses), 0)
+        parts = wire["output"][0]["content"]
+        self.assertEqual(len(parts), 2)
+        self.assertEqual(parts[0]["text"], "AAAA")
+        self.assertEqual(parts[0]["annotations"], [])
+        self.assertEqual(parts[1]["text"], "Docs")
+        self.assertEqual(len(parts[1]["annotations"]), 1)
+        self.assertEqual(parts[1]["annotations"][0]["end_index"], 4)
 
 
 if __name__ == "__main__":

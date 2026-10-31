@@ -25,7 +25,13 @@ const (
 	BlockTypeWebSearchCall    = "web_search_call"
 )
 
-// TextCitation is a citation reference attached to a TextBlock (since 2.4.11).
+// Citation sources.
+const (
+	CitationSourceAnthropic = "anthropic"
+	CitationSourceOpenAI    = "openai"
+)
+
+// TextCitation is a citation reference attached to a TextBlock (since 2.4.11; openai since 2.5.0).
 type TextCitation struct {
 	Source string
 	Value  string

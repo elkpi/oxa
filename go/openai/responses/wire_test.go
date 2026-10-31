@@ -2,6 +2,7 @@ package responses
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/v2/ir"
@@ -398,13 +399,17 @@ func TestDecodeResponseToolCallAndReasoningLoss(t *testing.T) {
 	if resp.StopReason != ir.StopToolUse {
 		t.Fatalf("stop reason: %v", resp.StopReason)
 	}
-	// one reasoning-item loss, one annotations loss
-	if len(losses) != 2 {
+	// one reasoning-item loss; annotations now map to Citations without loss
+	if len(losses) != 1 {
 		t.Fatalf("losses: %+v", losses)
 	}
 	blocks := resp.Content
 	if len(blocks) != 2 {
 		t.Fatalf("content: %+v", blocks)
+	}
+	tb, ok := blocks[0].(ir.TextBlock)
+	if !ok || len(tb.Citations) != 1 || tb.Citations[0].Source != ir.CitationSourceOpenAI {
+		t.Fatalf("expected text citation, got %+v", blocks[0])
 	}
 	// N-R-5: text blocks come first, then tool uses, regardless of the wire
 	// order of the output items (here the function_call item preceded the
@@ -770,6 +775,114 @@ func TestDecodeRequestJSONPreservesReasoningSummaryText(t *testing.T) {
 	}
 	if got := reqTyped.Messages[0].Content[0].(ir.ThinkingBlock).Thinking; got != "T" {
 		t.Fatalf("DecodeRequest dropped summary text: %q", got)
+	}
+}
+
+func TestDecodeAnnotationsIntegerPreservation(t *testing.T) {
+	raw := []byte(`{
+		"id":"r","object":"response","status":"completed","model":"m",
+		"output":[
+			{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[
+				{"type":"output_text","text":"Docs","annotations":[
+					{"type":"file_citation","file_id":"f","filename":"x","index":9007199254740993}
+				]}
+			]}
+		],
+		"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}
+	}`)
+	var wire Response
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	resp, losses, err := DecodeResponse(&wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("unexpected losses: %+v", losses)
+	}
+	tb := resp.Content[0].(ir.TextBlock)
+	if len(tb.Citations) != 1 {
+		t.Fatalf("expected 1 citation, got %d", len(tb.Citations))
+	}
+	const wantVal = `{"file_id":"f","filename":"x","index":9007199254740993,"type":"file_citation"}`
+	if tb.Citations[0].Value != wantVal {
+		t.Fatalf("citation value = %s, want %s", tb.Citations[0].Value, wantVal)
+	}
+
+	// Re-encode and verify integer preserved
+	enc, _, err := EncodeResponse(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	encBytes, err := json.Marshal(enc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encBytes), "9007199254740993") {
+		t.Fatalf("encoded output lost large int: %s", string(encBytes))
+	}
+}
+
+func TestEncodeMultipleTextBlocksPreservesPartsAndAnnotations(t *testing.T) {
+	resp := &ir.Response{
+		ID:         "r_multi",
+		Model:      "gpt-4o",
+		StopReason: ir.StopEndTurn,
+		Content: []ir.Block{
+			ir.TextBlock{Text: "AAAA"},
+			ir.TextBlock{
+				Text: "Docs",
+				Citations: []ir.TextCitation{
+					{
+						Source: ir.CitationSourceOpenAI,
+						Value:  `{"end_index":4,"start_index":0,"title":"Docs","type":"url_citation","url":"https://example.test"}`,
+					},
+				},
+			},
+		},
+	}
+	enc, losses, err := EncodeResponse(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses = %+v", losses)
+	}
+	if len(enc.Output) != 1 || enc.Output[0].Type != ItemTypeMessage {
+		t.Fatalf("expected 1 message item, got %+v", enc.Output)
+	}
+	parts := enc.Output[0].Content
+	if len(parts) != 2 {
+		t.Fatalf("expected 2 output_text parts, got %d", len(parts))
+	}
+	if parts[0].Text != "AAAA" || len(parts[0].Annotations) != 0 {
+		t.Fatalf("part 0 mismatch: %+v", parts[0])
+	}
+	if parts[1].Text != "Docs" || len(parts[1].Annotations) != 1 {
+		t.Fatalf("part 1 mismatch: %+v", parts[1])
+	}
+}
+
+func TestEncodeResponseInvalidCitationRejected(t *testing.T) {
+	for _, invalid := range []string{"not-json", "[]", `{"type":4}`} {
+		resp := &ir.Response{
+			ID:         "r_err",
+			Model:      "gpt-4o",
+			StopReason: ir.StopEndTurn,
+			Content: []ir.Block{
+				ir.TextBlock{
+					Text: "Docs",
+					Citations: []ir.TextCitation{
+						{Source: ir.CitationSourceOpenAI, Value: invalid},
+					},
+				},
+			},
+		}
+		_, _, err := EncodeResponse(resp)
+		if err == nil {
+			t.Fatalf("expected error for citation value %q, got nil", invalid)
+		}
 	}
 }
 

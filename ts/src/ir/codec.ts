@@ -8,7 +8,7 @@ import {
   type JsonValue,
 } from "../json/index.js";
 import { assertEventSequence } from "./checker.js";
-import { validateCitationValue } from "./nonstream.js";
+import { validateCitation, validateCitationValue } from "./nonstream.js";
 import {
   specVersion,
   type ApplyPatchOperation,
@@ -216,10 +216,11 @@ function decodeBlock(value: JsonValue | undefined): Block {
       cites = block.citations.map((c) => {
         const obj = object(c, "citation");
         const source = string(obj.source, "citation.source");
-        if (source !== "anthropic") fail(`unknown citation source: ${source}`);
+        if (source !== "anthropic" && source !== "openai")
+          fail(`unknown citation source: ${source}`);
         const val = string(obj.value, "citation.value");
-        validateCitationValue(val);
-        return { source: "anthropic" as const, value: val };
+        validateCitation(source, val);
+        return { source: source as "anthropic" | "openai", value: val };
       });
     }
     return {
@@ -347,12 +348,13 @@ function decodeDelta(value: JsonValue | undefined): Delta {
   if (delta.type === "citation_delta") {
     const c = object(delta.citation, "delta.citation");
     const source = string(c.source, "delta.citation.source");
-    if (source !== "anthropic") fail(`unknown citation source: ${source}`);
+    if (source !== "anthropic" && source !== "openai")
+      fail(`unknown citation source: ${source}`);
     const val = string(c.value, "delta.citation.value");
-    validateCitationValue(val);
+    validateCitation(source, val);
     return {
       type: "citation_delta",
-      citation: { source: "anthropic" as const, value: val },
+      citation: { source: source as "anthropic" | "openai", value: val },
     };
   }
   fail("unsupported delta type");

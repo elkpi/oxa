@@ -238,10 +238,10 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		}
 		var cites []TextCitation
 		for _, c := range w.Citations {
-			if c.Source != "anthropic" {
+			if c.Source != CitationSourceAnthropic && c.Source != CitationSourceOpenAI {
 				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
 			}
-			if err := ValidateCitationValue(c.Value); err != nil {
+			if err := ValidateCitation(c.Source, c.Value); err != nil {
 				return nil, err
 			}
 			cites = append(cites, TextCitation(c))
@@ -558,10 +558,10 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 		}
 		var cites []TextCitation
 		for _, c := range w.Citations {
-			if c.Source != "anthropic" {
+			if c.Source != CitationSourceAnthropic && c.Source != CitationSourceOpenAI {
 				return nil, fmt.Errorf("ir: unknown citation source %q", c.Source)
 			}
-			if err := ValidateCitationValue(c.Value); err != nil {
+			if err := ValidateCitation(c.Source, c.Value); err != nil {
 				return nil, err
 			}
 			cites = append(cites, TextCitation(c))
@@ -1077,6 +1077,33 @@ type wireSignatureDelta struct {
 	Signature string `json:"signature"`
 }
 
+// ValidateCitation validates citation source and value (since 2.5.0).
+func ValidateCitation(source, val string) error {
+	switch source {
+	case CitationSourceAnthropic:
+		return ValidateCitationValue(val)
+	case CitationSourceOpenAI:
+		if val == "" {
+			return fmt.Errorf("ir: citation value cannot be empty")
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(val), &obj); err != nil {
+			return fmt.Errorf("ir: citation value must be a JSON object: %w", err)
+		}
+		rawType, ok := obj["type"]
+		if !ok {
+			return fmt.Errorf("ir: citation value requires type field")
+		}
+		var citeType string
+		if err := json.Unmarshal(rawType, &citeType); err != nil || citeType == "" {
+			return fmt.Errorf("ir: citation type must be a non-empty string")
+		}
+		return nil
+	default:
+		return fmt.Errorf("ir: unknown citation source %q", source)
+	}
+}
+
 func ValidateCitationValue(val string) error {
 	if val == "" {
 		return fmt.Errorf("ir: citation value cannot be empty")
@@ -1230,10 +1257,10 @@ func MarshalDelta(d Delta) (json.RawMessage, error) {
 		}
 		return json.Marshal(wireSignatureDelta{Type: DeltaTypeSignature, Signature: v.Signature})
 	case CitationDelta:
-		if v.Citation.Source != "anthropic" {
+		if v.Citation.Source != CitationSourceAnthropic && v.Citation.Source != CitationSourceOpenAI {
 			return nil, fmt.Errorf("ir: unknown citation source %q", v.Citation.Source)
 		}
-		if err := ValidateCitationValue(v.Citation.Value); err != nil {
+		if err := ValidateCitation(v.Citation.Source, v.Citation.Value); err != nil {
 			return nil, err
 		}
 		return json.Marshal(struct {
@@ -1297,10 +1324,10 @@ func UnmarshalDelta(data []byte) (Delta, error) {
 		if err := json.Unmarshal(data, &w); err != nil {
 			return nil, err
 		}
-		if w.Citation.Source != "anthropic" {
+		if w.Citation.Source != CitationSourceAnthropic && w.Citation.Source != CitationSourceOpenAI {
 			return nil, fmt.Errorf("ir: unknown citation source %q", w.Citation.Source)
 		}
-		if err := ValidateCitationValue(w.Citation.Value); err != nil {
+		if err := ValidateCitation(w.Citation.Source, w.Citation.Value); err != nil {
 			return nil, err
 		}
 		return CitationDelta{Citation: TextCitation{Source: w.Citation.Source, Value: w.Citation.Value}}, nil

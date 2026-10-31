@@ -521,7 +521,12 @@ StatusOr<json::Value> encode_request_citations(const std::vector<ir::TextCitatio
                                                const std::string& path,
                                                std::vector<ir::Loss>& losses) {
     json::Value out = json::Value::array();
+    bool has_openai = false;
     for (std::size_t i = 0; i < cites.size(); ++i) {
+        if (cites[i].source == "openai") {
+            has_openai = true;
+            continue;
+        }
         if (cites[i].source != "anthropic") {
             return invalid_argument("anthropic: " + path + "[" + std::to_string(i) + "]: unknown citation source \"" + cites[i].source + "\"");
         }
@@ -542,13 +547,25 @@ StatusOr<json::Value> encode_request_citations(const std::vector<ir::TextCitatio
         }
         out.push_back(std::move(obj));
     }
+    if (has_openai) {
+        losses.push_back(make_ant_loss(
+            path, "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+    }
     return out;
 }
 
 // Renders IR citations verbatim for a response-side text block.
-StatusOr<json::Value> encode_response_citations(const std::vector<ir::TextCitation>& cites) {
+StatusOr<json::Value> encode_response_citations(const std::vector<ir::TextCitation>& cites,
+                                                const std::string& path,
+                                                std::vector<ir::Loss>& losses) {
     json::Value out = json::Value::array();
+    bool has_openai = false;
     for (std::size_t i = 0; i < cites.size(); ++i) {
+        if (cites[i].source == "openai") {
+            has_openai = true;
+            continue;
+        }
         if (cites[i].source != "anthropic") {
             return invalid_argument("anthropic: citations[" + std::to_string(i) + "]: unknown citation source \"" + cites[i].source + "\"");
         }
@@ -558,6 +575,11 @@ StatusOr<json::Value> encode_response_citations(const std::vector<ir::TextCitati
             return invalid_argument("anthropic: citation value must be a JSON object");
         }
         out.push_back(std::move(*parsed));
+    }
+    if (has_openai) {
+        losses.push_back(make_ant_loss(
+            path, "citations", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "openai text annotations; the target face cannot preserve source locations and replay metadata"));
     }
     return out;
 }
@@ -1559,8 +1581,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             bw.set("type", json::Value::string("text"));
             bw.set("text", json::Value::string(tb->text));
             if (tb->citations.has_value() && !tb->citations->empty()) {
-                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations));
-                bw.set("citations", std::move(cites));
+                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations, "content[" + std::to_string(i) + "].citations", losses));
+                if (!cites.as_array().empty()) {
+                    bw.set("citations", std::move(cites));
+                }
             }
             content_arr.push_back(std::move(bw));
         } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
@@ -2155,11 +2179,20 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             open_tool_ = false;
             open_thinking_ = false;
             open_redacted_ = false;
+            citation_loss_seen_ = false;
             cb.set("type", json::Value::string("text"));
             if (!tb->text.empty()) cb.set("text", json::Value::string(tb->text));
             if (tb->citations.has_value() && !tb->citations->empty()) {
-                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations));
-                cb.set("citations", std::move(cites));
+                OXA_ASSIGN_OR_RETURN(json::Value cites, encode_response_citations(*tb->citations, "content[" + std::to_string(open_ir_index_) + "].citations", losses));
+                if (!cites.as_array().empty()) {
+                    cb.set("citations", std::move(cites));
+                }
+                for (const auto& l : losses) {
+                    if (l.field == "citations") {
+                        citation_loss_seen_ = true;
+                        break;
+                    }
+                }
             }
         } else {
             return invalid_argument("anthropic: ContentBlockStart carries an unsupported block");
@@ -2216,6 +2249,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
                 delta.set("type", json::Value::string("text_delta"));
                 delta.set("text", json::Value::string(td->text));
             } else if (const auto* cite = std::get_if<ir::CitationDelta>(&cbd->delta)) {
+                if (cite->citation.source == "openai") {
+                    if (!citation_loss_seen_) {
+                        citation_loss_seen_ = true;
+                        losses.push_back(make_ant_loss(
+                            "content[" + std::to_string(open_ir_index_) + "].citations", "citations",
+                            ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "openai text annotations; the target face cannot preserve source locations and replay metadata"));
+                    }
+                    return Conversion<std::vector<json::Value>>{{}, std::move(losses)};
+                }
+                if (cite->citation.source != "anthropic") {
+                    return invalid_argument("anthropic: unknown citation source \"" + cite->citation.source + "\"");
+                }
                 auto parsed = json::parse(cite->citation.value);
                 if (!parsed.ok() || !parsed->is_object()) {
                     return invalid_argument("anthropic: citation value must be a JSON object");

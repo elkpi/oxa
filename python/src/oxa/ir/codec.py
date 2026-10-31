@@ -298,6 +298,26 @@ def validate_citation_value(val: str) -> None:
         raise CodecError(f"ir: unknown citation type {cite_type!r}")
 
 
+def validate_citation(source: str, val: str) -> None:
+    if source == "anthropic":
+        validate_citation_value(val)
+        return
+    if source == "openai":
+        if not val:
+            raise CodecError("ir: citation value cannot be empty")
+        try:
+            obj = json.loads(val)
+        except Exception as e:
+            raise CodecError(f"ir: citation value must be a JSON object: {e}") from e
+        if not isinstance(obj, dict):
+            raise CodecError("ir: citation value must be a JSON object")
+        cite_type = obj.get("type")
+        if not isinstance(cite_type, str) or not cite_type:
+            raise CodecError("ir: citation type must be a non-empty string")
+        return
+    raise CodecError(f"unknown citation source: {source}")
+
+
 def _validate_web_search(identifier: str, status: str, action: object) -> None:
     from oxa.ir.web_search import inspect_web_search
 
@@ -330,9 +350,9 @@ def dump_block(block: Block) -> dict[str, Any]:
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
             for c in block.citations:
-                if c.source != "anthropic":
+                if c.source not in ("anthropic", "openai"):
                     raise CodecError(f"ir: unknown citation source {c.source!r}")
-                validate_citation_value(c.value)
+                validate_citation(c.source, c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
         return out
     if isinstance(block, RedactedThinkingBlock):
@@ -450,9 +470,9 @@ def dump_request_block(block: Block) -> dict[str, Any]:
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
             for c in block.citations:
-                if c.source != "anthropic":
+                if c.source not in ("anthropic", "openai"):
                     raise CodecError(f"ir: unknown citation source {c.source!r}")
-                validate_citation_value(c.value)
+                validate_citation(c.source, c.value)
             out["citations"] = [{"source": c.source, "value": c.value} for c in block.citations]
         if block.role:
             raise CodecError("role is only permitted on system blocks")
@@ -635,13 +655,13 @@ def load_block(data: dict[str, Any]) -> Block:
                 raise CodecError("citations must be an array")
             cites = []
             for item in c_raw:
-                if not isinstance(item, dict) or item.get("source") != "anthropic":
+                if not isinstance(item, dict) or item.get("source") not in ("anthropic", "openai"):
                     raise CodecError("unknown citation source")
                 val = item.get("value")
                 if not isinstance(val, str):
                     raise CodecError("citation value must be a string")
-                validate_citation_value(val)
-                cites.append(TextCitation(source="anthropic", value=val))
+                validate_citation(item["source"], val)
+                cites.append(TextCitation(source=item["source"], value=val))
         return TextBlock(text=data["text"], citations=tuple(cites) if cites else None)
     if kind == BLOCK_TYPE_REDACTED_THINKING:
         d = data.get("data")
@@ -725,13 +745,13 @@ def load_request_block(data: dict[str, Any]) -> Block:
                 raise CodecError("citations must be an array")
             cites = []
             for item in c_raw:
-                if not isinstance(item, dict) or item.get("source") != "anthropic":
+                if not isinstance(item, dict) or item.get("source") not in ("anthropic", "openai"):
                     raise CodecError("unknown citation source")
                 val = item.get("value")
                 if not isinstance(val, str):
                     raise CodecError("citation value must be a string")
-                validate_citation_value(val)
-                cites.append(TextCitation(source="anthropic", value=val))
+                validate_citation(item["source"], val)
+                cites.append(TextCitation(source=item["source"], value=val))
         return TextBlock(text=data["text"], citations=tuple(cites) if cites else None, native=native)
     if kind == BLOCK_TYPE_REDACTED_THINKING:
         d = data.get("data")
@@ -830,7 +850,9 @@ def dump_delta(delta: Delta) -> dict[str, Any]:
     if isinstance(delta, CustomToolInputDelta):
         return {"type": DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA, "text": delta.text}
     if isinstance(delta, CitationDelta):
-        validate_citation_value(delta.citation.value)
+        if delta.citation.source not in ("anthropic", "openai"):
+            raise CodecError(f"unknown citation source: {delta.citation.source}")
+        validate_citation(delta.citation.source, delta.citation.value)
         return {
             "type": DELTA_TYPE_CITATION,
             "citation": {"source": delta.citation.source, "value": delta.citation.value},
@@ -852,13 +874,13 @@ def load_delta(data: dict[str, Any]) -> Delta:
         return CustomToolInputDelta(text=data["text"])
     if kind == DELTA_TYPE_CITATION:
         c = data.get("citation")
-        if not isinstance(c, dict) or c.get("source") != "anthropic":
+        if not isinstance(c, dict) or c.get("source") not in ("anthropic", "openai"):
             raise CodecError("unknown citation source")
         val = c.get("value")
         if not isinstance(val, str):
             raise CodecError("citation value must be a string")
-        validate_citation_value(val)
-        return CitationDelta(citation=TextCitation(source="anthropic", value=val))
+        validate_citation(c["source"], val)
+        return CitationDelta(citation=TextCitation(source=c["source"], value=val))
     raise CodecError(f"unknown delta discriminant: {kind}")
 
 

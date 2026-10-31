@@ -910,6 +910,59 @@ function decodeContent(
           ),
         );
       else blocks.push(image);
+    } else if (type === "file") {
+      const fileObj = object(part.file, `${path}[${index}].file`);
+      let count = 0;
+      if (fileObj.file_id !== undefined && fileObj.file_id !== null) count++;
+      if (fileObj.file_data !== undefined && fileObj.file_data !== null)
+        count++;
+      if (count !== 1) {
+        throw new OxaError(
+          "type-violation",
+          `chatcompletions: ${path}[${index}].file must specify exactly one of file_id or file_data`,
+        );
+      }
+      if (fileObj.filename !== undefined && fileObj.filename !== null) {
+        if (typeof fileObj.filename !== "string") {
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file.filename must be a string`,
+          );
+        }
+        losses.push({
+          path: `${path}[${index}].file.filename`,
+          field: "filename",
+          reason: "unmapped-field",
+          detail: "Chat Completions file filename has no IR equivalent",
+        });
+      }
+      if (fileObj.file_id !== undefined && fileObj.file_id !== null) {
+        const fileId = string(
+          fileObj.file_id,
+          `${path}[${index}].file.file_id`,
+        );
+        if (fileId.length === 0)
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file.file_id cannot be empty`,
+          );
+        blocks.push({ type: "document", file_id: fileId });
+      } else {
+        const fileData = string(
+          fileObj.file_data,
+          `${path}[${index}].file.file_data`,
+        );
+        if (fileData.length === 0)
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file.file_data cannot be empty`,
+          );
+        blocks.push({
+          type: "document",
+          data: fileData,
+          media_type: "application/pdf",
+        });
+      }
     } else
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
   }
@@ -1010,6 +1063,33 @@ function encodeUserContent(
       else {
         hasImage = true;
         parts.push({ type: "image_url", image_url: image });
+      }
+    } else if (block.type === "document") {
+      if (block.url !== undefined) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "content",
+          reason: "unsupported-semantic",
+          detail:
+            "Chat Completions file content parts do not support url sources; file dropped",
+        });
+        continue;
+      }
+      hasImage = true;
+      if (block.file_id !== undefined) {
+        parts.push({
+          type: "file",
+          file: { file_id: block.file_id },
+        });
+      } else if (block.data !== undefined) {
+        parts.push({
+          type: "file",
+          file: { file_data: block.data },
+        });
+      } else {
+        losses.push(
+          loss(`${path}[${index}]`, "content", "unsupported-semantic"),
+        );
       }
     } else {
       losses.push(loss(`${path}[${index}]`, "content", "unsupported-semantic"));

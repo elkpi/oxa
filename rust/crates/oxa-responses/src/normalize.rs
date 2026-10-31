@@ -13,9 +13,9 @@ use crate::error::Error;
 use crate::types::{
     ContentPart, ContentValue, ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
     ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_MESSAGE,
-    ITEM_TYPE_REASONING, InputItem, OutputPart, OutputValue, PART_TYPE_INPUT_IMAGE,
-    PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, TOOL_CHOICE_AUTO,
-    TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
+    ITEM_TYPE_REASONING, InputItem, OutputPart, OutputValue, PART_TYPE_INPUT_FILE,
+    PART_TYPE_INPUT_IMAGE, PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER,
+    TOOL_CHOICE_AUTO, TOOL_CHOICE_NONE, TOOL_CHOICE_REQUIRED, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
 };
 
 pub(crate) fn loss(
@@ -36,56 +36,128 @@ pub(crate) fn loss(
 pub(crate) fn decode_content(
     content: Option<&ContentValue>,
     path: &str,
-) -> (Vec<Block>, Vec<Loss>) {
+) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     let Some(content) = content else {
-        return (
+        return Ok((
             vec![Block::Text {
                 text: String::new(),
                 citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
-        );
+        ));
     };
     match content {
-        ContentValue::Text(text) => (
+        ContentValue::Text(text) => Ok((
             vec![Block::Text {
                 text: text.clone(),
                 citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
-        ),
+        )),
         ContentValue::Parts(parts) => {
             let mut blocks = Vec::with_capacity(parts.len());
             let mut losses = Vec::new();
             for (index, part) in parts.iter().enumerate() {
-                let (decoded, part_losses) = decode_content_part(part, path, index);
+                let (decoded, part_losses) = decode_content_part(part, path, index)?;
                 blocks.extend(decoded);
                 losses.extend(part_losses);
             }
-            (blocks, losses)
+            Ok((blocks, losses))
         }
     }
 }
 
-fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Block>, Vec<Loss>) {
+fn decode_content_part(
+    part: &ContentPart,
+    path: &str,
+    index: usize,
+) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     match part.kind.as_str() {
-        PART_TYPE_INPUT_TEXT | PART_TYPE_OUTPUT_TEXT => (
+        PART_TYPE_INPUT_TEXT | PART_TYPE_OUTPUT_TEXT => Ok((
             vec![Block::Text {
                 text: part.text.clone(),
                 citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
-        ),
+        )),
         PART_TYPE_INPUT_IMAGE => {
             match decode_image_url(&part.image_url, &format!("{path}[{index}].image_url")) {
-                Ok(block) => (vec![block], Vec::new()),
-                Err(image_loss) => (Vec::new(), vec![image_loss]),
+                Ok(block) => Ok((vec![block], Vec::new())),
+                Err(image_loss) => Ok((Vec::new(), vec![image_loss])),
             }
         }
-        other => (
+        PART_TYPE_INPUT_FILE => {
+            let mut count = 0;
+            if part.file_id.as_ref().is_some_and(|s| !s.is_empty()) {
+                count += 1;
+            }
+            if part.file_url.as_ref().is_some_and(|s| !s.is_empty()) {
+                count += 1;
+            }
+            if part.file_data.as_ref().is_some_and(|s| !s.is_empty()) {
+                count += 1;
+            }
+            if count != 1 {
+                return Err(Error::new(format!(
+                    "responses: {path}[{index}]: input_file must specify exactly one of file_id, file_url, or file_data"
+                )));
+            }
+            let mut losses = Vec::new();
+            if part.filename.is_some() {
+                losses.push(loss(
+                    format!("{path}[{index}].filename"),
+                    "filename",
+                    LossReason::UnmappedField,
+                    "Responses input_file filename has no IR equivalent",
+                ));
+            }
+            if part.detail.is_some() {
+                losses.push(loss(
+                    format!("{path}[{index}].detail"),
+                    "detail",
+                    LossReason::UnmappedField,
+                    "Responses input_file detail has no IR equivalent",
+                ));
+            }
+            if let Some(ref fid) = part.file_id {
+                Ok((
+                    vec![Block::Document {
+                        media_type: None,
+                        data: None,
+                        url: None,
+                        file_id: Some(fid.clone()),
+                        native: Vec::new(),
+                    }],
+                    losses,
+                ))
+            } else if let Some(ref furl) = part.file_url {
+                Ok((
+                    vec![Block::Document {
+                        media_type: None,
+                        data: None,
+                        url: Some(furl.clone()),
+                        file_id: None,
+                        native: Vec::new(),
+                    }],
+                    losses,
+                ))
+            } else {
+                Ok((
+                    vec![Block::Document {
+                        media_type: Some("application/pdf".to_string()),
+                        data: part.file_data.clone(),
+                        url: None,
+                        file_id: None,
+                        native: Vec::new(),
+                    }],
+                    losses,
+                ))
+            }
+        }
+        other => Ok((
             Vec::new(),
             vec![loss(
                 format!("{path}[{index}]"),
@@ -93,7 +165,7 @@ fn decode_content_part(part: &ContentPart, path: &str, index: usize) -> (Vec<Blo
                 LossReason::UnsupportedSemantic,
                 format!("Responses input content part type {other:?} has no IR equivalent"),
             )],
-        ),
+        )),
     }
 }
 
@@ -627,7 +699,7 @@ pub(crate) fn decode_assistant_run(
             break;
         }
         let (blocks, block_losses) =
-            decode_content(item.content.as_ref(), &format!("input[{index}].content"));
+            decode_content(item.content.as_ref(), &format!("input[{index}].content"))?;
         text.extend(blocks);
         losses.extend(block_losses);
         index += 1;
@@ -954,10 +1026,8 @@ pub(crate) fn encode_image_block(
         }
         return Ok(ContentPart {
             kind: PART_TYPE_INPUT_IMAGE.to_string(),
-            text: String::new(),
             image_url: format!("data:{media_type};base64,{data}"),
-            detail: None,
-            file_id: None,
+            ..Default::default()
         });
     }
     if let Some(url) = url
@@ -965,10 +1035,8 @@ pub(crate) fn encode_image_block(
     {
         return Ok(ContentPart {
             kind: PART_TYPE_INPUT_IMAGE.to_string(),
-            text: String::new(),
             image_url: url.to_string(),
-            detail: None,
-            file_id: None,
+            ..Default::default()
         });
     }
     Err(loss(
@@ -1021,9 +1089,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 parts.push(ContentPart {
                     kind: PART_TYPE_INPUT_TEXT.to_string(),
                     text: text.clone(),
-                    image_url: String::new(),
-                    detail: None,
-                    file_id: None,
+                    ..Default::default()
                 });
                 if let Some(cites) = citations && !cites.is_empty() {
                     let has_anthropic = cites.iter().any(|c| c.source != "openai");
@@ -1066,6 +1132,29 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 Ok(part) => parts.push(part),
                 Err(image_loss) => losses.push(image_loss),
             },
+            Block::Document { file_id, url, data, .. } => {
+                let mut cp = ContentPart {
+                    kind: PART_TYPE_INPUT_FILE.to_string(),
+                    ..Default::default()
+                };
+                if let Some(id) = file_id {
+                    cp.file_id = Some(id.clone());
+                    parts.push(cp);
+                } else if let Some(u) = url {
+                    cp.file_url = Some(u.clone());
+                    parts.push(cp);
+                } else if let Some(d) = data {
+                    cp.file_data = Some(d.clone());
+                    parts.push(cp);
+                } else {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "content",
+                        LossReason::UnsupportedSemantic,
+                        "IR DocumentBlock carries no supported file source",
+                    ));
+                }
+            }
             _ => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
@@ -1159,9 +1248,7 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                                 Block::Text { text, .. } => parts.push(ContentPart {
                                     kind: PART_TYPE_INPUT_TEXT.to_string(),
                                     text: text.clone(),
-                                    image_url: String::new(),
-                                    detail: None,
-                                    file_id: None,
+                                    ..Default::default()
                                 }),
                                 Block::Image {
                                     media_type,

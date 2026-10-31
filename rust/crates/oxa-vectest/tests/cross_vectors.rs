@@ -115,9 +115,9 @@ fn nonstream_cross_vectors() {
     assert_cross(&anthropic, &chatcompletions, 16);
     assert_cross(&anthropic, &responses, 12);
     assert_cross(&anthropic, &anthropic, 2);
-    assert_cross(&chatcompletions, &anthropic, 7);
-    assert_cross(&chatcompletions, &responses, 5);
-    assert_cross(&responses, &anthropic, 11);
-    assert_cross(&responses, &chatcompletions, 9);
+    assert_cross(&chatcompletions, &anthropic, 8);
+    assert_cross(&chatcompletions, &responses, 6);
+    assert_cross(&responses, &anthropic, 12);
+    assert_cross(&responses, &chatcompletions, 10);
     assert_cross(&responses, &responses, 1);
 }

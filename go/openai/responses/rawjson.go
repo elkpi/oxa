@@ -334,6 +334,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			switch kind {
 			case PartTypeInputText, PartTypeOutputText, PartTypeInputImage:
 				return rawObjectSchema(t, []string{"type", "text", "image_url"}, nil, seen)
+			case PartTypeInputFile:
+				return rawObjectSchema(t, []string{"type", "file_id", "file_url", "file_data", "filename", "detail"}, nil, seen)
 			default:
 				return nil
 			}

@@ -1512,6 +1512,68 @@
       "sha256": "dce0199bb2c5024662121327e1a9b607adf512d228cb6d01706ff0bdc20299e5"
     },
     {
+      "name": "chatcompletions.nonstream.document-file-data-request-from-ir",
+      "file": "chatcompletions/nonstream/document-file-data-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14"
+      ],
+      "sha256": "086956e77255ab48379ad61edefd4bd091fededf4fc4e9c9ca2293f887395791"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-file-data-request-to-ir",
+      "file": "chatcompletions/nonstream/document-file-data-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14"
+      ],
+      "sha256": "f9115d53ac23949641cac60fa48676da64253ef2b949d5dc2104f3f8c7548813"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-file-id-request-from-ir",
+      "file": "chatcompletions/nonstream/document-file-id-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14"
+      ],
+      "sha256": "8665ba134a4054af9b2c5656756449e15ded27e1e13e59be93144e3b53ed0ad8"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-file-id-request-to-ir",
+      "file": "chatcompletions/nonstream/document-file-id-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14"
+      ],
+      "sha256": "f1bd1b8585514af5ff19b18fcb025f439a4f5ed5d0735ee316f4411b9c5ab844"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-filename-loss-request-to-ir",
+      "file": "chatcompletions/nonstream/document-filename-loss-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14",
+        "loss"
+      ],
+      "sha256": "bbac3ce5ad090af4acb51aa663f3a946714cb612ba8d53064a77496b663b5269"
+    },
+    {
+      "name": "chatcompletions.nonstream.document-url-loss-request-from-ir",
+      "file": "chatcompletions/nonstream/document-url-loss-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-CC-14",
+        "loss"
+      ],
+      "sha256": "158081ea70e3d529a08fb36625f0a38b14a1a7deffc32bd0cc902a64b0c9970e"
+    },
+    {
       "name": "chatcompletions.nonstream.function-tool-strict-from-ir",
       "file": "chatcompletions/nonstream/function-tool-strict-from-ir.json",
       "tags": [
@@ -2243,9 +2305,10 @@
         "cross",
         "document",
         "request",
-        "n-an-16"
+        "n-an-16",
+        "n-cc-14"
       ],
-      "sha256": "526a578301b16c699b4cf93f5b025b0bcee16abdd73ea611db8aee981c9f0255"
+      "sha256": "a835abfae6a973eaa92c458e473150d40808e23d47d94eb1d15226f574942eb9"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-function-tool-strict",
@@ -2412,9 +2475,10 @@
         "cross",
         "document",
         "request",
-        "n-an-16"
+        "n-an-16",
+        "n-r-19"
       ],
-      "sha256": "a41cdad53b61bf39e687ef4d1c3c64a6730a770a693c3daa983317c1311f0f02"
+      "sha256": "2c70c98facebf60d9e8371e87c127f2bce5519ccfe71a34ea44c1fb223abf7cb"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-function-tool-strict",
@@ -2539,6 +2603,18 @@
       "sha256": "305ffab8f29e51f9dd250b0280fb872d597338ba634b766dcadb3e11e6ce5216"
     },
     {
+      "name": "cross.nonstream.chatcompletions-to-anthropic-document-request",
+      "file": "cross/nonstream/chatcompletions-to-anthropic-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-cc-14",
+        "n-an-16"
+      ],
+      "sha256": "8b42afa6cf00809cd103d79ad760508b6847056d4385d96476b94879a5798628"
+    },
+    {
       "name": "cross.nonstream.chatcompletions-to-anthropic-function-tool-strict",
       "file": "cross/nonstream/chatcompletions-to-anthropic-function-tool-strict.json",
       "tags": [
@@ -2619,6 +2695,18 @@
         "n-an-11"
       ],
       "sha256": "3a78060effd0a7caca1dd57ca049ac1c103900e46dd3916aabee137a871bf24b"
+    },
+    {
+      "name": "cross.nonstream.chatcompletions-to-responses-document-request",
+      "file": "cross/nonstream/chatcompletions-to-responses-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-cc-14",
+        "n-r-19"
+      ],
+      "sha256": "bb90db27985575c16820608fca2f13db51cf636ac41ba503bfb199ae36752812"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-responses-function-tool-strict",
@@ -2738,6 +2826,18 @@
       "sha256": "f5367e0ce54d925add9afb635f5532195bc22dfe7079f7965cf54b7d2331b4e1"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-document-request",
+      "file": "cross/nonstream/responses-to-anthropic-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-r-19",
+        "n-an-16"
+      ],
+      "sha256": "71917c333be0983352a8f43de02c829f53226901e7772c664dee94df7e735504"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-function-tool-strict",
       "file": "cross/nonstream/responses-to-anthropic-function-tool-strict.json",
       "tags": [
@@ -2844,6 +2944,18 @@
         "n-cc-14"
       ],
       "sha256": "2c4e219e4eaf52c5179b0e43708b5f8972be4384ea52d7a984af2e015f2361c3"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-document-request",
+      "file": "cross/nonstream/responses-to-chatcompletions-document-request.json",
+      "tags": [
+        "cross",
+        "document",
+        "request",
+        "n-r-19",
+        "n-cc-14"
+      ],
+      "sha256": "2898b1d8d4b217ff392c40f8816548f74468a2e3fb4acb87013a5485b29ee864"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-function-tool-strict",
@@ -3820,6 +3932,77 @@
         "N-R-3"
       ],
       "sha256": "8f43c518049d03ba9e3f263d89857b428c18757d88feaff8f2fbe3174323e5c3"
+    },
+    {
+      "name": "responses.nonstream.document-file-data-request-from-ir",
+      "file": "responses/nonstream/document-file-data-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "89a3d4c31b2d7bfa894d53c8ddab4fb525887d3d1aa077a40b3f95e137f931ba"
+    },
+    {
+      "name": "responses.nonstream.document-file-data-request-to-ir",
+      "file": "responses/nonstream/document-file-data-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "3d0d59d733d4269ab74dbb6809c4b40291d2b25213caa7ca041a5029cf2b2fe6"
+    },
+    {
+      "name": "responses.nonstream.document-file-id-request-from-ir",
+      "file": "responses/nonstream/document-file-id-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "2ea56296bcb3130b05f0b8701d2471f4732d11ede15671288d0a6757b47d46af"
+    },
+    {
+      "name": "responses.nonstream.document-file-id-request-to-ir",
+      "file": "responses/nonstream/document-file-id-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "8ffc89a072d9c03d87b75e9bcebcfec45a39cbc9ad276e1a90e8a188959f5f6e"
+    },
+    {
+      "name": "responses.nonstream.document-file-url-request-from-ir",
+      "file": "responses/nonstream/document-file-url-request-from-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "16a08a5869806c63cbd9f5c730c56d345de6bb57bf1733f4c96d0d154741d8e3"
+    },
+    {
+      "name": "responses.nonstream.document-file-url-request-to-ir",
+      "file": "responses/nonstream/document-file-url-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19"
+      ],
+      "sha256": "759b339c6d51aacabdaaceaa1e36d2b0abe0376e9fe39ef3d05d6c2c1eae236e"
+    },
+    {
+      "name": "responses.nonstream.document-filename-detail-loss-request-to-ir",
+      "file": "responses/nonstream/document-filename-detail-loss-request-to-ir.json",
+      "tags": [
+        "document",
+        "request",
+        "N-R-19",
+        "loss"
+      ],
+      "sha256": "11e16d16f1e8603944928aa5c5269afe41452a83a2b92466140ada73cd281168"
     },
     {
       "name": "responses.nonstream.failed-response-to-ir",

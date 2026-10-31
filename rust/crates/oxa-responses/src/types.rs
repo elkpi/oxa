@@ -31,6 +31,7 @@ pub const ITEM_TYPE_WEB_SEARCH_CALL: &str = "web_search_call";
 pub const PART_TYPE_INPUT_TEXT: &str = "input_text";
 pub const PART_TYPE_OUTPUT_TEXT: &str = "output_text";
 pub const PART_TYPE_INPUT_IMAGE: &str = "input_image";
+pub const PART_TYPE_INPUT_FILE: &str = "input_file";
 
 pub const STATUS_IN_PROGRESS: &str = "in_progress";
 pub const STATUS_COMPLETED: &str = "completed";
@@ -215,6 +216,12 @@ pub struct ContentPart {
     pub detail: Option<String>,
     #[serde(rename = "file_id", default, skip_serializing_if = "Option::is_none")]
     pub file_id: Option<String>,
+    #[serde(rename = "file_url", default, skip_serializing_if = "Option::is_none")]
+    pub file_url: Option<String>,
+    #[serde(rename = "file_data", default, skip_serializing_if = "Option::is_none")]
+    pub file_data: Option<String>,
+    #[serde(rename = "filename", default, skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

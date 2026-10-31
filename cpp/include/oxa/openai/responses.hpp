@@ -39,6 +39,7 @@ inline constexpr std::string_view ITEM_TYPE_WEB_SEARCH_CALL = "web_search_call";
 inline constexpr std::string_view PART_TYPE_INPUT_TEXT = "input_text";
 inline constexpr std::string_view PART_TYPE_OUTPUT_TEXT = "output_text";
 inline constexpr std::string_view PART_TYPE_INPUT_IMAGE = "input_image";
+inline constexpr std::string_view PART_TYPE_INPUT_FILE = "input_file";
 
 inline constexpr std::string_view STATUS_IN_PROGRESS = "in_progress";
 inline constexpr std::string_view STATUS_COMPLETED = "completed";

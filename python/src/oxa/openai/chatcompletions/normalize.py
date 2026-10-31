@@ -18,6 +18,7 @@ from oxa.ir import (
     Block,
     CustomToolResultBlock,
     CustomToolUseBlock,
+    DocumentBlock,
     ImageBlock,
     Loss,
     SystemBlock,
@@ -88,6 +89,27 @@ def decode_content_part(
         if img_loss is not None:
             return [], [img_loss]
         return [block], []
+    if kind == "file":
+        f_obj = part.get("file")
+        if not isinstance(f_obj, dict):
+            raise TypeError(f"chatcompletions: {path}[{index}].file must be an object")
+        count = sum(1 for k in ("file_id", "file_data") if f_obj.get(k) is not None)
+        if count != 1:
+            raise ValueError(f"chatcompletions: {path}[{index}].file must specify exactly one of file_id or file_data")
+        losses = []
+        if "filename" in f_obj and f_obj["filename"] is not None:
+            if not isinstance(f_obj["filename"], str):
+                raise TypeError(f"{path}[{index}].file.filename must be a string")
+            losses.append(loss(f"{path}[{index}].file.filename", "filename", LOSS_UNMAPPED_FIELD, "Chat Completions file filename has no IR equivalent"))
+        if f_obj.get("file_id") is not None:
+            fid = f_obj["file_id"]
+            if not isinstance(fid, str) or not fid:
+                raise TypeError(f"{path}[{index}].file.file_id must be a non-empty string")
+            return [DocumentBlock(file_id=fid)], losses
+        fdata = f_obj["file_data"]
+        if not isinstance(fdata, str) or not fdata:
+            raise TypeError(f"{path}[{index}].file.file_data must be a non-empty string")
+        return [DocumentBlock(data=fdata, media_type="application/pdf")], losses
     return [], [
         loss(
             f"{path}[{index}]",
@@ -408,6 +430,31 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
             elif part is not None:
                 has_image = True
                 parts.append(part)
+        elif isinstance(block, DocumentBlock):
+            if block.url:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Chat Completions file content parts do not support url sources; file dropped",
+                    )
+                )
+                continue
+            has_image = True
+            if block.file_id:
+                parts.append({"type": "file", "file": {"file_id": block.file_id}})
+            elif block.data:
+                parts.append({"type": "file", "file": {"file_data": block.data}})
+            else:
+                losses.append(
+                    loss(
+                        f"{path}[{index}]",
+                        "content",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "IR DocumentBlock carries no supported file source",
+                    )
+                )
         else:
             losses.append(
                 loss(

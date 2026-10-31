@@ -1,0 +1,36 @@
+{
+  "name": "chatcompletions.nonstream.document-file-id-request-from-ir",
+  "description": "IR DocumentBlock with file_id renders as Chat Completions request file part with file_id (N-CC-14).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "document", "file_id": "file_123" },
+          { "type": "text", "text": "Read the file." }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "file", "file": { "file_id": "file_123" } },
+          { "type": "text", "text": "Read the file." }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["document", "request", "N-CC-14"]
+}

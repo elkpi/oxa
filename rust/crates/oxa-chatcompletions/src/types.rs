@@ -16,6 +16,7 @@ pub const TOOL_TYPE_CUSTOM: &str = "custom";
 
 pub const CONTENT_PART_TYPE_TEXT: &str = "text";
 pub const CONTENT_PART_TYPE_IMAGE_URL: &str = "image_url";
+pub const CONTENT_PART_TYPE_FILE: &str = "file";
 
 pub const TOOL_CHOICE_AUTO: &str = "auto";
 pub const TOOL_CHOICE_NONE: &str = "none";
@@ -196,6 +197,19 @@ pub struct ContentPart {
     pub text: String,
     #[serde(rename = "image_url", skip_serializing_if = "Option::is_none")]
     pub image_url: Option<ImageURLWire>,
+    #[serde(rename = "file", skip_serializing_if = "Option::is_none")]
+    pub file: Option<FileWire>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FileWire {
+    #[serde(rename = "file_id", skip_serializing_if = "Option::is_none")]
+    pub file_id: Option<String>,
+    #[serde(rename = "file_data", skip_serializing_if = "Option::is_none")]
+    pub file_data: Option<String>,
+    #[serde(rename = "filename", skip_serializing_if = "Option::is_none")]
+    pub filename: Option<String>,
 }
 
 /// Holds the URL of an image_url content part: either an https URL or a

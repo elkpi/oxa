@@ -150,12 +150,13 @@ Each rule has a stable ID usable as a vector tag.
   each system block renders as its own `system` or `developer` message in order.
 - **N-CC-2 (content normalization).** String content becomes one IR
   `TextBlock`. A parts array becomes one block per part (`text` →
-  `TextBlock`, `image_url` → `ImageBlock` via N-CC-3); part types other
-  than `text` and `image_url` are dropped as unsupported-semantic
+  `TextBlock`, `image_url` → `ImageBlock` via N-CC-3, `file` →
+  `DocumentBlock` via N-CC-14); part types other
+  than `text`, `image_url`, and `file` are dropped as unsupported-semantic
   losses. A non-system message whose decoded content is empty MUST
   carry a single empty `TextBlock` (spec/01 §3.3). On encode, user
   content renders as a plain string when it is text-only and as a parts
-  array when it contains at least one image.
+  array when it contains at least one image or document.
 - **N-CC-3 (image URL normalization).** An `image_url.url` that is a
   syntactically valid absolute `https:` URL converts to
   `ImageBlock.URL`. A `data:<media>;base64,<payload>` URL whose media
@@ -248,6 +249,23 @@ Each rule has a stable ID usable as a vector tag.
   when `output` is an array of text/image content blocks, it encodes as an array of `ContentPart`s
   without collapsing to a plain string. Both directions preserve string vs array distinction (spec/13 §2).
 
+- **N-CC-14 (file content parts, since 2.5.0).** Chat Completions `file` content parts
+  in user messages map to `DocumentBlock` (request-side only).
+  - **Decode.** Each `file` content part must be a JSON object containing a `file` object.
+    The inner `file` object must specify exactly one of:
+    - `file_id`: a non-empty string. Maps to `DocumentBlock{FileID: file_id}`.
+    - `file_data`: a non-empty string (base64). Maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`.
+    Missing `file` object, specifying none or both of `file_id` and `file_data`, or non-string/empty values, is a structural error.
+    Optional wire fields: `file.filename` (string) is dropped with an `unmapped-field` loss.
+    Unknown fields on the part or on `file` record `unmapped-field` losses in source order.
+  - **Encode.** In a user message, `DocumentBlock` renders as a `file` content part
+    (forcing array representation of `content`):
+    - `FileID` present: renders `{"type": "file", "file": {"file_id": *FileID}}` with zero loss.
+    - `Data` present: renders `{"type": "file", "file": {"file_data": *Data}}` with zero loss.
+    - `URL` present: Chat Completions has no URL source form for files. The block is dropped with an `unsupported-semantic` loss
+      (detail: `"Chat Completions file content parts do not support url sources; file dropped"`).
+    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -267,7 +285,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `messages[i].content[j]`, `content[i]` | unsupported-semantic | IR → request/response | `web_search_call` omitted; not rewritten as a function call (N-R-16) |
 | `reasoning_effort` unknown value | unmapped-value | request → IR | unknown effort values are dropped (N-CC-12) |
 | `tools[i].type` ∉ {`function`,`custom`} | unsupported-semantic | request → IR | tool variant has no IR equivalent |
-| content part `type` ∉ {`text`,`image_url`} | unsupported-semantic | request → IR | part has no IR equivalent |
+| content part `type` ∉ {`text`,`image_url`,`file`} | unsupported-semantic | request → IR | part has no IR equivalent |
+| `part.file.filename` | unmapped-field | request → IR | Chat Completions file filename has no IR equivalent (N-CC-14) |
+| `IR DocumentBlock with url source` | unsupported-semantic | IR → request | Chat Completions file content parts do not support url sources; file dropped (N-CC-14) |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |
 | `tool_choice` unsupported forms | unsupported-semantic | both | see N-CC-7 |
 | `finish_reason` unknown value | unmapped-value | response → IR | maps to IR `other` |

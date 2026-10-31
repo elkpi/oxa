@@ -315,10 +315,18 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			parts = append(parts, part)
 		case ir.DocumentBlock:
 			otherBlocks++
-			losses = append(losses, loss(
-				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
-				fmt.Sprintf("IR %T cannot be rendered in a Responses user message item", block),
-			))
+			if value.FileID != "" {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileID: value.FileID})
+			} else if value.URL != "" {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileURL: value.URL})
+			} else if value.Data != "" {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileData: value.Data})
+			} else {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"IR DocumentBlock carries no supported file source",
+				))
+			}
 		default:
 			otherBlocks++
 			losses = append(losses, loss(

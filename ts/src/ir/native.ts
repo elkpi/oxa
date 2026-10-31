@@ -703,9 +703,11 @@ function collectBlockOmissions(
   target: string,
 ): void {
   if (
-    blk.type === "document" ||
     blk.type === "redacted_thinking" ||
-    blk.type === "web_search_call"
+    blk.type === "web_search_call" ||
+    (blk.type === "document" &&
+      target === "chatcompletions" &&
+      blk.url !== undefined)
   ) {
     // whole-block drop; annotations not reported a second time
     return;
@@ -948,6 +950,9 @@ function appendOmissionLoss(
     }
     case NATIVE_KIND_THINKING_DISPLAY:
     case NATIVE_KIND_CONTEXT_MANAGEMENT:
+    case NATIVE_KIND_DOCUMENT_TITLE:
+    case NATIVE_KIND_DOCUMENT_CONTEXT:
+    case NATIVE_KIND_DOCUMENT_CITATIONS:
       if (ann.omission) {
         losses.push({
           path,

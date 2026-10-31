@@ -211,10 +211,11 @@ Each rule has a stable ID usable as a vector tag.
   MUST carry a single empty `TextBlock` (spec/01 §3.3).
 - **N-R-3 (content normalization).** String item content becomes one IR
   `TextBlock`. A parts array becomes one block per part (`input_text` and
-  `output_text` → `TextBlock`, `input_image` → `ImageBlock` via N-R-4);
+  `output_text` → `TextBlock`, `input_image` → `ImageBlock` via N-R-4,
+  `input_file` → `DocumentBlock` via N-R-19);
   other part types are dropped as unsupported-semantic losses. On encode,
   user content renders as a plain string when it is exactly one text block
-  and as a parts array otherwise (multiple text blocks, images); assistant
+  and as a parts array otherwise (multiple text blocks, images, documents); assistant
   text renders as a message item with string content.
 - **N-R-4 (image URL normalization).** An `input_image` part's
   `image_url` (a plain string, not an object) that is a syntactically
@@ -378,6 +379,22 @@ Each rule has a stable ID usable as a vector tag.
   - **Reasoning Summary.** Reasoning summary parts are not text blocks; non-empty `annotations`
     on reasoning summaries continue to record an `unmapped-field` loss per N-R-13.
 
+- **N-R-19 (input_file content parts, since 2.5.0).** Responses `input_file` content parts
+  in user message items map to `DocumentBlock` (request-side only).
+  - **Decode.** Each `input_file` content part must be a JSON object specifying exactly one of:
+    - `file_id`: a non-empty string. Maps to `DocumentBlock{FileID: file_id}`.
+    - `file_url`: a non-empty string. Maps to `DocumentBlock{URL: file_url}`.
+    - `file_data`: a non-empty string (base64). Maps to `DocumentBlock{Data: file_data, MediaType: "application/pdf"}`.
+    Specifying none or more than one of `file_id`, `file_url`, or `file_data`, or non-string/empty values, is a structural error.
+    Optional wire fields: `filename` (string) and `detail` (string) are dropped with `unmapped-field` losses.
+    Unknown fields on `input_file` record `unmapped-field` losses in source order.
+  - **Encode.** In a user message, `DocumentBlock` renders as an `input_file` content part
+    (forcing array representation of `content`):
+    - `FileID` present: renders `{"type": "input_file", "file_id": *FileID}` with zero loss.
+    - `URL` present: renders `{"type": "input_file", "file_url": *URL}` with zero loss.
+    - `Data` present: renders `{"type": "input_file", "file_data": *Data}` with zero loss.
+    `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -397,7 +414,9 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
 | instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |
-| content part `type` ∉ {`input_text`,`output_text`,`input_image`} | unsupported-semantic | request → IR | part has no IR equivalent |
+| content part `type` ∉ {`input_text`,`output_text`,`input_image`,`input_file`} | unsupported-semantic | request → IR | part has no IR equivalent |
+| `input_file.filename` | unmapped-field | request → IR | Responses input_file filename has no IR equivalent (N-R-19) |
+| `input_file.detail` | unmapped-field | request → IR | Responses input_file detail has no IR equivalent (N-R-19) |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |
 | `tool_choice` unsupported forms | unsupported-semantic | both | see N-R-9 |
 | `params.stop_sequences` | unmapped-field | IR → request | Responses has no stop-sequences parameter; one loss when non-empty |

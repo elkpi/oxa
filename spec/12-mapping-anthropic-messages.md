@@ -341,10 +341,13 @@ Each rule has a stable ID usable as a vector tag.
     more than one of data/URL/file_id, data without `media_type`, or
     URL/file_id with `media_type` is an unsupported-semantic loss
     (field `document`).
-  - **Cross-face.** Faces without a document contract (OpenAI Chat
-    Completions, OpenAI Responses) drop the whole block as exactly one
-    unsupported-semantic loss; annotations inside the dropped block
-    are part of it and MUST NOT add further losses (N-AN-9 symmetry).
+  - **Cross-face.** When encoded to OpenAI Responses, `DocumentBlock` renders as
+    `input_file` content parts in user messages with zero block loss (supporting `base64` as `file_data`,
+    `url` as `file_url`, and `file` as `file_id`). When encoded to OpenAI Chat Completions,
+    `DocumentBlock` with `base64` (as `file_data`) or `file` (as `file_id`) renders as `file` content parts
+    in user messages with zero block loss; a `DocumentBlock` with `url` cannot be represented in
+    Chat Completions and drops the block as an `unsupported-semantic` loss. Surviving document
+    blocks report native annotation omissions per spec/15 §4; dropped blocks suppress annotation reporting (N-AN-9 symmetry).
 
 - **N-AN-17 (redacted thinking blocks, since 2.4.11).** Anthropic assistant-history and
   response blocks of type `redacted_thinking` map 1:1 to `RedactedThinkingBlock{Data}`.

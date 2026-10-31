@@ -151,6 +151,36 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                                                   ir::LOSS_UNSUPPORTED_SEMANTIC,
                                                   "only https and base64 data image URLs are supported"));
                 }
+            } else if (ptype == "file") {
+                std::string part_path = path + "[" + std::to_string(i) + "]";
+                const auto* f_val = part.find("file");
+                if (!f_val || !f_val->is_object()) {
+                    return invalid_argument("chatcompletions: " + part_path + ".file is required");
+                }
+                const auto* fid = f_val->find("file_id");
+                const auto* fdata = f_val->find("file_data");
+                int count = 0;
+                if (fid && !fid->is_null()) count++;
+                if (fdata && !fdata->is_null()) count++;
+                if (count != 1) {
+                    return invalid_argument("chatcompletions: " + part_path + ".file must specify exactly one of file_id or file_data");
+                }
+                if (const auto* fn = f_val->find("filename"); fn && !fn->is_null()) {
+                    if (!fn->is_string()) return invalid_argument(part_path + ".file.filename must be a string");
+                    losses.push_back(make_cc_loss(part_path + ".file.filename", "filename", ir::LOSS_UNMAPPED_FIELD, "Chat Completions file filename has no IR equivalent"));
+                }
+                if (fid && !fid->is_null()) {
+                    if (!fid->is_string() || fid->as_string().empty()) return invalid_argument(part_path + ".file.file_id must be a non-empty string");
+                    ir::DocumentBlock doc;
+                    doc.file_id = fid->as_string();
+                    blocks.push_back(std::move(doc));
+                } else {
+                    if (!fdata->is_string() || fdata->as_string().empty()) return invalid_argument(part_path + ".file.file_data must be a non-empty string");
+                    ir::DocumentBlock doc;
+                    doc.data = fdata->as_string();
+                    doc.media_type = "application/pdf";
+                    blocks.push_back(std::move(doc));
+                }
             } else {
                 losses.push_back(make_cc_loss(
                     path + "[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -967,11 +997,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "apply_patch tool results are not implemented by this profile"));
-                } else if (std::holds_alternative<ir::DocumentBlock>(b)) {
-                    losses.push_back(make_cc_loss(
-                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
-                        "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                        "IR ir.DocumentBlock cannot be rendered in a Chat Completions user message"));
+                } else if (const auto* doc = std::get_if<ir::DocumentBlock>(&b)) {
+                    if (doc->url.has_value() && !doc->url->empty()) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                            "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "Chat Completions file content parts do not support url sources; file dropped"));
+                    } else {
+                        if (!first_normal.has_value()) first_normal = bi;
+                        normal.push_back(&b);
+                    }
                 } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
@@ -1082,7 +1117,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 um.set("role", json::Value::string("user"));
                 bool has_image = false;
                 for (const auto* b : normal) {
-                    if (std::holds_alternative<ir::ImageBlock>(*b)) {
+                    if (std::holds_alternative<ir::ImageBlock>(*b) || std::holds_alternative<ir::DocumentBlock>(*b)) {
                         has_image = true;
                         break;
                     }
@@ -1114,6 +1149,27 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             }
                             part.set("image_url", std::move(iuo));
                             parts.push_back(std::move(part));
+                        } else if (const auto* doc = std::get_if<ir::DocumentBlock>(b)) {
+                            if (doc->file_id.has_value() && !doc->file_id->empty()) {
+                                json::Value part = json::Value::object();
+                                part.set("type", json::Value::string("file"));
+                                json::Value f = json::Value::object();
+                                f.set("file_id", json::Value::string(*doc->file_id));
+                                part.set("file", std::move(f));
+                                parts.push_back(std::move(part));
+                            } else if (doc->data.has_value() && !doc->data->empty()) {
+                                json::Value part = json::Value::object();
+                                part.set("type", json::Value::string("file"));
+                                json::Value f = json::Value::object();
+                                f.set("file_data", json::Value::string(*doc->data));
+                                part.set("file", std::move(f));
+                                parts.push_back(std::move(part));
+                            } else {
+                                losses.push_back(make_cc_loss(
+                                    "messages[" + std::to_string(i) + "].content[" + std::to_string(ni) + "]",
+                                    "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                    "IR DocumentBlock carries no supported file source"));
+                            }
                         }
                     }
                     if (parts.as_array().empty()) um.set("content", json::Value::string(""));

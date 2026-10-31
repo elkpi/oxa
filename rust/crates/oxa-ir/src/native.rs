@@ -627,7 +627,12 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),
-        Block::Document { .. } | Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
+        Block::Document { url, .. } if target == "chatcompletions" && url.is_some() => {
+            static EMPTY: Vec<NativeAnnotation> = Vec::new();
+            (&EMPTY, None)
+        }
+        Block::Document { native, .. } => (native, None),
+        Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
             // Whole-block drop; annotations are part of it and are not reported a second time.
             static EMPTY: Vec<NativeAnnotation> = Vec::new();
             (&EMPTY, None)
@@ -954,7 +959,11 @@ fn append_omission_loss(
                 detail,
             });
         }
-        NATIVE_KIND_THINKING_DISPLAY | NATIVE_KIND_CONTEXT_MANAGEMENT => {
+        NATIVE_KIND_THINKING_DISPLAY
+        | NATIVE_KIND_CONTEXT_MANAGEMENT
+        | NATIVE_KIND_DOCUMENT_TITLE
+        | NATIVE_KIND_DOCUMENT_CONTEXT
+        | NATIVE_KIND_DOCUMENT_CITATIONS => {
             if let Some(ref om) = ann.omission {
                 losses.push(Loss {
                     path: path.into(),

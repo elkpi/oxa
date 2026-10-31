@@ -43,6 +43,7 @@ const (
 	PartTypeOutputText  = "output_text"
 	PartTypeSummaryText = "summary_text"
 	PartTypeInputImage  = "input_image"
+	PartTypeInputFile   = "input_file"
 
 	StatusInProgress = "in_progress"
 	StatusCompleted  = "completed"
@@ -182,11 +183,16 @@ type InputItem struct {
 }
 
 // ContentPart is one element of a parts-array item content: input_text,
-// output_text, or input_image.
+// output_text, input_image, or input_file.
 type ContentPart struct {
-	Type     string `json:"type"`
-	Text     string `json:"text,omitempty"`
-	ImageURL string `json:"image_url,omitempty"`
+	Type     string  `json:"type"`
+	Text     string  `json:"text,omitempty"`
+	ImageURL string  `json:"image_url,omitempty"`
+	FileData string  `json:"file_data,omitempty"`
+	FileURL  string  `json:"file_url,omitempty"`
+	FileID   string  `json:"file_id,omitempty"`
+	Filename string  `json:"filename,omitempty"`
+	Detail   *string `json:"detail,omitempty"`
 }
 
 // ToolDef is one element of a wire tools array.

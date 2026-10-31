@@ -1716,6 +1716,74 @@ function decodeContent(
           ),
         );
       else blocks.push(image);
+    } else if (part.type === "input_file") {
+      let count = 0;
+      if (part.file_id !== undefined && part.file_id !== null) count++;
+      if (part.file_url !== undefined && part.file_url !== null) count++;
+      if (part.file_data !== undefined && part.file_data !== null) count++;
+      if (count !== 1) {
+        throw new OxaError(
+          "type-violation",
+          `responses: ${path}[${index}]: input_file must specify exactly one of file_id, file_url, or file_data`,
+        );
+      }
+      if (part.filename !== undefined && part.filename !== null) {
+        if (typeof part.filename !== "string") {
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].filename must be a string`,
+          );
+        }
+        losses.push({
+          path: `${path}[${index}].filename`,
+          field: "filename",
+          reason: "unmapped-field",
+          detail: "Responses input_file filename has no IR equivalent",
+        });
+      }
+      if (part.detail !== undefined && part.detail !== null) {
+        if (typeof part.detail !== "string") {
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].detail must be a string`,
+          );
+        }
+        losses.push({
+          path: `${path}[${index}].detail`,
+          field: "detail",
+          reason: "unmapped-field",
+          detail: "Responses input_file detail has no IR equivalent",
+        });
+      }
+      if (part.file_id !== undefined && part.file_id !== null) {
+        const fileId = string(part.file_id, `${path}[${index}].file_id`);
+        if (fileId.length === 0)
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file_id cannot be empty`,
+          );
+        blocks.push({ type: "document", file_id: fileId });
+      } else if (part.file_url !== undefined && part.file_url !== null) {
+        const fileUrl = string(part.file_url, `${path}[${index}].file_url`);
+        if (fileUrl.length === 0)
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file_url cannot be empty`,
+          );
+        blocks.push({ type: "document", url: fileUrl });
+      } else {
+        const fileData = string(part.file_data, `${path}[${index}].file_data`);
+        if (fileData.length === 0)
+          throw new OxaError(
+            "type-violation",
+            `${path}[${index}].file_data cannot be empty`,
+          );
+        blocks.push({
+          type: "document",
+          data: fileData,
+          media_type: "application/pdf",
+        });
+      }
     } else
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
   }
@@ -1780,6 +1848,19 @@ function encodeUserContent(
       else {
         otherBlocks += 1;
         parts.push({ type: "input_image", image_url: image });
+      }
+    } else if (block.type === "document") {
+      otherBlocks += 1;
+      if (block.file_id !== undefined) {
+        parts.push({ type: "input_file", file_id: block.file_id });
+      } else if (block.url !== undefined) {
+        parts.push({ type: "input_file", file_url: block.url });
+      } else if (block.data !== undefined) {
+        parts.push({ type: "input_file", file_data: block.data });
+      } else {
+        losses.push(
+          loss(`${path}[${index}]`, "content", "unsupported-semantic"),
+        );
       }
     } else {
       otherBlocks += 1;

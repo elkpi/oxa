@@ -33,6 +33,15 @@ func decodeContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
 			if !ok {
 				return nil, nil, fmt.Errorf("chatcompletions: %s[%d].type: part type is not a string", path, i)
 			}
+			if kind == ContentPartTypeFile {
+				doc, fileLosses, err := decodeFilePart(part["file"], fmt.Sprintf("%s[%d].file", path, i))
+				if err != nil {
+					return nil, nil, err
+				}
+				blocks = append(blocks, doc)
+				losses = append(losses, fileLosses...)
+				continue
+			}
 			text, err := optionalString(part["text"], path+fmt.Sprintf("[%d].text", i))
 			if err != nil {
 				return nil, nil, err
@@ -50,6 +59,15 @@ func decodeContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
 		blocks := make([]ir.Block, 0, len(v))
 		var losses []ir.Loss
 		for i, part := range v {
+			if part.Type == ContentPartTypeFile {
+				doc, fileLosses, err := decodeFilePart(part.File, fmt.Sprintf("%s[%d].file", path, i))
+				if err != nil {
+					return nil, nil, err
+				}
+				blocks = append(blocks, doc)
+				losses = append(losses, fileLosses...)
+				continue
+			}
 			imageURL := ""
 			if part.ImageURL != nil {
 				imageURL = part.ImageURL.URL
@@ -84,6 +102,82 @@ func imageURLFromMap(value any, path string) (string, error) {
 		return "", fmt.Errorf("chatcompletions: %s: image_url is not an object", path)
 	}
 	return optionalString(image["url"], path+".url")
+}
+
+func decodeFilePart(fileVal any, path string) (ir.DocumentBlock, []ir.Loss, error) {
+	if fileVal == nil {
+		return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s: file part missing file object", path)
+	}
+	var fMap map[string]any
+	switch f := fileVal.(type) {
+	case *FileWire:
+		if f == nil {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s: file part missing file object", path)
+		}
+		fMap = map[string]any{}
+		if f.FileID != "" {
+			fMap["file_id"] = f.FileID
+		}
+		if f.FileData != "" {
+			fMap["file_data"] = f.FileData
+		}
+		if f.Filename != "" {
+			fMap["filename"] = f.Filename
+		}
+	case FileWire:
+		fMap = map[string]any{}
+		if f.FileID != "" {
+			fMap["file_id"] = f.FileID
+		}
+		if f.FileData != "" {
+			fMap["file_data"] = f.FileData
+		}
+		if f.Filename != "" {
+			fMap["filename"] = f.Filename
+		}
+	case map[string]any:
+		fMap = f
+	default:
+		return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s: file must be an object", path)
+	}
+
+	var fileID, fileData string
+	var count int
+	if rawID, ok := fMap["file_id"]; ok && rawID != nil {
+		str, ok := rawID.(string)
+		if !ok || str == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s.file_id must be a non-empty string", path)
+		}
+		fileID = str
+		count++
+	}
+	if rawData, ok := fMap["file_data"]; ok && rawData != nil {
+		str, ok := rawData.(string)
+		if !ok || str == "" {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s.file_data must be a non-empty string", path)
+		}
+		fileData = str
+		count++
+	}
+	if count != 1 {
+		return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s must specify exactly one of file_id or file_data", path)
+	}
+
+	var losses []ir.Loss
+	if rawFilename, ok := fMap["filename"]; ok && rawFilename != nil {
+		if _, ok := rawFilename.(string); !ok {
+			return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s.filename must be a string", path)
+		}
+		losses = append(losses, loss(
+			fmt.Sprintf("%s.filename", path), "filename", ir.LossUnmappedField,
+			"Chat Completions file filename has no IR equivalent",
+		))
+	}
+
+	if fileID != "" {
+		return ir.DocumentBlock{FileID: fileID}, losses, nil
+	}
+	return ir.DocumentBlock{Data: fileData, MediaType: "application/pdf"}, losses, nil
 }
 
 func decodeContentPart(kind, text, imageURL, path string, index int) ([]ir.Block, []ir.Loss) {
@@ -403,10 +497,30 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			hasImage = true
 			parts = append(parts, part)
 		case ir.DocumentBlock:
-			losses = append(losses, loss(
-				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
-				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions user message", block),
-			))
+			if value.URL != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"Chat Completions file content parts do not support url sources; file dropped",
+				))
+				continue
+			}
+			hasImage = true
+			if value.FileID != "" {
+				parts = append(parts, ContentPart{
+					Type: ContentPartTypeFile,
+					File: &FileWire{FileID: value.FileID},
+				})
+			} else if value.Data != "" {
+				parts = append(parts, ContentPart{
+					Type: ContentPartTypeFile,
+					File: &FileWire{FileData: value.Data},
+				})
+			} else {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"IR DocumentBlock carries no supported file source",
+				))
+			}
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,

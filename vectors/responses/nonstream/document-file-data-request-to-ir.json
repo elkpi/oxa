@@ -1,0 +1,35 @@
+{
+  "name": "responses.nonstream.document-file-data-request-to-ir",
+  "description": "Responses request input_file with file_data maps to IR DocumentBlock with data and application/pdf (N-R-19).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "input_file", "file_data": "JVBERi0xLjcK" },
+          { "type": "input_text", "text": "Extract text." }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "document", "media_type": "application/pdf", "data": "JVBERi0xLjcK" },
+          { "type": "text", "text": "Extract text." }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["document", "request", "N-R-19"]
+}

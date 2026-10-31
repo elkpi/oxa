@@ -272,37 +272,38 @@ func decodeRequestNative(wire *Request, req *ir.Request) ([]ir.Loss, error) {
 				modeAnn.Omission = &ir.NativeOmission{Field: "type", Reason: ir.LossUnmappedField}
 			}
 			req.Native = append(req.Native, modeAnn)
-			if wire.Thinking.BudgetTokens > 0 {
-				if wire.OutputConfig != nil && wire.OutputConfig.Effort != "" {
-					// Enabled budget + explicit effort: budget does not project to effort
-					req.Native = append(req.Native, ir.NativeAnnotation{
-						Source:   ir.NativeSourceAnthropic,
-						Kind:     ir.NativeKindThinkingBudget,
-						Value:    fmt.Sprintf("%d", wire.Thinking.BudgetTokens),
-						Omission: &ir.NativeOmission{Field: "budget_tokens", Reason: ir.LossUnmappedField},
-					})
-				} else {
-					// Enabled budget without explicit effort: projects to effort
-					mapped := "high"
-					if wire.Thinking.BudgetTokens <= 1024 {
-						mapped = "minimal"
-					} else if wire.Thinking.BudgetTokens <= 2048 {
-						mapped = "low"
-					} else if wire.Thinking.BudgetTokens <= 8192 {
-						mapped = "medium"
-					}
-					req.Params.ReasoningEffort = mapped
-					req.Native = append(req.Native, ir.NativeAnnotation{
-						Source:   ir.NativeSourceAnthropic,
-						Kind:     ir.NativeKindThinkingBudget,
-						Value:    fmt.Sprintf("%d", wire.Thinking.BudgetTokens),
-						Omission: &ir.NativeOmission{Field: "budget_tokens", Reason: ir.LossDegraded, Detail: "budget approximated"},
-						Projection: &ir.NativeProjection{
-							Origin: "budget",
-							Effort: mapped,
-						},
-					})
+			if !wire.Thinking.hasBudget || wire.Thinking.BudgetTokens <= 0 {
+				return nil, fmt.Errorf("anthropic: thinking.budget_tokens must be a positive integer")
+			}
+			if wire.OutputConfig != nil && wire.OutputConfig.Effort != "" {
+				// Enabled budget + explicit effort: budget does not project to effort
+				req.Native = append(req.Native, ir.NativeAnnotation{
+					Source:   ir.NativeSourceAnthropic,
+					Kind:     ir.NativeKindThinkingBudget,
+					Value:    fmt.Sprintf("%d", wire.Thinking.BudgetTokens),
+					Omission: &ir.NativeOmission{Field: "budget_tokens", Reason: ir.LossUnmappedField},
+				})
+			} else {
+				// Enabled budget without explicit effort: projects to effort
+				mapped := "high"
+				if wire.Thinking.BudgetTokens <= 1024 {
+					mapped = "minimal"
+				} else if wire.Thinking.BudgetTokens <= 2048 {
+					mapped = "low"
+				} else if wire.Thinking.BudgetTokens <= 8192 {
+					mapped = "medium"
 				}
+				req.Params.ReasoningEffort = mapped
+				req.Native = append(req.Native, ir.NativeAnnotation{
+					Source:   ir.NativeSourceAnthropic,
+					Kind:     ir.NativeKindThinkingBudget,
+					Value:    fmt.Sprintf("%d", wire.Thinking.BudgetTokens),
+					Omission: &ir.NativeOmission{Field: "budget_tokens", Reason: ir.LossDegraded, Detail: "budget approximated"},
+					Projection: &ir.NativeProjection{
+						Origin: "budget",
+						Effort: mapped,
+					},
+				})
 			}
 		default:
 			losses = append(losses, ir.Loss{

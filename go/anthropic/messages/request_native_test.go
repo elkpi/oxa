@@ -485,6 +485,31 @@ func TestBudgetClearedLoss(t *testing.T) {
 	}
 }
 
+func TestNonPositiveBudgetRejection(t *testing.T) {
+	for _, budget := range []string{`0`, `-1`, `-100`} {
+		raw := []byte(fmt.Sprintf(`{
+			"model": "claude-3-7-sonnet-20250219",
+			"max_tokens": 16000,
+			"messages": [{"role": "user", "content": "hi"}],
+			"thinking": {"type": "enabled", "budget_tokens": %s}
+		}`, budget))
+		_, _, err := DecodeRequestJSON(raw)
+		if err == nil {
+			t.Fatalf("expected error for budget_tokens %s, got nil", budget)
+		}
+	}
+	missingRaw := []byte(`{
+		"model": "claude-3-7-sonnet-20250219",
+		"max_tokens": 16000,
+		"messages": [{"role": "user", "content": "hi"}],
+		"thinking": {"type": "enabled"}
+	}`)
+	_, _, err := DecodeRequestJSON(missingRaw)
+	if err == nil {
+		t.Fatalf("expected error for missing budget_tokens in enabled thinking, got nil")
+	}
+}
+
 func TestResponseNativeIsolation(t *testing.T) {
 	raw := []byte(`{
 		"id": "msg_123",

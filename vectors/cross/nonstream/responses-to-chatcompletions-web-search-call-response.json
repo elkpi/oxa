@@ -1,0 +1,56 @@
+{
+  "name": "cross.nonstream.responses-to-chatcompletions-web-search-call-response",
+  "description": "Cross-protocol: Responses response with web_search_call item converts to Chat Completions with unsupported-semantic loss, preserving message content (N-R-16).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "id": "resp_ws_cross",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-5",
+    "output": [
+      {
+        "type": "web_search_call",
+        "id": "ws_1",
+        "status": "completed",
+        "action": { "type": "search", "query": "news" }
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Here are the news.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 5, "output_tokens": 10, "total_tokens": 15 }
+  },
+  "expected_output": {
+    "id": "resp_ws_cross",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-5",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "Here are the news."
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": { "prompt_tokens": 5, "completion_tokens": 10, "total_tokens": 15 }
+  },
+  "expected_losses": [
+    {
+      "path": "content[1]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "Responses web_search_call has no Chat Completions equivalent"
+    }
+  ],
+  "tags": ["cross", "response", "web-search", "loss", "n-r-16"]
+}

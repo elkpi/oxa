@@ -378,49 +378,55 @@ pub fn decode_request_native(
                     projection: None,
                 });
 
-                if let Some(budget) = thinking.budget_tokens
-                    && budget > 0
-                {
-                    if has_explicit_effort {
-                        req.native.push(NativeAnnotation {
-                            source: NATIVE_SOURCE_ANTHROPIC.into(),
-                            kind: NATIVE_KIND_THINKING_BUDGET.into(),
-                            value: budget.to_string(),
-                            omission: Some(NativeOmission {
-                                field: "budget_tokens".into(),
-                                reason: LossReason::UnmappedField,
-                                detail: None,
-                            }),
-                            projection: None,
-                        });
+                let Some(budget) = thinking.budget_tokens else {
+                    return Err(crate::Error::new(
+                        "anthropic: thinking.budget_tokens must be a positive integer",
+                    ));
+                };
+                if budget <= 0 {
+                    return Err(crate::Error::new(
+                        "anthropic: thinking.budget_tokens must be a positive integer",
+                    ));
+                }
+                if has_explicit_effort {
+                    req.native.push(NativeAnnotation {
+                        source: NATIVE_SOURCE_ANTHROPIC.into(),
+                        kind: NATIVE_KIND_THINKING_BUDGET.into(),
+                        value: budget.to_string(),
+                        omission: Some(NativeOmission {
+                            field: "budget_tokens".into(),
+                            reason: LossReason::UnmappedField,
+                            detail: None,
+                        }),
+                        projection: None,
+                    });
+                } else {
+                    let mapped = if budget <= 1024 {
+                        ReasoningEffort::Minimal
+                    } else if budget <= 2048 {
+                        ReasoningEffort::Low
+                    } else if budget <= 8192 {
+                        ReasoningEffort::Medium
                     } else {
-                        let mapped = if budget <= 1024 {
-                            ReasoningEffort::Minimal
-                        } else if budget <= 2048 {
-                            ReasoningEffort::Low
-                        } else if budget <= 8192 {
-                            ReasoningEffort::Medium
-                        } else {
-                            ReasoningEffort::High
-                        };
-                        if let Some(ref mut params) = req.params {
-                            params.reasoning_effort = Some(mapped);
-                        }
-                        req.native.push(NativeAnnotation {
-                            source: NATIVE_SOURCE_ANTHROPIC.into(),
-                            kind: NATIVE_KIND_THINKING_BUDGET.into(),
-                            value: budget.to_string(),
-                            omission: Some(NativeOmission {
-                                field: "budget_tokens".into(),
-                                reason: LossReason::Degraded,
-                                detail: Some("budget approximated".into()),
-                            }),
-                            projection: Some(NativeProjection {
-                                origin: "budget".into(),
-                                effort: mapped,
-                            }),
-                        });
+                        ReasoningEffort::High
+                    };
+                    if let Some(ref mut params) = req.params {
+                        params.reasoning_effort = Some(mapped);
                     }
+                    req.native.push(NativeAnnotation {
+                        source: NATIVE_SOURCE_ANTHROPIC.into(),
+                        kind: NATIVE_KIND_THINKING_BUDGET.into(),
+                        value: budget.to_string(),
+                        omission: Some(NativeOmission {
+                            field: "budget_tokens".into(),
+                            reason: LossReason::Degraded,
+                            detail: Some("budget approximated".into()),
+                        }),
+                        projection: Some(NativeProjection {
+                            origin: "budget".into(),
+                            effort: mapped,
+                        }),
+                    });
                 }
             }
             other => {

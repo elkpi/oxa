@@ -449,6 +449,26 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
 }
 
 #[test]
+fn rejects_non_positive_budget_tokens_in_enabled_thinking() {
+    for budget in [0, -1, -100] {
+        let wire = serde_json::json!({
+            "model": "claude-sonnet-4-5",
+            "max_tokens": 100,
+            "messages": [{"role": "user", "content": "Hello"}],
+            "thinking": {"type": "enabled", "budget_tokens": budget}
+        });
+        assert!(decode_request_json(&wire.to_string(), &Config::default()).is_err());
+    }
+    let wire_missing = serde_json::json!({
+        "model": "claude-sonnet-4-5",
+        "max_tokens": 100,
+        "messages": [{"role": "user", "content": "Hello"}],
+        "thinking": {"type": "enabled"}
+    });
+    assert!(decode_request_json(&wire_missing.to_string(), &Config::default()).is_err());
+}
+
+#[test]
 fn preserves_thinking_signature_and_optional_cache_usage() {
     let wire = wire_response(serde_json::json!({
         "id": "msg_1",

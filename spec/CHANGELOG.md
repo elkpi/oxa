@@ -12,6 +12,7 @@ precedence between spec, vectors, and schemas is defined in
 - system 块可选 `role: "developer"`。Responses 的 developer 指令可以同脸回转。Anthropic 没有该角色时文本仍进入 system，并逐块记 `degraded`。没有 developer 块时，既有 system 折叠行为不变。
 - 扩展 `TextCitation.source` 枚举支持 `"openai"`（与既有 `"anthropic"` 并立），用于承载 Responses `output_text.annotations` 文本注释（N-R-18）。Responses 非流式响应双向零损失保留注释对象并保持数值精度；每个 `TextBlock` 分别渲染其 `output_text` part，避免多块合并导致的引文区间偏移。Chat Completions 与 Anthropic 编码时对 `source: "openai"` 记录单次 `unsupported-semantic` 损失；Anthropic 流式遇到 `source: "openai"` 时省略/吸收原生事件并报损。穷尽匹配 `TextCitation.source` 的消费者必须增加对 `"openai"` 的处理分支。IR contract 保持 `0.2.0`。
 - 用户文件与文档输入跨面打通（N-R-19, N-CC-14, N-AN-16）。OpenAI Responses `input_file`（`file_id`, `file_url`, `file_data`）与通用 IR `DocumentBlock` 双向零损失转换，`filename` 与 `detail` 按项记录 `unmapped-field`；OpenAI Chat Completions `file`（`file_id`, `file_data`）与 `DocumentBlock` 双向零损失转换，`file.filename` 记录 `unmapped-field`；当 IR 携带 `url` 形式文档编码至 Chat Completions 时，整块报 `unsupported-semantic` 损失。Anthropic `document` 与 OpenAI 双面互转零损失保留文件内容，存续块上的 Anthropic 原生文档注解按 spec/15 记录遗漏报损。IR contract 保持 `0.2.0`。
+- 深度对齐 Anthropic `thinking` 模式与 OpenAI Responses `reasoning`（N-AN-11, N-R-13）。Anthropic 解码 `budget_tokens <= 1024` 映射为 `Params.ReasoningEffort "minimal"`；补齐思考响应与推理请求的跨面测试向量矩阵。IR contract 保持 `0.2.0`。
 
 ## 2.4.13 - 2026-10-30
 

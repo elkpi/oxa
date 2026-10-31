@@ -235,7 +235,7 @@ Each rule has a stable ID usable as a vector tag.
   `thinking_delta` / `signature_delta` map directly. Request
   `thinking.budget_tokens` ↔ `Params.ReasoningEffort` via:
   minimal → 1024, low → 2048, medium → 8192, high → 16384 (encode),
-  and decode budget ≤ 2048 → low, ≤ 8192 → medium, else → high, each with
+  and decode budget ≤ 1024 → minimal, ≤ 2048 → low, ≤ 8192 → medium, else → high, each with
   a `degraded` loss `{path:"params"/"thinking", field:"reasoning_effort"|"budget_tokens", reason:"degraded", detail:"budget approximated"}`.
   An unsigned ThinkingBlock encoded to either a request or response renders as
   a thinking block WITHOUT signature plus a `degraded` loss

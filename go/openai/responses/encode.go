@@ -442,9 +442,10 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			hasText = true
 			hasAnthropic := false
 			for _, c := range value.Citations {
-				if c.Source == ir.CitationSourceOpenAI {
+				switch c.Source {
+				case ir.CitationSourceOpenAI:
 					annotations = append(annotations, json.RawMessage(c.Value))
-				} else if c.Source == ir.CitationSourceAnthropic {
+				case ir.CitationSourceAnthropic:
 					hasAnthropic = true
 				}
 			}

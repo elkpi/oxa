@@ -215,7 +215,7 @@ Each rule has a stable ID usable as a vector tag.
   On encode each IR key other than `user_id` records one `unmapped-field`
   loss at the same path, with detail `Anthropic request metadata only preserves user_id; this IR metadata key is dropped.`
   Absent, JSON null, and `{}` produce no metadata and no loss. A
-  non-object value, or a `user_id` that is not a string, is a structural
+  non-object value, an empty key (`""`), or a `user_id` that is not a string, is a structural
   error. OpenAI faces round-trip the whole string map, so a map that
   contains only `user_id` crosses to Anthropic with no metadata loss.
 - **N-AN-9 (unknown semantics).** A block or image source whose type

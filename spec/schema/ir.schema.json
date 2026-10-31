@@ -46,6 +46,7 @@
         },
         "metadata": {
           "type": "object",
+          "propertyNames": { "minLength": 1 },
           "additionalProperties": { "type": "string" },
           "description": "String-to-string map."
         },

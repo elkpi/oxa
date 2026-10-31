@@ -92,7 +92,7 @@ The wire objects in scope are:
 | `top_p` | `Params.TopP` | 1:1 |
 | `max_output_tokens` | `Params.MaxTokens` | name mapping only; loss-free both directions (N-R-7) |
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
-| `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object or a non-string value is a structural error |
+| `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object, non-string value, or empty key (`""`) is a structural error |
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
 | `text.verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `text.verbosity`; non-strings are structural errors. Encoding preserves `text.format` when both are present |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
@@ -376,7 +376,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
-| `input[i].role` = `developer` | degraded | request → IR | text is retained in `Request.System` but the developer/system distinction is lost (N-R-1) |
 | instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |
 | content part `type` ∉ {`input_text`,`output_text`,`input_image`} | unsupported-semantic | request → IR | part has no IR equivalent |
 | malformed https/data `image_url`, non-image data URL | unsupported-semantic | request → IR | only valid https and `data:image/*;base64` URLs are supported |

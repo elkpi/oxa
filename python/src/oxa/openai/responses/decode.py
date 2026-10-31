@@ -388,8 +388,8 @@ def decode_response(
                     )
                     continue
                 citations = None
-                raw_anns = part.get("annotations")
-                if raw_anns:
+                if "annotations" in part and part["annotations"] is not None:
+                    raw_anns = part["annotations"]
                     if not isinstance(raw_anns, list):
                         raise TypeError(f"output[{item_index}].content[{content_index}].annotations must be an array")
                     cite_list = []

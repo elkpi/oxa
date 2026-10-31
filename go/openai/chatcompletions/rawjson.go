@@ -290,7 +290,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			return rawObjectSchema(t,
-				[]string{"role", "content", "reasoning_content", "tool_calls", "tool_call_id", "function_call"},
+				[]string{"role", "content", "refusal", "reasoning_content", "tool_calls", "tool_call_id", "function_call"},
 				map[string]*rawJSONSchema{
 					"content": {variant: func(content *rawJSONNode) *rawJSONSchema {
 						if content != nil && content.kind == '[' {

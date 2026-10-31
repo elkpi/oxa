@@ -903,6 +903,19 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	if loss != nil {
 		losses = append(losses, *loss)
 	}
+	if wire.StopReason == StopReasonRefusal && wire.StopDetails != nil {
+		var cat, expl string
+		if wire.StopDetails.Category != nil {
+			cat = *wire.StopDetails.Category
+		}
+		if wire.StopDetails.Explanation != nil {
+			expl = *wire.StopDetails.Explanation
+		}
+		resp.Content = append(resp.Content, ir.RefusalBlock{
+			Refusal:  expl,
+			Category: cat,
+		})
+	}
 	resp.StopReason = stop
 	resp.StopSequence = wire.StopSequence
 	if wire.Usage != nil {

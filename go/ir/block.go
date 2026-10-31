@@ -23,6 +23,7 @@ const (
 	BlockTypeRedactedThinking = "redacted_thinking"
 	BlockTypeDocument         = "document"
 	BlockTypeWebSearchCall    = "web_search_call"
+	BlockTypeRefusal          = "refusal"
 )
 
 // Citation sources.
@@ -67,6 +68,15 @@ type ThinkingBlock struct {
 	Signature string
 	Native    []NativeAnnotation
 }
+
+// RefusalBlock is a model refusal content block (since 2.5.0).
+type RefusalBlock struct {
+	Refusal  string
+	Category string
+	Native   []NativeAnnotation
+}
+
+func (RefusalBlock) isBlock() {}
 
 // ImageBlock is an image input. Unused in this milestone (M4 wires it);
 // exactly one of Data / URL must be present.

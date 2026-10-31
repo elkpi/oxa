@@ -295,7 +295,22 @@ type OutputItem struct {
 type OutputContent struct {
 	Type        string            `json:"type"`
 	Text        string            `json:"text"`
+	Refusal     string            `json:"refusal,omitempty"`
 	Annotations []json.RawMessage `json:"annotations"`
+}
+
+func (c OutputContent) MarshalJSON() ([]byte, error) {
+	if c.Type == "refusal" {
+		return json.Marshal(struct {
+			Type    string `json:"type"`
+			Refusal string `json:"refusal"`
+		}{
+			Type:    c.Type,
+			Refusal: c.Refusal,
+		})
+	}
+	type shadow OutputContent
+	return json.Marshal(shadow(c))
 }
 
 // UsageWire is the wire usage object. total_tokens is derived (input +

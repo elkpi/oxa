@@ -415,6 +415,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			switch kind {
 			case PartTypeOutputText, PartTypeSummaryText:
 				return rawObjectSchema(t, []string{"type", "text", "annotations"}, nil, seen)
+			case "refusal":
+				return rawObjectSchema(t, []string{"type", "refusal"}, nil, seen)
 			default:
 				return nil
 			}

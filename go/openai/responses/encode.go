@@ -490,8 +490,22 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var textParts []OutputContent
 	apcIndex := 0
 	apcoIndex := 0
+	var refusalMsg string
 	for i, block := range resp.Content {
 		switch value := block.(type) {
+		case ir.RefusalBlock:
+			if value.Category != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("content[%d].category", i), "category", ir.LossUnsupportedSemantic,
+					"Anthropic refusal category has no Responses equivalent",
+				))
+			}
+			textParts = append(textParts, OutputContent{
+				Type: "refusal", Refusal: value.Refusal,
+			})
+			if refusalMsg == "" {
+				refusalMsg = value.Refusal
+			}
 		case ir.TextBlock:
 			var partAnnotations []json.RawMessage
 			hasAnthropic := false
@@ -629,7 +643,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			"Responses status carries no stop-sequence identity; the matched IR stop sequence is lost",
 		))
 	case ir.StopRefusal:
-		failed = &ErrorWire{Code: ErrorCodeRefusal}
+		failed = &ErrorWire{Code: ErrorCodeRefusal, Message: refusalMsg}
 	default:
 		return nil, nil, fmt.Errorf("responses: stop reason %q has no Responses equivalent", resp.StopReason)
 	}

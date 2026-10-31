@@ -604,11 +604,13 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss, error) {
 	out := Message{Role: RoleAssistant}
 	text := ""
+	hasText := false
 	var losses []ir.Loss
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
 			text += value.Text
+			hasText = true
 			if len(value.Citations) > 0 {
 				hasAnthropic := false
 				hasOpenAI := false
@@ -677,6 +679,14 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),
 			))
+		case ir.RefusalBlock:
+			out.Refusal = value.Refusal
+			if value.Category != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].category", path, i), "category", ir.LossUnsupportedSemantic,
+					"Anthropic refusal category has no Chat Completions equivalent",
+				))
+			}
 		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
@@ -689,7 +699,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 			))
 		}
 	}
-	out.Content = text
+	if !hasText && out.Refusal != "" {
+		out.Content = nil
+	} else {
+		out.Content = text
+	}
 	return out, losses, nil
 }
 

@@ -622,10 +622,11 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	o := newOptions(opts...)
 	out := &Response{
-		ID:    resp.ID,
-		Type:  TypeMessage,
-		Role:  RoleAssistant,
-		Model: o.models.Map(resp.Model),
+		ID:      resp.ID,
+		Type:    TypeMessage,
+		Role:    RoleAssistant,
+		Model:   o.models.Map(resp.Model),
+		Content: []BlockWire{},
 		Usage: &UsageWire{
 			InputTokens:              resp.Usage.InputTokens,
 			OutputTokens:             resp.Usage.OutputTokens,
@@ -634,7 +635,11 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		},
 	}
 	var losses []ir.Loss
+	var refusalBlock *ir.RefusalBlock
 	for i, block := range resp.Content {
+		if r, ok := block.(ir.RefusalBlock); ok && refusalBlock == nil {
+			refusalBlock = &r
+		}
 		encoded, blockLosses, mapped, err := encodeResponseBlock(block, fmt.Sprintf("content[%d]", i))
 		if err != nil {
 			return nil, nil, err
@@ -674,11 +679,31 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	default:
 		return nil, nil, fmt.Errorf("anthropic: stop reason %q has no Anthropic equivalent", resp.StopReason)
 	}
+	if out.StopReason == StopReasonRefusal || refusalBlock != nil {
+		out.StopReason = StopReasonRefusal
+		var cat *string
+		var expl *string
+		if refusalBlock != nil {
+			if refusalBlock.Category != "" {
+				cat = &refusalBlock.Category
+			}
+			if refusalBlock.Refusal != "" {
+				expl = &refusalBlock.Refusal
+			}
+		}
+		out.StopDetails = &StopDetailsWire{
+			Type:        "refusal",
+			Category:    cat,
+			Explanation: expl,
+		}
+	}
 	return out, losses, nil
 }
 
 func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
+	case ir.RefusalBlock:
+		return BlockWire{}, nil, false, nil
 	case ir.TextBlock:
 		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
 		var blockLosses []ir.Loss

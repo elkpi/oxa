@@ -394,10 +394,25 @@ func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
 type Message struct {
 	Role             string     `json:"role"`
 	Content          any        `json:"content,omitempty"`
+	Refusal          string     `json:"refusal,omitempty"`
 	ReasoningContent string     `json:"reasoning_content,omitempty"`
 	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID       string     `json:"tool_call_id,omitempty"`
 	FunctionCall     any        `json:"function_call,omitempty"`
+}
+
+func (m Message) MarshalJSON() ([]byte, error) {
+	type shadow Message
+	if m.Refusal != "" && m.Content == nil {
+		return json.Marshal(struct {
+			shadow
+			Content any `json:"content"`
+		}{
+			shadow:  shadow(m),
+			Content: nil,
+		})
+	}
+	return json.Marshal(shadow(m))
 }
 
 // ToolCall is an assistant function or custom tool invocation.

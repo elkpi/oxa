@@ -299,6 +299,35 @@ test("v2.4.11: between_tools encode conflict with budget", () => {
   assert.throws(() => encodeAnthropic(reqConflict), /between_tools/);
 });
 
+test("v2.5.0: non-positive or missing budget_tokens rejected in enabled thinking", () => {
+  for (const budget of [0, -1, -100]) {
+    assert.throws(
+      () =>
+        decodeAnthropicJSON(
+          JSON.stringify({
+            model: "claude-sonnet-5-5",
+            max_tokens: 16000,
+            messages: [{ role: "user", content: "Hi" }],
+            thinking: { type: "enabled", budget_tokens: budget },
+          }),
+        ),
+      /budget_tokens/,
+    );
+  }
+  assert.throws(
+    () =>
+      decodeAnthropicJSON(
+        JSON.stringify({
+          model: "claude-sonnet-5-5",
+          max_tokens: 16000,
+          messages: [{ role: "user", content: "Hi" }],
+          thinking: { type: "enabled" },
+        }),
+      ),
+    /budget_tokens/,
+  );
+});
+
 test("v2.4.11: omittedNativeRequestLosses default fallback for top_k and disable_parallel_tool_use", async () => {
   const req: Request = {
     model: "claude-opus-4-6",

@@ -505,45 +505,49 @@ export function decodeRequestNative(
           // ignore
         }
       }
-      if (b !== undefined && b > 0n) {
-        const hasExplicitEffort =
-          wire.output_config &&
-          typeof wire.output_config === "object" &&
-          !Array.isArray(wire.output_config) &&
-          Boolean((wire.output_config as Record<string, JsonValue>).effort);
+      if (b === undefined || b <= 0n) {
+        throw new OxaError(
+          "type-violation",
+          "anthropic: thinking.budget_tokens must be a positive integer",
+        );
+      }
+      const hasExplicitEffort =
+        wire.output_config &&
+        typeof wire.output_config === "object" &&
+        !Array.isArray(wire.output_config) &&
+        Boolean((wire.output_config as Record<string, JsonValue>).effort);
 
-        if (hasExplicitEffort) {
-          reqNative.push({
-            source: NATIVE_SOURCE_ANTHROPIC,
-            kind: NATIVE_KIND_THINKING_BUDGET,
-            value: b.toString(),
-            omission: {
-              field: "budget_tokens",
-              reason: "unmapped-field" as const,
-            },
-          });
-        } else {
-          const mappedEffort =
-            b <= 1024n
-              ? "minimal"
-              : b <= 2048n
-                ? "low"
-                : b <= 8192n
-                  ? "medium"
-                  : "high";
-          reasoningEffort = mappedEffort;
-          reqNative.push({
-            source: NATIVE_SOURCE_ANTHROPIC,
-            kind: NATIVE_KIND_THINKING_BUDGET,
-            value: b.toString(),
-            omission: {
-              field: "budget_tokens",
-              reason: "degraded" as const,
-              detail: "budget approximated",
-            },
-            projection: { origin: "budget", effort: mappedEffort },
-          });
-        }
+      if (hasExplicitEffort) {
+        reqNative.push({
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: NATIVE_KIND_THINKING_BUDGET,
+          value: b.toString(),
+          omission: {
+            field: "budget_tokens",
+            reason: "unmapped-field" as const,
+          },
+        });
+      } else {
+        const mappedEffort =
+          b <= 1024n
+            ? "minimal"
+            : b <= 2048n
+              ? "low"
+              : b <= 8192n
+                ? "medium"
+                : "high";
+        reasoningEffort = mappedEffort;
+        reqNative.push({
+          source: NATIVE_SOURCE_ANTHROPIC,
+          kind: NATIVE_KIND_THINKING_BUDGET,
+          value: b.toString(),
+          omission: {
+            field: "budget_tokens",
+            reason: "degraded" as const,
+            detail: "budget approximated",
+          },
+          projection: { origin: "budget", effort: mappedEffort },
+        });
       }
     } else {
       losses.push({

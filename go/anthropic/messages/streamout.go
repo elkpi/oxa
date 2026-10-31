@@ -15,26 +15,27 @@ import (
 // the correspondingly named wire event. Envelope fields absent from the IR
 // render with the documented defaults and record no loss.
 type StreamEncoder struct {
-	customFilter  customStreamFilter
-	models        modelmap.Table
-	id            string
-	model         string
-	started       bool
-	nextIndex     int
-	openIndex     int
-	blockOpen     bool
-	openTool      bool
-	openCustom    bool
-	openThinking  bool
-	openRedacted  bool
-	toolInput     string
-	toolParts     []string
-	thinkingInput string
-	thinkingSig   string
-	thinkingParts []string
-	signatureSeen bool
-	deltaSeen     bool
-	done          bool
+	customFilter     customStreamFilter
+	models           modelmap.Table
+	id               string
+	model            string
+	started          bool
+	nextIndex        int
+	openIndex        int
+	blockOpen        bool
+	openTool         bool
+	openCustom       bool
+	openThinking     bool
+	openRedacted     bool
+	toolInput        string
+	toolParts        []string
+	thinkingInput    string
+	thinkingSig      string
+	thinkingParts    []string
+	signatureSeen    bool
+	citationLossSeen bool
+	deltaSeen        bool
+	done             bool
 }
 
 // NewStreamEncoder returns an event-stream encoder. The variadic Options match
@@ -117,6 +118,7 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.openTool = false
 			e.openThinking = false
 			e.openIndex = event.Index
+			e.citationLossSeen = false
 			var citesRaw json.RawMessage
 			var citeLosses []ir.Loss
 			if len(block.Citations) > 0 {
@@ -124,6 +126,12 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				citesRaw, citeLosses, err = encodeResponseCitations(block.Citations, fmt.Sprintf("content[%d].citations", event.Index))
 				if err != nil {
 					return nil, nil, err
+				}
+				for _, l := range citeLosses {
+					if l.Field == "citations" {
+						e.citationLossSeen = true
+						break
+					}
 				}
 			}
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{Type: BlockTypeText, Text: block.Text, Citations: citesRaw}}}, citeLosses, nil
@@ -227,6 +235,25 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 		case ir.CitationDelta:
 			if e.openTool || e.openThinking || e.openRedacted {
 				return nil, nil, fmt.Errorf("anthropic: CitationDelta on non-text block")
+			}
+			if delta.Citation.Source == ir.CitationSourceOpenAI {
+				var losses []ir.Loss
+				if !e.citationLossSeen {
+					e.citationLossSeen = true
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("content[%d].citations", event.Index),
+						Field:  "citations",
+						Reason: ir.LossUnsupportedSemantic,
+						Detail: "openai text annotations; the target face cannot preserve source locations and replay metadata",
+					})
+				}
+				return nil, losses, nil
+			}
+			if delta.Citation.Source != ir.CitationSourceAnthropic {
+				return nil, nil, fmt.Errorf("anthropic: unknown citation source %q", delta.Citation.Source)
+			}
+			if err := ir.ValidateCitationValue(delta.Citation.Value); err != nil {
+				return nil, nil, fmt.Errorf("anthropic: %w", err)
 			}
 			var citeObj map[string]any
 			if err := json.Unmarshal([]byte(delta.Citation.Value), &citeObj); err != nil {

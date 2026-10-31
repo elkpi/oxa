@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -978,28 +979,47 @@ func decodeResponsesAnnotations(raw []json.RawMessage, path string) ([]ir.TextCi
 	}
 	var out []ir.TextCitation
 	for k, ann := range raw {
-		if len(ann) == 0 {
+		trimmed := bytes.TrimSpace(ann)
+		if len(trimmed) == 0 {
 			return nil, fmt.Errorf("responses: %s[%d]: annotation cannot be empty", path, k)
 		}
-		var obj map[string]any
-		if err := json.Unmarshal(ann, &obj); err != nil {
+		if trimmed[0] != '{' {
+			return nil, fmt.Errorf("responses: %s[%d]: annotation must be an object", path, k)
+		}
+		var obj map[string]json.RawMessage
+		if err := json.Unmarshal(trimmed, &obj); err != nil {
 			return nil, fmt.Errorf("responses: %s[%d]: annotation must be an object: %w", path, k, err)
 		}
 		typeVal, ok := obj["type"]
 		if !ok {
 			return nil, fmt.Errorf("responses: %s[%d]: annotation requires type field", path, k)
 		}
-		typeStr, ok := typeVal.(string)
-		if !ok || typeStr == "" {
+		var typeStr string
+		if err := json.Unmarshal(typeVal, &typeStr); err != nil || typeStr == "" {
 			return nil, fmt.Errorf("responses: %s[%d]: annotation type must be a non-empty string", path, k)
 		}
-		compact, err := json.Marshal(obj)
-		if err != nil {
-			return nil, fmt.Errorf("responses: %s[%d]: %w", path, k, err)
+		keys := make([]string, 0, len(obj))
+		for key := range obj {
+			keys = append(keys, key)
 		}
+		sort.Strings(keys)
+
+		var buf bytes.Buffer
+		buf.WriteByte('{')
+		for i, key := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+			kb, _ := json.Marshal(key)
+			buf.Write(kb)
+			buf.WriteByte(':')
+			buf.Write(bytes.TrimSpace(obj[key]))
+		}
+		buf.WriteByte('}')
+
 		out = append(out, ir.TextCitation{
 			Source: ir.CitationSourceOpenAI,
-			Value:  string(compact),
+			Value:  buf.String(),
 		})
 	}
 	return out, nil

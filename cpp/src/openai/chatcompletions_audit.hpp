@@ -9,7 +9,7 @@ inline const detail::AuditProfile& wire_profile() {
          {"stream_options", {{"include_usage", ""}, {"include_obfuscation", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice[]"}, {"usage", "usage"}}},
          {"event", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice_delta[]"}, {"usage", "usage"}}},
-         {"message", {{"role", ""}, {"content", "part[]"}, {"reasoning_content", ""}, {"tool_calls", "tool_call[]"}, {"tool_call_id", ""}}},
+         {"message", {{"role", ""}, {"content", "part[]"}, {"refusal", ""}, {"reasoning_content", ""}, {"tool_calls", "tool_call[]"}, {"tool_call_id", ""}}},
          {"text", {{"type", ""}, {"text", ""}}},
          {"image", {{"type", ""}, {"image_url", "image_url"}}},
          {"image_url", {{"url", ""}}},

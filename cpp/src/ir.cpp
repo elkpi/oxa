@@ -358,6 +358,14 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
         }
         return out;
     }
+    if (const auto* r = std::get_if<RefusalBlock>(&b)) {
+        out.set("type", json::Value::string(std::string(BLOCK_TYPE_REFUSAL)));
+        out.set("refusal", json::Value::string(r->refusal));
+        if (r->category.has_value()) {
+            out.set("category", json::Value::string(*r->category));
+        }
+        return out;
+    }
     if (const auto* tr = std::get_if<ToolResultBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TOOL_RESULT)));
         out.set("tool_use_id", json::Value::string(tr->tool_use_id));
@@ -658,6 +666,15 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
             tr.is_error = is_err->as_bool();
         }
         return Block(std::move(tr));
+    }
+    if (kind == BLOCK_TYPE_REFUSAL) {
+        OXA_ASSIGN_OR_RETURN(std::string refusal, require_string(v, "refusal", "refusal block"));
+        RefusalBlock block{std::move(refusal), std::nullopt, std::move(native)};
+        if (has(v, "category")) {
+            OXA_ASSIGN_OR_RETURN(std::string category, require_string(v, "category", "refusal block"));
+            block.category = std::move(category);
+        }
+        return Block(std::move(block));
     }
     return invalid_argument("unknown block discriminant: " + kind);
 }

@@ -7,7 +7,8 @@ inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
         {{"request", {{"model", ""}, {"system", "system_block[]"}, {"messages", "message[]"}, {"max_tokens", ""}, {"temperature", ""}, {"top_p", ""}, {"top_k", ""}, {"stop_sequences", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"thinking", "thinking_config"}, {"output_config", "output_config"}, {"cache_control", "cache_control"}, {"context_management", "context_management"}, {"metadata", "metadata"}}},
          {"metadata", {{"user_id", ""}}},
-         {"response", {{"id", ""}, {"type", ""}, {"role", ""}, {"model", ""}, {"content", "response_block[]"}, {"stop_reason", ""}, {"stop_sequence", ""}, {"usage", "usage"}}},
+         {"response", {{"id", ""}, {"type", ""}, {"role", ""}, {"model", ""}, {"content", "response_block[]"}, {"stop_reason", ""}, {"stop_sequence", ""}, {"stop_details", "stop_details"}, {"usage", "usage"}}},
+         {"stop_details", {{"type", ""}, {"category", ""}, {"explanation", ""}}},
          {"message", {{"role", ""}, {"content", "block[]"}}},
          {"system_block", {{"type", ""}, {"text", ""}, {"cache_control", "cache_control"}}},
          {"tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"input_schema", ""}, {"strict", ""}, {"cache_control", "cache_control"}, {"defer_loading", ""}, {"eager_input_streaming", ""}}},

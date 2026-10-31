@@ -551,8 +551,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             }
             auto [tc_blocks, tc_losses] =
                 decode_tool_calls(m.find("tool_calls"), "messages[" + std::to_string(index) + "].tool_calls");
+            const auto* refusal_val = m.find("refusal");
+            const bool has_refusal = refusal_val && refusal_val->is_string() && !refusal_val->as_string().empty();
             const auto* c_val = m.find("content");
-            if ((!c_val || c_val->is_null()) && !tc_blocks.empty()) {
+            if ((!c_val || c_val->is_null()) && (!tc_blocks.empty() || has_refusal)) {
                 content.erase(std::remove_if(content.begin(), content.end(), [](const ir::Block& block) {
                                   return !std::holds_alternative<ir::ThinkingBlock>(block);
                               }),
@@ -560,6 +562,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             }
             content.insert(content.end(), std::make_move_iterator(tc_blocks.begin()),
                            std::make_move_iterator(tc_blocks.end()));
+            if (has_refusal) {
+                content.push_back(ir::RefusalBlock{refusal_val->as_string()});
+            }
             if (content.empty()) {
                 content.push_back(ir::TextBlock{""});
             }
@@ -954,6 +959,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
+                } else if (const auto* ref = std::get_if<ir::RefusalBlock>(&b)) {
+                    am.set("refusal", json::Value::string(ref->refusal));
+                    if (ref->category.has_value() && !ref->category->empty()) {
+                        losses.push_back(make_cc_loss(
+                            "messages[" + std::to_string(i) + "].refusal", "category", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "Anthropic refusal category has no Chat Completions equivalent"));
+                    }
                 } else if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
                     has_reasoning = true;
                     reasoning += thinking->thinking;
@@ -1342,7 +1354,9 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
 
     auto [tool_blocks, tool_losses] = decode_tool_calls(msg->find("tool_calls"), "choices[0].message.tool_calls");
     const auto* content_val = msg->find("content");
-    if ((!content_val || content_val->is_null()) && !tool_blocks.empty()) {
+    const auto* refusal_val = msg->find("refusal");
+    const bool has_refusal = refusal_val && refusal_val->is_string() && !refusal_val->as_string().empty();
+    if ((!content_val || content_val->is_null()) && (!tool_blocks.empty() || has_refusal)) {
         blocks.erase(std::remove_if(blocks.begin(), blocks.end(), [](const ir::Block& block) {
                          return !std::holds_alternative<ir::ThinkingBlock>(block);
                      }),
@@ -1350,6 +1364,9 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
     }
     blocks.insert(blocks.end(), std::make_move_iterator(tool_blocks.begin()),
                   std::make_move_iterator(tool_blocks.end()));
+    if (has_refusal) {
+        blocks.push_back(ir::RefusalBlock{refusal_val->as_string()});
+    }
     losses.insert(losses.end(), tool_losses.begin(), tool_losses.end());
 
     if (msg->find("function_call") != nullptr) {
@@ -1422,10 +1439,18 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     std::string text;
     std::string reasoning;
     bool has_reasoning = false;
+    std::optional<std::string> refusal_text;
     json::Value tc_arr = json::Value::array();
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
         const auto& b = resp.content[i];
-        if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
+        if (const auto* ref = std::get_if<ir::RefusalBlock>(&b)) {
+            refusal_text = ref->refusal;
+            if (ref->category.has_value() && !ref->category->empty()) {
+                losses.push_back(make_cc_loss(
+                    "content[" + std::to_string(i) + "].category", "category", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic refusal category has no Chat Completions equivalent"));
+            }
+        } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             text += tb->text;
             if (tb->citations.has_value() && !tb->citations->empty()) {
                 bool has_anthropic = false;
@@ -1492,7 +1517,16 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 "IR block cannot be rendered in a Chat Completions assistant response"));
         }
     }
-    msg.set("content", json::Value::string(std::move(text)));
+    if (refusal_text.has_value()) {
+        msg.set("refusal", json::Value::string(*refusal_text));
+        if (text.empty()) {
+            msg.set("content", json::Value::null());
+        } else {
+            msg.set("content", json::Value::string(std::move(text)));
+        }
+    } else {
+        msg.set("content", json::Value::string(std::move(text)));
+    }
     if (has_reasoning) {
         msg.set("reasoning_content", json::Value::string(std::move(reasoning)));
     }

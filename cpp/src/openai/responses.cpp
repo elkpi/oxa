@@ -339,6 +339,9 @@ std::pair<std::string, std::vector<ir::Loss>> decode_status(
         std::string msg;
         if (const auto* cv = err->find("code"); cv && cv->is_string()) code = cv->as_string();
         if (const auto* mv = err->find("message"); mv && mv->is_string()) msg = mv->as_string();
+        if (code == "refusal") {
+            return {std::string(ir::STOP_REFUSAL), losses};
+        }
         losses.push_back(make_resp_loss(
             "error", "error", ir::LOSS_UNSUPPORTED_SEMANTIC,
             "failed Responses response carries error \"" + code + "\": " + msg));
@@ -1797,6 +1800,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 "openai text annotations; the target face cannot preserve source locations and replay metadata"));
                         }
                     }
+                } else if (const auto* ref = std::get_if<ir::RefusalBlock>(&b)) {
+                    a_txt += ref->refusal;
+                    has_text = true;
+                    if (ref->category.has_value() && !ref->category->empty()) {
+                        losses.push_back(make_resp_loss(
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].category",
+                            "category", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                            "Anthropic refusal category has no Responses equivalent"));
+                    }
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1960,6 +1972,12 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         const auto& part = c_arr->as_array()[ci];
                         const auto* pt = part.find("type");
                         std::string pkind = pt && pt->is_string() ? pt->as_string() : "";
+                        if (pkind == "refusal") {
+                            std::string ref_txt;
+                            if (const auto* rf = part.find("refusal"); rf && rf->is_string()) ref_txt = rf->as_string();
+                            resp.content.push_back(ir::RefusalBlock{std::move(ref_txt)});
+                            continue;
+                        }
                         if (pkind != "output_text") {
                             losses.push_back(make_resp_loss(
                                 item_path + ".content[" + std::to_string(ci) + "]", "type",
@@ -2101,6 +2119,11 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
     std::stable_sort(resp.content.begin(), resp.content.end(), [&](const ir::Block& a, const ir::Block& b) { return rank(a) < rank(b); });
     auto [stop_reason, status_losses] = decode_status(wire, has_tool_use);
     resp.stop_reason = std::move(stop_reason);
+    if (std::any_of(resp.content.begin(), resp.content.end(), [](const ir::Block& b) {
+            return std::holds_alternative<ir::RefusalBlock>(b);
+        }) && resp.stop_reason == ir::STOP_END_TURN) {
+        resp.stop_reason = std::string(ir::STOP_REFUSAL);
+    }
     losses.insert(losses.end(), status_losses.begin(), status_losses.end());
 
     if (const auto* u = wire.find("usage"); u && u->is_object()) {
@@ -2144,13 +2167,25 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
 
     std::size_t next_apc = 0;
     std::size_t next_apco = 0;
+    std::optional<std::string> refusal_msg;
     json::Value reasoning_parts = json::Value::array();
     std::vector<json::Value> text_parts;
     std::vector<json::Value> calls;
 
     for (std::size_t i = 0; i < resp.content.size(); ++i) {
         const auto& b = resp.content[i];
-        if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
+        if (const auto* ref = std::get_if<ir::RefusalBlock>(&b)) {
+            if (ref->category.has_value() && !ref->category->empty()) {
+                losses.push_back(make_resp_loss(
+                    "content[" + std::to_string(i) + "].category", "category", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic refusal category has no Responses equivalent"));
+            }
+            json::Value op = json::Value::object();
+            op.set("type", json::Value::string("refusal"));
+            op.set("refusal", json::Value::string(ref->refusal));
+            text_parts.push_back(std::move(op));
+            if (!refusal_msg.has_value()) refusal_msg = ref->refusal;
+        } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
             json::Value part_annotations = json::Value::array();
             if (tb->citations.has_value() && !tb->citations->empty()) {
                 bool has_anthropic = false;
@@ -2323,7 +2358,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
         out.set("status", json::Value::string("failed"));
         json::Value err = json::Value::object();
         err.set("code", json::Value::string("refusal"));
-        err.set("message", json::Value::string(""));
+        err.set("message", json::Value::string(refusal_msg.value_or("")));
         out.set("error", std::move(err));
     } else {
         return invalid_argument("responses: stop reason \"" + std::string(resp.stop_reason) +

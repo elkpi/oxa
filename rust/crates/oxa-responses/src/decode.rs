@@ -28,15 +28,13 @@ use crate::types::{
 /// type violations of known fields (spec/02 §4).
 pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let mut losses = Vec::new();
-    for (path, field, present, detail) in [(
-        "parallel_tool_calls",
-        "parallel_tool_calls",
-        wire.parallel_tool_calls.is_some(),
-        "Responses parallel tool calls have no IR equivalent in v1.",
-    )] {
-        if present {
-            losses.push(loss(path, field, LossReason::UnmappedField, detail));
-        }
+    if wire.parallel_tool_calls.is_some() {
+        losses.push(loss(
+            "parallel_tool_calls",
+            "parallel_tool_calls",
+            LossReason::UnmappedField,
+            "Responses parallel tool calls have no IR equivalent in v1.",
+        ));
     }
 
     let mut request = IrRequest {

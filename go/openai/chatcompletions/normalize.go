@@ -15,7 +15,11 @@ func loss(path, field string, reason ir.LossReason, detail string) ir.Loss {
 
 // N-CC-1 normalizes Chat Completions string and parts-array content into IR
 // blocks, dropping unknown parts as semantic losses.
-func decodeContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
+func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.Loss, error) {
+	user := false
+	if len(isUser) > 0 {
+		user = isUser[0]
+	}
 	switch v := content.(type) {
 	case nil:
 		return []ir.Block{ir.TextBlock{Text: ""}}, nil, nil
@@ -34,6 +38,13 @@ func decodeContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
 				return nil, nil, fmt.Errorf("chatcompletions: %s[%d].type: part type is not a string", path, i)
 			}
 			if kind == ContentPartTypeFile {
+				if !user {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+						"Chat Completions content part type \"file\" has no IR equivalent",
+					))
+					continue
+				}
 				doc, fileLosses, err := decodeFilePart(part["file"], fmt.Sprintf("%s[%d].file", path, i))
 				if err != nil {
 					return nil, nil, err
@@ -60,6 +71,13 @@ func decodeContent(content any, path string) ([]ir.Block, []ir.Loss, error) {
 		var losses []ir.Loss
 		for i, part := range v {
 			if part.Type == ContentPartTypeFile {
+				if !user {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+						"Chat Completions content part type \"file\" has no IR equivalent",
+					))
+					continue
+				}
 				doc, fileLosses, err := decodeFilePart(part.File, fmt.Sprintf("%s[%d].file", path, i))
 				if err != nil {
 					return nil, nil, err
@@ -104,6 +122,23 @@ func imageURLFromMap(value any, path string) (string, error) {
 	return optionalString(image["url"], path+".url")
 }
 
+func decodeFileData(raw, path string) (string, string, error) {
+	if strings.HasPrefix(raw, "data:") {
+		rest := strings.TrimPrefix(raw, "data:")
+		idx := strings.Index(rest, ";base64,")
+		if idx == -1 {
+			return "", "", fmt.Errorf("chatcompletions: %s: malformed data file URL", path)
+		}
+		mt := rest[:idx]
+		if mt == "" {
+			mt = "application/pdf"
+		}
+		payload := rest[idx+len(";base64,"):]
+		return payload, mt, nil
+	}
+	return raw, "application/pdf", nil
+}
+
 func decodeFilePart(fileVal any, path string) (ir.DocumentBlock, []ir.Loss, error) {
 	if fileVal == nil {
 		return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s: file part missing file object", path)
@@ -115,25 +150,25 @@ func decodeFilePart(fileVal any, path string) (ir.DocumentBlock, []ir.Loss, erro
 			return ir.DocumentBlock{}, nil, fmt.Errorf("chatcompletions: %s: file part missing file object", path)
 		}
 		fMap = map[string]any{}
-		if f.FileID != "" {
-			fMap["file_id"] = f.FileID
+		if f.FileID != nil {
+			fMap["file_id"] = *f.FileID
 		}
-		if f.FileData != "" {
-			fMap["file_data"] = f.FileData
+		if f.FileData != nil {
+			fMap["file_data"] = *f.FileData
 		}
-		if f.Filename != "" {
-			fMap["filename"] = f.Filename
+		if f.Filename != nil {
+			fMap["filename"] = *f.Filename
 		}
 	case FileWire:
 		fMap = map[string]any{}
-		if f.FileID != "" {
-			fMap["file_id"] = f.FileID
+		if f.FileID != nil {
+			fMap["file_id"] = *f.FileID
 		}
-		if f.FileData != "" {
-			fMap["file_data"] = f.FileData
+		if f.FileData != nil {
+			fMap["file_data"] = *f.FileData
 		}
-		if f.Filename != "" {
-			fMap["filename"] = f.Filename
+		if f.Filename != nil {
+			fMap["filename"] = *f.Filename
 		}
 	case map[string]any:
 		fMap = f
@@ -177,7 +212,11 @@ func decodeFilePart(fileVal any, path string) (ir.DocumentBlock, []ir.Loss, erro
 	if fileID != "" {
 		return ir.DocumentBlock{FileID: fileID}, losses, nil
 	}
-	return ir.DocumentBlock{Data: fileData, MediaType: "application/pdf"}, losses, nil
+	data, mt, err := decodeFileData(fileData, path+".file_data")
+	if err != nil {
+		return ir.DocumentBlock{}, nil, err
+	}
+	return ir.DocumentBlock{Data: data, MediaType: mt}, losses, nil
 }
 
 func decodeContentPart(kind, text, imageURL, path string, index int) ([]ir.Block, []ir.Loss) {
@@ -497,6 +536,30 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			hasImage = true
 			parts = append(parts, part)
 		case ir.DocumentBlock:
+			var sCount int
+			if value.FileID != "" {
+				sCount++
+			}
+			if value.URL != "" {
+				sCount++
+			}
+			if value.Data != "" {
+				sCount++
+			}
+			if sCount == 0 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"IR DocumentBlock carries no supported file source",
+				))
+				continue
+			}
+			if sCount > 1 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"IR DocumentBlock carries conflicting file sources",
+				))
+				continue
+			}
 			if value.URL != "" {
 				losses = append(losses, loss(
 					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
@@ -504,22 +567,24 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				))
 				continue
 			}
+			if value.Data != "" && value.MediaType != "" && value.MediaType != "application/pdf" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"Chat Completions file content parts do not support non-PDF media types; file dropped",
+				))
+				continue
+			}
 			hasImage = true
 			if value.FileID != "" {
 				parts = append(parts, ContentPart{
 					Type: ContentPartTypeFile,
-					File: &FileWire{FileID: value.FileID},
-				})
-			} else if value.Data != "" {
-				parts = append(parts, ContentPart{
-					Type: ContentPartTypeFile,
-					File: &FileWire{FileData: value.Data},
+					File: &FileWire{FileID: &value.FileID},
 				})
 			} else {
-				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
-					"IR DocumentBlock carries no supported file source",
-				))
+				parts = append(parts, ContentPart{
+					Type: ContentPartTypeFile,
+					File: &FileWire{FileData: &value.Data},
+				})
 			}
 		default:
 			losses = append(losses, loss(

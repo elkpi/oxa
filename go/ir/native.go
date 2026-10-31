@@ -540,6 +540,9 @@ func OmittedNativeRequestLosses(req *Request, target string) ([]Loss, error) {
 	for mIdx, msg := range req.Messages {
 		for cIdx, blk := range msg.Content {
 			basePath := fmt.Sprintf("messages[%d].content[%d]", mIdx, cIdx)
+			if _, ok := blk.(DocumentBlock); ok && msg.Role != RoleUser {
+				continue
+			}
 			losses = collectBlockOmissionLosses(losses, blk, basePath, target)
 		}
 	}
@@ -564,7 +567,7 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 	case ImageBlock:
 		nat = blk.Native
 	case DocumentBlock:
-		if target == "chatcompletions" && blk.URL != "" {
+		if target == "chatcompletions" && (blk.URL != "" || (blk.MediaType != "" && blk.MediaType != "application/pdf")) {
 			return losses
 		}
 		nat = blk.Native
@@ -594,6 +597,9 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 	}
 
 	for k, child := range children {
+		if _, ok := child.(DocumentBlock); ok {
+			continue
+		}
 		childPath := fmt.Sprintf("%s.content[%d]", path, k)
 		losses = collectBlockOmissionLosses(losses, child, childPath, target)
 	}

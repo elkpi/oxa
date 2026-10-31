@@ -127,7 +127,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		case "", ItemTypeMessage:
 			switch item.Role {
 			case RoleSystem, RoleDeveloper:
-				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
+				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i), false)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -148,7 +148,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				losses = append(losses, contentLosses...)
 				i++
 			case RoleUser:
-				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
+				content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i), true)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -564,7 +564,7 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 		if item.Role != RoleAssistant {
 			break
 		}
-		content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i))
+		content, contentLosses, err := decodeItemContent(item.Content, fmt.Sprintf("input[%d].content", i), false)
 		if err != nil {
 			return nil, 0, nil, err
 		}

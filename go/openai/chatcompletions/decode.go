@@ -118,7 +118,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			continue
 		}
 
-		content, contentLosses, err := decodeContent(message.Content, fmt.Sprintf("messages[%d].content", i))
+		content, contentLosses, err := decodeContent(message.Content, fmt.Sprintf("messages[%d].content", i), message.Role == RoleUser)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -350,7 +350,7 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	var losses []ir.Loss
 	choice := wire.Choices[0]
-	blocks, contentLosses, err := decodeContent(choice.Message.Content, "choices[0].message.content")
+	blocks, contentLosses, err := decodeContent(choice.Message.Content, "choices[0].message.content", false)
 	if err != nil {
 		return nil, nil, err
 	}

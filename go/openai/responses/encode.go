@@ -315,17 +315,32 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 			parts = append(parts, part)
 		case ir.DocumentBlock:
 			otherBlocks++
+			var sCount int
 			if value.FileID != "" {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileID: value.FileID})
-			} else if value.URL != "" {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileURL: value.URL})
-			} else if value.Data != "" {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileData: value.Data})
-			} else {
+				sCount++
+			}
+			if value.URL != "" {
+				sCount++
+			}
+			if value.Data != "" {
+				sCount++
+			}
+			if sCount == 0 {
 				losses = append(losses, loss(
 					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 					"IR DocumentBlock carries no supported file source",
 				))
+			} else if sCount > 1 {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
+					"IR DocumentBlock carries conflicting file sources",
+				))
+			} else if value.FileID != "" {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileID: &value.FileID})
+			} else if value.URL != "" {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileURL: &value.URL})
+			} else {
+				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileData: &value.Data})
 			}
 		default:
 			otherBlocks++

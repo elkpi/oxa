@@ -398,6 +398,24 @@ Each rule has a stable ID usable as a vector tag.
     - `Data` present: renders `{"type": "input_file", "file_data": *Data}` with zero loss.
     `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss (detail: `"this IR block cannot be rendered in a Responses assistant input item"`).
 
+- **N-R-20 (refusal content parts and failed status, since 2.5.0).** Responses represents
+  assistant refusals via content part `{"type": "refusal", "refusal": "..."}` or top-level
+  `status: "failed"` with `error: {code: "refusal"}`.
+  - **Decode.** When an assistant message output item contains a content part of `type: "refusal"`,
+    its non-empty `refusal` string maps to `RefusalBlock{Refusal: refusal}` in `Response.Content`.
+    If the response top-level status is `failed` with `error.code == "refusal"` and no refusal
+    part exists in message content, non-empty `error.message` maps to `RefusalBlock{Refusal: error.message}`.
+    When a refusal block is present or `error.code == "refusal"`, `Response.StopReason` is `refusal`.
+    In request history, an input assistant message with a refusal part similarly decodes to `RefusalBlock`.
+  - **Encode.** In response encoding, `RefusalBlock` in `Response.Content` renders as an output
+    content part `{"type": "refusal", "refusal": b.Refusal}` within the assistant message item.
+    If `RefusalBlock.Category` is non-empty, an `unsupported-semantic` loss is recorded at
+    `content[i].category` (detail: `"Anthropic refusal category has no Responses equivalent"`).
+    When `Response.StopReason == "refusal"`, top-level status renders as `"failed"` with
+    `error: {"code": "refusal", "message": refusal_text}` (or `""` if no text is available).
+    In request history, `RefusalBlock` in an assistant message renders as a refusal content part.
+    `RefusalBlock` in a user or system message records an `unsupported-semantic` loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and

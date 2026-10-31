@@ -269,6 +269,21 @@ Each rule has a stable ID usable as a vector tag.
       (detail: `"Chat Completions file content parts do not support url sources; file dropped"`).
     `DocumentBlock` in an assistant message cannot be rendered and records an `unsupported-semantic` loss (detail: `"IR DocumentBlock cannot be rendered in a Chat Completions assistant message"`).
 
+- **N-CC-15 (refusal content and finish reason, since 2.5.0).** Chat Completions supports
+  refusals via `message.refusal` (response and assistant replay).
+  - **Decode.** When `choices[0].message.refusal` is a non-empty string, it maps to
+    `RefusalBlock{Refusal: refusal}` in `Response.Content`. If `choices[0].finish_reason` is
+    `content_filter`, `StopReason` is `refusal`. In request history, an assistant message
+    with non-empty `refusal` similarly decodes to `RefusalBlock`.
+  - **Encode.** When `Response.Content` contains a `RefusalBlock`, its `Refusal` string is
+    rendered into `choices[0].message.refusal`. The block is omitted from `message.content`
+    (rendering `content: null` when no other text blocks exist). If `RefusalBlock.Category`
+    is non-empty, an `unsupported-semantic` loss is recorded at `choices[0].message.refusal`
+    (detail: `"Anthropic refusal category has no Chat Completions equivalent"`).
+    When `Response.StopReason == "refusal"`, `choices[0].finish_reason` renders as `"content_filter"`.
+    In request history, `RefusalBlock` in an assistant message renders into `message.refusal`.
+    `RefusalBlock` in a user or system message records an `unsupported-semantic` loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and

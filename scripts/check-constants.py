@@ -15,7 +15,7 @@ from typing import NamedTuple
 ROOT = Path(__file__).resolve().parent.parent
 
 # V2 additions to IR enums
-V2_BLOCK_TYPES = {"thinking", "redacted_thinking"}
+V2_BLOCK_TYPES = {"thinking", "redacted_thinking", "refusal"}
 V2_DELTA_TYPES = {"thinking_delta", "signature_delta", "citation_delta"}
 
 

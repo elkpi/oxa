@@ -313,6 +313,7 @@ const (
 
 	ContentPartTypeText     = "text"
 	ContentPartTypeImageURL = "image_url"
+	ContentPartTypeFile     = "file"
 
 	ToolChoiceAuto     = "auto"
 	ToolChoiceNone     = "none"
@@ -457,6 +458,14 @@ type ContentPart struct {
 	Type     string        `json:"type"`
 	Text     string        `json:"text,omitempty"`
 	ImageURL *ImageURLWire `json:"image_url,omitempty"`
+	File     *FileWire     `json:"file,omitempty"`
+}
+
+// FileWire holds the payload of a file content part (since 2.5.0).
+type FileWire struct {
+	FileID   string `json:"file_id,omitempty"`
+	FileData string `json:"file_data,omitempty"`
+	Filename string `json:"filename,omitempty"`
 }
 
 // ImageURLWire holds the URL of an image_url content part. URL is either an

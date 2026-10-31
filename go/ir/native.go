@@ -563,6 +563,11 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 		nat = blk.Native
 	case ImageBlock:
 		nat = blk.Native
+	case DocumentBlock:
+		if target == "chatcompletions" && blk.URL != "" {
+			return losses
+		}
+		nat = blk.Native
 	case ToolUseBlock:
 		nat = blk.Native
 	case ToolResultBlock:
@@ -853,7 +858,7 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 			Detail: detail,
 		})
 
-	case NativeKindThinkingDisplay, NativeKindContextManagement:
+	case NativeKindThinkingDisplay, NativeKindContextManagement, NativeKindDocumentTitle, NativeKindDocumentContext, NativeKindDocumentCitations:
 		if ann.Omission != nil {
 			return append(losses, Loss{
 				Path:   path,

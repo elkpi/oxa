@@ -62,6 +62,39 @@ func decodeParts(parts []ContentPart, path string) ([]ir.Block, []ir.Loss, error
 				continue
 			}
 			blocks = append(blocks, image)
+		case PartTypeInputFile:
+			var count int
+			if part.FileID != "" {
+				count++
+			}
+			if part.FileURL != "" {
+				count++
+			}
+			if part.FileData != "" {
+				count++
+			}
+			if count != 1 {
+				return nil, nil, fmt.Errorf("responses: %s[%d]: input_file must specify exactly one of file_id, file_url, or file_data", path, i)
+			}
+			if part.Filename != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].filename", path, i), "filename", ir.LossUnmappedField,
+					"Responses input_file filename has no IR equivalent",
+				))
+			}
+			if part.Detail != nil {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].detail", path, i), "detail", ir.LossUnmappedField,
+					"Responses input_file detail has no IR equivalent",
+				))
+			}
+			if part.FileID != "" {
+				blocks = append(blocks, ir.DocumentBlock{FileID: part.FileID})
+			} else if part.FileURL != "" {
+				blocks = append(blocks, ir.DocumentBlock{URL: part.FileURL})
+			} else {
+				blocks = append(blocks, ir.DocumentBlock{Data: part.FileData, MediaType: "application/pdf"})
+			}
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,

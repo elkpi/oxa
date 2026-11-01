@@ -94,6 +94,8 @@ The wire objects in scope are:
 | `image_url` (part field, https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-R-4 |
 | `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object, non-string value, or empty key (`""`) is a structural error |
 | `prompt_cache_key` | `Request.Native` (`kind: "prompt_cache_key"`) | OpenAI prompt 缓存分区键；OpenAI 家族内 0 loss 回转；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
+| `prompt_cache_options` | `Request.Native` (`kind: "prompt_cache_options"`) | OpenAI prompt 缓存全局配置；OpenAI 家族内 0 loss 回转；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
+| `prompt_cache_breakpoint` (input part) | `Block.Native` / `SystemBlock.Native` (`kind: "prompt_cache_breakpoint"`) | OpenAI 显式内容缓存断点；OpenAI 家族内 0 loss 回转；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
 | `text.verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `text.verbosity`; non-strings are structural errors. Encoding preserves `text.format` when both are present |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |

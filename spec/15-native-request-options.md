@@ -52,6 +52,11 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `Request` | `stream` | `stream`（`true` / `false`，OpenAI 2.4.10 传输标记） |
 | `Request` | `stream_options` | `stream_options`（OpenAI 2.4.10 流式配置） |
 | `Request` | `prompt_cache_key` | `prompt_cache_key`（OpenAI 2.5.0） |
+| `Request` | `prompt_cache_options` | `prompt_cache_options`（OpenAI 2.5.0 请求级缓存配置） |
+| `SystemBlock` | `prompt_cache_breakpoint` | `prompt_cache_breakpoint`（OpenAI 2.5.0 内容断点） |
+| `TextBlock`（仅限 Request） | `prompt_cache_breakpoint` | `prompt_cache_breakpoint`（OpenAI 2.5.0 内容断点） |
+| `ImageBlock`（仅限 Request） | `prompt_cache_breakpoint` | `prompt_cache_breakpoint`（OpenAI 2.5.0 内容断点） |
+| `DocumentBlock`（仅限 Request） | `prompt_cache_breakpoint` | `prompt_cache_breakpoint`（OpenAI 2.5.0 内容断点） |
 | `DocumentBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_title` | `messages[i].content[j].title`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
@@ -163,6 +168,19 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
   - 保留方式：`NativeAnnotation{Source: "openai", Kind: "prompt_cache_key", Value: <serialized JSON string>}`。
   - 同面与 OpenAI 家族回转：编码回 Chat Completions 或 Responses 时无损恢复 `"prompt_cache_key": string`，0 loss。
   - 跨面转换（Anthropic）：编码至 Anthropic 时无法承载，在 `OmittedNativeRequestLosses` 中记录一条 `unmapped-field` 损失（`field: "prompt_cache_key"`，`detail: "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"`）。
+- **`prompt_cache_options`（Prompt 缓存请求选项，规范 2.5.0）**：
+  - 取值规则：必须为 JSON 对象或显式 `null`。已知属性 `mode`（可选）必须为 `"implicit"` 或 `"explicit"`；`ttl`（可选）必须为 `"30m"`。显式非对象且非 null、或未知 mode/ttl 取值作为结构错误（error）拒绝。
+  - 保留方式：`NativeAnnotation{Source: "openai", Kind: "prompt_cache_options", Value: <compact serialized JSON or "null">}`。
+  - 未知属性审计：若包含未知子属性（如 `prompt_cache_options.extra`），产生精确的 `unmapped-field` 报损。
+  - 同面与 OpenAI 家族回转：编码回 Chat Completions 或 Responses 时完整无损恢复 wire 上的 `"prompt_cache_options"` 对象或 null，0 loss。
+  - 跨面转换（Anthropic）：编码至 Anthropic 时无法承载，在 `OmittedNativeRequestLosses` 中记录一条 `unmapped-field` 损失（`field: "prompt_cache_options"`，`detail: "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped"`）。
+- **`prompt_cache_breakpoint`（Prompt 缓存显式内容断点，规范 2.5.0）**：
+  - 宿主：`TextBlock`、`ImageBlock`、`DocumentBlock`、`SystemBlock`（仅限请求端内容块宿主）。
+  - 取值规则：必须为 JSON 对象。已知属性 `mode`（可选）必须为 `"explicit"`；`ttl`（可选）必须为 `"30m"` 或 `"12h"`。显式非对象、或未知 mode/ttl 取值作为结构错误（error）拒绝。
+  - 保留方式：`NativeAnnotation{Source: "openai", Kind: "prompt_cache_breakpoint", Value: <compact serialized JSON>}`。
+  - 未知属性审计：若包含未知子属性，产生精确的 `unmapped-field` 报损。
+  - 同面与 OpenAI 家族回转：编码回 Chat Completions 或 Responses 时无损恢复内容块 wire 上的 `"prompt_cache_breakpoint"` 对象，0 loss。在 Chat Completions 中若消息仅包含单文本块且携带该断点，必须输出内容块对象数组（如 `[{"type": "text", "text": "...", "prompt_cache_breakpoint": ...}]`），严禁使用字符串简写，以确保断点不丢失（符合 §5.2 宿主简写防护规则）。
+  - 跨面转换（Anthropic）：编码至 Anthropic 时无法承载，在 `OmittedNativeRequestLosses` 中逐断点记录一条 `unmapped-field` 损失（`field: "prompt_cache_breakpoint"`，`detail: "Anthropic Messages has no prompt_cache_breakpoint parameter; prompt cache breakpoint is dropped"`）。
 
 ## 4. 跨协议遗漏报损 — N-NAT-4
 
@@ -214,6 +232,9 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
    - `store`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 布尔值。
    - `stream`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 布尔值。
    - `stream_options`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 对象。
+   - `prompt_cache_key`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 字符串。
+   - `prompt_cache_options`：仅允许在 `Request` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 对象或 null。
+   - `prompt_cache_breakpoint`：仅允许在 `TextBlock`、`ImageBlock`、`DocumentBlock`、`SystemBlock` 宿主上，`source` 必须为 `"openai"`，`value` 解析为 JSON 对象。
 4. **投影绑定冲突**：同一请求同时包含多个 conflicting effort 投影，或投影字段损坏，返回结构错误（error）。通用 effort 与 baseline 正常相异属于编辑，NOT an error。
 5. **Tool 原生选项互斥**：同一 Tool 宿主上不得同时存在 `source: "anthropic"` 的 `defer_loading` 与 `cache_control`；存在冲突时返回结构错误（error）。
 

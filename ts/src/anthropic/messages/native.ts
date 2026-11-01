@@ -33,8 +33,10 @@ import {
   NATIVE_KIND_MAX_COMPLETION_TOKENS,
   NATIVE_KIND_TOP_K,
   NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE,
+  NATIVE_KIND_PROMPT_CACHE_KEY,
   NATIVE_SOURCE_OPENAI,
   STREAM_OPTIONS_LOSS_DETAIL,
+  PROMPT_CACHE_KEY_LOSS_DETAIL,
 } from "../../ir/native.js";
 
 export function getToolEagerInputStreaming(tool: Tool): boolean | undefined {
@@ -784,6 +786,15 @@ export function encodeRequestNative(
               });
             }
           } catch {}
+          break;
+        }
+        case NATIVE_KIND_PROMPT_CACHE_KEY: {
+          losses.push({
+            path: `native[${i}]`,
+            field: n.omission?.field || "prompt_cache_key",
+            reason: n.omission?.reason || "unmapped-field",
+            detail: n.omission?.detail || PROMPT_CACHE_KEY_LOSS_DETAIL,
+          });
           break;
         }
         default:

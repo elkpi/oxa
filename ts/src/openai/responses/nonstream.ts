@@ -24,6 +24,8 @@ import {
   validateRequest,
   omittedNativeRequestLosses,
   DEFER_LOADING_LOSS_DETAIL,
+  PROMPT_CACHE_KEY_LOSS_DETAIL,
+  type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { stringMetadata } from "../../json/metadata.js";
@@ -466,6 +468,22 @@ function decodeRequestObject(
     ...(verbosityValue === undefined ? {} : { verbosity: verbosityValue }),
     ...(formatValue === undefined ? {} : { response_format: formatValue }),
   };
+  const native: NativeAnnotation[] = [];
+  if (wire.prompt_cache_key !== undefined) {
+    if (typeof wire.prompt_cache_key !== "string") {
+      throw new TypeError("responses: prompt_cache_key must be a string");
+    }
+    native.push({
+      source: "openai",
+      kind: "prompt_cache_key",
+      value: JSON.stringify(wire.prompt_cache_key),
+      omission: {
+        field: "prompt_cache_key",
+        reason: "unmapped-field",
+        detail: PROMPT_CACHE_KEY_LOSS_DETAIL,
+      },
+    });
+  }
   const request: Request = {
     model: mapModel(options.modelMapper, string(wire.model, "model")),
     ...(system.length === 0 ? {} : { system }),
@@ -474,6 +492,7 @@ function decodeRequestObject(
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
     ...stringMetadata(wire.metadata, "responses"),
+    ...(native.length === 0 ? {} : { native }),
   };
   validateRequest(request);
   return { value: request, losses };
@@ -1339,6 +1358,18 @@ export function encodeRequest(
       }
     } catch {}
   }
+  const promptCacheKeyAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "prompt_cache_key",
+  );
+  let promptCacheKeyVal: string | undefined = undefined;
+  if (promptCacheKeyAnn) {
+    try {
+      const parsed = JSON.parse(promptCacheKeyAnn.value);
+      if (typeof parsed === "string") {
+        promptCacheKeyVal = parsed;
+      }
+    } catch {}
+  }
   return {
     value: {
       model: mapModel(options.modelMapper, request.model),
@@ -1347,6 +1378,9 @@ export function encodeRequest(
         ? {}
         : { instructions: systemPlan.instructions }),
       ...(storeVal !== undefined ? { store: storeVal } : {}),
+      ...(promptCacheKeyVal !== undefined
+        ? { prompt_cache_key: promptCacheKeyVal }
+        : {}),
       ...(parallelToolCalls !== undefined
         ? { parallel_tool_calls: parallelToolCalls }
         : {}),

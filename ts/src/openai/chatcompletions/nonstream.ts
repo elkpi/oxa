@@ -18,6 +18,10 @@ import {
   omittedNativeRequestLosses,
   STREAM_OPTIONS_LOSS_DETAIL,
   PROMPT_CACHE_KEY_LOSS_DETAIL,
+  PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
+  PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+  NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+  NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
@@ -439,6 +443,31 @@ function decodeRequestObject(
       },
     });
   }
+  if (wire.prompt_cache_options !== undefined) {
+    if (
+      wire.prompt_cache_options !== null &&
+      (typeof wire.prompt_cache_options !== "object" ||
+        Array.isArray(wire.prompt_cache_options))
+    ) {
+      fail("chatcompletions: prompt_cache_options must be an object or null");
+    }
+    if (wire.prompt_cache_options !== null) {
+      validatePromptCacheOptionsFields(
+        wire.prompt_cache_options as JsonObject,
+        "prompt_cache_options",
+      );
+    }
+    native.push({
+      source: "openai",
+      kind: NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+      value: JSON.stringify(wire.prompt_cache_options),
+      omission: {
+        field: "prompt_cache_options",
+        reason: "unmapped-field",
+        detail: PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
+      },
+    });
+  }
 
   const responseFormat = decodeResponseFormat(wire.response_format, losses);
   const params = {
@@ -590,6 +619,21 @@ function decodeResponseObject(
   };
 }
 
+function getPromptCacheBreakpoint(item: {
+  native?: readonly NativeAnnotation[];
+}): JsonValue | undefined {
+  const ann = item.native?.find(
+    (n) =>
+      n.source === "openai" && n.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+  );
+  if (!ann) return undefined;
+  try {
+    return JSON.parse(ann.value);
+  } catch {
+    return undefined;
+  }
+}
+
 export function encodeRequest(
   request: Request,
   options: NonstreamOptions = {},
@@ -598,17 +642,37 @@ export function encodeRequest(
   const losses: Loss[] = [];
   const messages: JsonValue[] = [];
   if (request.system !== undefined && request.system.length > 0) {
-    if (request.system.some((block) => block.role === "developer")) {
-      for (const block of request.system)
-        messages.push({
-          role: block.role === "developer" ? "developer" : "system",
-          content: block.text,
-        });
-    } else
+    const hasDeveloper = request.system.some(
+      (block) => block.role === "developer",
+    );
+    const hasBreakpoint = request.system.some(
+      (block) => getPromptCacheBreakpoint(block) !== undefined,
+    );
+    if (hasDeveloper || hasBreakpoint) {
+      for (const block of request.system) {
+        const role = block.role === "developer" ? "developer" : "system";
+        const pcb = getPromptCacheBreakpoint(block);
+        if (pcb !== undefined) {
+          messages.push({
+            role,
+            content: [
+              {
+                type: "text",
+                text: block.text,
+                prompt_cache_breakpoint: pcb,
+              },
+            ],
+          });
+        } else {
+          messages.push({ role, content: block.text });
+        }
+      }
+    } else {
       messages.push({
         role: "system",
         content: request.system.map((block) => block.text).join(""),
       });
+    }
   }
   for (let index = 0; index < request.messages.length; index += 1) {
     const message = request.messages[index]!;
@@ -786,6 +850,9 @@ export function encodeRequest(
   const promptCacheKeyAnn = request.native?.find(
     (n) => n.source === "openai" && n.kind === "prompt_cache_key",
   );
+  const promptCacheOptionsAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+  );
 
   let storeVal: boolean | null | undefined = undefined;
   if (storeAnn) {
@@ -824,6 +891,12 @@ export function encodeRequest(
       if (typeof parsed === "string") {
         promptCacheKeyVal = parsed;
       }
+    } catch {}
+  }
+  let promptCacheOptionsVal: JsonValue | undefined = undefined;
+  if (promptCacheOptionsAnn) {
+    try {
+      promptCacheOptionsVal = JSON.parse(promptCacheOptionsAnn.value);
     } catch {}
   }
 
@@ -879,6 +952,9 @@ export function encodeRequest(
       : { parallel_tool_calls: parallelToolCalls }),
     ...(promptCacheKeyVal !== undefined
       ? { prompt_cache_key: promptCacheKeyVal }
+      : {}),
+    ...(promptCacheOptionsVal !== undefined
+      ? { prompt_cache_options: promptCacheOptionsVal }
       : {}),
     ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
   };
@@ -992,10 +1068,37 @@ function decodeContent(
   for (let index = 0; index < parts.length; index += 1) {
     const part = object(parts[index], `${path}[${index}]`);
     const type = string(part.type, `${path}[${index}].type`);
+    let pcbAnn: NativeAnnotation | undefined = undefined;
+    if (part.prompt_cache_breakpoint !== undefined) {
+      if (
+        part.prompt_cache_breakpoint === null ||
+        typeof part.prompt_cache_breakpoint !== "object" ||
+        Array.isArray(part.prompt_cache_breakpoint)
+      ) {
+        fail(
+          `chatcompletions: ${path}[${index}].prompt_cache_breakpoint must be an object`,
+        );
+      }
+      validatePromptCacheBreakpointFields(
+        part.prompt_cache_breakpoint as JsonObject,
+        `${path}[${index}].prompt_cache_breakpoint`,
+      );
+      pcbAnn = {
+        source: "openai",
+        kind: NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+        value: JSON.stringify(part.prompt_cache_breakpoint),
+        omission: {
+          field: "prompt_cache_breakpoint",
+          reason: "unmapped-field",
+          detail: PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+        },
+      };
+    }
     if (type === "text")
       blocks.push({
         type: "text",
         text: string(part.text, `${path}[${index}].text`),
+        ...(pcbAnn ? { native: [pcbAnn] } : {}),
       });
     else if (type === "image_url") {
       const image = decodeImage(
@@ -1010,7 +1113,7 @@ function decodeContent(
             "unsupported-semantic",
           ),
         );
-      else blocks.push(image);
+      else blocks.push(pcbAnn ? { ...image, native: [pcbAnn] } : image);
     } else if (type === "file") {
       if (!isUser) {
         losses.push({
@@ -1057,7 +1160,11 @@ function decodeContent(
             "type-violation",
             `${path}[${index}].file.file_id cannot be empty`,
           );
-        blocks.push({ type: "document", file_id: fileId });
+        blocks.push({
+          type: "document",
+          file_id: fileId,
+          ...(pcbAnn ? { native: [pcbAnn] } : {}),
+        });
       } else {
         const fileData = string(
           fileObj.file_data,
@@ -1086,6 +1193,7 @@ function decodeContent(
           type: "document",
           data: dataPayload,
           media_type: mediaType,
+          ...(pcbAnn ? { native: [pcbAnn] } : {}),
         });
       }
     } else
@@ -1144,7 +1252,13 @@ function encodeUserContent(
     const block = blocks[index]!;
     if (block.type === "text") {
       text += block.text;
-      parts.push({ type: "text", text: block.text });
+      const pcb = getPromptCacheBreakpoint(block);
+      if (pcb !== undefined) hasImage = true;
+      parts.push({
+        type: "text",
+        text: block.text,
+        ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+      });
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
         let hasOpenAI = false;
@@ -1187,7 +1301,12 @@ function encodeUserContent(
         );
       else {
         hasImage = true;
-        parts.push({ type: "image_url", image_url: image });
+        const pcb = getPromptCacheBreakpoint(block);
+        parts.push({
+          type: "image_url",
+          image_url: image,
+          ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+        });
       }
     } else if (block.type === "document") {
       let sCount = 0;
@@ -1237,15 +1356,18 @@ function encodeUserContent(
         continue;
       }
       hasImage = true;
+      const pcb = getPromptCacheBreakpoint(block);
       if (block.file_id !== undefined && block.file_id !== "") {
         parts.push({
           type: "file",
           file: { file_id: block.file_id },
+          ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
         });
       } else {
         parts.push({
           type: "file",
           file: { file_data: block.data! },
+          ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
         });
       }
     } else {
@@ -1739,4 +1861,36 @@ function boolean(value: JsonValue | undefined, name: string): boolean {
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", `chatcompletions: ${message}`);
+}
+function validatePromptCacheOptionsFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "implicit" && mode !== "explicit")
+      fail(`${name}.mode must be 'implicit' or 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m") fail(`${name}.ttl must be '30m'`);
+  }
+}
+function validatePromptCacheBreakpointFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "explicit") fail(`${name}.mode must be 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m" && ttl !== "12h")
+      fail(`${name}.ttl must be '30m' or '12h'`);
+  }
 }

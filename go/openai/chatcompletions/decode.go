@@ -271,6 +271,54 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			},
 		})
 	}
+	if len(wire.rawPromptCacheOptions) > 0 {
+		trimmed := strings.TrimSpace(string(wire.rawPromptCacheOptions))
+		val := trimmed
+		if trimmed != "null" {
+			var m map[string]any
+			if err := json.Unmarshal(wire.rawPromptCacheOptions, &m); err != nil || m == nil {
+				return nil, nil, fmt.Errorf("chatcompletions: prompt_cache_options must be an object or null")
+			}
+			if err := ir.ValidatePromptCacheOptionsObject(m); err != nil {
+				return nil, nil, fmt.Errorf("chatcompletions: %w", err)
+			}
+			b, _ := json.Marshal(m)
+			val = string(b)
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindPromptCacheOptions,
+			Value:  val,
+			Omission: &ir.NativeOmission{
+				Field:  "prompt_cache_options",
+				Reason: ir.LossUnmappedField,
+				Detail: ir.PromptCacheOptionsLossDetail,
+			},
+		})
+	} else if wire.PromptCacheOptions != nil {
+		b, err := json.Marshal(wire.PromptCacheOptions)
+		if err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: prompt_cache_options: %w", err)
+		}
+		var m map[string]any
+		if err := json.Unmarshal(b, &m); err != nil || m == nil {
+			return nil, nil, fmt.Errorf("chatcompletions: prompt_cache_options must be an object or null")
+		}
+		if err := ir.ValidatePromptCacheOptionsObject(m); err != nil {
+			return nil, nil, fmt.Errorf("chatcompletions: %w", err)
+		}
+		cb, _ := json.Marshal(m)
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindPromptCacheOptions,
+			Value:  string(cb),
+			Omission: &ir.NativeOmission{
+				Field:  "prompt_cache_options",
+				Reason: ir.LossUnmappedField,
+				Detail: ir.PromptCacheOptionsLossDetail,
+			},
+		})
+	}
 	if wire.Verbosity != nil {
 		switch *wire.Verbosity {
 		case "low", "medium", "high":

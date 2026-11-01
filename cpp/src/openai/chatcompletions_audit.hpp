@@ -5,15 +5,17 @@
 namespace oxa::openai::chatcompletions {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"max_completion_tokens", ""}, {"store", ""}, {"stream", ""}, {"stream_options", "stream_options"}, {"stop", ""}, {"reasoning_effort", ""}, {"verbosity", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"prompt_cache_key", ""}, {"response_format", "format"}, {"metadata", ""}}},
+        {{"request", {{"model", ""}, {"messages", "message[]"}, {"temperature", ""}, {"top_p", ""}, {"max_tokens", ""}, {"max_completion_tokens", ""}, {"store", ""}, {"stream", ""}, {"stream_options", "stream_options"}, {"stop", ""}, {"reasoning_effort", ""}, {"verbosity", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"prompt_cache_key", ""}, {"prompt_cache_options", "prompt_cache_options_def"}, {"response_format", "format"}, {"metadata", ""}}},
+         {"prompt_cache_options_def", {{"mode", ""}, {"ttl", ""}}},
+         {"prompt_cache_breakpoint_def", {{"mode", ""}, {"ttl", ""}}},
          {"stream_options", {{"include_usage", ""}, {"include_obfuscation", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice[]"}, {"usage", "usage"}}},
          {"event", {{"id", ""}, {"object", ""}, {"created", ""}, {"model", ""}, {"choices", "choice_delta[]"}, {"usage", "usage"}}},
          {"message", {{"role", ""}, {"content", "part[]"}, {"refusal", ""}, {"reasoning_content", ""}, {"tool_calls", "tool_call[]"}, {"tool_call_id", ""}}},
-         {"text", {{"type", ""}, {"text", ""}}},
-         {"image", {{"type", ""}, {"image_url", "image_url"}}},
+         {"text", {{"type", ""}, {"text", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
+         {"image", {{"type", ""}, {"image_url", "image_url"}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
          {"image_url", {{"url", ""}}},
-         {"file_part", {{"type", ""}, {"file", "file_def"}}},
+         {"file_part", {{"type", ""}, {"file", "file_def"}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
          {"file_def", {{"file_id", ""}, {"file_data", ""}, {"filename", ""}}},
          {"function_tool", {{"type", ""}, {"function", "function_definition"}}},
          {"custom_tool", {{"type", ""}, {"custom", "custom_decl"}}},

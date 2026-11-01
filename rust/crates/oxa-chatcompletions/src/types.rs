@@ -92,6 +92,13 @@ pub struct Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub prompt_cache_key: Option<Value>,
+    #[serde(
+        rename = "prompt_cache_options",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_options: Option<Value>,
     #[serde(rename = "functions", skip_serializing_if = "Option::is_none")]
     pub functions: Option<Value>,
     #[serde(rename = "function_call", skip_serializing_if = "Option::is_none")]
@@ -217,6 +224,13 @@ pub struct ContentPart {
     pub image_url: Option<ImageURLWire>,
     #[serde(rename = "file", skip_serializing_if = "Option::is_none")]
     pub file: Option<FileWire>,
+    #[serde(
+        rename = "prompt_cache_breakpoint",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_breakpoint: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]

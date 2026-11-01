@@ -461,6 +461,66 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             projection: None,
         });
     }
+    if let Some(val) = &wire.prompt_cache_options {
+        match val {
+            Value::Object(map) => {
+                if let Some(m) = map.get("mode") {
+                    let Some(s) = m.as_str() else {
+                        return Err(Error::new(
+                            "chatcompletions: prompt_cache_options.mode must be a string",
+                        ));
+                    };
+                    if s != "implicit" && s != "explicit" {
+                        return Err(Error::new(
+                            "chatcompletions: prompt_cache_options.mode must be 'implicit' or 'explicit'",
+                        ));
+                    }
+                }
+                if let Some(t) = map.get("ttl") {
+                    let Some(s) = t.as_str() else {
+                        return Err(Error::new(
+                            "chatcompletions: prompt_cache_options.ttl must be a string",
+                        ));
+                    };
+                    if s != "30m" {
+                        return Err(Error::new(
+                            "chatcompletions: prompt_cache_options.ttl must be '30m'",
+                        ));
+                    }
+                }
+                let val_str = serde_json::to_string(map).unwrap_or_default();
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS.into(),
+                    value: val_str,
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "prompt_cache_options".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: Some(oxa_ir::PROMPT_CACHE_OPTIONS_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
+            Value::Null => {
+                native.push(oxa_ir::NativeAnnotation {
+                    source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+                    kind: oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS.into(),
+                    value: "null".into(),
+                    omission: Some(oxa_ir::NativeOmission {
+                        field: "prompt_cache_options".into(),
+                        reason: LossReason::UnmappedField,
+                        detail: Some(oxa_ir::PROMPT_CACHE_OPTIONS_LOSS_DETAIL.into()),
+                    }),
+                    projection: None,
+                });
+            }
+            _ => {
+                return Err(Error::new(
+                    "chatcompletions: prompt_cache_options must be an object or null",
+                ));
+            }
+        }
+    }
     req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;

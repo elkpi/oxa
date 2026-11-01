@@ -733,6 +733,29 @@ pub fn encode_request_native(
                         detail,
                     });
                 }
+                oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS => {
+                    let field = n
+                        .omission
+                        .as_ref()
+                        .map(|o| o.field.clone())
+                        .unwrap_or_else(|| "prompt_cache_options".into());
+                    let reason = n
+                        .omission
+                        .as_ref()
+                        .map(|o| o.reason)
+                        .unwrap_or(LossReason::UnmappedField);
+                    let detail = n
+                        .omission
+                        .as_ref()
+                        .and_then(|o| o.detail.clone())
+                        .unwrap_or_else(|| oxa_ir::PROMPT_CACHE_OPTIONS_LOSS_DETAIL.into());
+                    losses.push(Loss {
+                        path: format!("native[{i}]"),
+                        field,
+                        reason,
+                        detail,
+                    });
+                }
                 _ => {
                     if let Some(ref om) = n.omission {
                         losses.push(Loss {

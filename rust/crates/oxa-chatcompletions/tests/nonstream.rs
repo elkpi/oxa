@@ -783,3 +783,63 @@ fn parallel_tool_calls_rejects_null() {
     let raw = r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"parallel_tool_calls":null}"#;
     assert!(oxa_chatcompletions::decode_request_json(raw, &Config::default()).is_err());
 }
+
+#[test]
+fn prompt_cache_breakpoint_mode_is_optional_and_values_validated() {
+    for value in ["{}", r#"{"ttl":"30m"}"#] {
+        let raw = format!(
+            r#"{{"model":"gpt-4o","messages":[{{"role":"user","content":[{{"type":"text","text":"hi","prompt_cache_breakpoint":{value}}}]}}]}}"#
+        );
+        let (req, losses) = oxa_chatcompletions::decode_request_json(&raw, &Config::default())
+            .expect("breakpoint without mode is valid");
+        assert!(losses.is_empty());
+        let Block::Text { native, .. } = &req.messages[0].content[0] else {
+            panic!("expected text block");
+        };
+        assert_eq!(native.len(), 1);
+        assert_eq!(native[0].kind, oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT);
+        assert_eq!(native[0].source, oxa_ir::NATIVE_SOURCE_OPENAI);
+    }
+
+    for value in [r#"{"mode":"bad"}"#, r#"{"ttl":"wrong"}"#, r#"{"mode":1}"#] {
+        let raw = format!(
+            r#"{{"model":"gpt-4o","messages":[{{"role":"user","content":[{{"type":"text","text":"hi","prompt_cache_breakpoint":{value}}}]}}]}}"#
+        );
+        assert!(
+            oxa_chatcompletions::decode_request_json(&raw, &Config::default()).is_err(),
+            "expected rejection for {value}"
+        );
+    }
+}
+
+#[test]
+fn prompt_cache_options_rejects_invalid_values() {
+    for value in [
+        r#"{"mode":"bad"}"#,
+        r#"{"ttl":"1h"}"#,
+        r#"{"mode":123}"#,
+        r#"{"ttl":30}"#,
+    ] {
+        let raw = format!(
+            r#"{{"model":"gpt-4o","messages":[{{"role":"user","content":"hi"}}],"prompt_cache_options":{value}}}"#
+        );
+        assert!(
+            oxa_chatcompletions::decode_request_json(&raw, &Config::default()).is_err(),
+            "expected rejection for {value}"
+        );
+    }
+}
+
+#[test]
+fn encode_restores_image_breakpoint() {
+    let req: oxa_ir::Request = oxa_ir::from_json(
+        r#"{"specVersion":"0.2.0","model":"gpt-4o","messages":[{"role":"user","content":[{"type":"image","url":"https://example.com/cat.png","native":[{"source":"openai","kind":"prompt_cache_breakpoint","value":"{\"mode\":\"explicit\"}"}]}]}]}"#,
+    )
+    .expect("ir");
+    let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
+    assert!(losses.is_empty());
+    let ContentValue::Parts(parts) = wire.messages[0].content.as_ref().unwrap() else {
+        panic!("expected parts");
+    };
+    assert!(parts[0].prompt_cache_breakpoint.is_some());
+}

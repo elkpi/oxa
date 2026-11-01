@@ -1,0 +1,44 @@
+{
+  "name": "responses.nonstream.prompt-cache-options-request-to-ir",
+  "description": "Responses prompt_cache_options is preserved as an OpenAI native option (spec/15 §3.7).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o",
+    "input": "Hello",
+    "prompt_cache_options": {
+      "mode": "explicit"
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    ],
+    "native": [
+      {
+        "source": "openai",
+        "kind": "prompt_cache_options",
+        "value": "{\"mode\":\"explicit\"}",
+        "omission": {
+          "field": "prompt_cache_options",
+          "reason": "unmapped-field",
+          "detail": "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "native", "prompt_cache_options"]
+}

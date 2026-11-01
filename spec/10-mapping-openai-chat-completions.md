@@ -71,6 +71,8 @@ The wire objects in scope are:
 | `stream` | `Request.Native` (`kind: "stream"`) | 传输控制标记，同面精准还原，跨面转换 0 loss（N-NAT-2/3，规范 2.4.10） |
 | `stream_options` | `Request.Native` (`kind: "stream_options"`) | 流式选项，包含 include_usage 校验与未知子字段审计；跨面降级为 degraded 损失（N-NAT-2/3，规范 2.4.10） |
 | `prompt_cache_key` | `Request.Native` (`kind: "prompt_cache_key"`) | OpenAI prompt 缓存分区键；OpenAI 家族内 0 loss 回转；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
+| `prompt_cache_options` | `Request.Native` (`kind: "prompt_cache_options"`) | OpenAI prompt 缓存全局配置；OpenAI 家族内 0 loss 回转；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
+| `prompt_cache_breakpoint` (content part) | `Block.Native` / `SystemBlock.Native` (`kind: "prompt_cache_breakpoint"`) | OpenAI 显式内容缓存断点；OpenAI 家族内 0 loss 回转；单文本块简写防护；跨面至 Anthropic 时记 unmapped-field（spec/15 §3.7，规范 2.5.0） |
 | `stop` | `Params.StopSequences` | 1:1 both directions (the Loss Catalog `stop_sequence` entry is the response-side value loss, not this parameter) |
 | `reasoning_effort` | `Params.ReasoningEffort` | 1:1; unknown values dropped with unmapped-value (N-CC-12, since 2.0; xhigh and max since 2.4) |
 | `verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `verbosity`; non-strings are structural errors |

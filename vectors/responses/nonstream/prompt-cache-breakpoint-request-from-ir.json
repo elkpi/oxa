@@ -1,0 +1,50 @@
+{
+  "name": "responses.nonstream.prompt-cache-breakpoint-request-from-ir",
+  "description": "IR prompt_cache_breakpoint native option renders on Responses request wire (spec/15 §3.7).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello",
+            "native": [
+              {
+                "source": "openai",
+                "kind": "prompt_cache_breakpoint",
+                "value": "{\"mode\":\"explicit\"}"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "input": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "input_text",
+            "text": "Hello",
+            "prompt_cache_breakpoint": {
+              "mode": "explicit"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "native", "prompt_cache_breakpoint"]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "responses.nonstream.prompt-cache-options-request-from-ir",
+  "description": "IR prompt_cache_options native option renders on Responses request wire (spec/15 §3.7).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    ],
+    "native": [
+      {
+        "source": "openai",
+        "kind": "prompt_cache_options",
+        "value": "{\"mode\":\"explicit\"}"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "input": "Hello",
+    "prompt_cache_options": {
+      "mode": "explicit"
+    }
+  },
+  "expected_losses": [],
+  "tags": ["request", "native", "prompt_cache_options"]
+}

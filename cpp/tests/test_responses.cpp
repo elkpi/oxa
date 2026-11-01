@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 178);
+    CHECK(rep_res->executed == 182);
 
     const char* invalid_actions[] = {
         R"(null)", R"({})", R"({"type":"future"})",
@@ -76,6 +76,86 @@ int main() {
         auto encoded = oxa::openai::responses::encode_request(decoded->value);
         CHECK(encoded.ok());
         if (encoded.ok()) CHECK(oxa::json::structurally_equal(*wire, encoded->value));
+    }
+
+    // prompt_cache_breakpoint: mode is optional, invalid values rejected,
+    // https image parts keep the breakpoint, and system breakpoints render
+    // as input items instead of collapsing into instructions.
+    {
+        auto no_mode = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "input":[{"role":"user","content":[{"type":"input_text","text":"hi","prompt_cache_breakpoint":{"ttl":"30m"}}]}]
+        })");
+        CHECK(no_mode.ok());
+        auto no_mode_dec = oxa::openai::responses::decode_request(*no_mode);
+        CHECK(no_mode_dec.ok());
+        if (no_mode_dec.ok()) CHECK(no_mode_dec->losses.empty());
+
+        for (const char* bad : {R"({"mode":"bad"})", R"({"ttl":"wrong"})", R"({"mode":1})"}) {
+            std::string raw = std::string(R"({"model":"m","input":[{"role":"user","content":[{"type":"input_text","text":"hi","prompt_cache_breakpoint":})") + bad + R"(}]}]})";
+            CHECK(!oxa::openai::responses::decode_request(raw).ok());
+        }
+        for (const char* bad : {R"({"mode":"bad"})", R"({"ttl":"1h"})", R"({"mode":123})", R"({"ttl":30})"}) {
+            std::string raw = std::string(R"({"model":"m","input":"hi","prompt_cache_options":)") + bad + R"(})";
+            auto dec = oxa::openai::responses::decode_request(raw);
+            CHECK(!dec.ok());
+        }
+
+        auto img = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "input":[{"role":"user","content":[{"type":"input_image","image_url":"https://example.com/cat.png","prompt_cache_breakpoint":{"mode":"explicit"}}]}]
+        })");
+        CHECK(img.ok());
+        auto img_dec = oxa::openai::responses::decode_request(*img);
+        CHECK(img_dec.ok());
+        if (img_dec.ok()) {
+            CHECK(img_dec->losses.empty());
+            auto img_enc = oxa::openai::responses::encode_request(img_dec->value);
+            CHECK(img_enc.ok());
+            if (img_enc.ok()) CHECK(oxa::json::structurally_equal(*img, img_enc->value));
+        }
+
+        auto sys = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "instructions":"policy",
+            "input":[{"role":"user","content":"hi"}]
+        })");
+        CHECK(sys.ok());
+        auto sys_dec = oxa::openai::responses::decode_request(*sys);
+        CHECK(sys_dec.ok());
+        if (sys_dec.ok()) {
+            // Attach a breakpoint to the system block, then encode: the
+            // breakpoint must survive as an input item.
+            auto ann = oxa::ir::NativeAnnotation{
+                std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+                std::string(oxa::ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT),
+                R"({"mode":"explicit"})",
+                oxa::ir::NativeOmission{
+                    "prompt_cache_breakpoint",
+                    std::string(oxa::ir::LOSS_UNMAPPED_FIELD),
+                    std::string(oxa::ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL),
+                },
+                std::nullopt,
+            };
+            sys_dec->value.system[0].native.push_back(ann);
+            auto sys_enc = oxa::openai::responses::encode_request(sys_dec->value);
+            CHECK(sys_enc.ok());
+            if (sys_enc.ok()) {
+                CHECK(!sys_enc->value.find("instructions"));
+                auto items = sys_enc->value.find("input");
+                CHECK(items && items->is_array() && items->as_array().size() == 2);
+                if (items && items->is_array() && items->as_array().size() == 2) {
+                    const auto& first = items->as_array()[0];
+                    CHECK(first.find("role") && first.find("role")->as_string() == "system");
+                    const auto* content = first.find("content");
+                    CHECK(content && content->is_array());
+                    if (content && content->is_array()) {
+                        const auto& part = content->as_array()[0];
+                        CHECK(part.find("prompt_cache_breakpoint") != nullptr);
+                    }
+                }
+            }
+        }
     }
 
     // Edge cases: missing/invalid response items

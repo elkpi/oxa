@@ -16,6 +16,8 @@ from oxa.ir import (
     LOSS_UNSUPPORTED_SEMANTIC,
     STREAM_OPTIONS_LOSS_DETAIL,
     PROMPT_CACHE_KEY_LOSS_DETAIL,
+    PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
+    NATIVE_KIND_PROMPT_CACHE_OPTIONS,
     NativeAnnotation,
     NativeOmission,
     STOP_END_TURN,
@@ -68,6 +70,8 @@ from oxa.openai.chatcompletions.constants import (
     TOOL_TYPE_FUNCTION,
 )
 from oxa.openai.chatcompletions.normalize import (
+    _validate_prompt_cache_breakpoint_fields,
+    _validate_prompt_cache_options_fields,
     content_system,
     decode_content,
     decode_tool_calls,
@@ -375,6 +379,24 @@ def decode_request(
                     field="prompt_cache_key",
                     reason=LOSS_UNMAPPED_FIELD,
                     detail=PROMPT_CACHE_KEY_LOSS_DETAIL,
+                ),
+            )
+        )
+    if "prompt_cache_options" in wire:
+        pco = wire["prompt_cache_options"]
+        if pco is not None and not isinstance(pco, dict):
+            raise ValueError("chatcompletions: prompt_cache_options must be an object or null")
+        if pco is not None:
+            _validate_prompt_cache_options_fields(pco, "chatcompletions: prompt_cache_options")
+        native.append(
+            NativeAnnotation(
+                source="openai",
+                kind=NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+                value=json.dumps(pco, separators=(",", ":")),
+                omission=NativeOmission(
+                    field="prompt_cache_options",
+                    reason=LOSS_UNMAPPED_FIELD,
+                    detail=PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
                 ),
             )
         )

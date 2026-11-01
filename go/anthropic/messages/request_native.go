@@ -553,6 +553,27 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 					Reason: reason,
 					Detail: detail,
 				})
+			case ir.NativeKindPromptCacheOptions:
+				field := "prompt_cache_options"
+				reason := ir.LossUnmappedField
+				detail := ir.PromptCacheOptionsLossDetail
+				if n.Omission != nil {
+					if n.Omission.Field != "" {
+						field = n.Omission.Field
+					}
+					if n.Omission.Reason != "" {
+						reason = n.Omission.Reason
+					}
+					if n.Omission.Detail != "" {
+						detail = n.Omission.Detail
+					}
+				}
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("native[%d]", i),
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
 			default:
 				if n.Omission != nil {
 					losses = append(losses, ir.Loss{
@@ -744,35 +765,39 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 	return losses, nil
 }
 
-func getBlockCacheControl(item any) json.RawMessage {
-	var nat []ir.NativeAnnotation
+func getBlockNative(item any) []ir.NativeAnnotation {
 	switch b := item.(type) {
 	case ir.SystemBlock:
-		nat = b.Native
+		return b.Native
 	case ir.Tool:
-		nat = b.Native
+		return b.Native
 	case ir.TextBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ThinkingBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ImageBlock:
-		nat = b.Native
+		return b.Native
 	case ir.DocumentBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ToolUseBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ToolResultBlock:
-		nat = b.Native
+		return b.Native
 	case ir.CustomToolUseBlock:
-		nat = b.Native
+		return b.Native
 	case ir.CustomToolResultBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ApplyPatchToolUseBlock:
-		nat = b.Native
+		return b.Native
 	case ir.ApplyPatchToolResultBlock:
-		nat = b.Native
+		return b.Native
+	default:
+		return nil
 	}
-	for _, n := range nat {
+}
+
+func getBlockCacheControl(item any) json.RawMessage {
+	for _, n := range getBlockNative(item) {
 		if n.Source == ir.NativeSourceAnthropic && n.Kind == ir.NativeKindCacheControl {
 			return json.RawMessage(n.Value)
 		}

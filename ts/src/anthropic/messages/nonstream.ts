@@ -40,6 +40,8 @@ import {
   DOCUMENT_TITLE_LOSS_DETAIL,
   DOCUMENT_CONTEXT_LOSS_DETAIL,
   DOCUMENT_CITATIONS_LOSS_DETAIL,
+  NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+  PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
 } from "../../ir/native.js";
 import type {
   Block,
@@ -771,6 +773,20 @@ export function encodeRequest(
                 detail:
                   "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
               });
+            block.native?.forEach((ann, sAnnIdx) => {
+              if (
+                ann.source === "openai" &&
+                ann.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+              ) {
+                losses.push({
+                  path: `system[${index}].native[${sAnnIdx}]`,
+                  field: ann.omission?.field || "prompt_cache_breakpoint",
+                  reason: ann.omission?.reason || "unmapped-field",
+                  detail:
+                    ann.omission?.detail || PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+                });
+              }
+            });
             const cc = getBlockCacheControl(block);
             return {
               type: "text",
@@ -1279,6 +1295,21 @@ function encodeContent(
   const output: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
+    if ("native" in block && block.native) {
+      block.native.forEach((ann, bAnnIdx) => {
+        if (
+          ann.source === "openai" &&
+          ann.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+        ) {
+          losses.push({
+            path: `${path}[${index}].native[${bAnnIdx}]`,
+            field: ann.omission?.field || "prompt_cache_breakpoint",
+            reason: ann.omission?.reason || "unmapped-field",
+            detail: ann.omission?.detail || PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+          });
+        }
+      });
+    }
     const cc = getBlockCacheControl(block);
     if (block.type === "text") {
       let rawCitations: JsonValue[] | undefined;

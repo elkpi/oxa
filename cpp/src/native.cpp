@@ -198,6 +198,20 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 if (!parsed->is_string()) {
                     return invalid_argument("invalid prompt_cache_key " + ann.value);
                 }
+            } else if (ann.kind == NATIVE_KIND_PROMPT_CACHE_OPTIONS) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_object() && !parsed->is_null()) {
+                    return invalid_argument("invalid prompt_cache_options " + ann.value);
+                }
+            } else if (ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                if (host != HostType::Content && host != HostType::System) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on content or system blocks");
+                }
+                if (!parsed->is_object()) {
+                    return invalid_argument("invalid prompt_cache_breakpoint " + ann.value);
+                }
             }
         }
     }
@@ -205,6 +219,15 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
 }
 
 Status validate_block_native(const Block& blk, HostType host, std::string_view path);
+
+static Status check_no_prompt_cache_breakpoint(const std::vector<NativeAnnotation>& native, std::string_view path) {
+    for (std::size_t i = 0; i < native.size(); ++i) {
+        if (native[i].source == NATIVE_SOURCE_OPENAI && native[i].kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+            return invalid_argument(std::string(path) + ".native[" + std::to_string(i) + "]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks");
+        }
+    }
+    return ok_status();
+}
 
 struct BlockValidator {
     HostType host;
@@ -218,10 +241,14 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ThinkingBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const RedactedThinkingBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const ImageBlock& b) const {
         return validate_annotations(b.native, host, path);
@@ -230,23 +257,35 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ToolUseBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const CustomToolUseBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const ApplyPatchToolUseBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const ApplyPatchToolResultBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const RefusalBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const ToolResultBlock& b) const {
         auto st = validate_annotations(b.native, host, path);
         if (!st.ok()) return st;
+        auto bp_st = check_no_prompt_cache_breakpoint(b.native, path);
+        if (!bp_st.ok()) return bp_st;
         for (std::size_t k = 0; k < b.content.size(); ++k) {
             std::string child_path = std::string(path) + ".content[" + std::to_string(k) + "]";
             auto child_st = validate_block_native(b.content[k].block, host, child_path);
@@ -257,6 +296,8 @@ struct BlockValidator {
     Status operator()(const CustomToolResultBlock& b) const {
         auto st = validate_annotations(b.native, host, path);
         if (!st.ok()) return st;
+        auto bp_st = check_no_prompt_cache_breakpoint(b.native, path);
+        if (!bp_st.ok()) return bp_st;
         if (const auto* vec = std::get_if<std::vector<BlockHolder>>(&b.output)) {
             for (std::size_t k = 0; k < vec->size(); ++k) {
                 std::string child_path = std::string(path) + ".output.content[" + std::to_string(k) + "]";
@@ -336,6 +377,40 @@ void append_omission_loss(std::vector<Loss>& losses,
             std::string field = "prompt_cache_key";
             std::string reason = std::string(LOSS_UNMAPPED_FIELD);
             std::string detail = std::string(PROMPT_CACHE_KEY_LOSS_DETAIL);
+            if (ann.omission.has_value()) {
+                if (!ann.omission->field.empty()) field = ann.omission->field;
+                if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                    detail = *ann.omission->detail;
+                }
+            }
+            losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+            return;
+        }
+        if (ann.kind == NATIVE_KIND_PROMPT_CACHE_OPTIONS) {
+            if (target == "chatcompletions" || target == "responses") {
+                return;
+            }
+            std::string field = "prompt_cache_options";
+            std::string reason = std::string(LOSS_UNMAPPED_FIELD);
+            std::string detail = std::string(PROMPT_CACHE_OPTIONS_LOSS_DETAIL);
+            if (ann.omission.has_value()) {
+                if (!ann.omission->field.empty()) field = ann.omission->field;
+                if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                    detail = *ann.omission->detail;
+                }
+            }
+            losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
+            return;
+        }
+        if (ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+            if (target == "chatcompletions" || target == "responses") {
+                return;
+            }
+            std::string field = "prompt_cache_breakpoint";
+            std::string reason = std::string(LOSS_UNMAPPED_FIELD);
+            std::string detail = std::string(PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL);
             if (ann.omission.has_value()) {
                 if (!ann.omission->field.empty()) field = ann.omission->field;
                 if (!ann.omission->reason.empty()) reason = ann.omission->reason;

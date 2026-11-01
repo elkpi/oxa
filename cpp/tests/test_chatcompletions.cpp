@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 75);
+    CHECK(rep_res->executed == 79);
 
     auto wire = oxa::json::parse(R"({
         "model":"gpt-4o",
@@ -78,6 +78,43 @@ int main() {
         CHECK(decoded->value.native.size() == 2);
         CHECK(decoded->value.native[0].kind == "store");
         CHECK(decoded->value.native[1].kind == "prompt_cache_key");
+    }
+
+    // prompt_cache_breakpoint: mode optional, invalid values rejected,
+    // image restores breakpoint.
+    {
+        auto no_mode = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "messages":[{"role":"user","content":[{"type":"text","text":"hi","prompt_cache_breakpoint":{"ttl":"30m"}}]}]
+        })");
+        CHECK(no_mode.ok());
+        auto no_mode_dec = oxa::openai::chatcompletions::decode_request(*no_mode);
+        CHECK(no_mode_dec.ok());
+        if (no_mode_dec.ok()) CHECK(no_mode_dec->losses.empty());
+
+        for (const char* bad : {R"({"mode":"bad"})", R"({"ttl":"wrong"})", R"({"mode":1})"}) {
+            std::string raw = std::string(R"({"model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi","prompt_cache_breakpoint":})") + bad + R"(}]}]})";
+            CHECK(!oxa::openai::chatcompletions::decode_request(raw).ok());
+        }
+        for (const char* bad : {R"({"mode":"bad"})", R"({"ttl":"1h"})", R"({"mode":123})", R"({"ttl":30})"}) {
+            std::string raw = std::string(R"({"model":"m","messages":[{"role":"user","content":"hi"}],"prompt_cache_options":)") + bad + R"(})";
+            auto dec = oxa::openai::chatcompletions::decode_request(raw);
+            CHECK(!dec.ok());
+        }
+
+        auto img = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/cat.png"},"prompt_cache_breakpoint":{"mode":"explicit"}}]}]
+        })");
+        CHECK(img.ok());
+        auto img_dec = oxa::openai::chatcompletions::decode_request(*img);
+        CHECK(img_dec.ok());
+        if (img_dec.ok()) {
+            CHECK(img_dec->losses.empty());
+            auto img_enc = oxa::openai::chatcompletions::encode_request(img_dec->value);
+            CHECK(img_enc.ok());
+            if (img_enc.ok()) CHECK(oxa::json::structurally_equal(*img, img_enc->value));
+        }
     }
     std::printf("test_chatcompletions: all %zu vectors passed\n", rep_res->executed);
     return 0;

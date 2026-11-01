@@ -599,6 +599,48 @@ void test_chatcompletions_controls_and_foreign_isolation() {
     }
 }
 
+void test_prompt_cache_breakpoint_host_and_null_value() {
+    auto make_req = [](oxa::ir::Block b) {
+        oxa::ir::Request req;
+        req.model = "m";
+        req.messages.push_back(oxa::ir::Message{std::string(oxa::ir::ROLE_USER), {std::move(b)}});
+        return req;
+    };
+    auto make_ann = [](std::string val) {
+        return oxa::ir::NativeAnnotation{
+            std::string(oxa::ir::NATIVE_SOURCE_OPENAI),
+            std::string(oxa::ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT),
+            std::move(val),
+            std::nullopt,
+            std::nullopt,
+        };
+    };
+
+    // 1. null value rejected
+    {
+        oxa::ir::TextBlock tb{"hi"};
+        tb.native.push_back(make_ann("null"));
+        auto req = make_req(std::move(tb));
+        CHECK(!oxa::ir::validate_native_request(req).ok());
+    }
+
+    // 2. thinking block with breakpoint rejected
+    {
+        oxa::ir::ThinkingBlock th{"hmm"};
+        th.native.push_back(make_ann(R"({"mode":"explicit"})"));
+        auto req = make_req(std::move(th));
+        CHECK(!oxa::ir::validate_native_request(req).ok());
+    }
+
+    // 3. valid on text block accepted
+    {
+        oxa::ir::TextBlock tb{"hi"};
+        tb.native.push_back(make_ann(R"({"mode":"explicit"})"));
+        auto req = make_req(std::move(tb));
+        CHECK(oxa::ir::validate_native_request(req).ok());
+    }
+}
+
 }  // namespace
 
 int main() {
@@ -617,6 +659,7 @@ int main() {
     test_fingerprint_losses();
     test_eager_input_streaming_32_tools_and_validation();
     test_chatcompletions_controls_and_foreign_isolation();
+    test_prompt_cache_breakpoint_host_and_null_value();
 
     std::printf("test_native_request: all tests passed\n");
     return 0;

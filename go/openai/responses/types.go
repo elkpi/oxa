@@ -104,9 +104,15 @@ type Request struct {
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-R-8).
-	ParallelToolCalls *bool   `json:"parallel_tool_calls,omitempty"`
-	Store             *bool   `json:"store,omitempty"`
-	PromptCacheKey    *string `json:"prompt_cache_key,omitempty"`
+	ParallelToolCalls  *bool   `json:"parallel_tool_calls,omitempty"`
+	Store              *bool   `json:"store,omitempty"`
+	PromptCacheKey     *string `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions any     `json:"prompt_cache_options,omitempty"`
+
+	// rawPromptCacheOptions preserves the exact source bytes (including
+	// explicit null) captured by UnmarshalJSON so DecodeRequest can
+	// distinguish a present null from an absent field.
+	rawPromptCacheOptions json.RawMessage
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {
@@ -124,6 +130,13 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	}
 	if rawPCK, ok := rawFields["prompt_cache_key"]; ok && strings.TrimSpace(string(rawPCK)) == "null" {
 		return fmt.Errorf("responses: prompt_cache_key must be a string")
+	}
+	if rawPCO, ok := rawFields["prompt_cache_options"]; ok {
+		trimmed := strings.TrimSpace(string(rawPCO))
+		if trimmed != "null" && (len(trimmed) == 0 || trimmed[0] != '{') {
+			return fmt.Errorf("responses: prompt_cache_options must be an object or null")
+		}
+		s.rawPromptCacheOptions = rawPCO
 	}
 	*r = Request(s)
 	return nil
@@ -207,15 +220,16 @@ type InputItem struct {
 // ContentPart is one element of a parts-array item content: input_text,
 // output_text, input_image, or input_file.
 type ContentPart struct {
-	Type     string  `json:"type"`
-	Text     string  `json:"text,omitempty"`
-	Refusal  string  `json:"refusal,omitempty"`
-	ImageURL string  `json:"image_url,omitempty"`
-	FileData *string `json:"file_data,omitempty"`
-	FileURL  *string `json:"file_url,omitempty"`
-	FileID   *string `json:"file_id,omitempty"`
-	Filename *string `json:"filename,omitempty"`
-	Detail   *string `json:"detail,omitempty"`
+	Type                  string          `json:"type"`
+	Text                  string          `json:"text,omitempty"`
+	Refusal               string          `json:"refusal,omitempty"`
+	ImageURL              string          `json:"image_url,omitempty"`
+	FileData              *string         `json:"file_data,omitempty"`
+	FileURL               *string         `json:"file_url,omitempty"`
+	FileID                *string         `json:"file_id,omitempty"`
+	Filename              *string         `json:"filename,omitempty"`
+	Detail                *string         `json:"detail,omitempty"`
+	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
 }
 
 func (c ContentPart) MarshalJSON() ([]byte, error) {
@@ -238,11 +252,18 @@ func (c *ContentPart) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
-	if s.Type == "refusal" {
-		var raw map[string]json.RawMessage
-		if err := json.Unmarshal(data, &raw); err != nil {
-			return err
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if rawPCB, ok := raw["prompt_cache_breakpoint"]; ok {
+		trimmed := strings.TrimSpace(string(rawPCB))
+		if len(trimmed) == 0 || trimmed[0] != '{' {
+			return fmt.Errorf("responses: prompt_cache_breakpoint must be an object")
 		}
+		s.PromptCacheBreakpoint = rawPCB
+	}
+	if s.Type == "refusal" {
 		ref, present := raw["refusal"]
 		if !present {
 			return fmt.Errorf("responses: refusal content part requires refusal string")

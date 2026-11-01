@@ -11,6 +11,19 @@ import (
 // EncodeRequest converts an IR request to a Chat Completions wire request
 // (IR -> face). System content renders as one leading system message; text
 // content remains a string while image input renders as content parts.
+func getSystemContent(system ir.SystemBlock) any {
+	for _, ann := range system.Native {
+		if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+			return []ContentPart{{
+				Type:                  ContentPartTypeText,
+				Text:                  system.Text,
+				PromptCacheBreakpoint: json.RawMessage(ann.Value),
+			}}
+		}
+	}
+	return system.Text
+}
+
 func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
@@ -96,18 +109,33 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			}
 		}
 		if !hasDeveloper {
-			text := ""
+			hasBreakpoint := false
 			for _, system := range req.System {
-				text += system.Text
+				for _, ann := range system.Native {
+					if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+						hasBreakpoint = true
+						break
+					}
+				}
 			}
-			out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+			if !hasBreakpoint {
+				text := ""
+				for _, system := range req.System {
+					text += system.Text
+				}
+				out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: text})
+			} else {
+				for _, system := range req.System {
+					out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: getSystemContent(system)})
+				}
+			}
 		} else {
 			for _, system := range req.System {
 				role := RoleSystem
 				if system.Role == ir.SystemRoleDeveloper {
 					role = RoleDeveloper
 				}
-				out.Messages = append(out.Messages, Message{Role: role, Content: system.Text})
+				out.Messages = append(out.Messages, Message{Role: role, Content: getSystemContent(system)})
 			}
 		}
 	}
@@ -251,6 +279,13 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 				var str *string
 				if err := json.Unmarshal([]byte(ann.Value), &str); err == nil && str != nil {
 					out.PromptCacheKey = str
+				}
+			case ir.NativeKindPromptCacheOptions:
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed == "null" {
+					out.rawPromptCacheOptions = json.RawMessage("null")
+				} else {
+					out.rawPromptCacheOptions = json.RawMessage(ann.Value)
 				}
 			}
 		}

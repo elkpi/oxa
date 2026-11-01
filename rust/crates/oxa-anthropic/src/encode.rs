@@ -55,7 +55,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     };
     if !req.system.is_empty() {
         for (index, block) in req.system.iter().enumerate() {
-            let oxa_ir::SystemBlock::Text { role, .. } = block;
+            let oxa_ir::SystemBlock::Text { role, native, .. } = block;
             if role == "developer" {
                 losses.push(loss(
                     format!("system[{index}].role"),
@@ -63,6 +63,33 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                     LossReason::Degraded,
                     "developer instruction is carried as Anthropic system content; Anthropic has no developer role",
                 ));
+            }
+            for (ann_idx, ann) in native.iter().enumerate() {
+                if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                    && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+                {
+                    let field = ann
+                        .omission
+                        .as_ref()
+                        .map(|o| o.field.clone())
+                        .unwrap_or_else(|| "prompt_cache_breakpoint".into());
+                    let reason = ann
+                        .omission
+                        .as_ref()
+                        .map(|o| o.reason)
+                        .unwrap_or(LossReason::UnmappedField);
+                    let detail = ann
+                        .omission
+                        .as_ref()
+                        .and_then(|o| o.detail.clone())
+                        .unwrap_or_else(|| oxa_ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL.into());
+                    losses.push(Loss {
+                        path: format!("system[{index}].native[{ann_idx}]"),
+                        field,
+                        reason,
+                        detail,
+                    });
+                }
             }
         }
         out.system = Some(crate::types::SystemValue::Blocks(encode_system(
@@ -500,6 +527,34 @@ fn encode_request_blocks(
             out.push(encoded);
         }
         losses.extend(block_losses);
+        let native = block.native();
+        for (ann_idx, ann) in native.iter().enumerate() {
+            if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            {
+                let field = ann
+                    .omission
+                    .as_ref()
+                    .map(|o| o.field.clone())
+                    .unwrap_or_else(|| "prompt_cache_breakpoint".into());
+                let reason = ann
+                    .omission
+                    .as_ref()
+                    .map(|o| o.reason)
+                    .unwrap_or(LossReason::UnmappedField);
+                let detail = ann
+                    .omission
+                    .as_ref()
+                    .and_then(|o| o.detail.clone())
+                    .unwrap_or_else(|| oxa_ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL.into());
+                losses.push(Loss {
+                    path: format!("{path}[{index}].native[{ann_idx}]"),
+                    field,
+                    reason,
+                    detail,
+                });
+            }
+        }
     }
     Ok((out, losses))
 }

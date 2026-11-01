@@ -262,6 +262,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             && let Ok(s) = serde_json::from_str::<String>(&n.value)
         {
             out.prompt_cache_key = Some(serde_json::Value::String(s));
+        } else if n.source == "openai" && n.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS {
+            if n.value == "null" {
+                out.prompt_cache_options = Some(serde_json::Value::Null);
+            } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&n.value) {
+                out.prompt_cache_options = Some(val);
+            }
         }
     }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "responses")
@@ -999,12 +1005,58 @@ fn validate_usage(usage: &Usage) -> Result<(), Error> {
     Ok(())
 }
 
+fn system_block_breakpoint(block: &oxa_ir::SystemBlock) -> Option<serde_json::Value> {
+    let oxa_ir::SystemBlock::Text { native, .. } = block;
+    for ann in native {
+        if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+            && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&ann.value)
+        {
+            return Some(v);
+        }
+    }
+    None
+}
+
 fn encode_system_instructions(
     blocks: &[oxa_ir::SystemBlock],
 ) -> (Option<String>, Vec<crate::types::InputItem>) {
     let has_developer = blocks.iter().any(
         |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
     );
+    let has_breakpoint = blocks
+        .iter()
+        .any(|block| system_block_breakpoint(block).is_some());
+    if has_breakpoint {
+        // Breakpoints cannot survive the instructions string; render every
+        // block as its own input item (spec/15 §3.7 shorthand protection).
+        let mut items = Vec::with_capacity(blocks.len());
+        for block in blocks {
+            let oxa_ir::SystemBlock::Text { text, role, .. } = block;
+            let role_str = if role == "developer" {
+                "developer".to_string()
+            } else {
+                "system".to_string()
+            };
+            let pcb = system_block_breakpoint(block);
+            let content = if let Some(pcb) = pcb {
+                crate::types::ContentValue::Parts(vec![crate::types::ContentPart {
+                    kind: "input_text".to_string(),
+                    text: text.clone(),
+                    prompt_cache_breakpoint: Some(pcb),
+                    ..Default::default()
+                }])
+            } else {
+                crate::types::ContentValue::Text(text.clone())
+            };
+            items.push(crate::types::InputItem {
+                role: role_str,
+                content: Some(content),
+                ..Default::default()
+            });
+        }
+        return (None, items);
+    }
     if !has_developer {
         let mut text = String::new();
         for block in blocks {

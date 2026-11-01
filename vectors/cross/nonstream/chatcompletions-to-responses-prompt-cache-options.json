@@ -1,0 +1,30 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-responses-prompt-cache-options",
+  "description": "Cross encoding from Chat Completions to Responses: prompt_cache_options maps loss-free.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "prompt_cache_options": {
+      "mode": "explicit"
+    }
+  },
+  "expected_output": {
+    "model": "gpt-4o",
+    "input": "Hello",
+    "prompt_cache_options": {
+      "mode": "explicit"
+    }
+  },
+  "expected_losses": [],
+  "tags": ["cross", "request", "chatcompletions", "responses", "prompt_cache_options"]
+}

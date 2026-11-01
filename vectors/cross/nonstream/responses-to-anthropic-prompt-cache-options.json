@@ -1,0 +1,36 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-prompt-cache-options",
+  "description": "Cross encoding from Responses to Anthropic: prompt_cache_options reports unmapped-field loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-3-5-sonnet",
+    "max_output_tokens": 1024,
+    "input": "Hello",
+    "prompt_cache_options": {
+      "mode": "explicit"
+    }
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "native[0]",
+      "field": "prompt_cache_options",
+      "reason": "unmapped-field",
+      "detail": "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped"
+    }
+  ],
+  "tags": ["cross", "request", "responses", "anthropic", "prompt_cache_options"]
+}

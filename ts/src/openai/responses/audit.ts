@@ -14,13 +14,38 @@ const SUMMARY_PART: WireAuditSpec = {
   },
 };
 
+const PROMPT_CACHE_BREAKPOINT: WireAuditSpec = {
+  fields: {
+    mode: undefined,
+    ttl: undefined,
+  },
+};
+
+const PROMPT_CACHE_OPTIONS: WireAuditSpec = {
+  fields: {
+    mode: undefined,
+    ttl: undefined,
+  },
+};
+
 const INPUT_PART: WireAuditSpec = {
   variant: (part) => {
     if (part.type === "input_text")
-      return { fields: { type: undefined, text: undefined } };
+      return {
+        fields: {
+          type: undefined,
+          text: undefined,
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
+        },
+      };
     if (part.type === "input_image")
       return {
-        fields: { type: undefined, image_url: undefined, detail: undefined },
+        fields: {
+          type: undefined,
+          image_url: undefined,
+          detail: undefined,
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
+        },
       };
     if (part.type === "input_file")
       return {
@@ -31,6 +56,7 @@ const INPUT_PART: WireAuditSpec = {
           file_data: undefined,
           filename: undefined,
           detail: undefined,
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
         },
       };
     if (part.type === "refusal")
@@ -415,6 +441,7 @@ export const RESPONSES_REQUEST: WireAuditSpec = {
     tool_choice: TOOL_CHOICE,
     parallel_tool_calls: undefined,
     prompt_cache_key: undefined,
+    prompt_cache_options: PROMPT_CACHE_OPTIONS,
     text: { fields: { format: FORMAT, verbosity: undefined } },
     reasoning: { fields: { effort: undefined, summary: undefined } },
     metadata: undefined,

@@ -37,6 +37,27 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 			if !ok {
 				return nil, nil, fmt.Errorf("chatcompletions: %s[%d].type: part type is not a string", path, i)
 			}
+			var pcbAnn *ir.NativeAnnotation
+			if rawPCB, exists := part["prompt_cache_breakpoint"]; exists {
+				pcbMap, ok := rawPCB.(map[string]any)
+				if !ok {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+				}
+				if err := ir.ValidatePromptCacheBreakpointObject(pcbMap); err != nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].%w", path, i, err)
+				}
+				b, _ := json.Marshal(pcbMap)
+				pcbAnn = &ir.NativeAnnotation{
+					Source: ir.NativeSourceOpenAI,
+					Kind:   ir.NativeKindPromptCacheBreakpoint,
+					Value:  string(b),
+					Omission: &ir.NativeOmission{
+						Field:  "prompt_cache_breakpoint",
+						Reason: ir.LossUnmappedField,
+						Detail: ir.PromptCacheBreakpointLossDetail,
+					},
+				}
+			}
 			if kind == ContentPartTypeFile {
 				if !user {
 					losses = append(losses, loss(
@@ -48,6 +69,9 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				doc, fileLosses, err := decodeFilePart(part["file"], fmt.Sprintf("%s[%d].file", path, i))
 				if err != nil {
 					return nil, nil, err
+				}
+				if pcbAnn != nil {
+					doc.Native = append(doc.Native, *pcbAnn)
 				}
 				blocks = append(blocks, doc)
 				losses = append(losses, fileLosses...)
@@ -62,6 +86,16 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				return nil, nil, err
 			}
 			decoded, partLosses := decodeContentPart(kind, text, imageURL, path, i)
+			if pcbAnn != nil && len(decoded) > 0 {
+				switch db := decoded[0].(type) {
+				case ir.TextBlock:
+					db.Native = append(db.Native, *pcbAnn)
+					decoded[0] = db
+				case ir.ImageBlock:
+					db.Native = append(db.Native, *pcbAnn)
+					decoded[0] = db
+				}
+			}
 			blocks = append(blocks, decoded...)
 			losses = append(losses, partLosses...)
 		}
@@ -70,6 +104,30 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 		blocks := make([]ir.Block, 0, len(v))
 		var losses []ir.Loss
 		for i, part := range v {
+			var pcbAnn *ir.NativeAnnotation
+			if len(part.PromptCacheBreakpoint) > 0 {
+				trimmed := strings.TrimSpace(string(part.PromptCacheBreakpoint))
+				if len(trimmed) == 0 || trimmed[0] != '{' {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+				}
+				var pcbMap map[string]any
+				if err := json.Unmarshal(part.PromptCacheBreakpoint, &pcbMap); err != nil || pcbMap == nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+				}
+				if err := ir.ValidatePromptCacheBreakpointObject(pcbMap); err != nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].%w", path, i, err)
+				}
+				pcbAnn = &ir.NativeAnnotation{
+					Source: ir.NativeSourceOpenAI,
+					Kind:   ir.NativeKindPromptCacheBreakpoint,
+					Value:  trimmed,
+					Omission: &ir.NativeOmission{
+						Field:  "prompt_cache_breakpoint",
+						Reason: ir.LossUnmappedField,
+						Detail: ir.PromptCacheBreakpointLossDetail,
+					},
+				}
+			}
 			if part.Type == ContentPartTypeFile {
 				if !user {
 					losses = append(losses, loss(
@@ -82,6 +140,9 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				if err != nil {
 					return nil, nil, err
 				}
+				if pcbAnn != nil {
+					doc.Native = append(doc.Native, *pcbAnn)
+				}
 				blocks = append(blocks, doc)
 				losses = append(losses, fileLosses...)
 				continue
@@ -91,6 +152,16 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				imageURL = part.ImageURL.URL
 			}
 			decoded, partLosses := decodeContentPart(part.Type, part.Text, imageURL, path, i)
+			if pcbAnn != nil && len(decoded) > 0 {
+				switch db := decoded[0].(type) {
+				case ir.TextBlock:
+					db.Native = append(db.Native, *pcbAnn)
+					decoded[0] = db
+				case ir.ImageBlock:
+					db.Native = append(db.Native, *pcbAnn)
+					decoded[0] = db
+				}
+			}
 			blocks = append(blocks, decoded...)
 			losses = append(losses, partLosses...)
 		}
@@ -497,7 +568,15 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
-			parts = append(parts, ContentPart{Type: ContentPartTypeText, Text: value.Text})
+			part := ContentPart{Type: ContentPartTypeText, Text: value.Text}
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					part.PromptCacheBreakpoint = json.RawMessage(ann.Value)
+					hasImage = true
+					break
+				}
+			}
+			parts = append(parts, part)
 			text += value.Text
 			if len(value.Citations) > 0 {
 				hasAnthropic := false
@@ -534,6 +613,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				continue
 			}
 			hasImage = true
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					part.PromptCacheBreakpoint = json.RawMessage(ann.Value)
+					break
+				}
+			}
 			parts = append(parts, part)
 		case ir.DocumentBlock:
 			var sCount int
@@ -575,15 +660,24 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				continue
 			}
 			hasImage = true
+			var pcb json.RawMessage
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					pcb = json.RawMessage(ann.Value)
+					break
+				}
+			}
 			if value.FileID != "" {
 				parts = append(parts, ContentPart{
-					Type: ContentPartTypeFile,
-					File: &FileWire{FileID: &value.FileID},
+					Type:                  ContentPartTypeFile,
+					File:                  &FileWire{FileID: &value.FileID},
+					PromptCacheBreakpoint: pcb,
 				})
 			} else {
 				parts = append(parts, ContentPart{
-					Type: ContentPartTypeFile,
-					File: &FileWire{FileData: &value.Data},
+					Type:                  ContentPartTypeFile,
+					File:                  &FileWire{FileData: &value.Data},
+					PromptCacheBreakpoint: pcb,
 				})
 			}
 		default:

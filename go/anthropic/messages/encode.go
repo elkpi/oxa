@@ -62,6 +62,30 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 				sbw.CacheControl = cc
 			}
 			blocks = append(blocks, sbw)
+			for sAnnIdx, ann := range s.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					field := "prompt_cache_breakpoint"
+					reason := ir.LossUnmappedField
+					detail := ir.PromptCacheBreakpointLossDetail
+					if ann.Omission != nil {
+						if ann.Omission.Field != "" {
+							field = ann.Omission.Field
+						}
+						if ann.Omission.Reason != "" {
+							reason = ann.Omission.Reason
+						}
+						if ann.Omission.Detail != "" {
+							detail = ann.Omission.Detail
+						}
+					}
+					losses = append(losses, ir.Loss{
+						Path:   fmt.Sprintf("system[%d].native[%d]", i, sAnnIdx),
+						Field:  field,
+						Reason: reason,
+						Detail: detail,
+					})
+				}
+			}
 		}
 		out.System = blocks
 	}
@@ -344,6 +368,30 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 			out = append(out, encoded)
 		}
 		losses = append(losses, blockLosses...)
+		for bAnnIdx, ann := range getBlockNative(block) {
+			if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+				field := "prompt_cache_breakpoint"
+				reason := ir.LossUnmappedField
+				detail := ir.PromptCacheBreakpointLossDetail
+				if ann.Omission != nil {
+					if ann.Omission.Field != "" {
+						field = ann.Omission.Field
+					}
+					if ann.Omission.Reason != "" {
+						reason = ann.Omission.Reason
+					}
+					if ann.Omission.Detail != "" {
+						detail = ann.Omission.Detail
+					}
+				}
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("%s[%d].native[%d]", path, i, bAnnIdx),
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
+			}
+		}
 	}
 	return out, losses, nil
 }

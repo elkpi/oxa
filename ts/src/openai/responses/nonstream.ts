@@ -25,6 +25,10 @@ import {
   omittedNativeRequestLosses,
   DEFER_LOADING_LOSS_DETAIL,
   PROMPT_CACHE_KEY_LOSS_DETAIL,
+  PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
+  PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+  NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+  NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
@@ -481,6 +485,33 @@ function decodeRequestObject(
         field: "prompt_cache_key",
         reason: "unmapped-field",
         detail: PROMPT_CACHE_KEY_LOSS_DETAIL,
+      },
+    });
+  }
+  if (wire.prompt_cache_options !== undefined) {
+    if (
+      wire.prompt_cache_options !== null &&
+      (typeof wire.prompt_cache_options !== "object" ||
+        Array.isArray(wire.prompt_cache_options))
+    ) {
+      throw new TypeError(
+        "responses: prompt_cache_options must be an object or null",
+      );
+    }
+    if (wire.prompt_cache_options !== null) {
+      validatePromptCacheOptionsFields(
+        wire.prompt_cache_options as JsonObject,
+        "prompt_cache_options",
+      );
+    }
+    native.push({
+      source: "openai",
+      kind: NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+      value: JSON.stringify(wire.prompt_cache_options),
+      omission: {
+        field: "prompt_cache_options",
+        reason: "unmapped-field",
+        detail: PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
       },
     });
   }
@@ -1115,6 +1146,21 @@ function decodeResponseObject(
   };
 }
 
+function getPromptCacheBreakpoint(item: {
+  native?: readonly NativeAnnotation[];
+}): JsonValue | undefined {
+  const ann = item.native?.find(
+    (n) =>
+      n.source === "openai" && n.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+  );
+  if (!ann) return undefined;
+  try {
+    return JSON.parse(ann.value);
+  } catch {
+    return undefined;
+  }
+}
+
 export function encodeRequest(
   request: Request,
   options: NonstreamOptions = {},
@@ -1361,6 +1407,15 @@ export function encodeRequest(
   const promptCacheKeyAnn = request.native?.find(
     (n) => n.source === "openai" && n.kind === "prompt_cache_key",
   );
+  const promptCacheOptionsAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+  );
+  let promptCacheOptionsVal: JsonValue | undefined = undefined;
+  if (promptCacheOptionsAnn) {
+    try {
+      promptCacheOptionsVal = JSON.parse(promptCacheOptionsAnn.value);
+    } catch {}
+  }
   let promptCacheKeyVal: string | undefined = undefined;
   if (promptCacheKeyAnn) {
     try {
@@ -1380,6 +1435,9 @@ export function encodeRequest(
       ...(storeVal !== undefined ? { store: storeVal } : {}),
       ...(promptCacheKeyVal !== undefined
         ? { prompt_cache_key: promptCacheKeyVal }
+        : {}),
+      ...(promptCacheOptionsVal !== undefined
+        ? { prompt_cache_options: promptCacheOptionsVal }
         : {}),
       ...(parallelToolCalls !== undefined
         ? { parallel_tool_calls: parallelToolCalls }
@@ -1834,6 +1892,32 @@ function decodeContent(
   const parts = array(value, path);
   for (let index = 0; index < parts.length; index += 1) {
     const part = object(parts[index], `${path}[${index}]`);
+    let pcbAnn: NativeAnnotation | undefined = undefined;
+    if (part.prompt_cache_breakpoint !== undefined) {
+      if (
+        part.prompt_cache_breakpoint === null ||
+        typeof part.prompt_cache_breakpoint !== "object" ||
+        Array.isArray(part.prompt_cache_breakpoint)
+      ) {
+        fail(
+          `responses: ${path}[${index}].prompt_cache_breakpoint must be an object`,
+        );
+      }
+      validatePromptCacheBreakpointFields(
+        part.prompt_cache_breakpoint as JsonObject,
+        `${path}[${index}].prompt_cache_breakpoint`,
+      );
+      pcbAnn = {
+        source: "openai",
+        kind: NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+        value: JSON.stringify(part.prompt_cache_breakpoint),
+        omission: {
+          field: "prompt_cache_breakpoint",
+          reason: "unmapped-field",
+          detail: PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+        },
+      };
+    }
     if (part.type === "input_text" || part.type === "output_text")
       blocks.push({
         type: "text",
@@ -1841,6 +1925,7 @@ function decodeContent(
           part.text === undefined
             ? ""
             : string(part.text, `${path}[${index}].text`),
+        ...(pcbAnn ? { native: [pcbAnn] } : {}),
       });
     else if (part.type === "input_image") {
       const image = decodeImage(
@@ -1854,7 +1939,7 @@ function decodeContent(
             "unsupported-semantic",
           ),
         );
-      else blocks.push(image);
+      else blocks.push(pcbAnn ? { ...image, native: [pcbAnn] } : image);
     } else if (part.type === "input_file") {
       if (!isUser) {
         losses.push({
@@ -1911,7 +1996,11 @@ function decodeContent(
             "type-violation",
             `${path}[${index}].file_id cannot be empty`,
           );
-        blocks.push({ type: "document", file_id: fileId });
+        blocks.push({
+          type: "document",
+          file_id: fileId,
+          ...(pcbAnn ? { native: [pcbAnn] } : {}),
+        });
       } else if (part.file_url !== undefined && part.file_url !== null) {
         const fileUrl = string(part.file_url, `${path}[${index}].file_url`);
         if (fileUrl.length === 0)
@@ -1919,7 +2008,11 @@ function decodeContent(
             "type-violation",
             `${path}[${index}].file_url cannot be empty`,
           );
-        blocks.push({ type: "document", url: fileUrl });
+        blocks.push({
+          type: "document",
+          url: fileUrl,
+          ...(pcbAnn ? { native: [pcbAnn] } : {}),
+        });
       } else {
         const fileData = string(part.file_data, `${path}[${index}].file_data`);
         if (fileData.length === 0)
@@ -1945,6 +2038,7 @@ function decodeContent(
           type: "document",
           data: dataPayload,
           media_type: mediaType,
+          ...(pcbAnn ? { native: [pcbAnn] } : {}),
         });
       }
     } else if (part.type === "refusal") {
@@ -1988,7 +2082,13 @@ function encodeUserContent(
     if (block.type === "text") {
       text += block.text;
       textBlocks += 1;
-      parts.push({ type: "input_text", text: block.text });
+      const pcb = getPromptCacheBreakpoint(block);
+      if (pcb !== undefined) otherBlocks += 1;
+      parts.push({
+        type: "input_text",
+        text: block.text,
+        ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+      });
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
         let hasOpenAI = false;
@@ -2031,7 +2131,12 @@ function encodeUserContent(
         losses.push(loss(`${path}[${index}]`, "image", "unsupported-semantic"));
       else {
         otherBlocks += 1;
-        parts.push({ type: "input_image", image_url: image });
+        const pcb = getPromptCacheBreakpoint(block);
+        parts.push({
+          type: "input_image",
+          image_url: image,
+          ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+        });
       }
     } else if (block.type === "document") {
       otherBlocks += 1;
@@ -2053,12 +2158,27 @@ function encodeUserContent(
           reason: "unsupported-semantic",
           detail: "IR DocumentBlock carries conflicting file sources",
         });
-      } else if (block.file_id !== undefined && block.file_id !== "") {
-        parts.push({ type: "input_file", file_id: block.file_id });
-      } else if (block.url !== undefined && block.url !== "") {
-        parts.push({ type: "input_file", file_url: block.url });
       } else {
-        parts.push({ type: "input_file", file_data: block.data! });
+        const pcb = getPromptCacheBreakpoint(block);
+        if (block.file_id !== undefined && block.file_id !== "") {
+          parts.push({
+            type: "input_file",
+            file_id: block.file_id,
+            ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+          });
+        } else if (block.url !== undefined && block.url !== "") {
+          parts.push({
+            type: "input_file",
+            file_url: block.url,
+            ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+          });
+        } else {
+          parts.push({
+            type: "input_file",
+            file_data: block.data!,
+            ...(pcb !== undefined ? { prompt_cache_breakpoint: pcb } : {}),
+          });
+        }
       }
     } else {
       otherBlocks += 1;
@@ -2657,12 +2777,49 @@ function encodeResponsesGroupedTools(
   return out;
 }
 
+function getSystemBreakpoint(block: {
+  native?: readonly NativeAnnotation[];
+}): JsonValue | undefined {
+  for (const ann of block.native ?? []) {
+    if (ann.source === "openai" && ann.kind === "prompt_cache_breakpoint") {
+      return parseJson(ann.value);
+    }
+  }
+  return undefined;
+}
+
 function encodeSystemPlan(system: Request["system"]): {
   instructions?: string;
   items: JsonObject[];
 } {
   if (system === undefined || system.length === 0) return { items: [] };
-  if (!system.some((block) => block.role === "developer"))
+  const hasDeveloper = system.some((block) => block.role === "developer");
+  const hasBreakpoint = system.some(
+    (block) => getSystemBreakpoint(block) !== undefined,
+  );
+  if (hasBreakpoint) {
+    // Breakpoints cannot survive the instructions string; render every block
+    // as its own input item (spec/15 §3.7 shorthand protection).
+    return {
+      items: system.map((block) => {
+        const pcb = getSystemBreakpoint(block);
+        return {
+          role: block.role === "developer" ? "developer" : "system",
+          content:
+            pcb !== undefined
+              ? [
+                  {
+                    type: "input_text",
+                    text: block.text,
+                    prompt_cache_breakpoint: pcb,
+                  },
+                ]
+              : block.text,
+        };
+      }),
+    };
+  }
+  if (!hasDeveloper)
     return {
       instructions: system.map((block) => block.text).join(""),
       items: [],
@@ -2736,6 +2893,38 @@ function whole(value: JsonValue | undefined, name: string): bigint {
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", `responses: ${message}`);
+}
+function validatePromptCacheOptionsFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "implicit" && mode !== "explicit")
+      fail(`${name}.mode must be 'implicit' or 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m") fail(`${name}.ttl must be '30m'`);
+  }
+}
+function validatePromptCacheBreakpointFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "explicit") fail(`${name}.mode must be 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m" && ttl !== "12h")
+      fail(`${name}.ttl must be '30m' or '12h'`);
+  }
 }
 
 function boolean(value: JsonValue | undefined, name: string): boolean {

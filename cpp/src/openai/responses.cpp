@@ -112,13 +112,49 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
         const auto& arr = content->as_array();
         for (std::size_t i = 0; i < arr.size(); ++i) {
             const auto& part = arr[i];
+            std::optional<ir::NativeAnnotation> pcb_ann;
+            if (const auto* pcb = part.find("prompt_cache_breakpoint"); pcb) {
+                if (!pcb->is_object()) {
+                    return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint must be an object");
+                }
+                const auto* m = pcb->find("mode");
+                if (m) {
+                    if (!m->is_string()) {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be a string");
+                    }
+                    if (m->as_string() != "explicit") {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be 'explicit'");
+                    }
+                }
+                if (const auto* t = pcb->find("ttl"); t) {
+                    if (!t->is_string()) {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.ttl must be a string");
+                    }
+                    if (t->as_string() != "30m" && t->as_string() != "12h") {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.ttl must be '30m' or '12h'");
+                    }
+                }
+                ir::NativeAnnotation ann;
+                ann.source = std::string(ir::NATIVE_SOURCE_OPENAI);
+                ann.kind = std::string(ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT);
+                ann.value = json::serialize(*pcb);
+                ann.omission = ir::NativeOmission{
+                    "prompt_cache_breakpoint",
+                    std::string(ir::LOSS_UNMAPPED_FIELD),
+                    std::string(ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL)
+                };
+                pcb_ann = std::move(ann);
+            }
+
             const auto* t = part.find("type");
             std::string kind = t && t->is_string() ? t->as_string() : "";
             std::string part_path = path + "[" + std::to_string(i) + "]";
             if (kind == "input_text" || kind == "output_text") {
                 const auto* txt = part.find("text");
                 std::string text = txt && txt->is_string() ? txt->as_string() : "";
-                blocks.push_back(ir::TextBlock{std::move(text)});
+                ir::TextBlock tb{std::move(text)};
+                if (pcb_ann.has_value()) tb.native.push_back(*pcb_ann);
+                blocks.push_back(std::move(tb));
             } else if (kind == "refusal") {
                 if (is_user) {
                     losses.push_back(make_resp_loss(
@@ -141,6 +177,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     if (is_valid_https_url(raw_url)) {
                         ir::ImageBlock img;
                         img.url = raw_url;
+                        if (pcb_ann.has_value()) img.native.push_back(*pcb_ann);
                         blocks.push_back(std::move(img));
                     } else {
                         losses.push_back(make_resp_loss(iu_path, "image_url",
@@ -174,6 +211,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                                 ir::ImageBlock img;
                                 img.media_type = std::move(media_type);
                                 img.data = std::string(b64);
+                                if (pcb_ann.has_value()) img.native.push_back(*pcb_ann);
                                 blocks.push_back(std::move(img));
                             }
                         }
@@ -212,11 +250,13 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     if (!fid->is_string() || fid->as_string().empty()) return invalid_argument(part_path + ".file_id must be a non-empty string");
                     ir::DocumentBlock doc;
                     doc.file_id = fid->as_string();
+                    if (pcb_ann.has_value()) doc.native.push_back(*pcb_ann);
                     blocks.push_back(std::move(doc));
                 } else if (furl && !furl->is_null()) {
                     if (!furl->is_string() || furl->as_string().empty()) return invalid_argument(part_path + ".file_url must be a non-empty string");
                     ir::DocumentBlock doc;
                     doc.url = furl->as_string();
+                    if (pcb_ann.has_value()) doc.native.push_back(*pcb_ann);
                     blocks.push_back(std::move(doc));
                 } else {
                     if (!fdata->is_string() || fdata->as_string().empty()) return invalid_argument(part_path + ".file_data must be a non-empty string");
@@ -237,6 +277,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     ir::DocumentBlock doc;
                     doc.data = std::move(data_payload);
                     doc.media_type = std::move(media_type);
+                    if (pcb_ann.has_value()) doc.native.push_back(*pcb_ann);
                     blocks.push_back(std::move(doc));
                 }
             } else {
@@ -976,6 +1017,37 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         });
     }
 
+    if (const auto* pco = wire.find("prompt_cache_options"); pco) {
+        if (!pco->is_object() && !pco->is_null()) {
+            return invalid_argument("responses: prompt_cache_options must be an object or null");
+        }
+        if (pco->is_object()) {
+            if (const auto* m = pco->find("mode"); m) {
+                if (!m->is_string()) return invalid_argument("responses: prompt_cache_options.mode must be a string");
+                if (m->as_string() != "implicit" && m->as_string() != "explicit") {
+                    return invalid_argument("responses: prompt_cache_options.mode must be 'implicit' or 'explicit'");
+                }
+            }
+            if (const auto* t = pco->find("ttl"); t) {
+                if (!t->is_string()) return invalid_argument("responses: prompt_cache_options.ttl must be a string");
+                if (t->as_string() != "30m") {
+                    return invalid_argument("responses: prompt_cache_options.ttl must be '30m'");
+                }
+            }
+        }
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS),
+            pco->is_null() ? "null" : json::serialize(*pco),
+            ir::NativeOmission{
+                "prompt_cache_options",
+                std::string(ir::LOSS_UNMAPPED_FIELD),
+                std::string(ir::PROMPT_CACHE_OPTIONS_LOSS_DETAIL),
+            },
+            std::nullopt,
+        });
+    }
+
     const auto* inp = wire.find("input");
     if (!inp) return invalid_argument("responses: request missing input");
 
@@ -1526,7 +1598,43 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     if (!req.system.empty()) {
         bool has_developer = false;
         for (const auto& s : req.system) if (s.role == "developer") has_developer = true;
-        if (!has_developer) {
+        bool has_breakpoint = false;
+        for (const auto& s : req.system) {
+            for (const auto& ann : s.native) {
+                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                    has_breakpoint = true;
+                    break;
+                }
+            }
+            if (has_breakpoint) break;
+        }
+        auto system_item_content = [](const ir::SystemBlock& s) -> json::Value {
+            for (const auto& ann : s.native) {
+                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                    auto parsed = json::parse(ann.value);
+                    if (parsed.ok()) {
+                        json::Value parts = json::Value::array();
+                        json::Value part = json::Value::object();
+                        part.set("type", json::Value::string("input_text"));
+                        part.set("text", json::Value::string(s.text));
+                        part.set("prompt_cache_breakpoint", std::move(*parsed));
+                        parts.push_back(std::move(part));
+                        return parts;
+                    }
+                }
+            }
+            return json::Value::string(s.text);
+        };
+        if (has_breakpoint) {
+            // Breakpoints cannot survive the instructions string; render every
+            // block as its own input item (spec/15 §3.7 shorthand protection).
+            for (const auto& s : req.system) {
+                json::Value item = json::Value::object();
+                item.set("role", json::Value::string(s.role == "developer" ? "developer" : "system"));
+                item.set("content", system_item_content(s));
+                leading_system_items.push_back(std::move(item));
+            }
+        } else if (!has_developer) {
             std::string inst;
             for (const auto& s : req.system) inst += s.text;
             out.set("instructions", json::Value::string(std::move(inst)));
@@ -1768,7 +1876,33 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             if (!normal.empty() || results.empty()) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("user"));
-                if (normal.size() == 1 && std::holds_alternative<ir::TextBlock>(*normal[0])) {
+                bool has_pcb = false;
+                for (const auto* b : normal) {
+                    if (const auto* tb = std::get_if<ir::TextBlock>(b)) {
+                        for (const auto& ann : tb->native) {
+                            if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                has_pcb = true;
+                                break;
+                            }
+                        }
+                    } else if (const auto* img = std::get_if<ir::ImageBlock>(b)) {
+                        for (const auto& ann : img->native) {
+                            if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                has_pcb = true;
+                                break;
+                            }
+                        }
+                    } else if (const auto* doc = std::get_if<ir::DocumentBlock>(b)) {
+                        for (const auto& ann : doc->native) {
+                            if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                has_pcb = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (has_pcb) break;
+                }
+                if (!has_pcb && normal.size() == 1 && std::holds_alternative<ir::TextBlock>(*normal[0])) {
                     const auto& tb = std::get<ir::TextBlock>(*normal[0]);
                     mi.set("content", json::Value::string(tb.text));
                 } else {
@@ -1778,6 +1912,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                             json::Value part = json::Value::object();
                             part.set("type", json::Value::string("input_text"));
                             part.set("text", json::Value::string(tb->text));
+                            for (const auto& ann : tb->native) {
+                                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                    auto parsed = json::parse(ann.value);
+                                    if (parsed.ok()) part.set("prompt_cache_breakpoint", std::move(*parsed));
+                                    break;
+                                }
+                            }
                             parts.push_back(std::move(part));
                         } else if (const auto* img = std::get_if<ir::ImageBlock>(b)) {
                             json::Value part = json::Value::object();
@@ -1787,6 +1928,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 part.set("image_url", json::Value::string("data:" + mt + ";base64," + *img->data));
                             } else if (img->url.has_value()) {
                                 part.set("image_url", json::Value::string(*img->url));
+                            }
+                            for (const auto& ann : img->native) {
+                                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                    auto parsed = json::parse(ann.value);
+                                    if (parsed.ok()) part.set("prompt_cache_breakpoint", std::move(*parsed));
+                                    break;
+                                }
                             }
                             parts.push_back(std::move(part));
                         } else if (const auto* doc = std::get_if<ir::DocumentBlock>(b)) {
@@ -1798,6 +1946,13 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 part.set("file_url", json::Value::string(*doc->url));
                             } else if (doc->data.has_value() && !doc->data->empty()) {
                                 part.set("file_data", json::Value::string(*doc->data));
+                            }
+                            for (const auto& ann : doc->native) {
+                                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                                    auto parsed = json::parse(ann.value);
+                                    if (parsed.ok()) part.set("prompt_cache_breakpoint", std::move(*parsed));
+                                    break;
+                                }
                             }
                             parts.push_back(std::move(part));
                         }
@@ -2008,6 +2163,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 auto parsed = json::parse(n.value);
                 if (parsed.ok() && parsed->is_string()) {
                     out.set("prompt_cache_key", json::Value::string(parsed->as_string()));
+                }
+            } else if (n.kind == ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS) {
+                if (n.value == "null") {
+                    out.set("prompt_cache_options", json::Value::null());
+                } else {
+                    auto parsed = json::parse(n.value);
+                    if (parsed.ok()) {
+                        out.set("prompt_cache_options", std::move(*parsed));
+                    }
                 }
             }
         }

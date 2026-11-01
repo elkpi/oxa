@@ -184,7 +184,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         let has_developer = req.system.iter().any(
             |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
         );
-        if !has_developer {
+        let has_breakpoint = req.system.iter().any(|block| {
+            let oxa_ir::SystemBlock::Text { native, .. } = block;
+            native.iter().any(|ann| {
+                ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                    && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            })
+        });
+        if !has_developer && !has_breakpoint {
             let mut text = String::new();
             for block in &req.system {
                 let oxa_ir::SystemBlock::Text { text: value, .. } = block;
@@ -198,15 +205,19 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         } else {
             for block in &req.system {
                 let oxa_ir::SystemBlock::Text {
-                    text: value, role, ..
+                    text: value,
+                    role,
+                    native,
                 } = block;
+                let role_str = if role == "developer" {
+                    "developer".to_string()
+                } else {
+                    ROLE_SYSTEM.to_string()
+                };
+                let content = get_system_content(value, native);
                 out.messages.push(Message {
-                    role: if role == "developer" {
-                        "developer".to_string()
-                    } else {
-                        ROLE_SYSTEM.to_string()
-                    },
-                    content: Some(ContentValue::Text(value.clone())),
+                    role: role_str,
+                    content: Some(content),
                     ..Message::default()
                 });
             }
@@ -360,6 +371,13 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                 oxa_ir::NATIVE_KIND_PROMPT_CACHE_KEY => {
                     if let Ok(s) = serde_json::from_str::<String>(&n.value) {
                         out.prompt_cache_key = Some(serde_json::Value::String(s));
+                    }
+                }
+                oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS => {
+                    if n.value == "null" {
+                        out.prompt_cache_options = Some(serde_json::Value::Null);
+                    } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&n.value) {
+                        out.prompt_cache_options = Some(val);
                     }
                 }
                 _ => {}
@@ -542,4 +560,21 @@ pub(crate) fn encode_finish_reason(
             "chatcompletions: stop reason \"other\" has no Chat Completions equivalent",
         )),
     }
+}
+
+fn get_system_content(text: &str, native: &[oxa_ir::NativeAnnotation]) -> ContentValue {
+    for ann in native {
+        if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+            && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&ann.value)
+        {
+            return ContentValue::Parts(vec![crate::types::ContentPart {
+                kind: crate::types::CONTENT_PART_TYPE_TEXT.to_string(),
+                text: text.to_string(),
+                prompt_cache_breakpoint: Some(v),
+                ..Default::default()
+            }]);
+        }
+    }
+    ContentValue::Text(text.to_string())
 }

@@ -28,6 +28,8 @@ export const NATIVE_KIND_TOP_K = "top_k";
 export const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE =
   "disable_parallel_tool_use";
 export const NATIVE_KIND_PROMPT_CACHE_KEY = "prompt_cache_key";
+export const NATIVE_KIND_PROMPT_CACHE_OPTIONS = "prompt_cache_options";
+export const NATIVE_KIND_PROMPT_CACHE_BREAKPOINT = "prompt_cache_breakpoint";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 export const NATIVE_SOURCE_OPENAI = "openai";
 
@@ -36,6 +38,12 @@ export const CACHE_CONTROL_LOSS_DETAIL =
 
 export const PROMPT_CACHE_KEY_LOSS_DETAIL =
   "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped";
+
+export const PROMPT_CACHE_OPTIONS_LOSS_DETAIL =
+  "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped";
+
+export const PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL =
+  "Anthropic Messages has no prompt_cache_breakpoint parameter; prompt cache breakpoint is dropped";
 
 export const DEFER_LOADING_LOSS_DETAIL =
   "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
@@ -624,14 +632,64 @@ function validateAnnotations(
             );
           }
           break;
+        case NATIVE_KIND_PROMPT_CACHE_OPTIONS:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (
+            parsedJson !== null &&
+            (typeof parsedJson !== "object" || Array.isArray(parsedJson))
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid prompt_cache_options ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
+        case NATIVE_KIND_PROMPT_CACHE_BREAKPOINT:
+          if (host !== "content" && host !== "system") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on content or system blocks`,
+            );
+          }
+          if (
+            parsedJson === null ||
+            typeof parsedJson !== "object" ||
+            Array.isArray(parsedJson)
+          ) {
+            throw new OxaError(
+              "invalid-input",
+              `invalid prompt_cache_breakpoint ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
       }
     }
   }
 }
 
+const BREAKPOINT_ALLOWED_BLOCK_TYPES = new Set(["text", "image", "document"]);
+
 function validateBlockNative(blk: Block, host: HostType, path: string): void {
   if ("native" in blk && blk.native) {
     validateAnnotations(blk.native, host, path);
+    if (!BREAKPOINT_ALLOWED_BLOCK_TYPES.has(blk.type)) {
+      blk.native.forEach((ann, i) => {
+        if (
+          ann.source === NATIVE_SOURCE_OPENAI &&
+          ann.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+        ) {
+          throw new OxaError(
+            "invalid-input",
+            `${path}.native[${i}]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks`,
+          );
+        }
+      });
+    }
   }
   if (blk.type === "tool_result") {
     (blk as ToolResultBlock).content.forEach((child, k) => {
@@ -834,6 +892,37 @@ function appendOmissionLoss(
         const field = ann.omission?.field || "prompt_cache_key";
         const reason = ann.omission?.reason || "unmapped-field";
         const detail = ann.omission?.detail || PROMPT_CACHE_KEY_LOSS_DETAIL;
+        losses.push({
+          path,
+          field,
+          reason,
+          ...(detail ? { detail } : {}),
+        });
+        return;
+      }
+      case NATIVE_KIND_PROMPT_CACHE_OPTIONS: {
+        if (target === "chatcompletions" || target === "responses") {
+          return;
+        }
+        const field = ann.omission?.field || "prompt_cache_options";
+        const reason = ann.omission?.reason || "unmapped-field";
+        const detail = ann.omission?.detail || PROMPT_CACHE_OPTIONS_LOSS_DETAIL;
+        losses.push({
+          path,
+          field,
+          reason,
+          ...(detail ? { detail } : {}),
+        });
+        return;
+      }
+      case NATIVE_KIND_PROMPT_CACHE_BREAKPOINT: {
+        if (target === "chatcompletions" || target === "responses") {
+          return;
+        }
+        const field = ann.omission?.field || "prompt_cache_breakpoint";
+        const reason = ann.omission?.reason || "unmapped-field";
+        const detail =
+          ann.omission?.detail || PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL;
         losses.push({
           path,
           field,

@@ -134,6 +134,13 @@ pub struct Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub prompt_cache_key: Option<Value>,
+    #[serde(
+        rename = "prompt_cache_options",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_options: Option<Value>,
 }
 
 /// Responses accepts a string shorthand or an ordered item array as input.
@@ -239,6 +246,13 @@ pub struct ContentPart {
     pub file_data: Option<String>,
     #[serde(rename = "filename", default, skip_serializing_if = "Option::is_none")]
     pub filename: Option<String>,
+    #[serde(
+        rename = "prompt_cache_breakpoint",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_breakpoint: Option<Value>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]

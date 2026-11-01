@@ -33,8 +33,9 @@ type Request struct {
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-CC-9).
-	ParallelToolCalls *bool   `json:"parallel_tool_calls,omitempty"`
-	PromptCacheKey    *string `json:"prompt_cache_key,omitempty"`
+	ParallelToolCalls  *bool   `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey     *string `json:"prompt_cache_key,omitempty"`
+	PromptCacheOptions any     `json:"prompt_cache_options,omitempty"`
 
 	// The legacy functions/function_call shapes have no IR representation.
 	Functions    any `json:"functions,omitempty"`
@@ -52,9 +53,10 @@ type Request struct {
 	// dropped with an unmapped-field loss (vectors/README.md bucket 3).
 	Metadata any `json:"metadata,omitempty"`
 
-	rawStore         json.RawMessage
-	rawStream        json.RawMessage
-	rawStreamOptions json.RawMessage
+	rawStore              json.RawMessage
+	rawStream             json.RawMessage
+	rawStreamOptions      json.RawMessage
+	rawPromptCacheOptions json.RawMessage
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {
@@ -75,6 +77,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
 		PromptCacheKey      *string         `json:"prompt_cache_key,omitempty"`
+		PromptCacheOptions  json.RawMessage `json:"prompt_cache_options,omitempty"`
 		Functions           any             `json:"functions,omitempty"`
 		FunctionCall        any             `json:"function_call,omitempty"`
 		ResponseFormat      any             `json:"response_format,omitempty"`
@@ -177,6 +180,16 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 			r.StreamOptions = &soWire
 		}
 	}
+	if len(s.PromptCacheOptions) > 0 {
+		r.rawPromptCacheOptions = s.PromptCacheOptions
+		trimmed := strings.TrimSpace(string(s.PromptCacheOptions))
+		if trimmed != "null" {
+			var pco map[string]any
+			if err := json.Unmarshal(s.PromptCacheOptions, &pco); err != nil || pco == nil {
+				return fmt.Errorf("chatcompletions: prompt_cache_options must be an object or null")
+			}
+		}
+	}
 	return nil
 }
 
@@ -198,6 +211,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
 		PromptCacheKey      *string         `json:"prompt_cache_key,omitempty"`
+		PromptCacheOptions  json.RawMessage `json:"prompt_cache_options,omitempty"`
 		Functions           any             `json:"functions,omitempty"`
 		FunctionCall        any             `json:"function_call,omitempty"`
 		ResponseFormat      any             `json:"response_format,omitempty"`
@@ -249,6 +263,12 @@ func (r Request) MarshalJSON() ([]byte, error) {
 	} else if r.StreamOptions != nil {
 		b, _ := json.Marshal(r.StreamOptions)
 		s.StreamOptions = b
+	}
+	if len(r.rawPromptCacheOptions) > 0 {
+		s.PromptCacheOptions = r.rawPromptCacheOptions
+	} else if r.PromptCacheOptions != nil {
+		b, _ := json.Marshal(r.PromptCacheOptions)
+		s.PromptCacheOptions = b
 	}
 	return json.Marshal(s)
 }
@@ -485,10 +505,11 @@ type CustomCallDeltaWire struct {
 
 // ContentPart is one element of a parts-array message content.
 type ContentPart struct {
-	Type     string        `json:"type"`
-	Text     string        `json:"text,omitempty"`
-	ImageURL *ImageURLWire `json:"image_url,omitempty"`
-	File     *FileWire     `json:"file,omitempty"`
+	Type                  string          `json:"type"`
+	Text                  string          `json:"text,omitempty"`
+	ImageURL              *ImageURLWire   `json:"image_url,omitempty"`
+	File                  *FileWire       `json:"file,omitempty"`
+	PromptCacheBreakpoint json.RawMessage `json:"prompt_cache_breakpoint,omitempty"`
 }
 
 // FileWire holds the payload of a file content part (since 2.5.0).

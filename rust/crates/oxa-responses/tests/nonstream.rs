@@ -436,3 +436,68 @@ fn parallel_tool_calls_rejects_null() {
     let raw = r#"{"model":"gpt-4o","input":"hi","parallel_tool_calls":null}"#;
     assert!(oxa_responses::decode_request_json(raw, &Config::default()).is_err());
 }
+
+#[test]
+fn prompt_cache_breakpoint_mode_is_optional_and_values_validated() {
+    for value in ["{}", r#"{"ttl":"30m"}"#] {
+        let raw = format!(
+            r#"{{"model":"gpt-4o","input":[{{"role":"user","content":[{{"type":"input_text","text":"hi","prompt_cache_breakpoint":{value}}}]}}]}}"#
+        );
+        let (req, losses) = oxa_responses::decode_request_json(&raw, &Config::default())
+            .expect("breakpoint without mode is valid");
+        assert!(losses.is_empty());
+        let Block::Text { native, .. } = &req.messages[0].content[0] else {
+            panic!("expected text block");
+        };
+        assert_eq!(native.len(), 1);
+    }
+
+    for value in [r#"{"mode":"bad"}"#, r#"{"ttl":"wrong"}"#, r#"{"mode":1}"#] {
+        let raw = format!(
+            r#"{{"model":"gpt-4o","input":[{{"role":"user","content":[{{"type":"input_text","text":"hi","prompt_cache_breakpoint":{value}}}]}}]}}"#
+        );
+        assert!(
+            oxa_responses::decode_request_json(&raw, &Config::default()).is_err(),
+            "expected rejection for {value}"
+        );
+    }
+}
+
+#[test]
+fn prompt_cache_options_rejects_invalid_values() {
+    for value in [
+        r#"{"mode":"bad"}"#,
+        r#"{"ttl":"1h"}"#,
+        r#"{"mode":123}"#,
+        r#"{"ttl":30}"#,
+    ] {
+        let raw = format!(r#"{{"model":"gpt-4o","input":"hi","prompt_cache_options":{value}}}"#);
+        assert!(
+            oxa_responses::decode_request_json(&raw, &Config::default()).is_err(),
+            "expected rejection for {value}"
+        );
+    }
+}
+
+#[test]
+fn system_breakpoint_emits_items_not_instructions() {
+    let req: IrRequest = oxa_ir::from_json(
+        r#"{"specVersion":"0.2.0","model":"gpt-4o","system":[{"type":"text","text":"policy","native":[{"source":"openai","kind":"prompt_cache_breakpoint","value":"{\"mode\":\"explicit\"}"}]}],"messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}]}"#,
+    )
+    .expect("ir");
+    let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
+    assert!(losses.is_empty());
+    assert!(wire.instructions.is_none());
+    let Input::Items(items) = &wire.input else {
+        panic!("expected input items");
+    };
+    let system_item = &items[0];
+    assert_eq!(system_item.role, "system");
+    let Some(ContentValue::Parts(parts)) = &system_item.content else {
+        panic!(
+            "expected system content parts, got {:?}",
+            system_item.content
+        );
+    };
+    assert!(parts[0].prompt_cache_breakpoint.is_some());
+}

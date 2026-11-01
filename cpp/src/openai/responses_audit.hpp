@@ -5,7 +5,7 @@
 namespace oxa::openai::responses {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"text", "text_params"}, {"reasoning", "reasoning"}, {"metadata", ""}}},
+        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"text", "text_params"}, {"reasoning", "reasoning"}, {"metadata", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"status", ""}, {"model", ""}, {"output", "output_item[]"}, {"usage", "usage"}, {"incomplete_details", "incomplete"}, {"error", ""}}},
          {"input_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "input_part[]"}}},
          {"additional_tools_item", {{"type", ""}, {"role", ""}, {"tools", "tool[]"}}},

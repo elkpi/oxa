@@ -333,13 +333,11 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     std::vector<ir::Loss> losses;
 
     const char* dropped_fields[] = {
-        "parallel_tool_calls", "functions", "function_call", "logprobs", "top_logprobs"};
+        "functions", "function_call", "logprobs", "top_logprobs"};
     for (const char* f : dropped_fields) {
         if (wire.find(f) != nullptr) {
             std::string detail = "Chat Completions " + std::string(f) + " has no IR equivalent in v1.";
-            if (std::string_view(f) == "parallel_tool_calls") {
-                detail = "Chat Completions parallel tool calls have no IR equivalent in v1.";
-            } else if (std::string_view(f) == "functions") {
+            if (std::string_view(f) == "functions") {
                 detail = "legacy Chat Completions functions have no IR equivalent in v1.";
             } else if (std::string_view(f) == "function_call") {
                 detail = "legacy Chat Completions function_call has no IR equivalent in v1.";
@@ -441,6 +439,15 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     auto [tool_choice, tc_losses] = decode_tool_choice(wire.find("tool_choice"));
     req.tool_choice = std::move(tool_choice);
     losses.insert(losses.end(), tc_losses.begin(), tc_losses.end());
+    if (const auto* ptc = wire.find("parallel_tool_calls"); ptc && !ptc->is_null()) {
+        if (!ptc->is_bool()) return invalid_argument("chatcompletions: parallel_tool_calls must be a boolean");
+        bool dp = !ptc->as_bool();
+        if (!req.tool_choice.has_value()) {
+            req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_AUTO), std::nullopt, std::nullopt, dp};
+        } else {
+            req.tool_choice->disable_parallel = dp;
+        }
+    }
 
     const auto* msgs_val = wire.find("messages");
     if (!msgs_val || !msgs_val->is_array()) {
@@ -901,6 +908,21 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
+    std::optional<bool> ptc;
+    if (req.tool_choice.has_value() && req.tool_choice->disable_parallel.has_value()) {
+        ptc = !*req.tool_choice->disable_parallel;
+    } else {
+        for (const auto& ann : req.native) {
+            if (ann.source == "anthropic" && ann.kind == "disable_parallel_tool_use") {
+                ptc = ann.value != "true";
+                break;
+            }
+        }
+    }
+    if (ptc.has_value()) {
+        out.set("parallel_tool_calls", json::Value::boolean(*ptc));
+    }
+
     json::Value messages_arr = json::Value::array();
     if (!req.system.empty()) {
         bool has_developer = false;
@@ -1337,7 +1359,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     auto omitted = ir::omitted_native_request_losses(req, "chatcompletions");
     if (!omitted.ok()) return omitted.status();
-    losses.insert(losses.end(), omitted->begin(), omitted->end());
+    for (const auto& l : *omitted) {
+        if (l.field == "disable_parallel_tool_use" && ptc.has_value()) {
+            continue;
+        }
+        losses.push_back(l);
+    }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }

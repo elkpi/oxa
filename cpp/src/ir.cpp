@@ -796,6 +796,9 @@ json::Value dump_request(const Request& r) {
     if (r.tool_choice.has_value()) {
         json::Value tc = json::Value::object();
         tc.set("mode", json::Value::string(r.tool_choice->mode));
+        if (r.tool_choice->disable_parallel.has_value()) {
+            tc.set("disable_parallel", json::Value::boolean(*r.tool_choice->disable_parallel));
+        }
         if (r.tool_choice->mode == TOOL_CHOICE_TOOL) {
             if (r.tool_choice->tool_type == TOOL_TYPE_APPLY_PATCH) {
                 tc.set("tool_type", json::Value::string(std::string(TOOL_TYPE_APPLY_PATCH)));
@@ -1042,6 +1045,11 @@ StatusOr<Request> load_request(const json::Value& v) {
         if (!tc->is_object()) return invalid_argument("request tool_choice must be an object");
         ToolChoice choice;
         OXA_ASSIGN_OR_RETURN(choice.mode, require_string(*tc, "mode", "tool_choice"));
+        const json::Value* dp = tc->find("disable_parallel");
+        if (dp != nullptr) {
+            if (!dp->is_bool()) return invalid_argument("tool_choice disable_parallel must be a boolean");
+            choice.disable_parallel = dp->as_bool();
+        }
         const json::Value* name = tc->find("name");
         if (name != nullptr) {
             if (!name->is_string()) return invalid_argument("tool_choice name must be a string");

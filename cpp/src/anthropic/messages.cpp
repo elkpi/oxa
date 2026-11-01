@@ -751,6 +751,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             if (kind == ir::TOOL_CHOICE_NONE) {
                 return invalid_argument("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none");
             }
+            if (req.tool_choice.has_value()) {
+                req.tool_choice->disable_parallel = dpu->as_bool();
+            }
             req.native.push_back(ir::NativeAnnotation{
                 std::string(ir::NATIVE_SOURCE_ANTHROPIC),
                 std::string(ir::NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE),
@@ -1113,6 +1116,10 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
+    if (retained_tool_names.empty() && req.tool_choice.has_value() && req.tool_choice->disable_parallel.has_value()) {
+        losses.push_back(make_ant_loss("tool_choice", "disable_parallel_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC,
+            "Anthropic does not support disable_parallel_tool_use without tools"));
+    }
     if (req.tool_choice.has_value() && req.tool_choice->mode == "any" && all_tools_dropped) {
         losses.push_back(make_ant_loss("tool_choice", "tool_choice",
             ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
@@ -1142,6 +1149,14 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 tco.set("type", json::Value::string("tool"));
                 if (tc.name.has_value()) tco.set("name", json::Value::string(*tc.name));
                 out.set("tool_choice", std::move(tco));
+            }
+        }
+        if (tc.disable_parallel.has_value()) {
+            if (tc.mode == ir::TOOL_CHOICE_NONE) {
+                losses.push_back(make_ant_loss("tool_choice", "disable_parallel_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic does not support disable_parallel_tool_use with tool_choice type none"));
+            } else if (auto* tco = out.find("tool_choice"); tco && tco->is_object()) {
+                tco->set("disable_parallel_tool_use", json::Value::boolean(*tc.disable_parallel));
             }
         }
     }

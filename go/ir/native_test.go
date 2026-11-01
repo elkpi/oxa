@@ -379,9 +379,23 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 			{Source: NativeSourceOpenAI, Kind: NativeKindStore, Value: "false"},
 			{Source: NativeSourceOpenAI, Kind: NativeKindStream, Value: "true"},
 			{Source: NativeSourceOpenAI, Kind: NativeKindStreamOptions, Value: `{"include_usage":true}`},
+			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheKey, Value: `"k1"`},
 		},
 	}
 	if err := ValidateNativeRequest(reqOpenAI); err != nil {
 		t.Fatalf("ValidateNativeRequest failed for OpenAI request controls: %v", err)
+	}
+
+	reqInvalidPCK := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Native: []NativeAnnotation{
+			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheKey, Value: `123`},
+		},
+	}
+	if err := ValidateNativeRequest(reqInvalidPCK); err == nil {
+		t.Fatalf("expected error for non-string prompt_cache_key")
 	}
 }

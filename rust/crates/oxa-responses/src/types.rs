@@ -118,7 +118,7 @@ pub struct Request {
         default,
         skip_serializing_if = "Option::is_none"
     )]
-    pub parallel_tool_calls: Option<bool>,
+    pub parallel_tool_calls: Option<Value>,
 }
 
 /// Responses accepts a string shorthand or an ordered item array as input.

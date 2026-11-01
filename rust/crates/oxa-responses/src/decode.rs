@@ -78,7 +78,12 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         request.tools = Some(tools);
     }
     let (mut choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref());
-    if let Some(&ptc) = wire.parallel_tool_calls.as_ref() {
+    if let Some(val) = &wire.parallel_tool_calls {
+        let Some(ptc) = val.as_bool() else {
+            return Err(Error::new(
+                "responses: parallel_tool_calls must be a boolean",
+            ));
+        };
         let dp = !ptc;
         match choice.as_mut() {
             Some(tc) => tc.disable_parallel = Some(dp),

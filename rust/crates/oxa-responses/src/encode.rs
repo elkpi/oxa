@@ -133,13 +133,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     out.tool_choice = choice;
     let mut parallel_tool_calls = None;
     if let Some(dp) = req.tool_choice.as_ref().and_then(|c| c.disable_parallel) {
-        parallel_tool_calls = Some(!dp);
+        parallel_tool_calls = Some(serde_json::Value::Bool(!dp));
     } else if let Some(ann) = req
         .native
         .iter()
         .find(|a| a.source == "anthropic" && a.kind == "disable_parallel_tool_use")
+        && let Ok(b) = serde_json::from_str::<bool>(&ann.value)
     {
-        parallel_tool_calls = Some(ann.value != "true");
+        parallel_tool_calls = Some(serde_json::Value::Bool(!b));
     }
     out.parallel_tool_calls = parallel_tool_calls;
 

@@ -175,8 +175,9 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         .native
         .iter()
         .find(|a| a.source == "anthropic" && a.kind == "disable_parallel_tool_use")
+        && let Ok(b) = serde_json::from_str::<bool>(&ann.value)
     {
-        parallel_tool_calls = Some(serde_json::Value::Bool(ann.value != "true"));
+        parallel_tool_calls = Some(serde_json::Value::Bool(!b));
     }
     out.parallel_tool_calls = parallel_tool_calls;
     if !req.system.is_empty() {

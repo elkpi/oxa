@@ -375,6 +375,12 @@ def encode_request(
                         out["prompt_cache_key"] = val
                 except Exception:
                     pass
+            elif n.source == "openai" and n.kind == "prompt_cache_options":
+                try:
+                    val = json.loads(n.value)
+                    out["prompt_cache_options"] = val
+                except Exception:
+                    pass
 
     omission_losses = omitted_native_request_losses(req, "responses")
     for l in omission_losses:

@@ -5,6 +5,15 @@ from __future__ import annotations
 import urllib.parse
 from typing import Any
 
+import json
+from dataclasses import replace
+from oxa.ir.native import (
+    NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+    PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+    NATIVE_SOURCE_OPENAI,
+    NativeAnnotation,
+    NativeOmission,
+)
 from oxa.ir import (
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
@@ -108,6 +117,29 @@ def decode_content(
 
 
 def decode_content_part(
+    part: dict[str, Any], path: str, index: int, is_user: bool = True
+) -> tuple[list[Block], list[Loss]]:
+    pcb_ann: NativeAnnotation | None = None
+    if "prompt_cache_breakpoint" in part:
+        pcb = part["prompt_cache_breakpoint"]
+        if not isinstance(pcb, dict):
+            raise TypeError(f"responses: {path}[{index}].prompt_cache_breakpoint must be an object")
+        pcb_ann = NativeAnnotation(
+            source=NATIVE_SOURCE_OPENAI,
+            kind=NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
+            value=json.dumps(pcb, separators=(",", ":")),
+            omission=NativeOmission(
+                field="prompt_cache_breakpoint",
+                reason=LOSS_UNMAPPED_FIELD,
+                detail=PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL,
+            ),
+        )
+    blocks, losses = _decode_content_part_inner(part, path, index, is_user)
+    if pcb_ann is not None:
+        blocks = [replace(b, native=tuple(list(getattr(b, "native", ())) + [pcb_ann])) for b in blocks]
+    return blocks, losses
+
+def _decode_content_part_inner(
     part: dict[str, Any], path: str, index: int, is_user: bool = True
 ) -> tuple[list[Block], list[Loss]]:
     kind = part.get("type", "")
@@ -703,7 +735,13 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
 
     for index, block in enumerate(blocks):
         if isinstance(block, TextBlock):
-            parts.append({"type": PART_TYPE_INPUT_TEXT, "text": block.text})
+            p_dict: dict[str, Any] = {"type": PART_TYPE_INPUT_TEXT, "text": block.text}
+            for ann in getattr(block, "native", ()):
+                if ann.source == "openai" and ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT:
+                    p_dict["prompt_cache_breakpoint"] = json.loads(ann.value)
+                    other_blocks += 1
+                    break
+            parts.append(p_dict)
             text_chunks.append(block.text)
             if block.citations:
                 has_anthropic = any(c.source != "openai" for c in block.citations)
@@ -746,6 +784,10 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
             if part is not None:
                 has_image = True
                 other_blocks += 1
+                for ann in getattr(block, "native", ()):
+                    if ann.source == "openai" and ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT:
+                        part["prompt_cache_breakpoint"] = json.loads(ann.value)
+                        break
                 parts.append(part)
         elif isinstance(block, DocumentBlock):
             other_blocks += 1
@@ -770,12 +812,17 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                     )
                 )
                 continue
+            pcb = next((json.loads(ann.value) for ann in getattr(block, "native", ()) if ann.source == "openai" and ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT), None)
+            f_dict: dict[str, Any]
             if block.file_id:
-                parts.append({"type": "input_file", "file_id": block.file_id})
+                f_dict = {"type": "input_file", "file_id": block.file_id}
             elif block.url:
-                parts.append({"type": "input_file", "file_url": block.url})
+                f_dict = {"type": "input_file", "file_url": block.url}
             else:
-                parts.append({"type": "input_file", "file_data": block.data})
+                f_dict = {"type": "input_file", "file_data": block.data}
+            if pcb is not None:
+                f_dict["prompt_cache_breakpoint"] = pcb
+            parts.append(f_dict)
         else:
             other_blocks += 1
             losses.append(

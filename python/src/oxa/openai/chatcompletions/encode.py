@@ -159,10 +159,23 @@ def encode_request(
                     pass
 
     if req.system:
-        if any(getattr(block, "role", "") == "developer" for block in req.system):
+        has_dev = any(getattr(block, "role", "") == "developer" for block in req.system)
+        has_pcb = any(any(n.source == "openai" and n.kind == "prompt_cache_breakpoint" for n in getattr(block, "native", ())) for block in req.system)
+        if has_dev or has_pcb:
             for block in req.system:
                 role = ROLE_DEVELOPER if getattr(block, "role", "") == "developer" else ROLE_SYSTEM
-                out["messages"].append({"role": role, "content": block.text})
+                pcb = next((json.loads(n.value) for n in getattr(block, "native", ()) if n.source == "openai" and n.kind == "prompt_cache_breakpoint"), None)
+                if pcb is not None:
+                    out["messages"].append({
+                        "role": role,
+                        "content": [{
+                            "type": "text",
+                            "text": block.text,
+                            "prompt_cache_breakpoint": pcb,
+                        }],
+                    })
+                else:
+                    out["messages"].append({"role": role, "content": block.text})
         else:
             text = "".join(block.text for block in req.system)
             out["messages"].append({"role": ROLE_SYSTEM, "content": text})
@@ -272,6 +285,12 @@ def encode_request(
                         val = json.loads(n.value)
                         if isinstance(val, str):
                             out["prompt_cache_key"] = val
+                    except Exception:
+                        pass
+                elif n.kind == "prompt_cache_options":
+                    try:
+                        val = json.loads(n.value)
+                        out["prompt_cache_options"] = val
                     except Exception:
                         pass
 

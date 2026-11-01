@@ -62,6 +62,8 @@ from oxa.ir.native import (
     DEFER_LOADING_LOSS_DETAIL,
     NATIVE_KIND_PROMPT_CACHE_KEY,
     PROMPT_CACHE_KEY_LOSS_DETAIL,
+    NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+    PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
 )
 import json
 from oxa.modelmap import Table
@@ -154,6 +156,22 @@ def decode_request(
                     field="prompt_cache_key",
                     reason=LOSS_UNMAPPED_FIELD,
                     detail=PROMPT_CACHE_KEY_LOSS_DETAIL,
+                ),
+            )
+        )
+    if "prompt_cache_options" in wire:
+        pco = wire["prompt_cache_options"]
+        if pco is not None and not isinstance(pco, dict):
+            raise TypeError("responses: prompt_cache_options must be an object or null")
+        native.append(
+            NativeAnnotation(
+                source=NATIVE_SOURCE_OPENAI,
+                kind=NATIVE_KIND_PROMPT_CACHE_OPTIONS,
+                value=json.dumps(pco, separators=(",", ":")),
+                omission=NativeOmission(
+                    field="prompt_cache_options",
+                    reason=LOSS_UNMAPPED_FIELD,
+                    detail=PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
                 ),
             )
         )

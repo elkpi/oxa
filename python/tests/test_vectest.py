@@ -43,8 +43,8 @@ class VectestHarnessTest(unittest.TestCase):
             ("responses", "stream"),
         ):
             vectors.extend(load_vectors(root, face, mode))
-        self.assertEqual(len(vectors), 514)
-        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 367)
+        self.assertEqual(len(vectors), 530)
+        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 383)
 
     def test_compare_json_treats_supported_spec_versions_as_transitional_equivalents(self) -> None:
         compare_json(

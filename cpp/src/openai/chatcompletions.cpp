@@ -914,8 +914,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     } else {
         for (const auto& ann : req.native) {
             if (ann.source == "anthropic" && ann.kind == "disable_parallel_tool_use") {
-                ptc = ann.value != "true";
-                break;
+                auto parsed = json::parse(ann.value);
+                if (parsed.ok() && parsed->is_bool()) {
+                    ptc = !parsed->as_bool();
+                    break;
+                }
             }
         }
     }

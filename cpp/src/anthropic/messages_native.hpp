@@ -653,7 +653,9 @@ inline Status encode_request_native(
                 if (type_val != nullptr && type_val->is_string() && type_val->as_string() == "none") {
                     return invalid_argument("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified");
                 }
-                tc->set("disable_parallel_tool_use", json::Value::boolean(parsed->as_bool()));
+                if (!req.tool_choice.has_value() || !req.tool_choice->disable_parallel.has_value()) {
+                    tc->set("disable_parallel_tool_use", json::Value::boolean(parsed->as_bool()));
+                }
             }
         } else {
             losses.push_back(ir::Loss{

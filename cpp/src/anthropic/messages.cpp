@@ -1116,10 +1116,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
-    if (retained_tool_names.empty() && req.tool_choice.has_value() && req.tool_choice->disable_parallel.has_value()) {
-        losses.push_back(make_ant_loss("tool_choice", "disable_parallel_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC,
-            "Anthropic does not support disable_parallel_tool_use without tools"));
-    }
+    std::optional<json::Value> tool_choice_val;
     if (req.tool_choice.has_value() && req.tool_choice->mode == "any" && all_tools_dropped) {
         losses.push_back(make_ant_loss("tool_choice", "tool_choice",
             ir::LOSS_UNSUPPORTED_SEMANTIC, "all tool declarations were dropped"));
@@ -1131,15 +1128,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         if (tc.mode == ir::TOOL_CHOICE_AUTO) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("auto"));
-            out.set("tool_choice", std::move(tco));
+            tool_choice_val = std::move(tco);
         } else if (tc.mode == ir::TOOL_CHOICE_ANY) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("any"));
-            out.set("tool_choice", std::move(tco));
+            tool_choice_val = std::move(tco);
         } else if (tc.mode == ir::TOOL_CHOICE_NONE) {
             json::Value tco = json::Value::object();
             tco.set("type", json::Value::string("none"));
-            out.set("tool_choice", std::move(tco));
+            tool_choice_val = std::move(tco);
         } else if (tc.mode == ir::TOOL_CHOICE_TOOL) {
             if (tc.tool_type.has_value() && *tc.tool_type == ir::TOOL_TYPE_APPLY_PATCH) {
                 losses.push_back(make_ant_loss("tool_choice", "tool_choice", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1148,17 +1145,25 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 json::Value tco = json::Value::object();
                 tco.set("type", json::Value::string("tool"));
                 if (tc.name.has_value()) tco.set("name", json::Value::string(*tc.name));
-                out.set("tool_choice", std::move(tco));
+                tool_choice_val = std::move(tco);
             }
         }
         if (tc.disable_parallel.has_value()) {
             if (tc.mode == ir::TOOL_CHOICE_NONE) {
                 losses.push_back(make_ant_loss("tool_choice", "disable_parallel_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC,
                     "Anthropic does not support disable_parallel_tool_use with tool_choice type none"));
-            } else if (auto* tco = out.find("tool_choice"); tco && tco->is_object()) {
-                tco->set("disable_parallel_tool_use", json::Value::boolean(*tc.disable_parallel));
+            } else if (tool_choice_val.has_value()) {
+                tool_choice_val->set("disable_parallel_tool_use", json::Value::boolean(*tc.disable_parallel));
             }
         }
+    }
+    if (retained_tool_names.empty()) {
+        if (req.tool_choice.has_value() && req.tool_choice->disable_parallel.has_value()) {
+            losses.push_back(make_ant_loss("tool_choice", "disable_parallel_tool_use", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "Anthropic does not support disable_parallel_tool_use without tools"));
+        }
+    } else if (tool_choice_val.has_value()) {
+        out.set("tool_choice", std::move(*tool_choice_val));
     }
 
     bool shorthand = req.system.empty() && req.messages.size() == 1 &&

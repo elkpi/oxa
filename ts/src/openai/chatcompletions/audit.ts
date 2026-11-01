@@ -1,12 +1,36 @@
 import type { WireAuditSpec } from "../../json/wire-audit.js";
 
+const PROMPT_CACHE_BREAKPOINT: WireAuditSpec = {
+  fields: {
+    mode: undefined,
+    ttl: undefined,
+  },
+};
+
+const PROMPT_CACHE_OPTIONS: WireAuditSpec = {
+  fields: {
+    mode: undefined,
+    ttl: undefined,
+  },
+};
+
 const PART: WireAuditSpec = {
   variant: (part) => {
     if (part.type === "text")
-      return { fields: { type: undefined, text: undefined } };
+      return {
+        fields: {
+          type: undefined,
+          text: undefined,
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
+        },
+      };
     if (part.type === "image_url")
       return {
-        fields: { type: undefined, image_url: { fields: { url: undefined } } },
+        fields: {
+          type: undefined,
+          image_url: { fields: { url: undefined } },
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
+        },
       };
     if (part.type === "file")
       return {
@@ -19,6 +43,7 @@ const PART: WireAuditSpec = {
               filename: undefined,
             },
           },
+          prompt_cache_breakpoint: PROMPT_CACHE_BREAKPOINT,
         },
       };
     return undefined;
@@ -170,6 +195,7 @@ export const CHAT_REQUEST: WireAuditSpec = {
     tool_choice: TOOL_CHOICE,
     parallel_tool_calls: undefined,
     prompt_cache_key: undefined,
+    prompt_cache_options: PROMPT_CACHE_OPTIONS,
     response_format: RESPONSE_FORMAT,
     metadata: undefined,
   },

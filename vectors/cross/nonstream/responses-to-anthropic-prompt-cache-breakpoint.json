@@ -31,7 +31,12 @@
     "messages": [
       {
         "role": "user",
-        "content": "Hello"
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
       }
     ]
   },

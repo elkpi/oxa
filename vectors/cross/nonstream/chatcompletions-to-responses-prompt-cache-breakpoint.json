@@ -27,7 +27,6 @@
     "model": "gpt-4o",
     "input": [
       {
-        "type": "message",
         "role": "user",
         "content": [
           {

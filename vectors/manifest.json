@@ -2893,7 +2893,7 @@
         "anthropic",
         "prompt_cache_breakpoint"
       ],
-      "sha256": "332615a7a661908fcd3b26596027a6460f0fc78d274f23577757dfcfc082eadb"
+      "sha256": "c05b493798552211d12b675edc2e5a2b1dec94db36c2f49899ab4a680c33332a"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-prompt-cache-key",
@@ -3024,7 +3024,7 @@
         "responses",
         "prompt_cache_breakpoint"
       ],
-      "sha256": "ba66ac7e85bdbb25a27c569f6918a79bd7cafd07c9428a306cedf1ccbf156559"
+      "sha256": "3200e2da6a245b53a09f15934918e32da0f7d9e04e26e92fc9c97c7a18b34552"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-responses-prompt-cache-key",
@@ -3238,7 +3238,7 @@
         "anthropic",
         "prompt_cache_breakpoint"
       ],
-      "sha256": "d41abde5878638a879ed8fcbf8b81554e1fa888c3c478be07f9a5ee0659f185c"
+      "sha256": "ae0eb6888e6394d42621287228be4115a0bb65edc8f81ac10bad6cb7c6768050"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-prompt-cache-key",
@@ -4923,7 +4923,7 @@
         "native",
         "prompt_cache_breakpoint"
       ],
-      "sha256": "3444232154ca064c7d125b74fda69853da4318748f89720db9358e38f8096c4e"
+      "sha256": "9a6bedb4e13088db80cf17b59ac4fa1728c30909e8ef6eb5b597dac18af2949b"
     },
     {
       "name": "responses.nonstream.prompt-cache-breakpoint-request-to-ir",

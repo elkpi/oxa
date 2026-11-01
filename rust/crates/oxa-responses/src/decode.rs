@@ -99,9 +99,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     }
     if let Some(val) = &wire.prompt_cache_key {
         let Some(pck) = val.as_str() else {
-            return Err(Error::new(
-                "responses: prompt_cache_key must be a string",
-            ));
+            return Err(Error::new("responses: prompt_cache_key must be a string"));
         };
         request.native.push(oxa_ir::NativeAnnotation {
             source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),

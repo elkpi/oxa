@@ -1308,7 +1308,12 @@ export function encodeRequest(
       (n) => n.source === "anthropic" && n.kind === "disable_parallel_tool_use",
     );
     if (dpuAnn) {
-      parallelToolCalls = dpuAnn.value !== "true";
+      try {
+        const val = JSON.parse(dpuAnn.value);
+        if (typeof val === "boolean") {
+          parallelToolCalls = !val;
+        }
+      } catch {}
     }
   }
 

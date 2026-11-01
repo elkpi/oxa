@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.4.12; v2.4.13 is in development.** The source tree targets Spec 2.4.13 across Go,
-TypeScript, Rust, Python, and C++, using 425 shared golden vectors.
+**Latest coordinated release: v2.5.0.** The source tree targets Spec 2.5.0 across Go,
+TypeScript, Rust, Python, and C++, using 530 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,30 +54,30 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.4.13 | 2.4.12           |
-| TypeScript | `ts/`     | 2.4.13 | 2.4.12           |
-| Rust       | `rust/`   | 2.4.13 | 2.4.12           |
-| Python     | `python/` | 2.4.13 | 2.4.12           |
-| C++        | `cpp/`    | 2.4.13 | 2.4.12           |
+| Go         | `go/`     | 2.5.0  | 2.5.0            |
+| TypeScript | `ts/`     | 2.5.0  | 2.5.0            |
+| Rust       | `rust/`   | 2.5.0  | 2.5.0            |
+| Python     | `python/` | 2.5.0  | 2.5.0            |
+| C++        | `cpp/`    | 2.5.0  | 2.5.0            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.4.13 in development)
-ts/        TypeScript implementation (v2.4.13 in development)
+go/        Go reference implementation (v2.5.0)
+ts/        TypeScript implementation (v2.5.0)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.4.13 in development)
-python/    Python implementation (v2.4.13 in development)
-cpp/       C++ implementation (v2.4.13 in development)
+rust/      Rust implementation (v2.5.0)
+python/    Python implementation (v2.5.0)
+cpp/       C++ implementation (v2.5.0)
 ```
 
 ## Current capabilities
 
-The source tree targets Spec 2.4.13 across Go, TypeScript, Rust,
+The source tree targets Spec 2.5.0 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). Coordinated release v2.4.13 is in development.
+representation (IR). Coordinated release v2.5.0 is current.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |

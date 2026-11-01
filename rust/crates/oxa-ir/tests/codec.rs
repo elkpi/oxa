@@ -122,8 +122,8 @@ fn rejects_present_empty_or_null_schema_name() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_4_13() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.4.13");
+fn workspace_crate_version_is_2_5_0() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.5.0");
 }
 
 #[test]

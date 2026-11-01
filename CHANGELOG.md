@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.5.0] - 2026-11-01
+
+### Added
+
+- 在通用 IR 请求参数中增加可选 `verbosity`，OpenAI Chat Completions 与 Responses 之间双向映射（`low` | `medium` | `high`）；Anthropic 编码时明确报 `unmapped-field`。
+- 请求 `metadata` 接入 `Request.Metadata`。OpenAI Chat Completions 与 Responses 字符串键值对双向零损失保真。Anthropic 映射 `user_id`，其余键逐条按源词法顺序报 `unmapped-field`。
+- `SystemBlock` 扩展可选 `role: "developer"`。Responses 与 Chat Completions 的 developer 指令实现 1:1 双向保真回转。Anthropic 无 developer 角色，文本合入 system 并按块产生 `degraded` 角色损失。
+- 扩展 `TextCitation.source` 支持 `"openai"`，无损承载 Responses 响应端 `output_text.annotations` 文本注释，多文本块区间完全隔离。Chat Completions 与 Anthropic 编码时记录单次 `unsupported-semantic` 损失；Anthropic 流式自动安全吸收原生事件。
+- 用户文档与文件输入跨面打通（OpenAI Responses `input_file` ↔ OpenAI Chat Completions `file` ↔ Anthropic Messages `document` ↔ 通用 IR `DocumentBlock`），零损保留文件内容；Chat Completions 不支持 url 及非 PDF 数据流时产生明确报损。
+- 深度对齐 Anthropic `thinking` 模式与 OpenAI Responses `reasoning`。`budget_tokens <= 1024` 统一映射为 `Params.ReasoningEffort "minimal"`，实现闭环对称；`thinking.type == "enabled"` 时非法或非正预算作为结构错误严格拒绝。
+- 新增 `RefusalBlock` 内容块，打通 Chat Completions `message.refusal`、Responses `refusal` 与 Anthropic `stop_details.explanation`。Anthropic 策略分类 `category` 转入 OpenAI 时产生单次 `unsupported-semantic` 损失；Anthropic 编码端将拒绝块渲染为 `stop_details` 对象。
+- 在 `ToolChoice` 中增加可选布尔字段 `disable_parallel`。OpenAI `parallel_tool_calls` 与 Anthropic `tool_choice.disable_parallel_tool_use` 按布尔极性取反实现跨面零损失保真。
+- 支持 OpenAI 请求 prompt 缓存分区键 `prompt_cache_key`。Chat Completions 与 Responses 之间 1:1 双向零损回转；编码至 Anthropic 时产生 `unmapped-field` 遗漏损失。
+- 支持 OpenAI 请求级缓存配置 `prompt_cache_options`（支持显式 null、已知 mode/ttl 校验）与内容块级显式缓存断点 `prompt_cache_breakpoint`（支持 TextBlock、ImageBlock、DocumentBlock、SystemBlock）。单文本块与系统块触发简写保护，严禁坍缩为纯文本，确保断点对象在 wire 上完整保真；编码至 Anthropic 时产生精确的 `unmapped-field` 损失。
+
+### Changed
+
+- 共享向量总库扩展至 530 个向量（其中 383 个规范 0.2.0 向量）。
+- IR contract 保持 `0.2.0`。
+
 ## [v2.4.13] - 2026-10-30
 
 ### Added

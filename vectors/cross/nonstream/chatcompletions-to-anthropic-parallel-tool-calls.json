@@ -8,6 +8,7 @@
   "target": { "protocol": "anthropic" },
   "input": {
     "model": "claude-3-5-sonnet",
+    "max_tokens": 1024,
     "messages": [{ "role": "user", "content": "Weather in Paris?" }],
     "tools": [
       {
@@ -23,7 +24,7 @@
   },
   "expected_output": {
     "model": "claude-3-5-sonnet",
-    "max_tokens": 4096,
+    "max_tokens": 1024,
     "messages": [{ "role": "user", "content": "Weather in Paris?" }],
     "tools": [
       {
@@ -36,13 +37,6 @@
       "disable_parallel_tool_use": true
     }
   },
-  "expected_losses": [
-    {
-      "path": "params",
-      "field": "max_tokens",
-      "reason": "degraded",
-      "detail": "Anthropic Messages requires max_tokens; defaulting to 4096"
-    }
-  ],
+  "expected_losses": [],
   "tags": ["cross", "request", "chatcompletions", "anthropic", "parallel-tools"]
 }

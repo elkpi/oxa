@@ -2821,7 +2821,7 @@
         "anthropic",
         "parallel-tools"
       ],
-      "sha256": "8b53ba6143e2dc5954bf1bf5727ed809ec6ffb7e56ae404d4960aba6838e6017"
+      "sha256": "a8c71d8611e327c1c50377ac1757a57758d4819298a58f1f407345b03112945f"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request",
@@ -3094,7 +3094,7 @@
         "anthropic",
         "parallel-tools"
       ],
-      "sha256": "805b3e7e1779aea7bd866c46b5083737c547504af38600ed515e8959fa691def"
+      "sha256": "073bd879e85af1bdce9aef6b7efabda3c9063fd9ae7c05c820c5dea64893676a"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-reasoning-request",

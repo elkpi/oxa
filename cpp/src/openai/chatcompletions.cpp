@@ -448,20 +448,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             req.tool_choice->disable_parallel = dp;
         }
     }
-    if (const auto* pck = wire.find("prompt_cache_key"); pck) {
-        if (!pck->is_string()) return invalid_argument("chatcompletions: prompt_cache_key must be a string");
-        req.native.push_back(ir::NativeAnnotation{
-            std::string(ir::NATIVE_SOURCE_OPENAI),
-            std::string(ir::NATIVE_KIND_PROMPT_CACHE_KEY),
-            json::serialize(*pck),
-            ir::NativeOmission{
-                "prompt_cache_key",
-                std::string(ir::LOSS_UNMAPPED_FIELD),
-                std::string(ir::PROMPT_CACHE_KEY_LOSS_DETAIL),
-            },
-            std::nullopt,
-        });
-    }
 
     const auto* msgs_val = wire.find("messages");
     if (!msgs_val || !msgs_val->is_array()) {
@@ -713,6 +699,22 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             });
         }
     }
+
+    if (const auto* pck = wire.find("prompt_cache_key"); pck) {
+        if (!pck->is_string()) return invalid_argument("chatcompletions: prompt_cache_key must be a string");
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_PROMPT_CACHE_KEY),
+            json::serialize(*pck),
+            ir::NativeOmission{
+                "prompt_cache_key",
+                std::string(ir::LOSS_UNMAPPED_FIELD),
+                std::string(ir::PROMPT_CACHE_KEY_LOSS_DETAIL),
+            },
+            std::nullopt,
+        });
+    }
+
     if (const auto* stop = wire.find("stop")) {
         std::vector<std::string> stops;
         if (stop->is_string()) {

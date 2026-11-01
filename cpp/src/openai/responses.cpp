@@ -118,11 +118,13 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint must be an object");
                 }
                 const auto* m = pcb->find("mode");
-                if (!m || !m->is_string()) {
-                    return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint requires mode");
-                }
-                if (m->as_string() != "explicit") {
-                    return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be 'explicit'");
+                if (m) {
+                    if (!m->is_string()) {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be a string");
+                    }
+                    if (m->as_string() != "explicit") {
+                        return invalid_argument("responses: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be 'explicit'");
+                    }
                 }
                 if (const auto* t = pcb->find("ttl"); t) {
                     if (!t->is_string()) {
@@ -175,6 +177,7 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     if (is_valid_https_url(raw_url)) {
                         ir::ImageBlock img;
                         img.url = raw_url;
+                        if (pcb_ann.has_value()) img.native.push_back(*pcb_ann);
                         blocks.push_back(std::move(img));
                     } else {
                         losses.push_back(make_resp_loss(iu_path, "image_url",
@@ -1595,7 +1598,43 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
     if (!req.system.empty()) {
         bool has_developer = false;
         for (const auto& s : req.system) if (s.role == "developer") has_developer = true;
-        if (!has_developer) {
+        bool has_breakpoint = false;
+        for (const auto& s : req.system) {
+            for (const auto& ann : s.native) {
+                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                    has_breakpoint = true;
+                    break;
+                }
+            }
+            if (has_breakpoint) break;
+        }
+        auto system_item_content = [](const ir::SystemBlock& s) -> json::Value {
+            for (const auto& ann : s.native) {
+                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                    auto parsed = json::parse(ann.value);
+                    if (parsed.ok()) {
+                        json::Value parts = json::Value::array();
+                        json::Value part = json::Value::object();
+                        part.set("type", json::Value::string("input_text"));
+                        part.set("text", json::Value::string(s.text));
+                        part.set("prompt_cache_breakpoint", std::move(*parsed));
+                        parts.push_back(std::move(part));
+                        return parts;
+                    }
+                }
+            }
+            return json::Value::string(s.text);
+        };
+        if (has_breakpoint) {
+            // Breakpoints cannot survive the instructions string; render every
+            // block as its own input item (spec/15 §3.7 shorthand protection).
+            for (const auto& s : req.system) {
+                json::Value item = json::Value::object();
+                item.set("role", json::Value::string(s.role == "developer" ? "developer" : "system"));
+                item.set("content", system_item_content(s));
+                leading_system_items.push_back(std::move(item));
+            }
+        } else if (!has_developer) {
             std::string inst;
             for (const auto& s : req.system) inst += s.text;
             out.set("instructions", json::Value::string(std::move(inst)));

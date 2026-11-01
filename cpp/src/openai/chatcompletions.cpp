@@ -99,11 +99,13 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                     return invalid_argument("chatcompletions: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint must be an object");
                 }
                 const auto* m = pcb->find("mode");
-                if (!m || !m->is_string()) {
-                    return invalid_argument("chatcompletions: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint requires mode");
-                }
-                if (m->as_string() != "explicit") {
-                    return invalid_argument("chatcompletions: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be 'explicit'");
+                if (m) {
+                    if (!m->is_string()) {
+                        return invalid_argument("chatcompletions: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be a string");
+                    }
+                    if (m->as_string() != "explicit") {
+                        return invalid_argument("chatcompletions: " + path + "[" + std::to_string(i) + "].prompt_cache_breakpoint.mode must be 'explicit'");
+                    }
                 }
                 if (const auto* t = pcb->find("ttl"); t) {
                     if (!t->is_string()) {

@@ -877,17 +877,17 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     if has_refusal && stop_reason == StopReason::EndTurn {
         stop_reason = StopReason::Refusal;
     }
-    if !has_refusal && stop_reason == StopReason::Refusal {
-        if let Some(ref err) = wire.error
-            && err.code == "refusal"
-            && !err.message.is_empty()
-        {
-            content.push(Block::Refusal {
-                refusal: err.message.clone(),
-                category: None,
-                native: Vec::new(),
-            });
-        }
+    if !has_refusal
+        && stop_reason == StopReason::Refusal
+        && let Some(ref err) = wire.error
+        && err.code == "refusal"
+        && !err.message.is_empty()
+    {
+        content.push(Block::Refusal {
+            refusal: err.message.clone(),
+            category: None,
+            native: Vec::new(),
+        });
     }
     Ok((
         IrResponse {

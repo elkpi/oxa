@@ -156,9 +156,9 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 					out.Store = &b
 				}
 			case ir.NativeKindPromptCacheKey:
-				var str string
-				if err := json.Unmarshal([]byte(n.Value), &str); err == nil {
-					out.PromptCacheKey = &str
+				var str *string
+				if err := json.Unmarshal([]byte(n.Value), &str); err == nil && str != nil {
+					out.PromptCacheKey = str
 				}
 			}
 		}

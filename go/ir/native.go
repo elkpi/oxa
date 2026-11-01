@@ -434,8 +434,8 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if host != hostRequest {
 					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
 				}
-				var str string
-				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil {
+				var str *string
+				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil || str == nil {
 					return fmt.Errorf("invalid prompt_cache_key %s", ann.Value)
 				}
 			case NativeKindContainer:

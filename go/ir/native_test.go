@@ -398,4 +398,17 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	if err := ValidateNativeRequest(reqInvalidPCK); err == nil {
 		t.Fatalf("expected error for non-string prompt_cache_key")
 	}
+
+	reqNullPCK := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Native: []NativeAnnotation{
+			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheKey, Value: `null`},
+		},
+	}
+	if err := ValidateNativeRequest(reqNullPCK); err == nil {
+		t.Fatalf("expected error for null prompt_cache_key")
+	}
 }

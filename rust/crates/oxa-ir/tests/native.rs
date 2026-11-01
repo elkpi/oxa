@@ -344,3 +344,50 @@ fn test_validate_native_request_new_kinds() {
     invalid_so.native[3].value = r#"{"include_usage":"yes"}"#.into();
     assert!(validate_native_request(&invalid_so).is_err());
 }
+
+#[test]
+fn test_prompt_cache_breakpoint_host_and_null_value() {
+    use oxa_ir::{NATIVE_KIND_PROMPT_CACHE_BREAKPOINT, NATIVE_SOURCE_OPENAI};
+
+    fn breakpoint_req(block: Block) -> Request {
+        Request {
+            model: "m".into(),
+            system: vec![],
+            messages: vec![oxa_ir::Message {
+                role: oxa_ir::Role::User,
+                content: vec![block],
+            }],
+            tools: None,
+            tool_choice: None,
+            params: None,
+            metadata: None,
+            native: vec![],
+        }
+    }
+
+    fn breakpoint_ann(value: &str) -> NativeAnnotation {
+        NativeAnnotation {
+            source: NATIVE_SOURCE_OPENAI.into(),
+            kind: NATIVE_KIND_PROMPT_CACHE_BREAKPOINT.into(),
+            value: value.into(),
+            omission: None,
+            projection: None,
+        }
+    }
+
+    // Null values are rejected (a JSON null is not an object).
+    let null_req = breakpoint_req(Block::Text {
+        text: "hi".into(),
+        citations: None,
+        native: vec![breakpoint_ann("null")],
+    });
+    assert!(validate_native_request(&null_req).is_err());
+
+    // Breakpoints are not allowed on thinking blocks (spec/15 §6).
+    let thinking_req = breakpoint_req(Block::Thinking {
+        thinking: "hmm".into(),
+        signature: None,
+        native: vec![breakpoint_ann(r#"{"mode":"explicit"}"#)],
+    });
+    assert!(validate_native_request(&thinking_req).is_err());
+}

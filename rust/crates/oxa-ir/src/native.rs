@@ -555,6 +555,7 @@ fn validate_annotations(
 }
 
 fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), Error> {
+    let mut breakpoint_native: Option<&[NativeAnnotation]> = None;
     match blk {
         Block::WebSearchCall {
             id,
@@ -566,31 +567,46 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
             crate::inspect_web_search_call(id, status, action, path)?;
         }
         Block::Text { native, .. }
-        | Block::Thinking { native, .. }
-        | Block::RedactedThinking { native, .. }
         | Block::Image { native, .. }
         | Block::Document { native, .. }
+        | Block::Refusal { native, .. } => {
+            validate_annotations(native, host, path)?;
+        }
+        Block::Thinking { native, .. }
+        | Block::RedactedThinking { native, .. }
         | Block::ToolUse { native, .. }
         | Block::CustomToolUse { native, .. }
         | Block::ApplyPatchToolUse { native, .. }
-        | Block::ApplyPatchToolResult { native, .. }
-        | Block::Refusal { native, .. } => {
+        | Block::ApplyPatchToolResult { native, .. } => {
             validate_annotations(native, host, path)?;
+            breakpoint_native = Some(native);
         }
         Block::ToolResult {
             content, native, ..
         } => {
             validate_annotations(native, host, path)?;
+            breakpoint_native = Some(native);
             for (k, child) in content.iter().enumerate() {
                 validate_block_native(child, host, &format!("{path}.content[{k}]"))?;
             }
         }
         Block::CustomToolResult { output, native, .. } => {
             validate_annotations(native, host, path)?;
+            breakpoint_native = Some(native);
             if let crate::request::CustomToolOutput::Content(children) = output {
                 for (k, child) in children.iter().enumerate() {
                     validate_block_native(child, host, &format!("{path}.output.content[{k}]"))?;
                 }
+            }
+        }
+    }
+    if let Some(native) = breakpoint_native {
+        for (i, ann) in native.iter().enumerate() {
+            if ann.source == NATIVE_SOURCE_OPENAI && ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            {
+                return Err(Error::Custom(format!(
+                    "ir: {path}.native[{i}]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks"
+                )));
             }
         }
     }

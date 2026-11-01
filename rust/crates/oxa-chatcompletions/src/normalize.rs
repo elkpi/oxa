@@ -101,10 +101,6 @@ fn decode_content_part(
                     "chatcompletions: {path}[{index}].prompt_cache_breakpoint.mode must be 'explicit'"
                 )));
             }
-        } else {
-            return Err(Error::new(format!(
-                "chatcompletions: {path}[{index}].prompt_cache_breakpoint requires mode"
-            )));
         }
         if let Some(t) = pcb_obj.get("ttl") {
             let Some(s) = t.as_str() else {

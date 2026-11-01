@@ -169,7 +169,7 @@ def decode_request(
 
     tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
     losses.extend(tc_losses)
-    if "parallel_tool_calls" in wire and wire["parallel_tool_calls"] is not None:
+    if "parallel_tool_calls" in wire:
         ptc = wire["parallel_tool_calls"]
         if not isinstance(ptc, bool):
             raise TypeError("chatcompletions: parallel_tool_calls must be a boolean")

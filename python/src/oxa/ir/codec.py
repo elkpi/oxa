@@ -1248,9 +1248,11 @@ def load_request(data: dict[str, Any] | str) -> Request:
     if "tool_choice" in raw:
         tc = raw["tool_choice"]
         mode, tool_type = tc["mode"], tc.get("tool_type", "function")
-        disable_parallel = tc.get("disable_parallel")
-        if disable_parallel is not None and not isinstance(disable_parallel, bool):
-            raise CodecError("tool_choice.disable_parallel must be a boolean")
+        disable_parallel = None
+        if "disable_parallel" in tc:
+            disable_parallel = tc["disable_parallel"]
+            if not isinstance(disable_parallel, bool):
+                raise CodecError("tool_choice.disable_parallel must be a boolean")
         if mode == TOOL_CHOICE_TOOL:
             if tool_type == "apply_patch":
                 if "name" in tc:

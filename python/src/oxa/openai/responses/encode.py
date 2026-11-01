@@ -301,8 +301,13 @@ def encode_request(
     elif req.native:
         for n in req.native:
             if n.source == "anthropic" and n.kind == "disable_parallel_tool_use":
-                out["parallel_tool_calls"] = n.value != "true"
-                break
+                try:
+                    val = json.loads(n.value)
+                    if isinstance(val, bool):
+                        out["parallel_tool_calls"] = not val
+                        break
+                except Exception:
+                    pass
 
     items: list[dict[str, Any]] = list(leading)
     for index, message in enumerate(req.messages):

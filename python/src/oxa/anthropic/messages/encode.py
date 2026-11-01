@@ -264,15 +264,17 @@ def encode_request(
                 f'native tool choice "{req.tool_choice.name}" cannot be represented by the target protocol',
             )
         )
-    if not tools_wire and req.tool_choice is not None and req.tool_choice.disable_parallel is not None:
-        tc_losses.append(
-            loss(
-                "tool_choice",
-                "disable_parallel_tool_use",
-                LOSS_UNSUPPORTED_SEMANTIC,
-                "Anthropic does not support disable_parallel_tool_use without tools",
+    if not tools_wire:
+        if req.tool_choice is not None and req.tool_choice.disable_parallel is not None:
+            tc_losses.append(
+                loss(
+                    "tool_choice",
+                    "disable_parallel_tool_use",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic does not support disable_parallel_tool_use without tools",
+                )
             )
-        )
+        choice_wire = None
     if choice_wire is not None:
         out["tool_choice"] = choice_wire
     losses.extend(tc_losses)

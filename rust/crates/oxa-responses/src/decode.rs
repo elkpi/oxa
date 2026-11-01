@@ -662,8 +662,13 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
             ITEM_TYPE_MESSAGE => {
                 for (content_index, part) in item.content.iter().enumerate() {
                     if part.kind == "refusal" {
+                        let refusal = part.refusal.as_deref().ok_or_else(|| {
+                            Error::new(format!(
+                                "responses: output[{item_index}].content[{content_index}].refusal is required"
+                            ))
+                        })?;
                         text.push(Block::Refusal {
-                            refusal: part.refusal.clone().unwrap_or_default(),
+                            refusal: refusal.to_string(),
                             category: None,
                             native: Vec::new(),
                         });
@@ -868,10 +873,21 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     let mut content = thinkings;
     content.extend(text);
     content.extend(calls);
-    if content.iter().any(|b| matches!(b, Block::Refusal { .. }))
-        && stop_reason == StopReason::EndTurn
-    {
+    let has_refusal = content.iter().any(|b| matches!(b, Block::Refusal { .. }));
+    if has_refusal && stop_reason == StopReason::EndTurn {
         stop_reason = StopReason::Refusal;
+    }
+    if !has_refusal && stop_reason == StopReason::Refusal {
+        if let Some(ref err) = wire.error
+            && err.code == "refusal"
+            && !err.message.is_empty()
+        {
+            content.push(Block::Refusal {
+                refusal: err.message.clone(),
+                category: None,
+                native: Vec::new(),
+            });
+        }
     }
     Ok((
         IrResponse {

@@ -853,13 +853,22 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message",
             )),
             Block::Refusal { refusal, category, .. } => {
-                out.refusal = Some(refusal.clone());
-                if category.is_some() {
+                if out.refusal.is_none() {
+                    out.refusal = Some(refusal.clone());
+                    if category.is_some() {
+                        losses.push(loss(
+                            format!("{path}[{index}].category"),
+                            "category",
+                            LossReason::UnsupportedSemantic,
+                            "Anthropic refusal category has no Chat Completions equivalent",
+                        ));
+                    }
+                } else {
                     losses.push(loss(
-                        format!("{path}[{index}].category"),
-                        "category",
+                        format!("{path}[{index}]"),
+                        "refusal",
                         LossReason::UnsupportedSemantic,
-                        "Anthropic refusal category has no Chat Completions equivalent",
+                        "Chat Completions supports only a single refusal; subsequent refusal block dropped",
                     ));
                 }
             }

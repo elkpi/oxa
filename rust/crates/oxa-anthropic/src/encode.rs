@@ -1028,12 +1028,24 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .content
         .iter()
         .any(|block| matches!(block, Block::ApplyPatchToolUse { .. }));
-    let refusal_block = resp.content.iter().find_map(|b| match b {
-        Block::Refusal {
+    let mut refusal_block = None;
+    for (i, b) in resp.content.iter().enumerate() {
+        if let Block::Refusal {
             refusal, category, ..
-        } => Some((refusal, category)),
-        _ => None,
-    });
+        } = b
+        {
+            if refusal_block.is_none() {
+                refusal_block = Some((refusal, category));
+            } else {
+                losses.push(loss(
+                    format!("content[{i}]"),
+                    "refusal",
+                    LossReason::UnsupportedSemantic,
+                    "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+                ));
+            }
+        }
+    }
     let effective_stop = if refusal_block.is_some() {
         StopReason::Refusal
     } else if resp.stop_reason == StopReason::ToolUse && has_unsupported && !has_native_call {
@@ -1055,8 +1067,15 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     if effective_stop == StopReason::Refusal {
         out.stop_details = Some(crate::types::StopDetailsWire {
             kind: "refusal".to_string(),
-            category: refusal_block.and_then(|(_, cat)| cat.clone()),
-            explanation: refusal_block.map(|(refusal, _)| refusal.clone()),
+            category: refusal_block
+                .and_then(|(_, cat)| cat.as_ref().filter(|c| !c.is_empty()).cloned()),
+            explanation: refusal_block.and_then(|(refusal, _)| {
+                if refusal.is_empty() {
+                    None
+                } else {
+                    Some(refusal.clone())
+                }
+            }),
         });
     }
     Ok((out, losses))

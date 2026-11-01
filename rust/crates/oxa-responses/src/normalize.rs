@@ -77,6 +77,30 @@ fn decode_content_part(
     is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
     match part.kind.as_str() {
+        "refusal" => {
+            if is_user {
+                return Ok((
+                    Vec::new(),
+                    vec![loss(
+                        format!("{path}[{index}]"),
+                        "type",
+                        LossReason::UnsupportedSemantic,
+                        "Responses content part type \"refusal\" has no IR equivalent in user messages",
+                    )],
+                ));
+            }
+            let refusal = part.refusal.as_deref().ok_or_else(|| {
+                Error::new(format!("responses: {path}[{index}].refusal is required"))
+            })?;
+            Ok((
+                vec![Block::Refusal {
+                    refusal: refusal.to_string(),
+                    category: None,
+                    native: Vec::new(),
+                }],
+                Vec::new(),
+            ))
+        }
         PART_TYPE_INPUT_TEXT | PART_TYPE_OUTPUT_TEXT => Ok((
             vec![Block::Text {
                 text: part.text.clone(),
@@ -1384,6 +1408,8 @@ pub(crate) fn encode_assistant_message(
     let mut thinkings = Vec::new();
     let mut text = String::new();
     let mut has_text = false;
+    let mut has_refusal = false;
+    let mut parts = Vec::new();
     let mut calls = Vec::new();
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
@@ -1391,6 +1417,11 @@ pub(crate) fn encode_assistant_message(
             Block::Text { text: value, citations, .. } => {
                 text.push_str(value);
                 has_text = true;
+                parts.push(ContentPart {
+                    kind: PART_TYPE_OUTPUT_TEXT.to_string(),
+                    text: value.clone(),
+                    ..Default::default()
+                });
                 if let Some(cites) = citations && !cites.is_empty() {
                     let has_anthropic = cites.iter().any(|c| c.source != "openai");
                     let has_openai = cites.iter().any(|c| c.source == "openai");
@@ -1499,6 +1530,7 @@ pub(crate) fn encode_assistant_message(
                 kind: "web_search_call".into(), id: id.clone(), status: status.clone(), action: Some(action.clone()), extra: extra.clone(), ..InputItem::default()
             }),
             Block::Refusal { refusal, category, .. } => {
+                has_refusal = true;
                 if category.is_some() {
                     losses.push(loss(
                         format!("{path}[{index}].category"),
@@ -1507,8 +1539,11 @@ pub(crate) fn encode_assistant_message(
                         "Anthropic refusal category has no Responses equivalent",
                     ));
                 }
-                text.push_str(refusal);
-                has_text = true;
+                parts.push(ContentPart {
+                    kind: "refusal".to_string(),
+                    refusal: Some(refusal.clone()),
+                    ..Default::default()
+                });
             }
             Block::Image { .. }
             | Block::Document { .. }
@@ -1530,7 +1565,13 @@ pub(crate) fn encode_assistant_message(
             ..InputItem::default()
         });
     }
-    if has_text || blocks.is_empty() {
+    if has_refusal {
+        items.push(InputItem {
+            role: ROLE_ASSISTANT.to_string(),
+            content: Some(ContentValue::Parts(parts)),
+            ..InputItem::default()
+        });
+    } else if has_text || blocks.is_empty() {
         items.push(InputItem {
             role: ROLE_ASSISTANT.to_string(),
             content: Some(ContentValue::Text(text)),

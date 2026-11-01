@@ -214,14 +214,15 @@ The exactly-one-of-three rule is enforced by the schema: a document carrying non
 
 ### 3.6 ToolChoice
 
-| Go field | JSON property | Type | Required |
-|----------|---------------|------|----------|
-| `Mode` | `mode` | enum `auto` \| `any` \| `tool` \| `none` | yes |
-| `Name` | `name` | string | named function/custom 的 mode=tool 要求非空；其他情况 MUST 缺失 |
-| `ToolType` | `tool_type` | enum `function` \| `custom` \| `apply_patch` \| `native` | no；仅 Mode 为 tool 时允许，缺省 function；apply_patch 禁止 name；native 要求 name，见 spec/16 |
+| Go field | JSON property | Type | Required | Notes |
+|----------|---------------|------|----------|-------|
+| `Mode` | `mode` | enum `auto` \| `any` \| `tool` \| `none` | yes | |
+| `Name` | `name` | string | named function/custom 的 mode=tool 要求非空；其他情况 MUST 缺失 | |
+| `ToolType` | `tool_type` | enum `function` \| `custom` \| `apply_patch` \| `native` | no；仅 Mode 为 tool 时允许，缺省 function；apply_patch 禁止 name；native 要求 name，见 spec/16 | |
+| `DisableParallel` | `disable_parallel` | `*bool` / boolean | no | optional boolean; controls parallel tool calling (since 2.5.0). True explicitly disables parallel calling (max 1 call); false explicitly permits parallel calling; absent delegates to provider default. |
 
 `tool` with `name` selects exactly one tool; the other modes carry no
-`name`.
+`name`. `disable_parallel` maps to OpenAI `parallel_tool_calls` with inverted boolean polarity, and to Anthropic `tool_choice.disable_parallel_tool_use` directly.
 
 ### 3.7 Params
 

@@ -653,23 +653,32 @@
       ]
     },
     "toolChoice": {
-      "description": "Named function/custom/native choices require name; the dedicated apply_patch choice forbids name (spec/14, spec/16).",
+      "description": "Named function/custom/native choices require name; the dedicated apply_patch choice forbids name (spec/14, spec/16). Optional disable_parallel controls parallel tool calling (since 2.5.0).",
       "oneOf": [
         {
           "type": "object",
-          "properties": { "mode": { "const": "auto" } },
+          "properties": {
+            "mode": { "const": "auto" },
+            "disable_parallel": { "type": "boolean" }
+          },
           "required": ["mode"],
           "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": { "mode": { "const": "any" } },
+          "properties": {
+            "mode": { "const": "any" },
+            "disable_parallel": { "type": "boolean" }
+          },
           "required": ["mode"],
           "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": { "mode": { "const": "none" } },
+          "properties": {
+            "mode": { "const": "none" },
+            "disable_parallel": { "type": "boolean" }
+          },
           "required": ["mode"],
           "additionalProperties": false
         },
@@ -678,15 +687,21 @@
           "properties": {
             "mode": { "const": "tool" },
             "name": { "type": "string", "minLength": 1 },
-            "tool_type": { "enum": ["function", "custom", "native"] }
+            "tool_type": { "enum": ["function", "custom", "native"] },
+            "disable_parallel": { "type": "boolean" }
           },
           "required": ["mode", "name"],
           "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": { "mode": { "const": "tool" }, "tool_type": { "const": "apply_patch" } },
-          "required": ["mode", "tool_type"], "additionalProperties": false
+          "properties": {
+            "mode": { "const": "tool" },
+            "tool_type": { "const": "apply_patch" },
+            "disable_parallel": { "type": "boolean" }
+          },
+          "required": ["mode", "tool_type"],
+          "additionalProperties": false
         }
       ]
     },

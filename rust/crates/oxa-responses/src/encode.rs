@@ -262,6 +262,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
             && let Ok(s) = serde_json::from_str::<String>(&n.value)
         {
             out.prompt_cache_key = Some(serde_json::Value::String(s));
+        } else if n.source == "openai" && n.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_OPTIONS {
+            if n.value == "null" {
+                out.prompt_cache_options = Some(serde_json::Value::Null);
+            } else if let Ok(val) = serde_json::from_str::<serde_json::Value>(&n.value) {
+                out.prompt_cache_options = Some(val);
+            }
         }
     }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "responses")

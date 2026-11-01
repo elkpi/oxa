@@ -23,6 +23,8 @@ pub const NATIVE_KIND_MAX_COMPLETION_TOKENS: &str = "max_completion_tokens";
 pub const NATIVE_KIND_TOP_K: &str = "top_k";
 pub const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE: &str = "disable_parallel_tool_use";
 pub const NATIVE_KIND_PROMPT_CACHE_KEY: &str = "prompt_cache_key";
+pub const NATIVE_KIND_PROMPT_CACHE_OPTIONS: &str = "prompt_cache_options";
+pub const NATIVE_KIND_PROMPT_CACHE_BREAKPOINT: &str = "prompt_cache_breakpoint";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 pub const NATIVE_SOURCE_OPENAI: &str = "openai";
 
@@ -31,6 +33,11 @@ pub const CACHE_CONTROL_LOSS_DETAIL: &str =
 
 pub const PROMPT_CACHE_KEY_LOSS_DETAIL: &str =
     "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped";
+
+pub const PROMPT_CACHE_OPTIONS_LOSS_DETAIL: &str =
+    "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped";
+
+pub const PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL: &str = "Anthropic Messages has no prompt_cache_breakpoint parameter; prompt cache breakpoint is dropped";
 
 pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
@@ -514,6 +521,32 @@ fn validate_annotations(
                         )));
                     }
                 }
+                NATIVE_KIND_PROMPT_CACHE_OPTIONS => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_object() && !parsed_json.is_null() {
+                        return Err(Error::Custom(format!(
+                            "invalid prompt_cache_options {parsed_json:?}"
+                        )));
+                    }
+                }
+                NATIVE_KIND_PROMPT_CACHE_BREAKPOINT => {
+                    if host != HostType::Content && host != HostType::System {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on content or system blocks",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_object() {
+                        return Err(Error::Custom(format!(
+                            "invalid prompt_cache_breakpoint {parsed_json:?}"
+                        )));
+                    }
+                }
                 _ => {}
             }
         }
@@ -802,6 +835,68 @@ fn append_omission_loss(
                         "prompt_cache_key".to_string(),
                         LossReason::UnmappedField,
                         PROMPT_CACHE_KEY_LOSS_DETAIL.to_string(),
+                    )
+                };
+                losses.push(Loss {
+                    path: path.into(),
+                    field,
+                    reason,
+                    detail,
+                });
+                return;
+            }
+            NATIVE_KIND_PROMPT_CACHE_OPTIONS => {
+                if target == "chatcompletions" || target == "responses" {
+                    return;
+                }
+                let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                    let f = if om.field.is_empty() {
+                        "prompt_cache_options".to_string()
+                    } else {
+                        om.field.clone()
+                    };
+                    let r = om.reason;
+                    let d = match om.detail.as_deref() {
+                        Some(s) if !s.is_empty() => s.to_string(),
+                        _ => PROMPT_CACHE_OPTIONS_LOSS_DETAIL.to_string(),
+                    };
+                    (f, r, d)
+                } else {
+                    (
+                        "prompt_cache_options".to_string(),
+                        LossReason::UnmappedField,
+                        PROMPT_CACHE_OPTIONS_LOSS_DETAIL.to_string(),
+                    )
+                };
+                losses.push(Loss {
+                    path: path.into(),
+                    field,
+                    reason,
+                    detail,
+                });
+                return;
+            }
+            NATIVE_KIND_PROMPT_CACHE_BREAKPOINT => {
+                if target == "chatcompletions" || target == "responses" {
+                    return;
+                }
+                let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                    let f = if om.field.is_empty() {
+                        "prompt_cache_breakpoint".to_string()
+                    } else {
+                        om.field.clone()
+                    };
+                    let r = om.reason;
+                    let d = match om.detail.as_deref() {
+                        Some(s) if !s.is_empty() => s.to_string(),
+                        _ => PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL.to_string(),
+                    };
+                    (f, r, d)
+                } else {
+                    (
+                        "prompt_cache_breakpoint".to_string(),
+                        LossReason::UnmappedField,
+                        PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL.to_string(),
                     )
                 };
                 losses.push(Loss {

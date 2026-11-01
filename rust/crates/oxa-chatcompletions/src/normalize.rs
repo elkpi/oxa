@@ -84,15 +84,65 @@ fn decode_content_part(
     index: usize,
     is_user: bool,
 ) -> Result<(Vec<Block>, Vec<Loss>), Error> {
-    match part.kind.as_str() {
-        CONTENT_PART_TYPE_TEXT => Ok((
+    let pcb_ann = if let Some(ref pcb) = part.prompt_cache_breakpoint {
+        let Some(pcb_obj) = pcb.as_object() else {
+            return Err(Error::new(format!(
+                "chatcompletions: {path}[{index}].prompt_cache_breakpoint must be an object"
+            )));
+        };
+        if let Some(m) = pcb_obj.get("mode") {
+            let Some(s) = m.as_str() else {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].prompt_cache_breakpoint.mode must be a string"
+                )));
+            };
+            if s != "explicit" {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].prompt_cache_breakpoint.mode must be 'explicit'"
+                )));
+            }
+        } else {
+            return Err(Error::new(format!(
+                "chatcompletions: {path}[{index}].prompt_cache_breakpoint requires mode"
+            )));
+        }
+        if let Some(t) = pcb_obj.get("ttl") {
+            let Some(s) = t.as_str() else {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].prompt_cache_breakpoint.ttl must be a string"
+                )));
+            };
+            if s != "30m" && s != "12h" {
+                return Err(Error::new(format!(
+                    "chatcompletions: {path}[{index}].prompt_cache_breakpoint.ttl must be '30m' or '12h'"
+                )));
+            }
+        }
+        let val_str = serde_json::to_string(pcb_obj).map_err(|e| Error::new(e.to_string()))?;
+        Some(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT.into(),
+            value: val_str,
+            omission: Some(oxa_ir::NativeOmission {
+                field: "prompt_cache_breakpoint".into(),
+                reason: LossReason::UnmappedField,
+                detail: Some(oxa_ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL.into()),
+            }),
+            projection: None,
+        })
+    } else {
+        None
+    };
+
+    let (mut blocks, losses) = match part.kind.as_str() {
+        CONTENT_PART_TYPE_TEXT => (
             vec![Block::Text {
                 text: part.text.clone(),
                 citations: None,
                 native: Vec::new(),
             }],
             Vec::new(),
-        )),
+        ),
         CONTENT_PART_TYPE_IMAGE_URL => {
             let raw = part
                 .image_url
@@ -100,8 +150,8 @@ fn decode_content_part(
                 .map(|image| image.url.as_str())
                 .unwrap_or_default();
             match decode_image_url(raw, &format!("{path}[{index}].image_url")) {
-                Ok(block) => Ok((vec![block], Vec::new())),
-                Err(image_loss) => Ok((Vec::new(), vec![image_loss])),
+                Ok(block) => (vec![block], Vec::new()),
+                Err(image_loss) => (Vec::new(), vec![image_loss]),
             }
         }
         CONTENT_PART_TYPE_FILE => {
@@ -148,7 +198,7 @@ fn decode_content_part(
                         "chatcompletions: {path}[{index}].file.file_id cannot be empty"
                     )));
                 }
-                Ok((
+                (
                     vec![Block::Document {
                         media_type: None,
                         data: None,
@@ -157,7 +207,7 @@ fn decode_content_part(
                         native: Vec::new(),
                     }],
                     losses,
-                ))
+                )
             } else if let Some(ref fdata) = file_wire.file_data {
                 if fdata.is_empty() {
                     return Err(Error::new(format!(
@@ -180,7 +230,7 @@ fn decode_content_part(
                 } else {
                     (fdata.clone(), "application/pdf".to_string())
                 };
-                Ok((
+                (
                     vec![Block::Document {
                         media_type: Some(media_type),
                         data: Some(data),
@@ -189,12 +239,12 @@ fn decode_content_part(
                         native: Vec::new(),
                     }],
                     losses,
-                ))
+                )
             } else {
                 unreachable!()
             }
         }
-        other => Ok((
+        other => (
             Vec::new(),
             vec![loss(
                 format!("{path}[{index}]"),
@@ -202,8 +252,20 @@ fn decode_content_part(
                 LossReason::UnsupportedSemantic,
                 format!("Chat Completions content part type {other:?} has no IR equivalent"),
             )],
-        )),
+        ),
+    };
+
+    if let Some(ann) = pcb_ann {
+        for block in &mut blocks {
+            match block {
+                Block::Text { native, .. }
+                | Block::Image { native, .. }
+                | Block::Document { native, .. } => native.push(ann.clone()),
+                _ => {}
+            }
+        }
     }
+    Ok((blocks, losses))
 }
 
 /// N-CC-2 normalizes supported https and data image URLs into image blocks.
@@ -608,10 +670,22 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
     let mut losses = Vec::new();
     for (index, block) in blocks.iter().enumerate() {
         match block {
-            Block::Text { text: value, citations, .. } => {
+            Block::Text { text: value, citations, native } => {
+                let mut pcb = None;
+                for ann in native {
+                    if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                        && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+                        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&ann.value)
+                    {
+                        pcb = Some(v);
+                        has_image = true;
+                        break;
+                    }
+                }
                 parts.push(ContentPart {
                     kind: CONTENT_PART_TYPE_TEXT.to_string(),
                     text: value.clone(),
+                    prompt_cache_breakpoint: pcb,
                     ..Default::default()
                 });
                 text.push_str(value);
@@ -646,6 +720,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 media_type,
                 data,
                 url,
+                native,
                 ..
             } => match encode_image_block(
                 media_type.as_deref(),
@@ -653,13 +728,22 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 url.as_deref(),
                 &format!("{path}[{index}]"),
             ) {
-                Ok(part) => {
+                Ok(mut part) => {
                     has_image = true;
+                    for ann in native {
+                        if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                            && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+                            && let Ok(v) = serde_json::from_str::<serde_json::Value>(&ann.value)
+                        {
+                            part.prompt_cache_breakpoint = Some(v);
+                            break;
+                        }
+                    }
                     parts.push(part);
                 }
                 Err(image_loss) => losses.push(image_loss),
             },
-            Block::Document { file_id, data, url, media_type, .. } => {
+            Block::Document { file_id, data, url, media_type, native, .. } => {
                 let mut count = 0;
                 if file_id.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
                 if url.as_ref().is_some_and(|s| !s.is_empty()) { count += 1; }
@@ -701,6 +785,16 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     continue;
                 }
                 has_image = true;
+                let mut pcb = None;
+                for ann in native {
+                    if ann.source == oxa_ir::NATIVE_SOURCE_OPENAI
+                        && ann.kind == oxa_ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+                        && let Ok(v) = serde_json::from_str::<serde_json::Value>(&ann.value)
+                    {
+                        pcb = Some(v);
+                        break;
+                    }
+                }
                 if let Some(fid) = file_id {
                     parts.push(ContentPart {
                         kind: CONTENT_PART_TYPE_FILE.to_string(),
@@ -709,6 +803,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                             file_data: None,
                             filename: None,
                         }),
+                        prompt_cache_breakpoint: pcb,
                         ..Default::default()
                     });
                 } else if let Some(d) = data {
@@ -719,6 +814,7 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                             file_data: Some(d.clone()),
                             filename: None,
                         }),
+                        prompt_cache_breakpoint: pcb,
                         ..Default::default()
                     });
                 }
@@ -1014,10 +1110,10 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
     let mut losses = Vec::new();
     for (index, block) in blocks.into_iter().enumerate() {
         match block {
-            Block::Text { text, .. } => out.push(SystemBlock::Text {
+            Block::Text { text, native, .. } => out.push(SystemBlock::Text {
                 text,
                 role: String::new(),
-                native: Vec::new(),
+                native,
             }),
             _ => losses.push(loss(
                 format!("{path}[{index}]"),

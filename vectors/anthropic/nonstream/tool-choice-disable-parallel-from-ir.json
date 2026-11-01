@@ -1,0 +1,41 @@
+{
+  "name": "anthropic.nonstream.tool-choice-disable-parallel-from-ir",
+  "description": "IR tool_choice disable_parallel true renders as Anthropic tool_choice disable_parallel_tool_use true.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "specVersion": "0.2.0",
+    "model": "claude-3-5-sonnet",
+    "params": {
+      "max_tokens": 1024
+    },
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "Weather in Paris?" }] }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": { "mode": "auto", "disable_parallel": true }
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet",
+    "max_tokens": 1024,
+    "messages": [{ "role": "user", "content": "Weather in Paris?" }],
+    "tools": [
+      {
+        "name": "get_weather",
+        "input_schema": { "type": "object", "properties": { "city": { "type": "string" } } }
+      }
+    ],
+    "tool_choice": {
+      "type": "auto",
+      "disable_parallel_tool_use": true
+    }
+  },
+  "expected_losses": [],
+  "tags": ["tools", "request", "tool-choice", "n-an-19"]
+}

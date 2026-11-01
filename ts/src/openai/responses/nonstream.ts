@@ -498,6 +498,12 @@ function decodeRequestObject(
         "responses: prompt_cache_options must be an object or null",
       );
     }
+    if (wire.prompt_cache_options !== null) {
+      validatePromptCacheOptionsFields(
+        wire.prompt_cache_options as JsonObject,
+        "prompt_cache_options",
+      );
+    }
     native.push({
       source: "openai",
       kind: NATIVE_KIND_PROMPT_CACHE_OPTIONS,
@@ -1897,6 +1903,10 @@ function decodeContent(
           `responses: ${path}[${index}].prompt_cache_breakpoint must be an object`,
         );
       }
+      validatePromptCacheBreakpointFields(
+        part.prompt_cache_breakpoint as JsonObject,
+        `${path}[${index}].prompt_cache_breakpoint`,
+      );
       pcbAnn = {
         source: "openai",
         kind: NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
@@ -2767,12 +2777,49 @@ function encodeResponsesGroupedTools(
   return out;
 }
 
+function getSystemBreakpoint(block: {
+  native?: readonly NativeAnnotation[];
+}): JsonValue | undefined {
+  for (const ann of block.native ?? []) {
+    if (ann.source === "openai" && ann.kind === "prompt_cache_breakpoint") {
+      return parseJson(ann.value);
+    }
+  }
+  return undefined;
+}
+
 function encodeSystemPlan(system: Request["system"]): {
   instructions?: string;
   items: JsonObject[];
 } {
   if (system === undefined || system.length === 0) return { items: [] };
-  if (!system.some((block) => block.role === "developer"))
+  const hasDeveloper = system.some((block) => block.role === "developer");
+  const hasBreakpoint = system.some(
+    (block) => getSystemBreakpoint(block) !== undefined,
+  );
+  if (hasBreakpoint) {
+    // Breakpoints cannot survive the instructions string; render every block
+    // as its own input item (spec/15 §3.7 shorthand protection).
+    return {
+      items: system.map((block) => {
+        const pcb = getSystemBreakpoint(block);
+        return {
+          role: block.role === "developer" ? "developer" : "system",
+          content:
+            pcb !== undefined
+              ? [
+                  {
+                    type: "input_text",
+                    text: block.text,
+                    prompt_cache_breakpoint: pcb,
+                  },
+                ]
+              : block.text,
+        };
+      }),
+    };
+  }
+  if (!hasDeveloper)
     return {
       instructions: system.map((block) => block.text).join(""),
       items: [],
@@ -2846,6 +2893,38 @@ function whole(value: JsonValue | undefined, name: string): bigint {
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", `responses: ${message}`);
+}
+function validatePromptCacheOptionsFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "implicit" && mode !== "explicit")
+      fail(`${name}.mode must be 'implicit' or 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m") fail(`${name}.ttl must be '30m'`);
+  }
+}
+function validatePromptCacheBreakpointFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "explicit") fail(`${name}.mode must be 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m" && ttl !== "12h")
+      fail(`${name}.ttl must be '30m' or '12h'`);
+  }
 }
 
 function boolean(value: JsonValue | undefined, name: string): boolean {

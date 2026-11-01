@@ -672,9 +672,24 @@ function validateAnnotations(
   }
 }
 
+const BREAKPOINT_ALLOWED_BLOCK_TYPES = new Set(["text", "image", "document"]);
+
 function validateBlockNative(blk: Block, host: HostType, path: string): void {
   if ("native" in blk && blk.native) {
     validateAnnotations(blk.native, host, path);
+    if (!BREAKPOINT_ALLOWED_BLOCK_TYPES.has(blk.type)) {
+      blk.native.forEach((ann, i) => {
+        if (
+          ann.source === NATIVE_SOURCE_OPENAI &&
+          ann.kind === NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+        ) {
+          throw new OxaError(
+            "invalid-input",
+            `${path}.native[${i}]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks`,
+          );
+        }
+      });
+    }
   }
   if (blk.type === "tool_result") {
     (blk as ToolResultBlock).content.forEach((child, k) => {

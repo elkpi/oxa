@@ -451,6 +451,12 @@ function decodeRequestObject(
     ) {
       fail("chatcompletions: prompt_cache_options must be an object or null");
     }
+    if (wire.prompt_cache_options !== null) {
+      validatePromptCacheOptionsFields(
+        wire.prompt_cache_options as JsonObject,
+        "prompt_cache_options",
+      );
+    }
     native.push({
       source: "openai",
       kind: NATIVE_KIND_PROMPT_CACHE_OPTIONS,
@@ -1073,6 +1079,10 @@ function decodeContent(
           `chatcompletions: ${path}[${index}].prompt_cache_breakpoint must be an object`,
         );
       }
+      validatePromptCacheBreakpointFields(
+        part.prompt_cache_breakpoint as JsonObject,
+        `${path}[${index}].prompt_cache_breakpoint`,
+      );
       pcbAnn = {
         source: "openai",
         kind: NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,
@@ -1851,4 +1861,36 @@ function boolean(value: JsonValue | undefined, name: string): boolean {
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", `chatcompletions: ${message}`);
+}
+function validatePromptCacheOptionsFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "implicit" && mode !== "explicit")
+      fail(`${name}.mode must be 'implicit' or 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m") fail(`${name}.ttl must be '30m'`);
+  }
+}
+function validatePromptCacheBreakpointFields(
+  value: JsonObject,
+  name: string,
+): void {
+  const mode = value.mode;
+  if (mode !== undefined) {
+    if (typeof mode !== "string") fail(`${name}.mode must be a string`);
+    if (mode !== "explicit") fail(`${name}.mode must be 'explicit'`);
+  }
+  const ttl = value.ttl;
+  if (ttl !== undefined) {
+    if (typeof ttl !== "string") fail(`${name}.ttl must be a string`);
+    if (ttl !== "30m" && ttl !== "12h")
+      fail(`${name}.ttl must be '30m' or '12h'`);
+  }
 }

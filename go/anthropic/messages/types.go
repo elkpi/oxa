@@ -262,6 +262,7 @@ func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return err
 	}
+	*c = ToolChoiceWire(raw)
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(data, &fields); err != nil {
 		return err
@@ -276,7 +277,6 @@ func (c *ToolChoiceWire) UnmarshalJSON(data []byte) error {
 		}
 		c.HasDisableParallelToolUse = true
 	}
-	*c = ToolChoiceWire(raw)
 	return nil
 }
 

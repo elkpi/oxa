@@ -744,7 +744,10 @@ def load_block(data: dict[str, Any]) -> Block:
         refusal_val = data.get("refusal")
         if not isinstance(refusal_val, str):
             raise CodecError("refusal block requires refusal string")
-        return RefusalBlock(refusal=refusal_val, category=data.get("category"))
+        cat_val = data.get("category")
+        if cat_val is not None and not isinstance(cat_val, str):
+            raise CodecError("refusal block category must be a string")
+        return RefusalBlock(refusal=refusal_val, category=cat_val)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 
@@ -852,7 +855,10 @@ def load_request_block(data: dict[str, Any]) -> Block:
         refusal_val = data.get("refusal")
         if not isinstance(refusal_val, str):
             raise CodecError("refusal block requires refusal string")
-        return RefusalBlock(refusal=refusal_val, category=data.get("category"), native=native)
+        cat_val = data.get("category")
+        if cat_val is not None and not isinstance(cat_val, str):
+            raise CodecError("refusal block category must be a string")
+        return RefusalBlock(refusal=refusal_val, category=cat_val, native=native)
     raise CodecError(f"unknown block discriminant: {kind}")
 
 

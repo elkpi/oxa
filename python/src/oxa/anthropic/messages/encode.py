@@ -819,10 +819,19 @@ def encode_response(
         losses.extend(b_losses)
 
     refusal_block: RefusalBlock | None = None
-    for b in resp.content:
+    for index, b in enumerate(resp.content):
         if isinstance(b, RefusalBlock):
-            refusal_block = b
-            break
+            if refusal_block is None:
+                refusal_block = b
+            else:
+                losses.append(
+                    loss(
+                        f"content[{index}]",
+                        "refusal",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+                    )
+                )
 
     effective_stop = resp.stop_reason
     if refusal_block is not None:
@@ -839,8 +848,8 @@ def encode_response(
     if effective_stop == STOP_REFUSAL:
         out["stop_details"] = {
             "type": "refusal",
-            "category": refusal_block.category if refusal_block is not None else None,
-            "explanation": refusal_block.refusal if refusal_block is not None else None,
+            "category": (refusal_block.category if (refusal_block and refusal_block.category) else None),
+            "explanation": (refusal_block.refusal if (refusal_block and refusal_block.refusal) else None),
         }
 
     return out, losses

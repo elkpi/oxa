@@ -371,13 +371,24 @@ def decode_response(
 
     if stop_reason == STOP_REFUSAL:
         stop_details = wire.get("stop_details")
-        if isinstance(stop_details, dict):
-            category = stop_details.get("category")
-            explanation = stop_details.get("explanation")
-            content.append(RefusalBlock(
-                refusal=explanation if isinstance(explanation, str) else "",
-                category=category if isinstance(category, str) else None,
-            ))
+        if stop_details is not None:
+            if not isinstance(stop_details, dict):
+                raise ValueError("anthropic: stop_details must be an object")
+            sd_type = stop_details.get("type")
+            if not isinstance(sd_type, str):
+                raise ValueError("anthropic: stop_details.type must be a string")
+            if sd_type == "refusal":
+                category = stop_details.get("category")
+                if category is not None and not isinstance(category, str):
+                    raise ValueError("anthropic: stop_details.category must be a string or null")
+                explanation = stop_details.get("explanation")
+                if explanation is not None and not isinstance(explanation, str):
+                    raise ValueError("anthropic: stop_details.explanation must be a string or null")
+                if explanation or category:
+                    content.append(RefusalBlock(
+                        refusal=explanation if isinstance(explanation, str) else "",
+                        category=category if isinstance(category, str) else None,
+                    ))
 
     model = str(wire.get("model", ""))
     if table is not None:

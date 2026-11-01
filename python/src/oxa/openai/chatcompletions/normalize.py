@@ -599,14 +599,24 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                 )
             )
         elif isinstance(block, RefusalBlock):
-            refusal_val = block.refusal
-            if block.category:
+            if refusal_val is None:
+                refusal_val = block.refusal
+                if block.category:
+                    losses.append(
+                        loss(
+                            f"{path}[{index}].category",
+                            "category",
+                            LOSS_UNSUPPORTED_SEMANTIC,
+                            "Anthropic refusal category has no Chat Completions equivalent",
+                        )
+                    )
+            else:
                 losses.append(
                     loss(
-                        f"{path}[{index}].category",
-                        "category",
+                        f"{path}[{index}]",
+                        "refusal",
                         LOSS_UNSUPPORTED_SEMANTIC,
-                        "Anthropic refusal category has no Chat Completions equivalent",
+                        "Chat Completions supports only a single refusal; subsequent refusal block dropped",
                     )
                 )
         elif isinstance(block, DocumentBlock):

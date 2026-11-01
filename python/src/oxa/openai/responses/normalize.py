@@ -30,6 +30,7 @@ from oxa.ir import (
     TextBlock,
     ThinkingBlock,
     RedactedThinkingBlock,
+    RefusalBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -124,6 +125,20 @@ def decode_content_part(
         return [block], []
     if kind == PART_TYPE_OUTPUT_TEXT:
         return [TextBlock(text=part.get("text", ""))], []
+    if kind == "refusal":
+        ref = part.get("refusal")
+        if ref is None or not isinstance(ref, str):
+            raise TypeError(f"responses: {path}[{index}].refusal must be a string")
+        if is_user:
+            return [], [
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Responses content part type 'refusal' has no IR equivalent in user messages",
+                )
+            ]
+        return [RefusalBlock(refusal=ref)], []
     if kind == "input_file":
         if not is_user:
             return [], [
@@ -884,13 +899,28 @@ def encode_assistant_message(
     thinkings: list[dict[str, Any]] = []
     text_chunks: list[str] = []
     has_text = False
+    has_refusal = False
+    parts: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     losses: list[Loss] = []
 
     for index, block in enumerate(blocks):
-        if isinstance(block, TextBlock):
+        if isinstance(block, RefusalBlock):
+            has_refusal = True
+            if block.category:
+                losses.append(
+                    loss(
+                        f"{path}[{index}].category",
+                        "category",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic refusal category has no Responses equivalent",
+                    )
+                )
+            parts.append({"type": "refusal", "refusal": block.refusal})
+        elif isinstance(block, TextBlock):
             text_chunks.append(block.text)
             has_text = True
+            parts.append({"type": PART_TYPE_OUTPUT_TEXT, "text": block.text})
             if block.citations:
                 has_anthropic = any(c.source != "openai" for c in block.citations)
                 has_openai = any(c.source == "openai" for c in block.citations)
@@ -987,7 +1017,9 @@ def encode_assistant_message(
     items: list[dict[str, Any]] = []
     if thinkings:
         items.append({"type": ITEM_TYPE_REASONING, "summary": thinkings})
-    if has_text or not blocks:
+    if has_refusal:
+        items.append({"role": ROLE_ASSISTANT, "content": parts})
+    elif has_text or not blocks:
         items.append(
             {
                 "role": ROLE_ASSISTANT,

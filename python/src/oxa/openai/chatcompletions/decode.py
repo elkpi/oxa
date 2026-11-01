@@ -221,10 +221,13 @@ def decode_request(
         elif role == ROLE_ASSISTANT:
             tool_calls = msg.get("tool_calls")
             refusal = msg.get("refusal")
-            if refusal is not None and isinstance(refusal, str) and refusal != "":
-                if msg.get("content") is None:
-                    content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
-                content.append(RefusalBlock(refusal=refusal))
+            if refusal is not None:
+                if not isinstance(refusal, str):
+                    raise ValueError(f"chatcompletions: messages[{index}].refusal must be a string")
+                if refusal != "":
+                    if msg.get("content") is None:
+                        content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
+                    content.append(RefusalBlock(refusal=refusal))
             if tool_calls is not None:
                 calls_path = f"messages[{index}].tool_calls"
                 tool_blocks, tool_losses = decode_tool_calls(tool_calls, calls_path)
@@ -480,10 +483,13 @@ def decode_response(
 
     tool_calls = msg.get("tool_calls")
     refusal = msg.get("refusal")
-    if refusal is not None and isinstance(refusal, str) and refusal != "":
-        if msg.get("content") is None:
-            content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
-        content.append(RefusalBlock(refusal=refusal))
+    if refusal is not None:
+        if not isinstance(refusal, str):
+            raise ValueError("chatcompletions: choices[0].message.refusal must be a string")
+        if refusal != "":
+            if msg.get("content") is None:
+                content = [block for block in content if not (isinstance(block, TextBlock) and block.text == "")]
+            content.append(RefusalBlock(refusal=refusal))
     if tool_calls is not None:
         tool_blocks, tool_losses = decode_tool_calls(tool_calls, "choices[0].message.tool_calls")
         if msg.get("content") is None and tool_blocks:

@@ -380,7 +380,10 @@ def decode_response(
             for content_index, part in enumerate(item.get("content", [])):
                 p_kind = part.get("type", "")
                 if p_kind == "refusal":
-                    text.append(RefusalBlock(refusal=part.get("refusal", "")))
+                    ref = part.get("refusal")
+                    if ref is None or not isinstance(ref, str):
+                        raise TypeError(f"output[{item_index}].content[{content_index}].refusal must be a string")
+                    text.append(RefusalBlock(refusal=ref))
                     continue
                 if p_kind != PART_TYPE_OUTPUT_TEXT:
                     losses.append(
@@ -542,8 +545,15 @@ def decode_response(
     stop_reason, status_losses = decode_status(wire, has_tool_use)
     losses.extend(status_losses)
     content = thinkings + text + calls
-    if any(isinstance(b, RefusalBlock) for b in content) and stop_reason == STOP_END_TURN:
+    has_refusal = any(isinstance(b, RefusalBlock) for b in content)
+    if has_refusal and stop_reason == STOP_END_TURN:
         stop_reason = STOP_REFUSAL
+    if not has_refusal and stop_reason == STOP_REFUSAL:
+        err = wire.get("error")
+        if isinstance(err, dict) and err.get("code") == "refusal":
+            msg = err.get("message")
+            if isinstance(msg, str) and msg:
+                content.append(RefusalBlock(refusal=msg))
 
     model = str(wire.get("model", ""))
     if table is not None:

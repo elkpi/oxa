@@ -366,13 +366,25 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 	var losses []ir.Loss
 	var thinkings []OutputContent
 	var calls []InputItem
+	var parts []ContentPart
 	text := ""
 	hasText := false
+	hasRefusal := false
 	for i, block := range blocks {
 		switch value := block.(type) {
+		case ir.RefusalBlock:
+			hasRefusal = true
+			if value.Category != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].category", path, i), "category", ir.LossUnsupportedSemantic,
+					"Anthropic refusal category has no Responses equivalent",
+				))
+			}
+			parts = append(parts, ContentPart{Type: "refusal", Refusal: value.Refusal})
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+			parts = append(parts, ContentPart{Type: PartTypeOutputText, Text: value.Text})
 			if len(value.Citations) > 0 {
 				hasAnthropic := false
 				hasOpenAI := false
@@ -468,7 +480,9 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 	if len(thinkings) > 0 {
 		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: thinkings})
 	}
-	if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
+	if hasRefusal {
+		*items = append(*items, InputItem{Role: RoleAssistant, Content: parts})
+	} else if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)

@@ -637,8 +637,17 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var losses []ir.Loss
 	var refusalBlock *ir.RefusalBlock
 	for i, block := range resp.Content {
-		if r, ok := block.(ir.RefusalBlock); ok && refusalBlock == nil {
-			refusalBlock = &r
+		if r, ok := block.(ir.RefusalBlock); ok {
+			if refusalBlock == nil {
+				refusalBlock = &r
+			} else {
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("content[%d]", i),
+					Field:  "refusal",
+					Reason: ir.LossUnsupportedSemantic,
+					Detail: "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+				})
+			}
 		}
 		encoded, blockLosses, mapped, err := encodeResponseBlock(block, fmt.Sprintf("content[%d]", i))
 		if err != nil {

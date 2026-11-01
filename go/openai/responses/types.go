@@ -187,12 +187,52 @@ type InputItem struct {
 type ContentPart struct {
 	Type     string  `json:"type"`
 	Text     string  `json:"text,omitempty"`
+	Refusal  string  `json:"refusal,omitempty"`
 	ImageURL string  `json:"image_url,omitempty"`
 	FileData *string `json:"file_data,omitempty"`
 	FileURL  *string `json:"file_url,omitempty"`
 	FileID   *string `json:"file_id,omitempty"`
 	Filename *string `json:"filename,omitempty"`
 	Detail   *string `json:"detail,omitempty"`
+}
+
+func (c ContentPart) MarshalJSON() ([]byte, error) {
+	if c.Type == "refusal" {
+		return json.Marshal(struct {
+			Type    string `json:"type"`
+			Refusal string `json:"refusal"`
+		}{
+			Type:    c.Type,
+			Refusal: c.Refusal,
+		})
+	}
+	type shadow ContentPart
+	return json.Marshal(shadow(c))
+}
+
+func (c *ContentPart) UnmarshalJSON(data []byte) error {
+	type shadow ContentPart
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s.Type == "refusal" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		ref, present := raw["refusal"]
+		if !present {
+			return fmt.Errorf("responses: refusal content part requires refusal string")
+		}
+		var str string
+		if err := json.Unmarshal(ref, &str); err != nil {
+			return fmt.Errorf("responses: refusal content part requires string refusal: %w", err)
+		}
+		s.Refusal = str
+	}
+	*c = ContentPart(s)
+	return nil
 }
 
 // ToolDef is one element of a wire tools array.
@@ -311,6 +351,31 @@ func (c OutputContent) MarshalJSON() ([]byte, error) {
 	}
 	type shadow OutputContent
 	return json.Marshal(shadow(c))
+}
+
+func (c *OutputContent) UnmarshalJSON(data []byte) error {
+	type shadow OutputContent
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	if s.Type == "refusal" {
+		var raw map[string]json.RawMessage
+		if err := json.Unmarshal(data, &raw); err != nil {
+			return err
+		}
+		ref, present := raw["refusal"]
+		if !present {
+			return fmt.Errorf("responses: refusal content part requires refusal string")
+		}
+		var str string
+		if err := json.Unmarshal(ref, &str); err != nil {
+			return fmt.Errorf("responses: refusal content part requires string refusal: %w", err)
+		}
+		s.Refusal = str
+	}
+	*c = OutputContent(s)
+	return nil
 }
 
 // UsageWire is the wire usage object. total_tokens is derived (input +

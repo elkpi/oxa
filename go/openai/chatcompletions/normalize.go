@@ -680,11 +680,18 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 				fmt.Sprintf("IR %T cannot be rendered in a Chat Completions assistant message", block),
 			))
 		case ir.RefusalBlock:
-			out.Refusal = value.Refusal
-			if value.Category != "" {
+			if out.Refusal == "" {
+				out.Refusal = value.Refusal
+				if value.Category != "" {
+					losses = append(losses, loss(
+						fmt.Sprintf("%s[%d].category", path, i), "category", ir.LossUnsupportedSemantic,
+						"Anthropic refusal category has no Chat Completions equivalent",
+					))
+				}
+			} else {
 				losses = append(losses, loss(
-					fmt.Sprintf("%s[%d].category", path, i), "category", ir.LossUnsupportedSemantic,
-					"Anthropic refusal category has no Chat Completions equivalent",
+					fmt.Sprintf("%s[%d]", path, i), "refusal", ir.LossUnsupportedSemantic,
+					"Chat Completions supports only a single refusal; subsequent refusal block dropped",
 				))
 			}
 		case ir.ImageBlock, ir.ToolResultBlock, ir.DocumentBlock:

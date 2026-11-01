@@ -867,13 +867,18 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	content = append(content, thinkings...)
 	content = append(content, texts...)
 	content = append(content, calls...)
+	hasRefusal := false
 	for _, b := range content {
 		if _, ok := b.(ir.RefusalBlock); ok {
+			hasRefusal = true
 			if stop == ir.StopEndTurn {
 				stop = ir.StopRefusal
 			}
 			break
 		}
+	}
+	if !hasRefusal && stop == ir.StopRefusal && wire.Error != nil && wire.Error.Code == ErrorCodeRefusal && wire.Error.Message != "" {
+		content = append(content, ir.RefusalBlock{Refusal: wire.Error.Message})
 	}
 	resp := &ir.Response{
 		ID:         wire.ID,

@@ -439,7 +439,7 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     auto [tool_choice, tc_losses] = decode_tool_choice(wire.find("tool_choice"));
     req.tool_choice = std::move(tool_choice);
     losses.insert(losses.end(), tc_losses.begin(), tc_losses.end());
-    if (const auto* ptc = wire.find("parallel_tool_calls"); ptc && !ptc->is_null()) {
+    if (const auto* ptc = wire.find("parallel_tool_calls"); ptc) {
         if (!ptc->is_bool()) return invalid_argument("chatcompletions: parallel_tool_calls must be a boolean");
         bool dp = !ptc->as_bool();
         if (!req.tool_choice.has_value()) {
@@ -447,6 +447,20 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         } else {
             req.tool_choice->disable_parallel = dp;
         }
+    }
+    if (const auto* pck = wire.find("prompt_cache_key"); pck) {
+        if (!pck->is_string()) return invalid_argument("chatcompletions: prompt_cache_key must be a string");
+        req.native.push_back(ir::NativeAnnotation{
+            std::string(ir::NATIVE_SOURCE_OPENAI),
+            std::string(ir::NATIVE_KIND_PROMPT_CACHE_KEY),
+            json::serialize(*pck),
+            ir::NativeOmission{
+                "prompt_cache_key",
+                std::string(ir::LOSS_UNMAPPED_FIELD),
+                std::string(ir::PROMPT_CACHE_KEY_LOSS_DETAIL),
+            },
+            std::nullopt,
+        });
     }
 
     const auto* msgs_val = wire.find("messages");
@@ -1355,6 +1369,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (parsed.ok() && parsed->is_object()) {
                         out.set("stream_options", std::move(*parsed));
                     }
+                }
+            } else if (n.kind == ir::NATIVE_KIND_PROMPT_CACHE_KEY) {
+                auto parsed = json::parse(n.value);
+                if (parsed.ok() && parsed->is_string()) {
+                    out.set("prompt_cache_key", json::Value::string(parsed->as_string()));
                 }
             }
         }

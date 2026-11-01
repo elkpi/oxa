@@ -580,6 +580,13 @@ inline Status encode_request_native(
                 }
                 continue;
             }
+            if (n.kind == ir::NATIVE_KIND_PROMPT_CACHE_KEY) {
+                std::string field = n.omission.has_value() && !n.omission->field.empty() ? n.omission->field : "prompt_cache_key";
+                std::string reason = n.omission.has_value() && !n.omission->reason.empty() ? n.omission->reason : std::string(ir::LOSS_UNMAPPED_FIELD);
+                std::string detail = n.omission.has_value() && n.omission->detail.has_value() ? *n.omission->detail : std::string(ir::PROMPT_CACHE_KEY_LOSS_DETAIL);
+                losses.push_back(ir::Loss{"native[" + std::to_string(i) + "]", std::move(field), std::move(reason), std::move(detail)});
+                continue;
+            }
             if (n.omission.has_value()) {
                 losses.push_back(ir::Loss{
                     "native[" + std::to_string(i) + "]",

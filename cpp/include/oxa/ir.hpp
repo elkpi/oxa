@@ -53,9 +53,13 @@ inline constexpr std::string_view NATIVE_KIND_STREAM_OPTIONS = "stream_options";
 inline constexpr std::string_view NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
 inline constexpr std::string_view NATIVE_KIND_TOP_K = "top_k";
 inline constexpr std::string_view NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE = "disable_parallel_tool_use";
+inline constexpr std::string_view NATIVE_KIND_PROMPT_CACHE_KEY = "prompt_cache_key";
 
 inline constexpr std::string_view CACHE_CONTROL_LOSS_DETAIL =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+inline constexpr std::string_view PROMPT_CACHE_KEY_LOSS_DETAIL =
+    "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped";
 
 inline constexpr std::string_view DEFER_LOADING_LOSS_DETAIL =
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";

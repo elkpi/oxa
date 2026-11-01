@@ -191,6 +191,13 @@ Status validate_annotations(const std::vector<NativeAnnotation>& annotations,
                 if (!parsed->is_bool() || !parsed->as_bool()) {
                     return invalid_argument("invalid defer_loading " + ann.value);
                 }
+            } else if (ann.kind == NATIVE_KIND_PROMPT_CACHE_KEY) {
+                if (host != HostType::Request) {
+                    return invalid_argument(std::string(path) + ": openai " + ann.kind + " is only allowed on Request");
+                }
+                if (!parsed->is_string()) {
+                    return invalid_argument("invalid prompt_cache_key " + ann.value);
+                }
             }
         }
     }
@@ -320,6 +327,23 @@ void append_omission_loss(std::vector<Loss>& losses,
                 }
                 losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
             }
+            return;
+        }
+        if (ann.kind == NATIVE_KIND_PROMPT_CACHE_KEY) {
+            if (target == "chatcompletions" || target == "responses") {
+                return;
+            }
+            std::string field = "prompt_cache_key";
+            std::string reason = std::string(LOSS_UNMAPPED_FIELD);
+            std::string detail = std::string(PROMPT_CACHE_KEY_LOSS_DETAIL);
+            if (ann.omission.has_value()) {
+                if (!ann.omission->field.empty()) field = ann.omission->field;
+                if (!ann.omission->reason.empty()) reason = ann.omission->reason;
+                if (ann.omission->detail.has_value() && !ann.omission->detail->empty()) {
+                    detail = *ann.omission->detail;
+                }
+            }
+            losses.push_back(Loss{std::string(path), std::move(field), std::move(reason), std::move(detail)});
             return;
         }
         if (target == "responses") {

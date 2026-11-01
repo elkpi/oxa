@@ -6,19 +6,6 @@ import (
 	"github.com/elkpi/oxa/go/v2/ir"
 )
 
-func chatcompletionsDecode(t *testing.T, raw string) (*ir.Request, []ir.Loss) {
-	t.Helper()
-	wire, err := unmarshalRequest(t, raw)
-	if err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	req, losses, err := DecodeRequest(wire)
-	if err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	return req, losses
-}
-
 func unmarshalRequest(t *testing.T, raw string) (*Request, error) {
 	t.Helper()
 	var wire Request

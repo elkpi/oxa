@@ -26,19 +26,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		return nil, nil, fmt.Errorf("responses: nil request")
 	}
 	var losses []ir.Loss
-	for _, field := range []struct {
-		path    string
-		field   string
-		present bool
-		detail  string
-	}{
-		{"parallel_tool_calls", "parallel_tool_calls", wire.ParallelToolCalls != nil,
-			"Responses parallel tool calls have no IR equivalent in v1."},
-	} {
-		if field.present {
-			losses = append(losses, loss(field.path, field.field, ir.LossUnmappedField, field.detail))
-		}
-	}
 
 	o := newOptions(opts...)
 	req := &ir.Request{Model: o.models.Map(wire.Model)}
@@ -105,6 +92,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	choice, choiceLosses := decodeToolChoice(wire.ToolChoice)
 	req.ToolChoice = choice
 	losses = append(losses, choiceLosses...)
+	if wire.ParallelToolCalls != nil {
+		dp := !*wire.ParallelToolCalls
+		if req.ToolChoice == nil {
+			req.ToolChoice = &ir.ToolChoice{Mode: ir.ToolChoiceAuto, DisableParallel: &dp}
+		} else {
+			req.ToolChoice.DisableParallel = &dp
+		}
+	}
 
 	// N-R-2: the string shorthand is one user message with one text block.
 	if wire.Input.Text != nil {

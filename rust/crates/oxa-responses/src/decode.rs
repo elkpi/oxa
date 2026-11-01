@@ -6,7 +6,7 @@ use serde_json::Value;
 use oxa_ir::{
     Block, CustomToolFormat, CustomToolOutput, InputTokensDetails, Loss, LossReason,
     OutputTokensDetails, Params, ReasoningEffort, Request as IrRequest, Response as IrResponse,
-    ResponseFormat, Role, StopReason, ToolType, Usage,
+    ResponseFormat, Role, StopReason, ToolChoice, ToolChoiceMode, ToolType, Usage,
 };
 
 use crate::config::Config;
@@ -29,14 +29,6 @@ use crate::types::{
 /// type violations of known fields (spec/02 §4).
 pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let mut losses = Vec::new();
-    if wire.parallel_tool_calls.is_some() {
-        losses.push(loss(
-            "parallel_tool_calls",
-            "parallel_tool_calls",
-            LossReason::UnmappedField,
-            "Responses parallel tool calls have no IR equivalent in v1.",
-        ));
-    }
 
     let metadata = match &wire.metadata {
         Some(md) => {
@@ -85,7 +77,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
     if !tools.is_empty() {
         request.tools = Some(tools);
     }
-    let (choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref());
+    let (mut choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref());
+    if let Some(val) = &wire.parallel_tool_calls {
+        let Some(ptc) = val.as_bool() else {
+            return Err(Error::new(
+                "responses: parallel_tool_calls must be a boolean",
+            ));
+        };
+        let dp = !ptc;
+        match choice.as_mut() {
+            Some(tc) => tc.disable_parallel = Some(dp),
+            None => {
+                choice = Some(ToolChoice {
+                    mode: ToolChoiceMode::Auto,
+                    name: None,
+                    tool_type: None,
+                    disable_parallel: Some(dp),
+                });
+            }
+        }
+    }
     request.tool_choice = choice;
     losses.extend(choice_losses);
 

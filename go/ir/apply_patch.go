@@ -238,9 +238,16 @@ func (w *wireToolChoice) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if head.Type == ToolTypeApplyPatch {
-		if _, err := applyPatchObject(data, "mode", "tool_type"); err != nil {
+		if _, err := applyPatchObject(data, "mode", "tool_type", "disable_parallel"); err != nil {
 			return err
 		}
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return err
+	}
+	if rawDP, ok := rawFields["disable_parallel"]; ok && bytes.Equal(bytes.TrimSpace(rawDP), []byte("null")) {
+		return fmt.Errorf("ir: tool_choice.disable_parallel must be a boolean")
 	}
 	type plain wireToolChoice
 	return json.Unmarshal(data, (*plain)(w))

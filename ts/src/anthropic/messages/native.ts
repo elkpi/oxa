@@ -846,7 +846,9 @@ export function encodeRequestNative(
           !Array.isArray(wire.tool_choice) &&
           (wire.tool_choice as any).type !== "none"
         ) {
-          (wire.tool_choice as any).disable_parallel_tool_use = flag;
+          if (request.tool_choice?.disable_parallel === undefined) {
+            (wire.tool_choice as any).disable_parallel_tool_use = flag;
+          }
         } else {
           throw new OxaError(
             "invalid-input",

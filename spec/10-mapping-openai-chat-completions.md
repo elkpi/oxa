@@ -75,7 +75,7 @@ The wire objects in scope are:
 | `verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `verbosity`; non-strings are structural errors |
 | `image_url.url` (https or `data:image/...;base64,...`) | `ImageBlock.URL` or `ImageBlock.{MediaType,Data}` | N-CC-3 |
 | `metadata` | `Request.Metadata` | 1:1 string map, both directions, 0 loss (since 2.5.0). Absent, JSON null, and `{}` are empty. A non-object, non-string value, or empty key (`""`) is a structural error |
-| `parallel_tool_calls` | — | unmapped-field loss |
+| `parallel_tool_calls` | `ToolChoice.DisableParallel` | boolean; inverted polarity: `parallel_tool_calls = !disable_parallel` (N-CC-16, since 2.5.0) |
 | `functions`, `function_call` | — | unmapped-field loss |
 | `response_format` | `Params.ResponseFormat` | N-CC-13 (since 2.1); 1:1 unwrapped json_schema |
 | `logprobs`, `top_logprobs` | — | unmapped-field loss |
@@ -284,6 +284,17 @@ Each rule has a stable ID usable as a vector tag.
     In request history, `RefusalBlock` in an assistant message renders into `message.refusal`.
     `RefusalBlock` in a user or system message records an `unsupported-semantic` loss.
 
+- **N-CC-16 (parallel tool calling, since 2.5.0).** Chat Completions `parallel_tool_calls`
+  maps to IR `ToolChoice.DisableParallel` with inverted boolean polarity:
+  - **Decode.** When `parallel_tool_calls` is present, it must be a boolean (non-booleans are structural errors).
+    It maps to `ToolChoice.DisableParallel = !parallel_tool_calls` (`true` -> `false`, `false` -> `true`).
+    If `tool_choice` is absent on wire, `ToolChoice` is synthesized with `Mode: "auto"` and `DisableParallel`.
+    If `parallel_tool_calls` is absent, `ToolChoice.DisableParallel` is unset.
+    0 decode loss.
+  - **Encode.** When `Request.ToolChoice` carries `DisableParallel`, `parallel_tool_calls = !*req.ToolChoice.DisableParallel`.
+    When `DisableParallel` is absent, `parallel_tool_calls` is omitted.
+    0 encode loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -294,7 +305,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `usage.total_tokens` | exempt (derived) | both | recomputed as prompt + completion on encode |
 | `object`, `created`, `choices[].index`, `message.role`, regenerated response `id` | exempt (envelope) | both | rendering defaults / transport structure |
 | `logprobs`, `top_logprobs` | unmapped-field | request → IR | log-probability sampling has no IR equivalent |
-| `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `functions`, `function_call` | unmapped-field | request → IR (also per-message `function_call`) | legacy shapes have no IR equivalent |
 | `response_format.type` unknown value | unmapped-value | request → IR | unknown response_format type dropped (N-CC-13) |
 | `content[i].signature` | unmapped-field | IR → response/request | Chat Completions carries no signature field on reasoning_content (N-CC-12) |

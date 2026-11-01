@@ -1254,6 +1254,13 @@ function decodeOutputTokensDetails(
 function decodeToolChoice(value: JsonValue): ToolChoice {
   const choice = object(value, "request.tool_choice");
   const mode = string(choice.mode, "request.tool_choice.mode");
+  const disableParallel =
+    choice.disable_parallel === undefined
+      ? undefined
+      : boolean(
+          choice.disable_parallel,
+          "request.tool_choice.disable_parallel",
+        );
   if (mode === "tool") {
     const toolType =
       choice.tool_type === undefined
@@ -1265,6 +1272,9 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
       return {
         mode: "tool",
         tool_type: "apply_patch",
+        ...(disableParallel !== undefined
+          ? { disable_parallel: disableParallel }
+          : {}),
       };
     }
     if (
@@ -1280,12 +1290,20 @@ function decodeToolChoice(value: JsonValue): ToolChoice {
       ...(toolType === undefined
         ? {}
         : { tool_type: toolType as "function" | "custom" | "native" }),
+      ...(disableParallel !== undefined
+        ? { disable_parallel: disableParallel }
+        : {}),
     };
   }
   if (mode === "auto" || mode === "any" || mode === "none") {
     if (choice.tool_type !== undefined)
       fail("tool_type is only valid for mode:tool");
-    return { mode };
+    return {
+      mode,
+      ...(disableParallel !== undefined
+        ? { disable_parallel: disableParallel }
+        : {}),
+    };
   }
   fail("request.tool_choice.mode is unsupported");
 }

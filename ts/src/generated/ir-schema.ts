@@ -223,7 +223,7 @@ export interface IrSchemaToolResultBlock {
 
 export type IrSchemaTool = { readonly type?: "function"; readonly name: string; readonly description?: string; readonly input_schema: {  }; readonly strict?: boolean; readonly native?: readonly (IrSchemaNativeAnnotation)[]; } | { readonly type: "custom"; readonly name: string; readonly description?: string; readonly format?: IrSchemaCustomToolFormat; readonly native?: readonly (IrSchemaNativeAnnotation)[]; } | { readonly type: "apply_patch"; readonly native?: readonly (IrSchemaNativeAnnotation)[]; } | { readonly type: "native"; readonly name: string; readonly source: string; readonly definition: string; };
 
-export type IrSchemaToolChoice = { readonly mode: "auto"; } | { readonly mode: "any"; } | { readonly mode: "none"; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom" | "native"; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; };
+export type IrSchemaToolChoice = { readonly mode: "auto"; readonly disable_parallel?: boolean; } | { readonly mode: "any"; readonly disable_parallel?: boolean; } | { readonly mode: "none"; readonly disable_parallel?: boolean; } | { readonly mode: "tool"; readonly name: string; readonly tool_type?: "function" | "custom" | "native"; readonly disable_parallel?: boolean; } | { readonly mode: "tool"; readonly tool_type: "apply_patch"; readonly disable_parallel?: boolean; };
 
 export type IrSchemaResponseFormat = { readonly type: "text"; } | { readonly type: "json_object"; } | { readonly type: "json_schema"; readonly name?: string; readonly description?: string; readonly schema: {  }; readonly strict?: boolean; };
 

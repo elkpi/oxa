@@ -84,6 +84,13 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	if err := json.Unmarshal(data, &s); err != nil {
 		return err
 	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return err
+	}
+	if rawPTC, ok := rawFields["parallel_tool_calls"]; ok && strings.TrimSpace(string(rawPTC)) == "null" {
+		return fmt.Errorf("chatcompletions: parallel_tool_calls must be a boolean")
+	}
 	r.Model = s.Model
 	r.Messages = s.Messages
 	r.Temperature = s.Temperature

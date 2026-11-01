@@ -64,7 +64,6 @@ function decodeRequestObject(
 ): ConversionResult<Request> {
   const losses: Loss[] = [];
   for (const field of [
-    "parallel_tool_calls",
     "functions",
     "function_call",
     "logprobs",
@@ -167,7 +166,20 @@ function decodeRequestObject(
       ];
     },
   );
-  const toolChoice = decodeToolChoice(wire.tool_choice, losses);
+  let toolChoice = decodeToolChoice(wire.tool_choice, losses);
+  if (wire.parallel_tool_calls !== undefined) {
+    if (typeof wire.parallel_tool_calls !== "boolean") {
+      throw new TypeError(
+        "chatcompletions: parallel_tool_calls must be a boolean",
+      );
+    }
+    const dp = !wire.parallel_tool_calls;
+    if (!toolChoice) {
+      toolChoice = { mode: "auto", disable_parallel: dp };
+    } else {
+      toolChoice = { ...toolChoice, disable_parallel: dp };
+    }
+  }
   const messages: Message[] = [];
   const system: Request["system"] extends readonly (infer T)[] | undefined
     ? T[]
@@ -787,6 +799,23 @@ export function encodeRequest(
     } catch {}
   }
 
+  let parallelToolCalls: boolean | undefined = undefined;
+  if (request.tool_choice?.disable_parallel !== undefined) {
+    parallelToolCalls = !request.tool_choice.disable_parallel;
+  } else {
+    const dpuAnn = request.native?.find(
+      (n) => n.source === "anthropic" && n.kind === "disable_parallel_tool_use",
+    );
+    if (dpuAnn) {
+      try {
+        const val = JSON.parse(dpuAnn.value);
+        if (typeof val === "boolean") {
+          parallelToolCalls = !val;
+        }
+      } catch {}
+    }
+  }
+
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),
     messages,
@@ -817,10 +846,21 @@ export function encodeRequest(
       : { response_format: encodeResponseFormat(format) }),
     ...(tools.length === 0 ? {} : { tools }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
+    ...(parallelToolCalls === undefined
+      ? {}
+      : { parallel_tool_calls: parallelToolCalls }),
     ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
   };
   const omissionLosses = omittedNativeRequestLosses(request, "chatcompletions");
-  losses.push(...omissionLosses);
+  for (const l of omissionLosses) {
+    if (
+      l.field === "disable_parallel_tool_use" &&
+      parallelToolCalls !== undefined
+    ) {
+      continue;
+    }
+    losses.push(l);
+  }
   return {
     value: outValue,
     losses,

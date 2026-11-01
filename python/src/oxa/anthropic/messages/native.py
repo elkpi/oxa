@@ -525,7 +525,8 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                     and isinstance(wire["tool_choice"], dict)
                     and wire["tool_choice"].get("type") != "none"
                 ):
-                    wire["tool_choice"]["disable_parallel_tool_use"] = flag
+                    if req.tool_choice is None or req.tool_choice.disable_parallel is None:
+                        wire["tool_choice"]["disable_parallel_tool_use"] = flag
                 else:
                     raise ValueError("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
             except Exception as e:

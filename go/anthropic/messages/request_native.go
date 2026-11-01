@@ -595,8 +595,10 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 				if wire.ToolChoice == nil || wire.ToolChoice.Type == ToolChoiceTypeNone {
 					return nil, fmt.Errorf("anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified")
 				}
-				wire.ToolChoice.DisableParallelToolUse = b
-				wire.ToolChoice.HasDisableParallelToolUse = true
+				if req.ToolChoice == nil || req.ToolChoice.DisableParallel == nil {
+					wire.ToolChoice.DisableParallelToolUse = b
+					wire.ToolChoice.HasDisableParallelToolUse = true
+				}
 			}
 		default:
 			losses = append(losses, ir.Loss{

@@ -642,6 +642,12 @@ pub struct ToolChoice {
     pub name: Option<String>,
     #[serde(rename = "tool_type", default, skip_serializing_if = "Option::is_none")]
     pub tool_type: Option<ToolType>,
+    #[serde(
+        rename = "disable_parallel",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub disable_parallel: Option<bool>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]

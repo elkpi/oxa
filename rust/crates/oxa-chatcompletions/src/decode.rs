@@ -4,7 +4,8 @@ use serde_json::Value;
 
 use oxa_ir::{
     Block, InputTokensDetails, Loss, LossReason, OutputTokensDetails, Params, ReasoningEffort,
-    Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, Usage,
+    Request as IrRequest, Response as IrResponse, ResponseFormat, Role, StopReason, ToolChoice,
+    ToolChoiceMode, Usage,
 };
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -27,11 +28,6 @@ use crate::types::{
 pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
     let mut losses = Vec::new();
     for (name, present, detail) in [
-        (
-            "parallel_tool_calls",
-            wire.parallel_tool_calls.is_some(),
-            "Chat Completions parallel tool calls have no IR equivalent in v1.",
-        ),
         (
             "functions",
             wire.functions.is_some(),
@@ -153,7 +149,26 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             req.tools = Some(tools);
         }
     }
-    let (choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref());
+    let (mut choice, choice_losses) = decode_tool_choice(wire.tool_choice.as_ref());
+    if let Some(val) = &wire.parallel_tool_calls {
+        let Some(ptc) = val.as_bool() else {
+            return Err(Error::new(
+                "chatcompletions: parallel_tool_calls must be a boolean",
+            ));
+        };
+        let dp = !ptc;
+        match choice.as_mut() {
+            Some(tc) => tc.disable_parallel = Some(dp),
+            None => {
+                choice = Some(ToolChoice {
+                    mode: ToolChoiceMode::Auto,
+                    name: None,
+                    tool_type: None,
+                    disable_parallel: Some(dp),
+                });
+            }
+        }
+    }
     req.tool_choice = choice;
     losses.extend(choice_losses);
 

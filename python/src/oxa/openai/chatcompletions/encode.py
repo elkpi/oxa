@@ -145,6 +145,18 @@ def encode_request(
         out["tool_choice"] = choice_wire
     if choice_loss is not None:
         losses.append(choice_loss)
+    if req.tool_choice is not None and req.tool_choice.disable_parallel is not None:
+        out["parallel_tool_calls"] = not req.tool_choice.disable_parallel
+    elif req.native:
+        for n in req.native:
+            if n.source == "anthropic" and n.kind == "disable_parallel_tool_use":
+                try:
+                    val = json.loads(n.value)
+                    if isinstance(val, bool):
+                        out["parallel_tool_calls"] = not val
+                        break
+                except Exception:
+                    pass
 
     if req.system:
         if any(getattr(block, "role", "") == "developer" for block in req.system):
@@ -256,7 +268,11 @@ def encode_request(
                     except Exception:
                         pass
 
-    losses.extend(omitted_native_request_losses(req, "chatcompletions"))
+    omission_losses = omitted_native_request_losses(req, "chatcompletions")
+    for l in omission_losses:
+        if l.field == "disable_parallel_tool_use" and "parallel_tool_calls" in out:
+            continue
+        losses.append(l)
 
     return out, losses
 

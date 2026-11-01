@@ -96,7 +96,7 @@ The wire objects in scope are:
 | `text.format` | `Params.ResponseFormat` | flat format object (since 2.1) |
 | `text.verbosity` | `Params.Verbosity` | `low`, `medium`, `high` map 1:1 since 2.5.0. Absent or null means unset; unknown strings produce `unmapped-value` at `text.verbosity`; non-strings are structural errors. Encoding preserves `text.format` when both are present |
 | `reasoning.effort` | `Params.ReasoningEffort` | 1:1 (N-R-13, since 2.0; xhigh and max since 2.4); other reasoning fields (e.g. summary preference) dropped with unmapped-field |
-| `parallel_tool_calls` | — | unmapped-field loss |
+| `parallel_tool_calls` | `ToolChoice.DisableParallel` | boolean; inverted polarity: `parallel_tool_calls = !disable_parallel` (N-R-21, since 2.5.0) |
 | function `tools[].strict` | `Tools[].Strict` | optional boolean mapped loss-free in both directions, including nested containers and `additional_tools` (N-R-15) |
 | unknown `input[].type` | — | unsupported-semantic loss per item |
 | `Params.StopSequences` (IR side) | — | Responses has no stop parameter; presence records exactly one unmapped-field loss on encode (N-R-7) |
@@ -254,8 +254,8 @@ Each rule has a stable ID usable as a vector tag.
   directions. Responses has NO stop-sequences parameter: IR
   `Params.StopSequences` cannot round-trip, and a non-empty value on
   encode records exactly one unmapped-field loss.
-- **N-R-8 (unmapped request fields).** `parallel_tool_calls` has no IR equivalent and is dropped with an
-  unmapped-field loss. Since 2.5.0 `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
+- **N-R-8 (unmapped request fields).** Since 2.5.0 `parallel_tool_calls` maps to
+  `ToolChoice.DisableParallel` (N-R-21), and `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
   `Request.Metadata` (since 2.5.0).
   `text.format` and `reasoning.effort` map as described above; unsupported
   members retain their documented losses. Function-tool `strict` maps to
@@ -416,6 +416,17 @@ Each rule has a stable ID usable as a vector tag.
     In request history, `RefusalBlock` in an assistant message renders as a refusal content part.
     `RefusalBlock` in a user or system message records an `unsupported-semantic` loss.
 
+- **N-R-21 (parallel tool calling, since 2.5.0).** Responses `parallel_tool_calls`
+  maps to IR `ToolChoice.DisableParallel` with inverted boolean polarity:
+  - **Decode.** When `parallel_tool_calls` is present, it must be a boolean (non-booleans are structural errors).
+    It maps to `ToolChoice.DisableParallel = !parallel_tool_calls` (`true` -> `false`, `false` -> `true`).
+    If `tool_choice` is absent on wire, `ToolChoice` is synthesized with `Mode: "auto"` and `DisableParallel`.
+    If `parallel_tool_calls` is absent, `ToolChoice.DisableParallel` is unset.
+    0 decode loss.
+  - **Encode.** When `Request.ToolChoice` carries `DisableParallel`, `parallel_tool_calls = !*req.ToolChoice.DisableParallel`.
+    When `DisableParallel` is absent, `parallel_tool_calls` is omitted.
+    0 encode loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -431,7 +442,6 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `text.format.type` unknown value | unmapped-value | request → IR | unknown text.format type dropped (N-R-14) |
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
 | `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
-| `parallel_tool_calls` | unmapped-field | request → IR | no IR equivalent in v1 |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
 | instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |

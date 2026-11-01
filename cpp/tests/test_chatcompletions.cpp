@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 71);
+    CHECK(rep_res->executed == 73);
 
     auto wire = oxa::json::parse(R"({
         "model":"gpt-4o",

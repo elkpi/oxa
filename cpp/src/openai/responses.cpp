@@ -914,11 +914,6 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     if (!wire.is_object()) return invalid_argument("responses: request must be an object");
     std::vector<ir::Loss> losses;
 
-    if (wire.find("parallel_tool_calls") != nullptr) {
-        losses.push_back(make_resp_loss("parallel_tool_calls", "parallel_tool_calls", ir::LOSS_UNMAPPED_FIELD,
-                                        "Responses parallel tool calls have no IR equivalent in v1."));
-    }
-
     ir::Request req;
     const auto* mv = wire.find("model");
     if (!mv || !mv->is_string()) return invalid_argument("responses: request missing model");
@@ -957,6 +952,15 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
     auto [tool_choice, tc_losses] = decode_tool_choice(wire.find("tool_choice"));
     req.tool_choice = std::move(tool_choice);
     losses.insert(losses.end(), tc_losses.begin(), tc_losses.end());
+    if (const auto* ptc = wire.find("parallel_tool_calls"); ptc && !ptc->is_null()) {
+        if (!ptc->is_bool()) return invalid_argument("responses: parallel_tool_calls must be a boolean");
+        bool dp = !ptc->as_bool();
+        if (!req.tool_choice.has_value()) {
+            req.tool_choice = ir::ToolChoice{std::string(ir::TOOL_CHOICE_AUTO), std::nullopt, std::nullopt, dp};
+        } else {
+            req.tool_choice->disable_parallel = dp;
+        }
+    }
 
     const auto* inp = wire.find("input");
     if (!inp) return invalid_argument("responses: request missing input");
@@ -1608,6 +1612,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
     }
 
+    std::optional<bool> ptc;
+    if (req.tool_choice.has_value() && req.tool_choice->disable_parallel.has_value()) {
+        ptc = !*req.tool_choice->disable_parallel;
+    } else {
+        for (const auto& ann : req.native) {
+            if (ann.source == "anthropic" && ann.kind == "disable_parallel_tool_use") {
+                auto parsed = json::parse(ann.value);
+                if (parsed.ok() && parsed->is_bool()) {
+                    ptc = !parsed->as_bool();
+                    break;
+                }
+            }
+        }
+    }
+    if (ptc.has_value()) {
+        out.set("parallel_tool_calls", json::Value::boolean(*ptc));
+    }
+
     std::vector<json::Value> items = std::move(leading_system_items);
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
         const auto& m = req.messages[i];
@@ -1972,7 +1994,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
     auto omitted = ir::omitted_native_request_losses(req, "responses");
     if (!omitted.ok()) return omitted.status();
-    losses.insert(losses.end(), omitted->begin(), omitted->end());
+    for (const auto& l : *omitted) {
+        if (l.field == "disable_parallel_tool_use" && ptc.has_value()) {
+            continue;
+        }
+        losses.push_back(l);
+    }
 
     return Conversion<json::Value>{std::move(out), std::move(losses)};
 }

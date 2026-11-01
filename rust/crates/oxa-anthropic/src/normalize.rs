@@ -1069,6 +1069,7 @@ pub(crate) fn decode_tool_choice(
                 mode: ToolChoiceMode::Auto,
                 name: None,
                 tool_type: None,
+                disable_parallel: None,
             })
         }
         TOOL_CHOICE_TYPE_ANY => {
@@ -1076,6 +1077,7 @@ pub(crate) fn decode_tool_choice(
                 mode: ToolChoiceMode::Any,
                 name: None,
                 tool_type: None,
+                disable_parallel: None,
             })
         }
         TOOL_CHOICE_TYPE_NONE => {
@@ -1083,6 +1085,7 @@ pub(crate) fn decode_tool_choice(
                 mode: ToolChoiceMode::None,
                 name: None,
                 tool_type: None,
+                disable_parallel: None,
             })
         }
         TOOL_CHOICE_TYPE_TOOL => {
@@ -1102,6 +1105,7 @@ pub(crate) fn decode_tool_choice(
                 mode: ToolChoiceMode::Tool,
                 name: Some(choice.name.clone()),
                 tool_type,
+                disable_parallel: None,
             });
         }
         other => losses.push(loss(
@@ -1111,10 +1115,15 @@ pub(crate) fn decode_tool_choice(
             format!("Anthropic tool_choice type {other:?} has no IR equivalent"),
         )),
     }
-    if choice.disable_parallel_tool_use.is_some() && choice.kind == TOOL_CHOICE_TYPE_NONE {
-        return Err(Error::new(
-            "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
-        ));
+    if let Some(dpu) = choice.disable_parallel_tool_use {
+        if choice.kind == TOOL_CHOICE_TYPE_NONE {
+            return Err(Error::new(
+                "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
+            ));
+        }
+        if let Some(ref mut c) = decoded {
+            c.disable_parallel = Some(dpu);
+        }
     }
     Ok((decoded, losses))
 }
@@ -1137,7 +1146,8 @@ pub(crate) fn encode_tool_choice(
             )],
         ));
     }
-    let wire = match choice.mode {
+    let mut losses = Vec::new();
+    let mut wire = match choice.mode {
         ToolChoiceMode::Auto => ToolChoiceWire {
             kind: TOOL_CHOICE_TYPE_AUTO.to_string(),
             ..ToolChoiceWire::default()
@@ -1163,7 +1173,19 @@ pub(crate) fn encode_tool_choice(
             }
         }
     };
-    Ok((Some(wire), Vec::new()))
+    if let Some(dp) = choice.disable_parallel {
+        if choice.mode == ToolChoiceMode::None {
+            losses.push(loss(
+                "tool_choice",
+                "disable_parallel_tool_use",
+                LossReason::UnsupportedSemantic,
+                "Anthropic does not support disable_parallel_tool_use with tool_choice type none",
+            ));
+        } else {
+            wire.disable_parallel_tool_use = Some(dp);
+        }
+    }
+    Ok((Some(wire), losses))
 }
 
 pub(crate) fn invalid_image_loss(path: &str, detail: &str) -> Loss {

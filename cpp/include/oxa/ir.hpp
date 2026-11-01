@@ -361,10 +361,11 @@ struct ToolChoice {
     std::string mode;
     std::optional<std::string> name;
     std::optional<std::string> tool_type;
+    std::optional<bool> disable_parallel;
 
     ToolChoice() = default;
-    ToolChoice(std::string m, std::optional<std::string> n = std::nullopt, std::optional<std::string> tt = std::nullopt)
-        : mode(std::move(m)), name(std::move(n)), tool_type(std::move(tt)) {}
+    ToolChoice(std::string m, std::optional<std::string> n = std::nullopt, std::optional<std::string> tt = std::nullopt, std::optional<bool> dp = std::nullopt)
+        : mode(std::move(m)), name(std::move(n)), tool_type(std::move(tt)), disable_parallel(dp) {}
 };
 
 struct ResponseFormat {

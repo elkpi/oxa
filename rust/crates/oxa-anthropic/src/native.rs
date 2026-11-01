@@ -767,7 +767,14 @@ pub fn encode_request_native(
                     if let Some(ref mut tc) = wire.tool_choice
                         && tc.kind != crate::types::TOOL_CHOICE_TYPE_NONE
                     {
-                        tc.disable_parallel_tool_use = Some(b);
+                        if req
+                            .tool_choice
+                            .as_ref()
+                            .and_then(|c| c.disable_parallel)
+                            .is_none()
+                        {
+                            tc.disable_parallel_tool_use = Some(b);
+                        }
                     } else {
                         return Err(crate::Error::new(
                             "anthropic: cannot specify disable_parallel_tool_use when tool_choice is none or not specified",

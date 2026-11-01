@@ -287,6 +287,7 @@ fn test_native_tool_choice_without_explicit_tool_type() {
         mode: oxa_ir::ToolChoiceMode::Tool,
         name: Some("advisor".to_string()),
         tool_type: None,
+        disable_parallel: None,
     });
 
     let (cc, cc_losses) =

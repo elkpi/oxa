@@ -132,10 +132,6 @@ function decodeRequestObject(
     if (reasoning.summary !== undefined)
       losses.push(loss("reasoning.summary", "summary", "unmapped-field"));
   }
-  if (wire.parallel_tool_calls !== undefined)
-    losses.push(
-      loss("parallel_tool_calls", "parallel_tool_calls", "unmapped-field"),
-    );
 
   const system: {
     readonly type: "text";
@@ -159,7 +155,18 @@ function decodeRequestObject(
     );
     tools.push(...decoded);
   }
-  const toolChoice = decodeToolChoice(wire.tool_choice, losses);
+  let toolChoice = decodeToolChoice(wire.tool_choice, losses);
+  if (wire.parallel_tool_calls !== undefined) {
+    if (typeof wire.parallel_tool_calls !== "boolean") {
+      throw new TypeError("responses: parallel_tool_calls must be a boolean");
+    }
+    const dp = !wire.parallel_tool_calls;
+    if (!toolChoice) {
+      toolChoice = { mode: "auto", disable_parallel: dp };
+    } else {
+      toolChoice = { ...toolChoice, disable_parallel: dp };
+    }
+  }
   const messages: Message[] = [];
   if (typeof wire.input === "string") {
     messages.push({
@@ -1293,8 +1300,33 @@ export function encodeRequest(
     losses.push(
       loss("params.stop_sequences", "stop_sequences", "unmapped-field"),
     );
+  let parallelToolCalls: boolean | undefined = undefined;
+  if (request.tool_choice?.disable_parallel !== undefined) {
+    parallelToolCalls = !request.tool_choice.disable_parallel;
+  } else {
+    const dpuAnn = request.native?.find(
+      (n) => n.source === "anthropic" && n.kind === "disable_parallel_tool_use",
+    );
+    if (dpuAnn) {
+      try {
+        const val = JSON.parse(dpuAnn.value);
+        if (typeof val === "boolean") {
+          parallelToolCalls = !val;
+        }
+      } catch {}
+    }
+  }
+
   const omissionLosses = omittedNativeRequestLosses(request, "responses");
-  losses.push(...omissionLosses);
+  for (const l of omissionLosses) {
+    if (
+      l.field === "disable_parallel_tool_use" &&
+      parallelToolCalls !== undefined
+    ) {
+      continue;
+    }
+    losses.push(l);
+  }
   const storeAnn = request.native?.find(
     (n) => n.source === "openai" && n.kind === "store",
   );
@@ -1315,6 +1347,9 @@ export function encodeRequest(
         ? {}
         : { instructions: systemPlan.instructions }),
       ...(storeVal !== undefined ? { store: storeVal } : {}),
+      ...(parallelToolCalls !== undefined
+        ? { parallel_tool_calls: parallelToolCalls }
+        : {}),
       ...(params?.temperature === undefined
         ? {}
         : { temperature: fromValue(params.temperature) }),

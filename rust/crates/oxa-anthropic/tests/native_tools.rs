@@ -60,6 +60,7 @@ fn test_foreign_native_tool_omitted_on_encode() {
         mode: ToolChoiceMode::Tool,
         name: Some("advisor".to_string()),
         tool_type: None,
+        disable_parallel: None,
     });
 
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");

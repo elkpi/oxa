@@ -52,11 +52,12 @@ const (
 )
 
 // ToolChoice selects tool-usage behavior (spec/01 s3.6). Name is set iff Mode
-// is "tool".
+// is "tool". DisableParallel controls parallel tool calling (since 2.5.0).
 type ToolChoice struct {
-	Mode     string // auto | any | tool | none
-	Name     string
-	ToolType string
+	Mode            string // auto | any | tool | none
+	Name            string
+	ToolType        string
+	DisableParallel *bool
 }
 
 const (

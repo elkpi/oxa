@@ -272,13 +272,14 @@ func encodeToolChoice(choice *ir.ToolChoice, req *ir.Request, outTools []ToolWir
 	if choice == nil {
 		return nil, nil, nil
 	}
+	var wire *ToolChoiceWire
+	var losses []ir.Loss
 	if choice.ToolType == ir.ToolTypeApplyPatch {
 		return nil, []ir.Loss{{Path: "tool_choice", Field: "tool_choice", Reason: ir.LossUnsupportedSemantic, Detail: "apply_patch tool choice has no equivalent"}}, nil
 	}
 	if choice.ToolType == ir.ToolTypeCustom {
-		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
-	}
-	if choice.ToolType == ir.ToolTypeNative || (req != nil && ir.IsNativeToolChoice(req)) {
+		wire = &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}
+	} else if choice.ToolType == ir.ToolTypeNative || (req != nil && ir.IsNativeToolChoice(req)) {
 		found := false
 		for _, t := range outTools {
 			if t.Name == choice.Name {
@@ -289,28 +290,43 @@ func encodeToolChoice(choice *ir.ToolChoice, req *ir.Request, outTools []ToolWir
 		if !found {
 			return nil, []ir.Loss{ir.NativeToolChoiceLoss(choice)}, nil
 		}
-		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
-	}
-	switch choice.Mode {
-	case ir.ToolChoiceAuto:
-		return &ToolChoiceWire{Type: ToolChoiceTypeAuto}, nil, nil
-	case ir.ToolChoiceAny:
-		return &ToolChoiceWire{Type: ToolChoiceTypeAny}, nil, nil
-	case ir.ToolChoiceNone:
-		return &ToolChoiceWire{Type: ToolChoiceTypeNone}, nil, nil
-	case ir.ToolChoiceTool:
-		if choice.Name == "" {
-			return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for mode tool")
+		wire = &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}
+	} else {
+		switch choice.Mode {
+		case ir.ToolChoiceAuto:
+			wire = &ToolChoiceWire{Type: ToolChoiceTypeAuto}
+		case ir.ToolChoiceAny:
+			wire = &ToolChoiceWire{Type: ToolChoiceTypeAny}
+		case ir.ToolChoiceNone:
+			wire = &ToolChoiceWire{Type: ToolChoiceTypeNone}
+		case ir.ToolChoiceTool:
+			if choice.Name == "" {
+				return nil, nil, fmt.Errorf("anthropic: tool_choice.name is required for mode tool")
+			}
+			wire = &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}
+		default:
+			return nil, []ir.Loss{{
+				Path:   "tool_choice",
+				Field:  "mode",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: fmt.Sprintf("IR tool_choice mode %q has no Anthropic equivalent", choice.Mode),
+			}}, nil
 		}
-		return &ToolChoiceWire{Type: ToolChoiceTypeTool, Name: choice.Name}, nil, nil
-	default:
-		return nil, []ir.Loss{{
-			Path:   "tool_choice",
-			Field:  "mode",
-			Reason: ir.LossUnsupportedSemantic,
-			Detail: fmt.Sprintf("IR tool_choice mode %q has no Anthropic equivalent", choice.Mode),
-		}}, nil
 	}
+	if wire != nil && choice.DisableParallel != nil {
+		if choice.Mode == ir.ToolChoiceNone {
+			losses = append(losses, ir.Loss{
+				Path:   "tool_choice",
+				Field:  "disable_parallel_tool_use",
+				Reason: ir.LossUnsupportedSemantic,
+				Detail: "Anthropic does not support disable_parallel_tool_use with tool_choice type none",
+			})
+		} else {
+			wire.DisableParallelToolUse = *choice.DisableParallel
+			wire.HasDisableParallelToolUse = true
+		}
+	}
+	return wire, losses, nil
 }
 
 func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss, error) {

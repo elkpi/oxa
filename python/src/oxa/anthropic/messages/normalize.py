@@ -655,6 +655,10 @@ def decode_tool_choice(
             raise ValueError("tool_choice.disable_parallel_tool_use must be a boolean")
         if kind == TOOL_CHOICE_TYPE_NONE:
             raise ValueError("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
+        if decoded is not None:
+            from dataclasses import replace
+
+            decoded = replace(decoded, disable_parallel=choice["disable_parallel_tool_use"])
 
     return decoded, losses
 
@@ -662,32 +666,42 @@ def decode_tool_choice(
 def encode_tool_choice(choice: ToolChoice | None) -> tuple[dict[str, Any] | None, list[Loss]]:
     if choice is None:
         return None, []
+    wire: dict[str, Any] | None = None
+    losses: list[Loss] = []
     if choice.mode == TOOL_CHOICE_AUTO:
-        return {"type": TOOL_CHOICE_TYPE_AUTO}, []
-    if choice.mode == TOOL_CHOICE_ANY:
-        return {"type": TOOL_CHOICE_TYPE_ANY}, []
-    if choice.mode == TOOL_CHOICE_NONE:
-        return {"type": TOOL_CHOICE_TYPE_NONE}, []
-    if choice.mode == TOOL_CHOICE_TOOL:
+        wire = {"type": TOOL_CHOICE_TYPE_AUTO}
+    elif choice.mode == TOOL_CHOICE_ANY:
+        wire = {"type": TOOL_CHOICE_TYPE_ANY}
+    elif choice.mode == TOOL_CHOICE_NONE:
+        wire = {"type": TOOL_CHOICE_TYPE_NONE}
+    elif choice.mode == TOOL_CHOICE_TOOL:
         if choice.tool_type == "apply_patch":
             return None, [loss("tool_choice", "tool_choice", LOSS_UNSUPPORTED_SEMANTIC, "apply_patch has no Anthropic tool choice mapping")]
         if not choice.name:
             raise ValueError("anthropic: tool_choice.name is required for mode tool")
-        return {
+        wire = {
             "type": TOOL_CHOICE_TYPE_TOOL,
             "name": choice.name,
-        }, []
-        if not choice.name:
-            raise ValueError("anthropic: tool_choice.name is required for mode tool")
-        return {
-            "type": TOOL_CHOICE_TYPE_TOOL,
-            "name": choice.name,
-        }, []
-    return None, [
-        loss(
-            "tool_choice",
-            "type",
-            LOSS_UNSUPPORTED_SEMANTIC,
-            f"IR tool_choice mode {choice.mode!r} has no Anthropic equivalent",
-        )
-    ]
+        }
+    else:
+        return None, [
+            loss(
+                "tool_choice",
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                f"IR tool_choice mode {choice.mode!r} has no Anthropic equivalent",
+            )
+        ]
+    if wire is not None and choice.disable_parallel is not None:
+        if choice.mode == TOOL_CHOICE_NONE:
+            losses.append(
+                loss(
+                    "tool_choice",
+                    "disable_parallel_tool_use",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic does not support disable_parallel_tool_use with tool_choice type none",
+                )
+            )
+        else:
+            wire["disable_parallel_tool_use"] = choice.disable_parallel
+    return wire, losses

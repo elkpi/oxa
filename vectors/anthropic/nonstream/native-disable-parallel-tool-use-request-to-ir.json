@@ -1,6 +1,6 @@
 {
   "name": "anthropic.nonstream.native-disable-parallel-tool-use-request-to-ir",
-  "description": "tool_choice.disable_parallel_tool_use is preserved as native IR option without decode loss (N-AN-19).",
+  "description": "tool_choice.disable_parallel_tool_use is preserved in IR tool_choice.disable_parallel and native IR option without decode loss (N-AN-19).",
   "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "to-ir",
@@ -56,7 +56,8 @@
       }
     ],
     "tool_choice": {
-      "mode": "auto"
+      "mode": "auto",
+      "disable_parallel": true
     },
     "params": {
       "max_tokens": 1024
@@ -74,5 +75,5 @@
     ]
   },
   "expected_losses": [],
-  "tags": ["request", "tools", "native", "disable_parallel_tool_use", "n-an-19"]
+  "tags": ["request", "tools", "native"]
 }

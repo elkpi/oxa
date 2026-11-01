@@ -8,6 +8,7 @@ package responses
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 const (
@@ -105,6 +106,23 @@ type Request struct {
 	// unmapped-field loss (N-R-8).
 	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"`
 	Store             *bool `json:"store,omitempty"`
+}
+
+func (r *Request) UnmarshalJSON(data []byte) error {
+	type shadow Request
+	var s shadow
+	if err := json.Unmarshal(data, &s); err != nil {
+		return err
+	}
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return err
+	}
+	if rawPTC, ok := rawFields["parallel_tool_calls"]; ok && strings.TrimSpace(string(rawPTC)) == "null" {
+		return fmt.Errorf("responses: parallel_tool_calls must be a boolean")
+	}
+	*r = Request(s)
+	return nil
 }
 
 // TextParams is the Responses text output-shaping object.

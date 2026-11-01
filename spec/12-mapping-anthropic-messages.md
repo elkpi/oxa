@@ -83,7 +83,7 @@ The wire objects in scope are:
 | `tools[].eager_input_streaming` | `Tools[].Native` (`kind: "eager_input_streaming"`) | true/false 保留为 NativeAnnotation，无 decode loss；跨面 true 降级为 degraded 损失，false 零损（N-NAT-2/3，规范 2.4.10） |
 | `tools[]` 原生命名声明 | `Tools[type=native].{Name,Source,Definition}` | N-NT-1/2；完整原始对象文本；含 Advisor 及客户端内置工具；不推断执行位置 |
 | `tool_choice` | `ToolChoice` (modes `auto`/`any`/`none`/`tool` map 1:1 by name) | N-AN-6 |
-| `tool_choice.disable_parallel_tool_use` | `Request.Native` (`kind: "disable_parallel_tool_use"`) | N-AN-19; boolean; preserved as native option in IR (spec/15) |
+| `tool_choice.disable_parallel_tool_use` | `ToolChoice.DisableParallel` | N-AN-19; boolean; maps 1:1 with DisableParallel (since 2.5.0); retained in Native for backward compatibility |
 | `metadata` | `Request.Metadata` | only the string key `user_id` round-trips; every other key is one `unmapped-field` loss (N-AN-8, since 2.5.0) |
 | — | `Params.ResponseFormat` | N-AN-12; dropped on encode with unmapped-field loss (since 2.1) |
 | — | `Params.Verbosity` | dropped on encode with one `unmapped-field` loss at `params.verbosity`, field `verbosity` (since 2.5.0) |
@@ -389,10 +389,17 @@ Each rule has a stable ID usable as a vector tag.
   - **top_k.** Top-level `top_k` is preserved as `NativeAnnotation` (`kind: "top_k"`).
     It MUST be a non-negative safe integer (`0` is preserved). Negative, non-integer, or out-of-range values are structural errors.
   - **disable_parallel_tool_use.** On `tool_choice` (`auto`, `any`, `tool`), `disable_parallel_tool_use` is
-    preserved as `NativeAnnotation` (`kind: "disable_parallel_tool_use"`, `value: "true"` or `"false"`).
-    Presence on `tool_choice: "none"` is a structural error.
-  - **Cross-face.** These native request options are omitted at OpenAI faces and report `unmapped-field` losses
-    per spec/15 §5.
+    a boolean that maps 1:1 to IR `ToolChoice.DisableParallel` (since 2.5.0).
+    It is also preserved as `NativeAnnotation` (`kind: "disable_parallel_tool_use"`, `value: "true"` or `"false"`)
+    for backward compatibility with spec/15. Presence on `tool_choice: "none"` is a structural error.
+    On encode, when `Request.ToolChoice` carries `DisableParallel`:
+    if `ToolChoice.Mode == "none"`, Anthropic cannot specify `disable_parallel_tool_use` with `type: "none"`,
+    recording an `unsupported-semantic` loss at `tool_choice` (field: `"disable_parallel_tool_use"`,
+    detail: `"Anthropic does not support disable_parallel_tool_use with tool_choice type none"`);
+    otherwise, it renders as `tool_choice.disable_parallel_tool_use: *req.ToolChoice.DisableParallel`.
+    When `DisableParallel` is absent, `disable_parallel_tool_use` is omitted.
+  - **Cross-face.** `top_k` and `between_tools` are omitted at OpenAI faces and report `unmapped-field` losses
+    per spec/15 §5. `disable_parallel_tool_use` maps loss-free to OpenAI `parallel_tool_calls` with inverted polarity (since 2.5.0).
 
 - **N-AN-20 (refusal stop reason and stop details, since 2.5.0).** Anthropic Messages represents
   model refusals via `stop_reason: "refusal"` and an accompanying `stop_details` object.

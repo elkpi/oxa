@@ -83,6 +83,10 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if len(out.Tools) == 0 {
 		out.Tools = nil
 	}
+	if req.ToolChoice != nil && req.ToolChoice.DisableParallel != nil {
+		ptc := !*req.ToolChoice.DisableParallel
+		out.ParallelToolCalls = &ptc
+	}
 
 	items := append([]InputItem{}, leadingSystemItems...)
 	for i, message := range req.Messages {
@@ -151,11 +155,28 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			}
 		}
 	}
+	if out.ParallelToolCalls == nil {
+		for _, ann := range req.Native {
+			if ann.Kind == ir.NativeKindDisableParallelToolUse && ann.Source == ir.NativeSourceAnthropic {
+				var b bool
+				if err := json.Unmarshal([]byte(ann.Value), &b); err == nil {
+					ptc := !b
+					out.ParallelToolCalls = &ptc
+					break
+				}
+			}
+		}
+	}
 	omissionLosses, err := ir.OmittedNativeRequestLosses(req, "responses")
 	if err != nil {
 		return nil, nil, err
 	}
-	losses = append(losses, omissionLosses...)
+	for _, l := range omissionLosses {
+		if l.Field == "disable_parallel_tool_use" && out.ParallelToolCalls != nil {
+			continue
+		}
+		losses = append(losses, l)
+	}
 	return out, losses, nil
 }
 

@@ -136,12 +136,8 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
   - 显式 `true` 或 `false` 均保留为 `NativeAnnotation{Kind: "disable_parallel_tool_use", Value: "true"|"false"}`。
   - 缺失不生成注解。显式 `null` 或非布尔属于结构类型错误（error）。
 - 宿主与约束：仅允许当请求存在合法 `tool_choice`（`auto`、`any`、`tool`）时设置；当 `tool_choice` 为 `none` 或缺失时携带该字段为结构错误（error）。
-- 跨面遗漏：转至 OpenAI 目标面时记录 `unmapped-field` 损失，`omission.field: "disable_parallel_tool_use"`。
+- 跨面映射与回转：自 2.5.0 起，`disable_parallel_tool_use` 提升为通用 IR `ToolChoice.disable_parallel`（N-AN-19），编码至 OpenAI（Chat Completions / Responses）时映射为极性取反的 `parallel_tool_calls = !disable_parallel`，0 损失保真。当 IR 中已设置 `ToolChoice.disable_parallel` 时，编码优先使用通用字段，旧 native 注解不覆盖修改。
 - 原生回转：编码回 Anthropic 时在 `tool_choice` wire 对象上还原布尔字段。
-- 跨面遗漏与损失：当编码至不支持细粒度入参流式控制的目标面（OpenAI Chat Completions / Responses）时：
-  - 若 `value` 解析为 `true`，产生一条 `degraded` 损失，detail 采用上述规范文本；
-  - 若 `value` 解析为 `false`，由于目标面默认即为标准缓冲流式（与 `false` 语义等价），不产生任何报损（0 loss）。
-- 原生回转：编码回 Anthropic 时，若 `Tool.native` 中存在 `kind: "eager_input_streaming"`，按解析出的布尔值精确还原输出 `"eager_input_streaming": true|false`；若无注解则完全省略该字段。
 
 ### 3.7 OpenAI 请求控制选项（规范 2.4.10）
 - **`max_completion_tokens`（Token 上限与拼写保真）**：

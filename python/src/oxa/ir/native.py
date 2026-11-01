@@ -37,12 +37,16 @@ NATIVE_KIND_STREAM_OPTIONS = "stream_options"
 NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens"
 NATIVE_KIND_TOP_K = "top_k"
 NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE = "disable_parallel_tool_use"
+NATIVE_KIND_PROMPT_CACHE_KEY = "prompt_cache_key"
 
 DEFER_LOADING_LOSS_DETAIL = (
     "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search"
 )
 EAGER_INPUT_STREAMING_LOSS_DETAIL = "target does not preserve eager tool input streaming semantics"
 STREAM_OPTIONS_LOSS_DETAIL = "target does not emit the requested final usage chunk"
+PROMPT_CACHE_KEY_LOSS_DETAIL = (
+    "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
+)
 
 CACHE_CONTROL_LOSS_DETAIL = "anthropic-native cache breakpoint; the target face has no cache_control representation"
 DOCUMENT_TITLE_LOSS_DETAIL = (
@@ -303,6 +307,11 @@ def validate_annotations(
                     raise CodecError(f"{path}: openai defer_loading is only allowed on Tool")
                 if parsed_json is not True:
                     raise CodecError(f"invalid defer_loading {parsed_json!r}")
+            elif ann.kind == NATIVE_KIND_PROMPT_CACHE_KEY:
+                if host != HostType.REQUEST:
+                    raise CodecError(f"{path}: openai {ann.kind} is only allowed on Request")
+                if not isinstance(parsed_json, str):
+                    raise CodecError(f"invalid prompt_cache_key {parsed_json!r}")
 
 
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
@@ -453,6 +462,14 @@ def _append_omission_loss(
                 reason = ann.omission.reason if ann.omission and ann.omission.reason else "unsupported-semantic"
                 detail = ann.omission.detail if ann.omission and ann.omission.detail else "target does not support output retention"
                 losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
+            return
+        if ann.kind == NATIVE_KIND_PROMPT_CACHE_KEY:
+            if target in ("chatcompletions", "responses"):
+                return
+            field = ann.omission.field if ann.omission and ann.omission.field else "prompt_cache_key"
+            reason = ann.omission.reason if ann.omission and ann.omission.reason else "unmapped-field"
+            detail = ann.omission.detail if ann.omission and ann.omission.detail else PROMPT_CACHE_KEY_LOSS_DETAIL
+            losses.append(Loss(path=path, field=field, reason=reason, detail=detail))
             return
         if target == "responses":
             return

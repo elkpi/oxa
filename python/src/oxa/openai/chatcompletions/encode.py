@@ -267,6 +267,13 @@ def encode_request(
                             out["stream_options"] = val
                     except Exception:
                         pass
+                elif n.kind == "prompt_cache_key":
+                    try:
+                        val = json.loads(n.value)
+                        if isinstance(val, str):
+                            out["prompt_cache_key"] = val
+                    except Exception:
+                        pass
 
     omission_losses = omitted_native_request_losses(req, "chatcompletions")
     for l in omission_losses:

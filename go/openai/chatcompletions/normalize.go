@@ -43,6 +43,9 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				if !ok {
 					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
 				}
+				if err := ir.ValidatePromptCacheBreakpointObject(pcbMap); err != nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].%w", path, i, err)
+				}
 				b, _ := json.Marshal(pcbMap)
 				pcbAnn = &ir.NativeAnnotation{
 					Source: ir.NativeSourceOpenAI,
@@ -106,6 +109,13 @@ func decodeContent(content any, path string, isUser ...bool) ([]ir.Block, []ir.L
 				trimmed := strings.TrimSpace(string(part.PromptCacheBreakpoint))
 				if len(trimmed) == 0 || trimmed[0] != '{' {
 					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+				}
+				var pcbMap map[string]any
+				if err := json.Unmarshal(part.PromptCacheBreakpoint, &pcbMap); err != nil || pcbMap == nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+				}
+				if err := ir.ValidatePromptCacheBreakpointObject(pcbMap); err != nil {
+					return nil, nil, fmt.Errorf("chatcompletions: %s[%d].%w", path, i, err)
 				}
 				pcbAnn = &ir.NativeAnnotation{
 					Source: ir.NativeSourceOpenAI,
@@ -603,6 +613,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				continue
 			}
 			hasImage = true
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					part.PromptCacheBreakpoint = json.RawMessage(ann.Value)
+					break
+				}
+			}
 			parts = append(parts, part)
 		case ir.DocumentBlock:
 			var sCount int

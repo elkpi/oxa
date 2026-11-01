@@ -356,6 +356,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				continue
 			}
 			otherBlocks++
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					part.PromptCacheBreakpoint = json.RawMessage(ann.Value)
+					break
+				}
+			}
 			parts = append(parts, part)
 		case ir.DocumentBlock:
 			otherBlocks++
@@ -750,6 +756,33 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	return out, losses, nil
 }
 
+// systemItemContent renders one system block as Responses item content: a
+// parts array when the block carries a prompt_cache_breakpoint, the plain
+// string otherwise.
+func systemItemContent(block ir.SystemBlock) any {
+	for _, ann := range block.Native {
+		if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+			return []ContentPart{{
+				Type:                  PartTypeInputText,
+				Text:                  block.Text,
+				PromptCacheBreakpoint: json.RawMessage(ann.Value),
+			}}
+		}
+	}
+	return block.Text
+}
+
+func hasSystemBreakpoint(blocks []ir.SystemBlock) bool {
+	for _, block := range blocks {
+		for _, ann := range block.Native {
+			if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
 	hasDeveloper := false
 	for _, block := range blocks {
@@ -758,12 +791,26 @@ func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
 			break
 		}
 	}
-	if !hasDeveloper {
+	breakpoint := hasSystemBreakpoint(blocks)
+	if !hasDeveloper && !breakpoint {
 		text := ""
 		for _, block := range blocks {
 			text += block.Text
 		}
 		return &text, nil
+	}
+	if breakpoint {
+		// Breakpoints cannot survive the instructions string; render every
+		// block as its own input item (spec/15 §3.7 shorthand protection).
+		items := make([]InputItem, 0, len(blocks))
+		for _, block := range blocks {
+			role := RoleSystem
+			if block.Role == ir.SystemRoleDeveloper {
+				role = RoleDeveloper
+			}
+			items = append(items, InputItem{Role: role, Content: systemItemContent(block)})
+		}
+		return nil, items
 	}
 	var instructions *string
 	i := 0

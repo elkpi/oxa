@@ -455,4 +455,34 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	if err := ValidateNativeRequest(reqInvalidPCB); err == nil {
 		t.Fatalf("expected error for non-object prompt_cache_breakpoint")
 	}
+
+	reqNullPCB := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{
+				Text: "hi",
+				Native: []NativeAnnotation{
+					{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheBreakpoint, Value: `null`},
+				},
+			}}},
+		},
+	}
+	if err := ValidateNativeRequest(reqNullPCB); err == nil {
+		t.Fatalf("expected error for null prompt_cache_breakpoint")
+	}
+
+	reqPCBOnThinking := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{ThinkingBlock{
+				Thinking: "hmm",
+				Native: []NativeAnnotation{
+					{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheBreakpoint, Value: `{"mode":"explicit"}`},
+				},
+			}}},
+		},
+	}
+	if err := ValidateNativeRequest(reqPCBOnThinking); err == nil {
+		t.Fatalf("expected error for prompt_cache_breakpoint on ThinkingBlock")
+	}
 }

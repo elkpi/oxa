@@ -108,6 +108,11 @@ type Request struct {
 	Store              *bool   `json:"store,omitempty"`
 	PromptCacheKey     *string `json:"prompt_cache_key,omitempty"`
 	PromptCacheOptions any     `json:"prompt_cache_options,omitempty"`
+
+	// rawPromptCacheOptions preserves the exact source bytes (including
+	// explicit null) captured by UnmarshalJSON so DecodeRequest can
+	// distinguish a present null from an absent field.
+	rawPromptCacheOptions json.RawMessage
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {
@@ -131,6 +136,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		if trimmed != "null" && (len(trimmed) == 0 || trimmed[0] != '{') {
 			return fmt.Errorf("responses: prompt_cache_options must be an object or null")
 		}
+		s.rawPromptCacheOptions = rawPCO
 	}
 	*r = Request(s)
 	return nil

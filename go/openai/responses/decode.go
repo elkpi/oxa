@@ -116,17 +116,24 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			},
 		})
 	}
-	if wire.PromptCacheOptions != nil {
+	pcoRaw := wire.rawPromptCacheOptions
+	if len(pcoRaw) == 0 && wire.PromptCacheOptions != nil {
 		b, err := json.Marshal(wire.PromptCacheOptions)
 		if err != nil {
 			return nil, nil, fmt.Errorf("responses: prompt_cache_options: %w", err)
 		}
-		trimmed := strings.TrimSpace(string(b))
+		pcoRaw = b
+	}
+	if len(pcoRaw) > 0 {
+		trimmed := strings.TrimSpace(string(pcoRaw))
 		val := trimmed
 		if trimmed != "null" {
 			var m map[string]any
-			if err := json.Unmarshal(b, &m); err != nil {
-				return nil, nil, fmt.Errorf("responses: prompt_cache_options: %w", err)
+			if err := json.Unmarshal(pcoRaw, &m); err != nil || m == nil {
+				return nil, nil, fmt.Errorf("responses: prompt_cache_options must be an object or null")
+			}
+			if err := ir.ValidatePromptCacheOptionsObject(m); err != nil {
+				return nil, nil, fmt.Errorf("responses: %w", err)
 			}
 			b2, _ := json.Marshal(m)
 			val = string(b2)

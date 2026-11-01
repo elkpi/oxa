@@ -83,6 +83,13 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 			if len(trimmed) == 0 || trimmed[0] != '{' {
 				return nil, nil, fmt.Errorf("responses: %s[%d].prompt_cache_breakpoint must be an object", path, i)
 			}
+			var pcbMap map[string]any
+			if err := json.Unmarshal(part.PromptCacheBreakpoint, &pcbMap); err != nil || pcbMap == nil {
+				return nil, nil, fmt.Errorf("responses: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+			}
+			if err := ir.ValidatePromptCacheBreakpointObject(pcbMap); err != nil {
+				return nil, nil, fmt.Errorf("responses: %s[%d].%w", path, i, err)
+			}
 			pcbAnn = &ir.NativeAnnotation{
 				Source: ir.NativeSourceOpenAI,
 				Kind:   ir.NativeKindPromptCacheBreakpoint,

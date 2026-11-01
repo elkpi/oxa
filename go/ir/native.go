@@ -458,7 +458,7 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 					return fmt.Errorf("openai %s is only allowed on content or system blocks", ann.Kind)
 				}
 				var obj map[string]any
-				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj == nil {
 					return fmt.Errorf("invalid prompt_cache_breakpoint %s", ann.Value)
 				}
 			case NativeKindContainer:
@@ -493,8 +493,60 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 	return nil
 }
 
+// ValidatePromptCacheOptionsObject checks the known prompt_cache_options
+// attributes (spec/15 §3.7): mode must be "implicit" or "explicit" when
+// present and ttl must be "30m" when present. Face decoders wrap the error
+// with their own face prefix.
+func ValidatePromptCacheOptionsObject(m map[string]any) error {
+	if mode, ok := m["mode"]; ok {
+		s, isStr := mode.(string)
+		if !isStr {
+			return fmt.Errorf("prompt_cache_options.mode must be a string")
+		}
+		if s != "implicit" && s != "explicit" {
+			return fmt.Errorf("prompt_cache_options.mode must be 'implicit' or 'explicit'")
+		}
+	}
+	if ttl, ok := m["ttl"]; ok {
+		s, isStr := ttl.(string)
+		if !isStr {
+			return fmt.Errorf("prompt_cache_options.ttl must be a string")
+		}
+		if s != "30m" {
+			return fmt.Errorf("prompt_cache_options.ttl must be '30m'")
+		}
+	}
+	return nil
+}
+
+// ValidatePromptCacheBreakpointObject checks the known
+// prompt_cache_breakpoint attributes (spec/15 §3.7): mode must be "explicit"
+// when present and ttl must be "30m" or "12h" when present.
+func ValidatePromptCacheBreakpointObject(m map[string]any) error {
+	if mode, ok := m["mode"]; ok {
+		s, isStr := mode.(string)
+		if !isStr {
+			return fmt.Errorf("prompt_cache_breakpoint.mode must be a string")
+		}
+		if s != "explicit" {
+			return fmt.Errorf("prompt_cache_breakpoint.mode must be 'explicit'")
+		}
+	}
+	if ttl, ok := m["ttl"]; ok {
+		s, isStr := ttl.(string)
+		if !isStr {
+			return fmt.Errorf("prompt_cache_breakpoint.ttl must be a string")
+		}
+		if s != "30m" && s != "12h" {
+			return fmt.Errorf("prompt_cache_breakpoint.ttl must be '30m' or '12h'")
+		}
+	}
+	return nil
+}
+
 func validateBlockAnnotations(b Block, path string) error {
 	var nat []NativeAnnotation
+	allowBreakpoint := true
 	switch blk := b.(type) {
 	case TextBlock:
 		nat = blk.Native
@@ -504,8 +556,10 @@ func validateBlockAnnotations(b Block, path string) error {
 		nat = blk.Native
 	case ToolUseBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	case ToolResultBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 		for k, child := range blk.Content {
 			if err := validateBlockAnnotations(child, fmt.Sprintf("%s.content[%d]", path, k)); err != nil {
 				return err
@@ -513,12 +567,16 @@ func validateBlockAnnotations(b Block, path string) error {
 		}
 	case ThinkingBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	case RedactedThinkingBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	case CustomToolUseBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	case CustomToolResultBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 		for k, child := range blk.Output.Content {
 			if err := validateBlockAnnotations(child, fmt.Sprintf("%s.output.content[%d]", path, k)); err != nil {
 				return err
@@ -526,11 +584,20 @@ func validateBlockAnnotations(b Block, path string) error {
 		}
 	case ApplyPatchToolUseBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	case ApplyPatchToolResultBlock:
 		nat = blk.Native
+		allowBreakpoint = false
 	}
 	if err := validateAnnotations(nat, hostContentBlock); err != nil {
 		return fmt.Errorf("ir: %s native invalid: %w", path, err)
+	}
+	if !allowBreakpoint {
+		for i, n := range nat {
+			if n.Source == NativeSourceOpenAI && n.Kind == NativeKindPromptCacheBreakpoint {
+				return fmt.Errorf("ir: %s.native[%d]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks", path, i)
+			}
+		}
 	}
 	return nil
 }

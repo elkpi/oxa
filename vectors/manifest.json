@@ -479,11 +479,9 @@
       "tags": [
         "request",
         "tools",
-        "native",
-        "disable_parallel_tool_use",
-        "n-an-19"
+        "native"
       ],
-      "sha256": "a22fc8a6e40a05eb2628cf9fdfa6c245aaa86b00345d88d9c3867695040e86d8"
+      "sha256": "291f46ba4f2ae9b7a3647addebb1f2bcdfdfe050e0dcb9715bcff9318f4c394e"
     },
     {
       "name": "anthropic.nonstream.native-thinking-adaptive-display-request-from-ir",
@@ -1714,11 +1712,10 @@
       "name": "chatcompletions.nonstream.loss-parallel-tool-calls-to-ir",
       "file": "chatcompletions/nonstream/loss-parallel-tool-calls-to-ir.json",
       "tags": [
-        "loss",
         "request",
         "tools"
       ],
-      "sha256": "a4bbc8dcaca8186f7fedf1225ee9fe59e40ab8a6fa24e6b223abd7c880b8590f"
+      "sha256": "99986e273e4b41010ea8a1e01453a293a1b327f08657af8e0fd56e05b3df782c"
     },
     {
       "name": "chatcompletions.nonstream.loss-tool-result-is-error-from-ir",
@@ -2836,7 +2833,7 @@
         "params",
         "loss"
       ],
-      "sha256": "c542031d06268e6c27e64217ae73cc8e9cd4db81181f79a3293145848c0a71d2"
+      "sha256": "473de6116509ac845200722f07b23190580306bcf4c4fc08954d54cbb7d4e23e"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-anthropic-request-controls",
@@ -2943,7 +2940,7 @@
         "params",
         "loss"
       ],
-      "sha256": "5f57274c27d6d16b24ab18403291764d5d0383edd069fee5f5924debb9b7d290"
+      "sha256": "4ae55a1d7e8b204b92cebcb0b783cab0698b76ce63b39129f2ef3a9bbae9df8f"
     },
     {
       "name": "cross.nonstream.chatcompletions-to-responses-response",

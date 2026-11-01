@@ -366,13 +366,25 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 	var losses []ir.Loss
 	var thinkings []OutputContent
 	var calls []InputItem
+	var parts []ContentPart
 	text := ""
 	hasText := false
+	hasRefusal := false
 	for i, block := range blocks {
 		switch value := block.(type) {
+		case ir.RefusalBlock:
+			hasRefusal = true
+			if value.Category != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d].category", path, i), "category", ir.LossUnsupportedSemantic,
+					"Anthropic refusal category has no Responses equivalent",
+				))
+			}
+			parts = append(parts, ContentPart{Type: "refusal", Refusal: value.Refusal})
 		case ir.TextBlock:
 			text += value.Text
 			hasText = true
+			parts = append(parts, ContentPart{Type: PartTypeOutputText, Text: value.Text})
 			if len(value.Citations) > 0 {
 				hasAnthropic := false
 				hasOpenAI := false
@@ -468,7 +480,9 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 	if len(thinkings) > 0 {
 		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: thinkings})
 	}
-	if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
+	if hasRefusal {
+		*items = append(*items, InputItem{Role: RoleAssistant, Content: parts})
+	} else if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)
@@ -490,8 +504,22 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var textParts []OutputContent
 	apcIndex := 0
 	apcoIndex := 0
+	var refusalMsg string
 	for i, block := range resp.Content {
 		switch value := block.(type) {
+		case ir.RefusalBlock:
+			if value.Category != "" {
+				losses = append(losses, loss(
+					fmt.Sprintf("content[%d].category", i), "category", ir.LossUnsupportedSemantic,
+					"Anthropic refusal category has no Responses equivalent",
+				))
+			}
+			textParts = append(textParts, OutputContent{
+				Type: "refusal", Refusal: value.Refusal,
+			})
+			if refusalMsg == "" {
+				refusalMsg = value.Refusal
+			}
 		case ir.TextBlock:
 			var partAnnotations []json.RawMessage
 			hasAnthropic := false
@@ -629,7 +657,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			"Responses status carries no stop-sequence identity; the matched IR stop sequence is lost",
 		))
 	case ir.StopRefusal:
-		failed = &ErrorWire{Code: ErrorCodeRefusal}
+		failed = &ErrorWire{Code: ErrorCodeRefusal, Message: refusalMsg}
 	default:
 		return nil, nil, fmt.Errorf("responses: stop reason %q has no Responses equivalent", resp.StopReason)
 	}

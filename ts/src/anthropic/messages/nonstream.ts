@@ -56,6 +56,7 @@ import type {
   TextCitation,
   ThinkingBlock,
   RedactedThinkingBlock,
+  RefusalBlock,
   Tool,
   ToolChoice,
 } from "../../ir/index.js";
@@ -475,6 +476,45 @@ function decodeResponseObject(
     stopReason = "other";
     losses.push(loss("stop_reason", "stop_reason", "unmapped-value"));
   }
+  if (
+    nativeStop === "refusal" &&
+    wire.stop_details !== undefined &&
+    wire.stop_details !== null
+  ) {
+    if (
+      typeof wire.stop_details !== "object" ||
+      Array.isArray(wire.stop_details)
+    ) {
+      fail("anthropic: stop_details must be an object");
+    }
+    const details = wire.stop_details as Record<string, JsonValue>;
+    if (typeof details.type !== "string") {
+      fail("anthropic: stop_details.type must be a string");
+    }
+    if (details.type === "refusal") {
+      let category: string | undefined;
+      if (details.category !== undefined && details.category !== null) {
+        if (typeof details.category !== "string") {
+          fail("anthropic: stop_details.category must be a string or null");
+        }
+        category = details.category;
+      }
+      let explanation: string | undefined;
+      if (details.explanation !== undefined && details.explanation !== null) {
+        if (typeof details.explanation !== "string") {
+          fail("anthropic: stop_details.explanation must be a string or null");
+        }
+        explanation = details.explanation;
+      }
+      if (explanation || category) {
+        content.push({
+          type: "refusal",
+          refusal: explanation ?? "",
+          ...(category === undefined ? {} : { category }),
+        });
+      }
+    }
+  }
   const usage = object(wire.usage, "usage");
   return {
     value: {
@@ -797,6 +837,23 @@ export function encodeResponse(
   )
     fail(`stop reason ${response.stop_reason} is unsupported`);
   const losses: Loss[] = [];
+  let refusalBlock: RefusalBlock | undefined;
+  for (let i = 0; i < response.content.length; i += 1) {
+    const block = response.content[i]!;
+    if (block.type === "refusal") {
+      if (refusalBlock === undefined) {
+        refusalBlock = block;
+      } else {
+        losses.push({
+          path: `content[${i}]`,
+          field: "refusal",
+          reason: "unsupported-semantic",
+          detail:
+            "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+        });
+      }
+    }
+  }
   const stopReason =
     response.stop_reason === "tool_use" &&
     !response.content.some(
@@ -804,7 +861,9 @@ export function encodeResponse(
     )
       ? (losses.push(loss("stop_reason", "stop_reason", "degraded")),
         "end_turn" as const)
-      : response.stop_reason;
+      : refusalBlock !== undefined
+        ? ("refusal" as const)
+        : response.stop_reason;
   return {
     value: {
       id: response.id,
@@ -819,9 +878,26 @@ export function encodeResponse(
           false,
           false,
         );
-        return encoded.length === 0 ? [{ type: "text", text: "" }] : encoded;
+        return encoded.length === 0 && stopReason !== "refusal"
+          ? [{ type: "text", text: "" }]
+          : encoded;
       })(),
       stop_reason: stopReason,
+      ...(stopReason === "refusal"
+        ? {
+            stop_details: {
+              type: "refusal",
+              category:
+                refusalBlock?.category && refusalBlock.category.length > 0
+                  ? refusalBlock.category
+                  : null,
+              explanation:
+                refusalBlock?.refusal && refusalBlock.refusal.length > 0
+                  ? refusalBlock.refusal
+                  : null,
+            },
+          }
+        : {}),
       ...(stopReason === "stop_sequence" && response.stop_sequence !== undefined
         ? { stop_sequence: response.stop_sequence }
         : {}),
@@ -1406,6 +1482,17 @@ function encodeContent(
           ...(cc ? { cache_control: cc } : {}),
         });
       }
+    } else if (block.type === "refusal") {
+      if (isRequest) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            "Anthropic does not support refusal content blocks in request history",
+        });
+      }
+      continue;
     } else if (
       block.type === "apply_patch_tool_use" ||
       block.type === "apply_patch_tool_result" ||

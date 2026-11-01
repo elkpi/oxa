@@ -453,16 +453,24 @@ func (s SourceWire) has(key string, value string) bool {
 	return s.hasFields[key] || value != ""
 }
 
+// StopDetailsWire carries refusal metadata on Anthropic responses (since 2.5.0).
+type StopDetailsWire struct {
+	Type        string  `json:"type"`
+	Category    *string `json:"category"`
+	Explanation *string `json:"explanation"`
+}
+
 // Response is the Anthropic Messages wire response object.
 type Response struct {
-	ID           string      `json:"id"`
-	Type         string      `json:"type"`
-	Role         string      `json:"role"`
-	Model        string      `json:"model"`
-	Content      []BlockWire `json:"content"`
-	StopReason   string      `json:"stop_reason"`
-	StopSequence string      `json:"stop_sequence,omitempty"`
-	Usage        *UsageWire  `json:"usage"`
+	ID           string           `json:"id"`
+	Type         string           `json:"type"`
+	Role         string           `json:"role"`
+	Model        string           `json:"model"`
+	Content      []BlockWire      `json:"content"`
+	StopReason   string           `json:"stop_reason"`
+	StopSequence string           `json:"stop_sequence,omitempty"`
+	StopDetails  *StopDetailsWire `json:"stop_details,omitempty"`
+	Usage        *UsageWire       `json:"usage"`
 }
 
 // UsageWire is the wire usage object; input/output tokens map 1:1 to IR

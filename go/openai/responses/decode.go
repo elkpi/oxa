@@ -811,6 +811,10 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			}
 		case ItemTypeMessage:
 			for j, part := range item.Content {
+				if part.Type == "refusal" {
+					texts = append(texts, ir.RefusalBlock{Refusal: part.Refusal})
+					continue
+				}
 				if part.Type != PartTypeOutputText {
 					losses = append(losses, loss(
 						fmt.Sprintf("output[%d].content[%d]", i, j), "type", ir.LossUnsupportedSemantic,
@@ -863,6 +867,19 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	content = append(content, thinkings...)
 	content = append(content, texts...)
 	content = append(content, calls...)
+	hasRefusal := false
+	for _, b := range content {
+		if _, ok := b.(ir.RefusalBlock); ok {
+			hasRefusal = true
+			if stop == ir.StopEndTurn {
+				stop = ir.StopRefusal
+			}
+			break
+		}
+	}
+	if !hasRefusal && stop == ir.StopRefusal && wire.Error != nil && wire.Error.Code == ErrorCodeRefusal && wire.Error.Message != "" {
+		content = append(content, ir.RefusalBlock{Refusal: wire.Error.Message})
+	}
 	resp := &ir.Response{
 		ID:         wire.ID,
 		Model:      o.models.Map(wire.Model),
@@ -894,6 +911,9 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 // the IR stop reason (N-R-11).
 func decodeStatus(wire *Response, hasToolUse bool) (ir.StopReason, []ir.Loss, error) {
 	if wire.Error != nil {
+		if wire.Error.Code == ErrorCodeRefusal {
+			return ir.StopRefusal, nil, nil
+		}
 		return ir.StopOther, []ir.Loss{loss(
 			"error", "error", ir.LossUnsupportedSemantic,
 			fmt.Sprintf("failed Responses response carries error %q: %s", wire.Error.Code, wire.Error.Message),

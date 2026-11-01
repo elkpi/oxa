@@ -207,6 +207,15 @@ pub enum Block {
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
+    #[serde(rename = "refusal")]
+    Refusal {
+        #[serde(rename = "refusal")]
+        refusal: String,
+        #[serde(rename = "category", default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
 }
 
 impl Block {
@@ -222,6 +231,7 @@ impl Block {
             | Block::CustomToolResult { native, .. }
             | Block::ApplyPatchToolUse { native, .. }
             | Block::ApplyPatchToolResult { native, .. }
+            | Block::Refusal { native, .. }
             | Block::ToolResult { native, .. } => native,
             Block::WebSearchCall { .. } => &[],
         }
@@ -362,6 +372,16 @@ impl std::fmt::Debug for Block {
                 .field("tool_use_id", tool_use_id)
                 .field("content", content)
                 .field("is_error", is_error)
+                .field("native", native)
+                .finish(),
+            Block::Refusal {
+                refusal,
+                category,
+                native,
+            } => f
+                .debug_struct("Refusal")
+                .field("refusal", refusal)
+                .field("category", category)
                 .field("native", native)
                 .finish(),
         }

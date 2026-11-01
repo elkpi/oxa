@@ -78,6 +78,15 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 	var losses []ir.Loss
 	for i, part := range parts {
 		switch part.Type {
+		case "refusal":
+			if user {
+				losses = append(losses, loss(
+					fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+					"Responses content part type \"refusal\" has no IR equivalent in user messages",
+				))
+				continue
+			}
+			blocks = append(blocks, ir.RefusalBlock{Refusal: part.Refusal})
 		case PartTypeInputText, PartTypeOutputText:
 			blocks = append(blocks, ir.TextBlock{Text: part.Text})
 		case PartTypeInputImage:

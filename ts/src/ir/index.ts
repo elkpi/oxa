@@ -12,6 +12,7 @@ export { decodeEventStream, encodeEventStream } from "./codec.js";
 export {
   BLOCK_TYPE_IMAGE,
   BLOCK_TYPE_WEB_SEARCH_CALL,
+  BLOCK_TYPE_REFUSAL,
   BLOCK_TYPE_CUSTOM_TOOL_USE,
   BLOCK_TYPE_CUSTOM_TOOL_RESULT,
   BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
@@ -106,6 +107,7 @@ export {
   type TextCitation,
   type ThinkingBlock,
   type RedactedThinkingBlock,
+  type RefusalBlock,
   type ContentBlockDelta,
   type ContentBlockStart,
   type ContentBlockStop,

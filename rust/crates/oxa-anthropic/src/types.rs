@@ -630,6 +630,17 @@ impl<'de> Deserialize<'de> for SourceWire {
 /// The Anthropic Messages wire response object.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
+pub struct StopDetailsWire {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(rename = "category")]
+    pub category: Option<String>,
+    #[serde(rename = "explanation")]
+    pub explanation: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Response {
     #[serde(rename = "id")]
     pub id: String,
@@ -645,6 +656,8 @@ pub struct Response {
     pub stop_reason: String,
     #[serde(rename = "stop_sequence", skip_serializing_if = "String::is_empty")]
     pub stop_sequence: String,
+    #[serde(rename = "stop_details", skip_serializing_if = "Option::is_none")]
+    pub stop_details: Option<StopDetailsWire>,
     #[serde(rename = "usage")]
     pub usage: Option<UsageWire>,
 }

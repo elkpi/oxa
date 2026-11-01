@@ -16,6 +16,7 @@ from oxa.ir import (
     STOP_END_TURN,
     STOP_MAX_TOKENS,
     STOP_OTHER,
+    STOP_REFUSAL,
     STOP_TOOL_USE,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
@@ -30,6 +31,7 @@ from oxa.ir import (
     OutputTokensDetails,
     Params,
     ReasoningEffort,
+    RefusalBlock,
     Request,
     Response,
     ResponseFormat,
@@ -377,6 +379,12 @@ def decode_response(
         if kind == ITEM_TYPE_MESSAGE:
             for content_index, part in enumerate(item.get("content", [])):
                 p_kind = part.get("type", "")
+                if p_kind == "refusal":
+                    ref = part.get("refusal")
+                    if ref is None or not isinstance(ref, str):
+                        raise TypeError(f"output[{item_index}].content[{content_index}].refusal must be a string")
+                    text.append(RefusalBlock(refusal=ref))
+                    continue
                 if p_kind != PART_TYPE_OUTPUT_TEXT:
                     losses.append(
                         loss(
@@ -537,6 +545,15 @@ def decode_response(
     stop_reason, status_losses = decode_status(wire, has_tool_use)
     losses.extend(status_losses)
     content = thinkings + text + calls
+    has_refusal = any(isinstance(b, RefusalBlock) for b in content)
+    if has_refusal and stop_reason == STOP_END_TURN:
+        stop_reason = STOP_REFUSAL
+    if not has_refusal and stop_reason == STOP_REFUSAL:
+        err = wire.get("error")
+        if isinstance(err, dict) and err.get("code") == "refusal":
+            msg = err.get("message")
+            if isinstance(msg, str) and msg:
+                content.append(RefusalBlock(refusal=msg))
 
     model = str(wire.get("model", ""))
     if table is not None:
@@ -578,6 +595,8 @@ def decode_status(wire: dict[str, Any], has_tool_use: bool) -> tuple[str, list[L
         error = wire["error"]
         code = error.get("code")
         msg = error.get("message", "")
+        if code == "refusal":
+            return STOP_REFUSAL, []
         return (
             STOP_OTHER,
             [

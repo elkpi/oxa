@@ -102,7 +102,8 @@
         { "$ref": "#/$defs/requestCustomToolResultBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolResultBlock" },
-        { "$ref": "#/$defs/webSearchCallBlock" }
+        { "$ref": "#/$defs/webSearchCallBlock" },
+        { "$ref": "#/$defs/requestRefusalBlock" }
       ]
     },
     "requestTextBlock": {
@@ -330,8 +331,35 @@
         { "$ref": "#/$defs/customToolResultBlock" },
         { "$ref": "#/$defs/applyPatchToolUseBlock" },
         { "$ref": "#/$defs/applyPatchToolResultBlock" },
-        { "$ref": "#/$defs/webSearchCallBlock" }
+        { "$ref": "#/$defs/webSearchCallBlock" },
+        { "$ref": "#/$defs/refusalBlock" }
       ]
+    },
+    "refusalBlock": {
+      "type": "object",
+      "description": "Assistant refusal content block (spec/01 s3.4, since 2.5.0).",
+      "properties": {
+        "type": { "const": "refusal" },
+        "refusal": { "type": "string" },
+        "category": { "type": "string" }
+      },
+      "required": ["type", "refusal"],
+      "additionalProperties": false
+    },
+    "requestRefusalBlock": {
+      "type": "object",
+      "description": "Assistant refusal block in request history (spec/01 s3.4, since 2.5.0).",
+      "properties": {
+        "type": { "const": "refusal" },
+        "refusal": { "type": "string" },
+        "category": { "type": "string" },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
+        }
+      },
+      "required": ["type", "refusal"],
+      "additionalProperties": false
     },
     "webSearchCallBlock": {
       "type": "object",

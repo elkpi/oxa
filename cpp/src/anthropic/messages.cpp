@@ -1436,6 +1436,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));
+                } else if (std::holds_alternative<ir::RefusalBlock>(b)) {
+                    losses.push_back(make_ant_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic does not support refusal content blocks in request history"));
                 }
             }
             if (content_arr.as_array().empty()) {
@@ -1531,6 +1536,21 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
     auto [stop_reason, sr_loss] = decode_stop_reason(sr);
     resp.stop_reason = std::move(stop_reason);
     if (sr_loss.has_value()) losses.push_back(std::move(*sr_loss));
+
+    if (resp.stop_reason == ir::STOP_REFUSAL) {
+        if (const auto* sd = wire.find("stop_details"); sd && sd->is_object()) {
+            const auto* tv = sd->find("type");
+            if (tv && tv->is_string() && tv->as_string() == "refusal") {
+                std::string expl;
+                std::optional<std::string> cat;
+                if (const auto* ev = sd->find("explanation"); ev && ev->is_string() && !ev->as_string().empty()) expl = ev->as_string();
+                if (const auto* cv = sd->find("category"); cv && cv->is_string() && !cv->as_string().empty()) cat = cv->as_string();
+                if (!expl.empty() || cat.has_value()) {
+                    resp.content.push_back(ir::RefusalBlock{std::move(expl), std::move(cat)});
+                }
+            }
+        }
+    }
 
     if (const auto* seq = wire.find("stop_sequence"); seq && seq->is_string() && !seq->as_string().empty()) {
         resp.stop_sequence = seq->as_string();
@@ -1636,18 +1656,50 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type",
                 ir::LOSS_UNSUPPORTED_SEMANTIC,
                 "Anthropic block type \"document\" has no IR equivalent"));
+        } else if (std::holds_alternative<ir::RefusalBlock>(b)) {
+            // omitted from content array per N-AN-20
         }
     }
     out.set("content", std::move(content_arr));
 
+    const ir::RefusalBlock* refusal_block = nullptr;
+    for (std::size_t i = 0; i < resp.content.size(); ++i) {
+        if (const auto* r = std::get_if<ir::RefusalBlock>(&resp.content[i])) {
+            if (refusal_block == nullptr) {
+                refusal_block = r;
+            } else {
+                losses.push_back(make_ant_loss(
+                    "content[" + std::to_string(i) + "]", "refusal", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped"));
+            }
+        }
+    }
+
     std::string effective_reason = resp.stop_reason;
-    if (effective_reason == ir::STOP_TOOL_USE && !retained_tool_use) {
+    if (refusal_block != nullptr) {
+        effective_reason = std::string(ir::STOP_REFUSAL);
+    } else if (effective_reason == ir::STOP_TOOL_USE && !retained_tool_use) {
         effective_reason = std::string(ir::STOP_END_TURN);
         losses.push_back(make_ant_loss("stop_reason", "stop_reason", ir::LOSS_DEGRADED,
             "tool_use was downgraded to end_turn because no supported tool call remains"));
     }
     OXA_ASSIGN_OR_RETURN(std::string ant_sr, encode_stop_reason(effective_reason));
     out.set("stop_reason", json::Value::string(ant_sr));
+    if (effective_reason == ir::STOP_REFUSAL) {
+        json::Value sd = json::Value::object();
+        sd.set("type", json::Value::string("refusal"));
+        if (refusal_block && refusal_block->category.has_value()) {
+            sd.set("category", json::Value::string(*refusal_block->category));
+        } else {
+            sd.set("category", json::Value::null());
+        }
+        if (refusal_block && !refusal_block->refusal.empty()) {
+            sd.set("explanation", json::Value::string(refusal_block->refusal));
+        } else {
+            sd.set("explanation", json::Value::null());
+        }
+        out.set("stop_details", std::move(sd));
+    }
     if (resp.stop_sequence.has_value() && !resp.stop_sequence->empty()) {
         out.set("stop_sequence", json::Value::string(*resp.stop_sequence));
     }

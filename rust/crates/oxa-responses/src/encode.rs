@@ -268,6 +268,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
     let mut calls = Vec::new();
     let mut apc_index = 0usize;
     let mut apco_index = 0usize;
+    let mut refusal_msg = None;
     for (index, block) in resp.content.iter().enumerate() {
         match block {
             Block::Text {
@@ -322,6 +323,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: value.clone(),
                     annotations: part_annotations,
+                    ..Default::default()
                 });
             }
             Block::RedactedThinking { .. } => {
@@ -341,6 +343,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: thinking.clone(),
                     annotations: Vec::new(),
+                    ..Default::default()
                 });
                 if signature
                     .as_deref()
@@ -486,6 +489,26 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     "this IR block cannot be rendered in a Responses output item",
                 ))
             }
+            Block::Refusal {
+                refusal, category, ..
+            } => {
+                if category.is_some() {
+                    losses.push(loss(
+                        format!("content[{index}].category"),
+                        "category",
+                        LossReason::UnsupportedSemantic,
+                        "Anthropic refusal category has no Responses equivalent",
+                    ));
+                }
+                text_parts.push(OutputPart {
+                    kind: "refusal".to_string(),
+                    refusal: Some(refusal.clone()),
+                    ..OutputPart::default()
+                });
+                if refusal_msg.is_none() {
+                    refusal_msg = Some(refusal.clone());
+                }
+            }
         }
     }
     let mut output = calls;
@@ -502,6 +525,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                         text: String::new(),
                         annotations: Vec::new(),
+                        ..Default::default()
                     }]
                 } else {
                     text_parts
@@ -544,7 +568,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             None,
             Some(ErrorWire {
                 code: ERROR_CODE_REFUSAL.to_string(),
-                message: String::new(),
+                message: refusal_msg.unwrap_or_default(),
             }),
         ),
         StopReason::Other => {

@@ -141,14 +141,17 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleUser, Content: content})
 		case RoleAssistant:
 			toolCalls, toolLosses := decodeToolCalls(message.ToolCalls, fmt.Sprintf("messages[%d].tool_calls", i))
-			if message.Content == nil && len(toolCalls) > 0 {
-				// A tool-only assistant message has no normal content to prepend.
+			if message.Content == nil && (len(toolCalls) > 0 || message.Refusal != "") {
+				// A tool-only or refusal-only assistant message has no normal content to prepend.
 				content = nil
 			}
 			if message.ReasoningContent != "" {
 				content = append([]ir.Block{ir.ThinkingBlock{Thinking: message.ReasoningContent}}, content...)
 			}
 			content = append(content, toolCalls...)
+			if message.Refusal != "" {
+				content = append(content, ir.RefusalBlock{Refusal: message.Refusal})
+			}
 			req.Messages = append(req.Messages, ir.Message{Role: ir.RoleAssistant, Content: content})
 			losses = append(losses, toolLosses...)
 		default:
@@ -356,13 +359,16 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	losses = append(losses, contentLosses...)
 	toolCalls, toolLosses := decodeToolCalls(choice.Message.ToolCalls, "choices[0].message.tool_calls")
-	if choice.Message.Content == nil && len(toolCalls) > 0 {
-		// A tool-only assistant response has no normal content to prepend.
+	if choice.Message.Content == nil && (len(toolCalls) > 0 || choice.Message.Refusal != "") {
+		// A tool-only or refusal-only assistant response has no normal content to prepend.
 		blocks = nil
 	}
 	blocks = append(blocks, toolCalls...)
 	if choice.Message.ReasoningContent != "" {
 		blocks = append([]ir.Block{ir.ThinkingBlock{Thinking: choice.Message.ReasoningContent}}, blocks...)
+	}
+	if choice.Message.Refusal != "" {
+		blocks = append(blocks, ir.RefusalBlock{Refusal: choice.Message.Refusal})
 	}
 	losses = append(losses, toolLosses...)
 	if choice.Message.FunctionCall != nil {

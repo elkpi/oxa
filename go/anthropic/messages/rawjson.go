@@ -547,9 +547,10 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		schema := &rawJSONSchema{}
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
-			return rawObjectSchema(t, []string{"id", "type", "role", "model", "content", "stop_reason", "stop_sequence", "usage"},
+			return rawObjectSchema(t, []string{"id", "type", "role", "model", "content", "stop_reason", "stop_sequence", "stop_details", "usage"},
 				map[string]*rawJSONSchema{
-					"content": {items: schemaForResponseBlock(seen)},
+					"content":      {items: schemaForResponseBlock(seen)},
+					"stop_details": rawObjectSchema(reflect.TypeOf(StopDetailsWire{}), []string{"type", "category", "explanation"}, nil, seen),
 				},
 				seen)
 		}
@@ -661,6 +662,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			}
 		case reflect.TypeOf(Response{}):
 			schema.fields["content"] = &rawJSONSchema{items: schemaForResponseBlock(seen)}
+			schema.fields["stop_details"] = rawObjectSchema(reflect.TypeOf(StopDetailsWire{}), []string{"type", "category", "explanation"}, nil, seen)
 		}
 		return schema
 	default:

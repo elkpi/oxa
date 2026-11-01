@@ -44,6 +44,7 @@ fn stream_part_added(output_index: i64, content_index: i64, item_id: &str) -> St
             kind: "output_text".to_string(),
             text: String::new(),
             annotations: Vec::new(),
+            ..Default::default()
         }),
         ..Default::default()
     }
@@ -96,6 +97,7 @@ fn stream_part_done(
             kind: "output_text".to_string(),
             text: text.to_string(),
             annotations: Vec::new(),
+            ..Default::default()
         }),
         ..Default::default()
     }
@@ -127,6 +129,7 @@ fn stream_image_part_added(output_index: i64, content_index: i64, item_id: &str)
             kind: "output_image".to_string(),
             text: String::new(),
             annotations: Vec::new(),
+            ..Default::default()
         }),
         ..Default::default()
     }

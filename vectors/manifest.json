@@ -998,6 +998,26 @@
       "sha256": "2af41eb1c2ce86b415bad6cbb427ada426c74682a66d40d22f20deeaa5d22700"
     },
     {
+      "name": "anthropic.nonstream.refusal-response-from-ir",
+      "file": "anthropic/nonstream/refusal-response-from-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-an-20"
+      ],
+      "sha256": "f00dec5dbb33659474a201c722c0d4868bf8e4aa322484e2384bcfba8ed0e272"
+    },
+    {
+      "name": "anthropic.nonstream.refusal-response-to-ir",
+      "file": "anthropic/nonstream/refusal-response-to-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-an-20"
+      ],
+      "sha256": "0d5abb378a7248dac854cbf220e4cb333ce0b1de14bfe0d6575d0dd77d5d05f1"
+    },
+    {
       "name": "anthropic.nonstream.response-format-dropped-request-from-ir",
       "file": "anthropic/nonstream/response-format-dropped-request-from-ir.json",
       "tags": [
@@ -1858,6 +1878,26 @@
       "sha256": "0ccd118a21d74a88ce3d15bf25aa5e89b5182fe014468a31f001ca48f17810e8"
     },
     {
+      "name": "chatcompletions.nonstream.refusal-response-from-ir",
+      "file": "chatcompletions/nonstream/refusal-response-from-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-cc-15"
+      ],
+      "sha256": "03c32e42dcf96f7c6af708792a38078177189dd9a9b2ddf7d0b16fb0aeadf1ce"
+    },
+    {
+      "name": "chatcompletions.nonstream.refusal-response-to-ir",
+      "file": "chatcompletions/nonstream/refusal-response-to-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-cc-15"
+      ],
+      "sha256": "dc9e81a3b3eaa1313d61e7162dbc16d50b4b25971cb7d0f54e5d3eb5015823b0"
+    },
+    {
       "name": "chatcompletions.nonstream.request-controls-from-ir",
       "file": "chatcompletions/nonstream/request-controls-from-ir.json",
       "tags": [
@@ -2419,6 +2459,19 @@
       "sha256": "1d245628c2d6aa275c50a86824dfde0f0126fe71ff34751967712b43d907db49"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-refusal-response",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-refusal-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "refusal",
+        "loss",
+        "n-an-20",
+        "n-cc-15"
+      ],
+      "sha256": "7d429c8ebeb74b09c52090ac62ad15c06309ed5ed9393c5ca1f9b467bd601d8a"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-request.json",
       "tags": [
@@ -2574,6 +2627,19 @@
         "n-an-17"
       ],
       "sha256": "8893438e09b9826080da9d0fc2c198ab608034a0e23bf107fbd22b9a8b9de86d"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-refusal-response",
+      "file": "cross/nonstream/anthropic-to-responses-refusal-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "refusal",
+        "loss",
+        "n-an-20",
+        "n-r-20"
+      ],
+      "sha256": "be89816754cba94707b90bc1f9c599dbb747c5678d2df85f885ee706ce934427"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-request",
@@ -2764,6 +2830,18 @@
       "sha256": "c63c6d6d645b73f611206f05cebfa5ff745083535671eda88988d480ae8c98d0"
     },
     {
+      "name": "cross.nonstream.chatcompletions-to-responses-refusal-response",
+      "file": "cross/nonstream/chatcompletions-to-responses-refusal-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "refusal",
+        "n-cc-15",
+        "n-r-20"
+      ],
+      "sha256": "b53a4df606a4b956d3dc9adf18606f0fb9cba83fefebcc19ca680136a9f22e0a"
+    },
+    {
       "name": "cross.nonstream.chatcompletions-to-responses-request",
       "file": "cross/nonstream/chatcompletions-to-responses-request.json",
       "tags": [
@@ -2930,6 +3008,18 @@
       "sha256": "678c8116448051346c4a948a4d962edf85dfd7dad78c87f28b5bb7c654fe05e1"
     },
     {
+      "name": "cross.nonstream.responses-to-anthropic-refusal-response",
+      "file": "cross/nonstream/responses-to-anthropic-refusal-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "refusal",
+        "n-r-20",
+        "n-an-20"
+      ],
+      "sha256": "9f40cb27e62893635cc284a81cccf34f22dc4488bba1814864e71bd0a2966c90"
+    },
+    {
       "name": "cross.nonstream.responses-to-anthropic-request",
       "file": "cross/nonstream/responses-to-anthropic-request.json",
       "tags": [
@@ -3083,6 +3173,18 @@
         "n-cc-12"
       ],
       "sha256": "dbc5e2d778fd299ff2c97bd7e1ed7133f64ead396856922dfeb59533988c2fbf"
+    },
+    {
+      "name": "cross.nonstream.responses-to-chatcompletions-refusal-response",
+      "file": "cross/nonstream/responses-to-chatcompletions-refusal-response.json",
+      "tags": [
+        "cross",
+        "response",
+        "refusal",
+        "n-r-20",
+        "n-cc-15"
+      ],
+      "sha256": "700984f774f9c73a0f5ef20674c68f84a2960803d765a6d3c8506aac8984153d"
     },
     {
       "name": "cross.nonstream.responses-to-chatcompletions-request",
@@ -4527,6 +4629,26 @@
         "n-r-13"
       ],
       "sha256": "f01fa046f17a1180953b3668b199fa3997fe47d038996a72936b4ffc3e98dc6e"
+    },
+    {
+      "name": "responses.nonstream.refusal-content-response-from-ir",
+      "file": "responses/nonstream/refusal-content-response-from-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-r-20"
+      ],
+      "sha256": "8b100501c272a16e04ffedaed4efc460a92c9a29d3bcf51531d1a94d49730bc0"
+    },
+    {
+      "name": "responses.nonstream.refusal-content-response-to-ir",
+      "file": "responses/nonstream/refusal-content-response-to-ir.json",
+      "tags": [
+        "response",
+        "refusal",
+        "n-r-20"
+      ],
+      "sha256": "6c514ec2efd991d1f068b5938d3cde8d67f41f5aceefc57410228d2184f11a10"
     },
     {
       "name": "responses.nonstream.refusal-response-from-ir",

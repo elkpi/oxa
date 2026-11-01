@@ -62,6 +62,7 @@ from oxa.ir import (
     CustomToolResultBlock,
     CustomToolUseBlock,
     DocumentBlock,
+    RefusalBlock,
     ImageBlock,
     Loss,
     Request,
@@ -508,6 +509,9 @@ def encode_request_block(
     elif isinstance(block, ToolResultBlock):
         return encode_tool_result_block(block, path)
 
+    elif isinstance(block, RefusalBlock):
+        return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "Anthropic does not support refusal content blocks in request history")], False
+
     else:
         return None, [], False
 
@@ -814,16 +818,39 @@ def encode_response(
             out["content"].append(encoded)
         losses.extend(b_losses)
 
+    refusal_block: RefusalBlock | None = None
+    for index, b in enumerate(resp.content):
+        if isinstance(b, RefusalBlock):
+            if refusal_block is None:
+                refusal_block = b
+            else:
+                losses.append(
+                    loss(
+                        f"content[{index}]",
+                        "refusal",
+                        LOSS_UNSUPPORTED_SEMANTIC,
+                        "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+                    )
+                )
+
     effective_stop = resp.stop_reason
-    if effective_stop == STOP_TOOL_USE and not any(isinstance(b, (ToolUseBlock, CustomToolUseBlock)) for b in resp.content):
+    if refusal_block is not None:
+        effective_stop = STOP_REFUSAL
+    elif effective_stop == STOP_TOOL_USE and not any(isinstance(b, (ToolUseBlock, CustomToolUseBlock)) for b in resp.content):
         effective_stop = STOP_END_TURN
         losses.append(loss("stop_reason", "stop_reason", LOSS_DEGRADED, "tool_use was degraded because the target cannot retain tool calls"))
-    if resp.content and not out["content"]:
+    if resp.content and not out["content"] and effective_stop != STOP_REFUSAL:
         out["content"].append({"type": BLOCK_TYPE_TEXT, "text": ""})
     reason, seq = encode_stop_reason(effective_stop, resp.stop_sequence)
     out["stop_reason"] = reason
     if seq is not None:
         out["stop_sequence"] = seq
+    if effective_stop == STOP_REFUSAL:
+        out["stop_details"] = {
+            "type": "refusal",
+            "category": (refusal_block.category if (refusal_block and refusal_block.category) else None),
+            "explanation": (refusal_block.refusal if (refusal_block and refusal_block.refusal) else None),
+        }
 
     return out, losses
 
@@ -832,6 +859,8 @@ def encode_response_block(
     block: Block,
     path: str,
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
+    if isinstance(block, RefusalBlock):
+        return None, [], False
     if isinstance(block, TextBlock):
         encoded: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         losses = []

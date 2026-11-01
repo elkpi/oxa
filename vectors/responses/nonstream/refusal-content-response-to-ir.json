@@ -1,0 +1,44 @@
+{
+  "name": "responses.nonstream.refusal-content-response-to-ir",
+  "description": "Responses output refusal content part decodes to IR RefusalBlock with stop_reason refusal.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_refusal_1",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_ref_1",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "refusal",
+            "refusal": "I cannot fulfill this request."
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 10, "output_tokens": 8, "total_tokens": 18 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_refusal_1",
+    "model": "gpt-4o-mini",
+    "content": [
+      {
+        "type": "refusal",
+        "refusal": "I cannot fulfill this request."
+      }
+    ],
+    "stop_reason": "refusal",
+    "usage": { "input_tokens": 10, "output_tokens": 8 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "refusal", "n-r-20"]
+}

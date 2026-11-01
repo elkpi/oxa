@@ -164,6 +164,10 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 		return json.Marshal(wireToolResultBlock{
 			Type: BlockTypeToolResult, ToolUseID: v.ToolUseID, Content: content, IsError: v.IsError,
 		})
+	case RefusalBlock:
+		return json.Marshal(wireRefusalBlock{
+			Type: BlockTypeRefusal, Refusal: v.Refusal, Category: v.Category,
+		})
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
 	}
@@ -290,6 +294,12 @@ func UnmarshalBlock(data []byte) (Block, error) {
 		return ToolResultBlock{
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError,
 		}, nil
+	case BlockTypeRefusal:
+		var w wireRefusalBlock
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return RefusalBlock{Refusal: w.Refusal, Category: w.Category}, nil
 	default:
 		if head.Type == BlockTypeWebSearchCall {
 			return unmarshalWebSearchCall(data)
@@ -458,6 +468,13 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			IsError   bool               `json:"is_error,omitempty"`
 			Native    []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeToolResult, v.ToolUseID, content, v.IsError, v.Native})
+	case RefusalBlock:
+		return json.Marshal(struct {
+			Type     string             `json:"type"`
+			Refusal  string             `json:"refusal"`
+			Category string             `json:"category,omitempty"`
+			Native   []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeRefusal, v.Refusal, v.Category, v.Native})
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
 	}
@@ -644,6 +661,16 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 		return ToolResultBlock{
 			ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError, Native: w.Native,
 		}, nil
+	case BlockTypeRefusal:
+		var w struct {
+			Refusal  string             `json:"refusal"`
+			Category string             `json:"category,omitempty"`
+			Native   []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		return RefusalBlock{Refusal: w.Refusal, Category: w.Category, Native: w.Native}, nil
 	default:
 		if head.Type == BlockTypeWebSearchCall {
 			return unmarshalWebSearchCall(data)
@@ -753,6 +780,12 @@ func (p *wireParams) UnmarshalJSON(data []byte) error {
 	}
 	*p = wireParams(decoded)
 	return nil
+}
+
+type wireRefusalBlock struct {
+	Type     string `json:"type"`
+	Refusal  string `json:"refusal"`
+	Category string `json:"category,omitempty"`
 }
 
 func validVerbosity(value string) bool {

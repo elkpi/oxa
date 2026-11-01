@@ -801,6 +801,16 @@ function decodeResponseObject(
           content[child],
           `output[${index}].content[${child}]`,
         );
+        if (part.type === "refusal") {
+          texts.push({
+            type: "refusal",
+            refusal: string(
+              part.refusal,
+              `output[${index}].content[${child}].refusal`,
+            ),
+          });
+          continue;
+        }
         if (part.type !== "output_text") {
           losses.push(
             loss(
@@ -981,9 +991,27 @@ function decodeResponseObject(
   }
   const status = string(wire.status, "status");
   let stopReason: Response["stop_reason"];
+  const hasRefusal = texts.some((b) => b.type === "refusal");
   if (wire.error !== undefined && wire.error !== null) {
-    stopReason = "other";
-    losses.push(loss("error", "error", "unsupported-semantic"));
+    const errObj = object(wire.error, "error");
+    if (errObj.code === "refusal") {
+      stopReason = "refusal";
+      if (
+        !hasRefusal &&
+        typeof errObj.message === "string" &&
+        errObj.message !== ""
+      ) {
+        texts.push({
+          type: "refusal",
+          refusal: errObj.message,
+        });
+      }
+    } else {
+      stopReason = "other";
+      losses.push(loss("error", "error", "unsupported-semantic"));
+    }
+  } else if (hasRefusal) {
+    stopReason = "refusal";
   } else if (status === "completed") {
     stopReason = calls.some(
       (block) =>
@@ -1074,13 +1102,33 @@ export function encodeRequest(
     if (message.role === "assistant") {
       let text = "";
       let hasText = false;
+      let hasRefusal = false;
+      const parts: JsonValue[] = [];
       const thinking: string[] = [];
       const calls: JsonValue[] = [];
       for (let child = 0; child < message.content.length; child += 1) {
         const block = message.content[child]!;
-        if (block.type === "text") {
+        if (block.type === "refusal") {
+          hasRefusal = true;
+          if (block.category) {
+            losses.push({
+              path: `messages[${index}].content[${child}].category`,
+              field: "category",
+              reason: "unsupported-semantic",
+              detail: "Anthropic refusal category has no Responses equivalent",
+            });
+          }
+          parts.push({
+            type: "refusal",
+            refusal: block.refusal,
+          });
+        } else if (block.type === "text") {
           text += block.text;
           hasText = true;
+          parts.push({
+            type: "output_text",
+            text: block.text,
+          });
           if (block.citations && block.citations.length > 0) {
             let hasAnthropic = false;
             let hasOpenAI = false;
@@ -1182,7 +1230,11 @@ export function encodeRequest(
           })),
         });
       }
-      if (hasText) items.push({ role: "assistant", content: text });
+      if (hasRefusal) {
+        items.push({ role: "assistant", content: parts });
+      } else if (hasText) {
+        items.push({ role: "assistant", content: text });
+      }
       items.push(...calls);
       continue;
     }
@@ -1306,9 +1358,24 @@ export function encodeResponse(
   const calls: JsonValue[] = [];
   let apcIndex = 0;
   let apcoIndex = 0;
+  let refusalMsg: string | undefined;
   for (let index = 0; index < response.content.length; index += 1) {
     const block = response.content[index]!;
-    if (block.type === "text") {
+    if (block.type === "refusal") {
+      if (block.category) {
+        losses.push({
+          path: `content[${index}].category`,
+          field: "category",
+          reason: "unsupported-semantic",
+          detail: "Anthropic refusal category has no Responses equivalent",
+        });
+      }
+      textParts.push({
+        type: "refusal",
+        refusal: block.refusal,
+      });
+      if (!refusalMsg) refusalMsg = block.refusal;
+    } else if (block.type === "text") {
       const partAnnotations: JsonValue[] = [];
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
@@ -1454,7 +1521,7 @@ export function encodeResponse(
       break;
     case "refusal":
       status = "failed";
-      error = { code: "refusal", message: "" };
+      error = { code: "refusal", message: refusalMsg ?? "" };
       break;
     default:
       fail(`stop reason ${response.stop_reason} is unsupported`);
@@ -1811,6 +1878,27 @@ function decodeContent(
           media_type: mediaType,
         });
       }
+    } else if (part.type === "refusal") {
+      if (part.refusal === undefined || typeof part.refusal !== "string") {
+        throw new OxaError(
+          "type-violation",
+          `responses: ${path}[${index}].refusal must be a string`,
+        );
+      }
+      if (isUser) {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "type",
+          reason: "unsupported-semantic",
+          detail:
+            'Responses content part type "refusal" has no IR equivalent in user messages',
+        });
+        continue;
+      }
+      blocks.push({
+        type: "refusal",
+        refusal: part.refusal,
+      });
     } else
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
   }

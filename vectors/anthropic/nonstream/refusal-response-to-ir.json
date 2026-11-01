@@ -1,0 +1,38 @@
+{
+  "name": "anthropic.nonstream.refusal-response-to-ir",
+  "description": "Anthropic refusal with stop_details maps to RefusalBlock with category and explanation.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "anthropic" },
+  "input": {
+    "id": "msg_refusal_1",
+    "type": "message",
+    "role": "assistant",
+    "model": "claude-sonnet-4-5",
+    "content": [],
+    "stop_reason": "refusal",
+    "stop_details": {
+      "type": "refusal",
+      "category": "cyber",
+      "explanation": "This request was declined because it could enable cyber harm."
+    },
+    "usage": { "input_tokens": 12, "output_tokens": 0 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "msg_refusal_1",
+    "model": "claude-sonnet-4-5",
+    "content": [
+      {
+        "type": "refusal",
+        "refusal": "This request was declined because it could enable cyber harm.",
+        "category": "cyber"
+      }
+    ],
+    "stop_reason": "refusal",
+    "usage": { "input_tokens": 12, "output_tokens": 0 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "refusal", "n-an-20"]
+}

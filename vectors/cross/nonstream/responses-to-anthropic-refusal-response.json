@@ -1,0 +1,46 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-refusal-response",
+  "description": "Cross-protocol: Responses refusal converts to Anthropic stop_details with null category.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "id": "resp_ref_cross_3",
+    "object": "response",
+    "status": "completed",
+    "model": "gpt-4o-mini",
+    "output": [
+      {
+        "type": "message",
+        "id": "msg_ref_3",
+        "status": "completed",
+        "role": "assistant",
+        "content": [
+          {
+            "type": "refusal",
+            "refusal": "I cannot fulfill this request."
+          }
+        ]
+      }
+    ],
+    "usage": { "input_tokens": 10, "output_tokens": 8, "total_tokens": 18 }
+  },
+  "expected_output": {
+    "id": "resp_ref_cross_3",
+    "type": "message",
+    "role": "assistant",
+    "model": "gpt-4o-mini",
+    "content": [],
+    "stop_reason": "refusal",
+    "stop_details": {
+      "type": "refusal",
+      "category": null,
+      "explanation": "I cannot fulfill this request."
+    },
+    "usage": { "input_tokens": 10, "output_tokens": 8 }
+  },
+  "expected_losses": [],
+  "tags": ["cross", "response", "refusal", "n-r-20", "n-an-20"]
+}

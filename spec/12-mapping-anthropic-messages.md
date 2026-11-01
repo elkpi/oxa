@@ -394,6 +394,30 @@ Each rule has a stable ID usable as a vector tag.
   - **Cross-face.** These native request options are omitted at OpenAI faces and report `unmapped-field` losses
     per spec/15 §5.
 
+- **N-AN-20 (refusal stop reason and stop details, since 2.5.0).** Anthropic Messages represents
+  model refusals via `stop_reason: "refusal"` and an accompanying `stop_details` object.
+  - **Decode.** When `stop_reason == "refusal"`:
+    - If `stop_details` is an object with `type == "refusal"`, its `explanation` (string or null)
+      and `category` (string or null) are extracted. If `explanation` is present and non-empty,
+      it decodes to `RefusalBlock{Refusal: *explanation, Category: category}` appended to `Response.Content`.
+      If `explanation` is absent or null, but `category` is non-empty, it decodes to
+      `RefusalBlock{Refusal: "", Category: category}`.
+    - If `stop_details` is null or absent, but `stop_reason == "refusal"`, `Response.StopReason`
+      is `refusal` (with no refusal content block).
+  - **Encode.** In response encoding, when `Response.StopReason == "refusal"` or `Response.Content`
+    contains a `RefusalBlock`:
+    - `stop_reason` renders as `"refusal"`.
+    - If a `RefusalBlock` exists in `Response.Content`, the block is omitted from wire `content[]`
+      and its fields render onto `stop_details`:
+      `{"type": "refusal", "category": b.Category || null, "explanation": b.Refusal || null}`.
+      If multiple `RefusalBlock`s exist, subsequent refusal blocks record an `unsupported-semantic` loss.
+    - If no `RefusalBlock` exists in `Response.Content`, `stop_details` renders
+      `{"type": "refusal", "category": null, "explanation": null}`.
+    - Wire `content[]` retains all remaining supported blocks (or renders `[]` if empty).
+  - **Request Encode.** In request history, Anthropic Messages does not accept refusal content blocks.
+    A `RefusalBlock` in request messages records an `unsupported-semantic` loss at `messages[i].content[j]`
+    (detail: `"Anthropic does not support refusal content blocks in request history"`).
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and

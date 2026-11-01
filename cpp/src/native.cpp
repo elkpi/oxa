@@ -234,6 +234,9 @@ struct BlockValidator {
     Status operator()(const ApplyPatchToolResultBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
+    Status operator()(const RefusalBlock& b) const {
+        return validate_annotations(b.native, host, path);
+    }
     Status operator()(const ToolResultBlock& b) const {
         auto st = validate_annotations(b.native, host, path);
         if (!st.ok()) return st;
@@ -557,6 +560,11 @@ struct BlockOmissionCollector {
         }
     }
     void operator()(const ApplyPatchToolResultBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
+        }
+    }
+    void operator()(const RefusalBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }

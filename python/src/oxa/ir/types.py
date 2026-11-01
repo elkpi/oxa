@@ -18,6 +18,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_APPLY_PATCH_TOOL_USE,
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
     BLOCK_TYPE_WEB_SEARCH_CALL,
+    BLOCK_TYPE_REFUSAL,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
@@ -263,6 +264,20 @@ class WebSearchCallBlock:
     type: str = field(default=BLOCK_TYPE_WEB_SEARCH_CALL, init=False)
 
 
+@dataclass(frozen=True, slots=True)
+class RefusalBlock:
+    """A model refusal content block (spec/01 §3.4, since 2.5.0)."""
+
+    refusal: str
+    category: str | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+    type: str = field(default=BLOCK_TYPE_REFUSAL, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
+
+
 Block = (
     TextBlock
     | ThinkingBlock
@@ -276,6 +291,7 @@ Block = (
     | ApplyPatchToolUseBlock
     | ApplyPatchToolResultBlock
     | WebSearchCallBlock
+    | RefusalBlock
 )
 SystemBlock = TextBlock
 

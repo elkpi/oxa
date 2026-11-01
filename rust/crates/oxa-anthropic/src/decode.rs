@@ -410,6 +410,21 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     if let Some(stop_loss) = stop_loss {
         losses.push(stop_loss);
     }
+    if stop == StopReason::Refusal
+        && let Some(ref details) = wire.stop_details
+        && details.kind == "refusal"
+    {
+        let expl = details.explanation.as_deref().unwrap_or_default();
+        let has_expl = !expl.is_empty();
+        let has_cat = details.category.as_deref().is_some_and(|c| !c.is_empty());
+        if has_expl || has_cat {
+            content.push(oxa_ir::Block::Refusal {
+                refusal: expl.to_string(),
+                category: details.category.clone().filter(|c| !c.is_empty()),
+                native: Vec::new(),
+            });
+        }
+    }
     let resp = IrResponse {
         id: wire.id.clone(),
         model: config.map_model(&wire.model),

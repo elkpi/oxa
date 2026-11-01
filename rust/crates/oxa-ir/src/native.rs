@@ -523,7 +523,8 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
         | Block::ToolUse { native, .. }
         | Block::CustomToolUse { native, .. }
         | Block::ApplyPatchToolUse { native, .. }
-        | Block::ApplyPatchToolResult { native, .. } => {
+        | Block::ApplyPatchToolResult { native, .. }
+        | Block::Refusal { native, .. } => {
             validate_annotations(native, host, path)?;
         }
         Block::ToolResult {
@@ -626,7 +627,8 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
         | Block::ToolUse { native, .. }
         | Block::CustomToolUse { native, .. }
         | Block::ApplyPatchToolUse { native, .. }
-        | Block::ApplyPatchToolResult { native, .. } => (native, None),
+        | Block::ApplyPatchToolResult { native, .. }
+        | Block::Refusal { native, .. } => (native, None),
         Block::ToolResult {
             native, content, ..
         } => (native, Some(content.as_slice())),

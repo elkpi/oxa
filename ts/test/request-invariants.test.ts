@@ -501,5 +501,11 @@ function blockDocument(block: Block): JsonObject {
         type: "redacted_thinking",
         data: block.data,
       };
+    case "refusal":
+      return {
+        type: "refusal",
+        refusal: block.refusal,
+        ...(block.category === undefined ? {} : { category: block.category }),
+      };
   }
 }

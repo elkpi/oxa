@@ -299,6 +299,13 @@ const RESPONSE: WireAuditSpec = {
     content: { items: RESPONSE_BLOCK },
     stop_reason: undefined,
     stop_sequence: undefined,
+    stop_details: {
+      fields: {
+        type: undefined,
+        category: undefined,
+        explanation: undefined,
+      },
+    },
     usage: USAGE,
   },
 };

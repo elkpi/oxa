@@ -302,6 +302,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
         "message" => Some(&[
             ("role", ""),
             ("content", "part[]"),
+            ("refusal", ""),
             ("reasoning_content", ""),
             ("tool_calls", "tool_call[]"),
             ("tool_call_id", ""),

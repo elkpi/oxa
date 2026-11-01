@@ -281,6 +281,19 @@ function decodeRequestObject(
         `messages[${index}].tool_calls`,
         losses,
       );
+      if (message.refusal !== undefined && message.refusal !== null) {
+        if (typeof message.refusal !== "string") {
+          fail(`messages[${index}].refusal must be a string`);
+        }
+        if (message.refusal !== "") {
+          if (message.content === null) {
+            content = content.filter(
+              (block) => block.type !== "text" || block.text !== "",
+            );
+          }
+          content.push({ type: "refusal", refusal: message.refusal });
+        }
+      }
       if (message.content === null && calls.length > 0)
         content = content.filter(
           (block) => block.type !== "text" || block.text !== "",
@@ -476,6 +489,19 @@ function decodeResponseObject(
     "choices[0].message.tool_calls",
     losses,
   );
+  if (message.refusal !== undefined && message.refusal !== null) {
+    if (typeof message.refusal !== "string") {
+      fail("choices[0].message.refusal must be a string");
+    }
+    if (message.refusal !== "") {
+      if (message.content === null) {
+        content = content.filter(
+          (block) => block.type !== "text" || block.text !== "",
+        );
+      }
+      content.push({ type: "refusal", refusal: message.refusal });
+    }
+  }
   if (message.content === null && calls.length > 0)
     content = content.filter(
       (block) => block.type !== "text" || block.text !== "",
@@ -1164,11 +1190,35 @@ function encodeAssistant(
   losses: Loss[],
 ): JsonObject {
   let content = "";
+  let hasText = false;
+  let refusal: string | undefined;
   let reasoning: string | undefined;
   const toolCalls: JsonValue[] = [];
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
-    if (block.type === "text") {
+    if (block.type === "refusal") {
+      if (refusal === undefined) {
+        refusal = block.refusal;
+        if (block.category) {
+          losses.push({
+            path: `${path}[${index}].category`,
+            field: "category",
+            reason: "unsupported-semantic",
+            detail:
+              "Anthropic refusal category has no Chat Completions equivalent",
+          });
+        }
+      } else {
+        losses.push({
+          path: `${path}[${index}]`,
+          field: "refusal",
+          reason: "unsupported-semantic",
+          detail:
+            "Chat Completions supports only a single refusal; subsequent refusal block dropped",
+        });
+      }
+    } else if (block.type === "text") {
+      hasText = true;
       content += block.text;
       if (block.citations && block.citations.length > 0) {
         let hasAnthropic = false;
@@ -1243,7 +1293,8 @@ function encodeAssistant(
   }
   return {
     role: "assistant",
-    content,
+    content: !hasText && refusal !== undefined ? null : content,
+    ...(refusal === undefined ? {} : { refusal }),
     ...(reasoning === undefined ? {} : { reasoning_content: reasoning }),
     ...(toolCalls.length === 0 ? {} : { tool_calls: toolCalls }),
   };

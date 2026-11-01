@@ -67,6 +67,14 @@ pub(crate) fn decode_content(
             }
             Ok((blocks, losses))
         }
+        ContentValue::Null(_) => Ok((
+            vec![Block::Text {
+                text: String::new(),
+                citations: None,
+                native: Vec::new(),
+            }],
+            Vec::new(),
+        )),
     }
 }
 
@@ -844,9 +852,33 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 LossReason::UnsupportedSemantic,
                 "IR apply_patch_tool_result block cannot be rendered in a Chat Completions assistant message",
             )),
+            Block::Refusal { refusal, category, .. } => {
+                if out.refusal.is_none() {
+                    out.refusal = Some(refusal.clone());
+                    if category.is_some() {
+                        losses.push(loss(
+                            format!("{path}[{index}].category"),
+                            "category",
+                            LossReason::UnsupportedSemantic,
+                            "Anthropic refusal category has no Chat Completions equivalent",
+                        ));
+                    }
+                } else {
+                    losses.push(loss(
+                        format!("{path}[{index}]"),
+                        "refusal",
+                        LossReason::UnsupportedSemantic,
+                        "Chat Completions supports only a single refusal; subsequent refusal block dropped",
+                    ));
+                }
+            }
         }
     }
-    out.content = Some(ContentValue::Text(text));
+    if out.refusal.is_some() && text.is_empty() {
+        out.content = Some(ContentValue::Null(()));
+    } else {
+        out.content = Some(ContentValue::Text(text));
+    }
     if has_reasoning {
         out.reasoning_content = Some(reasoning);
     }

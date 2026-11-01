@@ -661,8 +661,38 @@ def encode_response(
     return out, losses
 
 
+def _system_block_breakpoint(block):
+    for ann in getattr(block, "native", ()):
+        if ann.source == "openai" and ann.kind == "prompt_cache_breakpoint":
+            return json.loads(ann.value)
+    return None
+
+
 def _encode_system_instructions(blocks):
     has_developer = any(getattr(block, "role", "") == "developer" for block in blocks)
+    has_breakpoint = any(
+        _system_block_breakpoint(block) is not None for block in blocks
+    )
+    if has_breakpoint:
+        # Breakpoints cannot survive the instructions string; render every
+        # block as its own input item (spec/15 §3.7 shorthand protection).
+        items = []
+        for block in blocks:
+            role = "developer" if getattr(block, "role", "") == "developer" else "system"
+            pcb = _system_block_breakpoint(block)
+            content = (
+                [
+                    {
+                        "type": "input_text",
+                        "text": block.text,
+                        "prompt_cache_breakpoint": pcb,
+                    }
+                ]
+                if pcb is not None
+                else block.text
+            )
+            items.append({"role": role, "content": content})
+        return None, items
     if not has_developer:
         return "".join(block.text for block in blocks), []
     index = 0

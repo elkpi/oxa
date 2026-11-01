@@ -332,8 +332,22 @@ def validate_annotations(
                     raise CodecError(f"invalid prompt_cache_breakpoint {parsed_json!r}")
 
 
+_BREAKPOINT_ALLOWED_BLOCK_TYPES = ("text", "image", "document")
+
+
 def validate_block_native(blk: Any, host: HostType, path: str) -> None:
-    validate_annotations(getattr(blk, "native", ()), host, path)
+    native = getattr(blk, "native", ())
+    validate_annotations(native, host, path)
+    blk_type = getattr(blk, "type", None)
+    if blk_type is not None and blk_type not in _BREAKPOINT_ALLOWED_BLOCK_TYPES:
+        for i, ann in enumerate(native):
+            if (
+                ann.source == NATIVE_SOURCE_OPENAI
+                and ann.kind == NATIVE_KIND_PROMPT_CACHE_BREAKPOINT
+            ):
+                raise CodecError(
+                    f"ir: {path}.native[{i}]: openai prompt_cache_breakpoint is only allowed on text, image, or document blocks"
+                )
 
     # Check child blocks for ToolResultBlock and CustomToolResultBlock
     content = getattr(blk, "content", None)

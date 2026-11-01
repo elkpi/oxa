@@ -116,6 +116,34 @@ def decode_content(
     return [], []
 
 
+def _validate_prompt_cache_options_fields(obj: dict, name: str) -> None:
+    """Validates known prompt_cache_options attributes (spec/15 §3.7)."""
+    if "mode" in obj:
+        if not isinstance(obj["mode"], str):
+            raise TypeError(f"{name}.mode must be a string")
+        if obj["mode"] not in ("implicit", "explicit"):
+            raise ValueError(f"{name}.mode must be 'implicit' or 'explicit'")
+    if "ttl" in obj:
+        if not isinstance(obj["ttl"], str):
+            raise TypeError(f"{name}.ttl must be a string")
+        if obj["ttl"] != "30m":
+            raise ValueError(f"{name}.ttl must be '30m'")
+
+
+def _validate_prompt_cache_breakpoint_fields(obj: dict, name: str) -> None:
+    """Validates known prompt_cache_breakpoint attributes (spec/15 §3.7)."""
+    if "mode" in obj:
+        if not isinstance(obj["mode"], str):
+            raise TypeError(f"{name}.mode must be a string")
+        if obj["mode"] != "explicit":
+            raise ValueError(f"{name}.mode must be 'explicit'")
+    if "ttl" in obj:
+        if not isinstance(obj["ttl"], str):
+            raise TypeError(f"{name}.ttl must be a string")
+        if obj["ttl"] not in ("30m", "12h"):
+            raise ValueError(f"{name}.ttl must be '30m' or '12h'")
+
+
 def decode_content_part(
     part: dict[str, Any], path: str, index: int, is_user: bool = True
 ) -> tuple[list[Block], list[Loss]]:
@@ -124,6 +152,9 @@ def decode_content_part(
         pcb = part["prompt_cache_breakpoint"]
         if not isinstance(pcb, dict):
             raise TypeError(f"responses: {path}[{index}].prompt_cache_breakpoint must be an object")
+        _validate_prompt_cache_breakpoint_fields(
+            pcb, f"responses: {path}[{index}].prompt_cache_breakpoint"
+        )
         pcb_ann = NativeAnnotation(
             source=NATIVE_SOURCE_OPENAI,
             kind=NATIVE_KIND_PROMPT_CACHE_BREAKPOINT,

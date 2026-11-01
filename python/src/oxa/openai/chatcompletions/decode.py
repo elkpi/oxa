@@ -70,6 +70,8 @@ from oxa.openai.chatcompletions.constants import (
     TOOL_TYPE_FUNCTION,
 )
 from oxa.openai.chatcompletions.normalize import (
+    _validate_prompt_cache_breakpoint_fields,
+    _validate_prompt_cache_options_fields,
     content_system,
     decode_content,
     decode_tool_calls,
@@ -384,6 +386,8 @@ def decode_request(
         pco = wire["prompt_cache_options"]
         if pco is not None and not isinstance(pco, dict):
             raise ValueError("chatcompletions: prompt_cache_options must be an object or null")
+        if pco is not None:
+            _validate_prompt_cache_options_fields(pco, "chatcompletions: prompt_cache_options")
         native.append(
             NativeAnnotation(
                 source="openai",

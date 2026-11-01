@@ -24,7 +24,7 @@ from oxa.ir import (
 )
 from oxa.modelmap import Table
 
-__version__ = "2.4.13"
+__version__ = "2.5.0"
 
 __all__ = [
     "__version__",

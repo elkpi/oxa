@@ -15,6 +15,7 @@ from oxa.ir import (
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
     STREAM_OPTIONS_LOSS_DETAIL,
+    PROMPT_CACHE_KEY_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     STOP_END_TURN,
@@ -361,6 +362,22 @@ def decode_request(
                     value="null",
                 )
             )
+    if "prompt_cache_key" in wire:
+        pck = wire["prompt_cache_key"]
+        if not isinstance(pck, str):
+            raise ValueError("chatcompletions: prompt_cache_key must be a string")
+        native.append(
+            NativeAnnotation(
+                source="openai",
+                kind="prompt_cache_key",
+                value=json.dumps(pck),
+                omission=NativeOmission(
+                    field="prompt_cache_key",
+                    reason=LOSS_UNMAPPED_FIELD,
+                    detail=PROMPT_CACHE_KEY_LOSS_DETAIL,
+                ),
+            )
+        )
 
     verbosity = decode_verbosity(wire.get("verbosity"), "verbosity", losses)
     reasoning_effort = decode_reasoning_effort(wire.get("reasoning_effort"), losses)

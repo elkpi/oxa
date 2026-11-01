@@ -17,6 +17,7 @@ import {
   validateRequest,
   omittedNativeRequestLosses,
   STREAM_OPTIONS_LOSS_DETAIL,
+  PROMPT_CACHE_KEY_LOSS_DETAIL,
   type NativeAnnotation,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
@@ -423,6 +424,21 @@ function decodeRequestObject(
       });
     }
   }
+  if (wire.prompt_cache_key !== undefined) {
+    if (typeof wire.prompt_cache_key !== "string") {
+      fail("chatcompletions: prompt_cache_key must be a string");
+    }
+    native.push({
+      source: "openai",
+      kind: "prompt_cache_key",
+      value: JSON.stringify(wire.prompt_cache_key),
+      omission: {
+        field: "prompt_cache_key",
+        reason: "unmapped-field",
+        detail: PROMPT_CACHE_KEY_LOSS_DETAIL,
+      },
+    });
+  }
 
   const responseFormat = decodeResponseFormat(wire.response_format, losses);
   const params = {
@@ -767,6 +783,9 @@ export function encodeRequest(
   const streamOptionsAnn = request.native?.find(
     (n) => n.source === "openai" && n.kind === "stream_options",
   );
+  const promptCacheKeyAnn = request.native?.find(
+    (n) => n.source === "openai" && n.kind === "prompt_cache_key",
+  );
 
   let storeVal: boolean | null | undefined = undefined;
   if (storeAnn) {
@@ -795,6 +814,15 @@ export function encodeRequest(
         (typeof parsed === "object" && !Array.isArray(parsed))
       ) {
         streamOptionsVal = parsed as JsonValue;
+      }
+    } catch {}
+  }
+  let promptCacheKeyVal: string | undefined = undefined;
+  if (promptCacheKeyAnn) {
+    try {
+      const parsed = JSON.parse(promptCacheKeyAnn.value);
+      if (typeof parsed === "string") {
+        promptCacheKeyVal = parsed;
       }
     } catch {}
   }
@@ -849,6 +877,9 @@ export function encodeRequest(
     ...(parallelToolCalls === undefined
       ? {}
       : { parallel_tool_calls: parallelToolCalls }),
+    ...(promptCacheKeyVal !== undefined
+      ? { prompt_cache_key: promptCacheKeyVal }
+      : {}),
     ...(request.metadata === undefined ? {} : { metadata: request.metadata }),
   };
   const omissionLosses = omittedNativeRequestLosses(request, "chatcompletions");

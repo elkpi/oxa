@@ -1,0 +1,39 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-anthropic-prompt-cache-key",
+  "description": "Cross encoding from Chat Completions to Anthropic: prompt_cache_key reports unmapped-field loss.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "claude-3-5-sonnet",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "prompt_cache_key": "tenant-42"
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "native[0]",
+      "field": "prompt_cache_key",
+      "reason": "unmapped-field",
+      "detail": "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
+    }
+  ],
+  "tags": ["cross", "request", "chatcompletions", "anthropic", "prompt_cache_key"]
+}

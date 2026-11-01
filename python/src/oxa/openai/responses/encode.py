@@ -368,6 +368,13 @@ def encode_request(
                         out["store"] = val
                 except Exception:
                     pass
+            elif n.source == "openai" and n.kind == "prompt_cache_key":
+                try:
+                    val = json.loads(n.value)
+                    if isinstance(val, str):
+                        out["prompt_cache_key"] = val
+                except Exception:
+                    pass
 
     omission_losses = omitted_native_request_losses(req, "responses")
     for l in omission_losses:

@@ -70,6 +70,13 @@ pub const EVENT_TYPE_RESPONSE_COMPLETED: &str = "response.completed";
 pub const EVENT_TYPE_RESPONSE_INCOMPLETE: &str = "response.incomplete";
 pub const EVENT_TYPE_RESPONSE_FAILED: &str = "response.failed";
 
+fn deserialize_optional_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// A Responses request.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Request {
@@ -116,9 +123,17 @@ pub struct Request {
     #[serde(
         rename = "parallel_tool_calls",
         default,
+        deserialize_with = "deserialize_optional_value",
         skip_serializing_if = "Option::is_none"
     )]
     pub parallel_tool_calls: Option<Value>,
+    #[serde(
+        rename = "prompt_cache_key",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_key: Option<Value>,
 }
 
 /// Responses accepts a string shorthand or an ordered item array as input.

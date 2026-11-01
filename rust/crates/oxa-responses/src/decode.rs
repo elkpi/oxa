@@ -97,6 +97,22 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             }
         }
     }
+    if let Some(val) = &wire.prompt_cache_key {
+        let Some(pck) = val.as_str() else {
+            return Err(Error::new("responses: prompt_cache_key must be a string"));
+        };
+        request.native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_PROMPT_CACHE_KEY.into(),
+            value: serde_json::to_string(pck).map_err(|e| Error::new(e.to_string()))?,
+            omission: Some(oxa_ir::NativeOmission {
+                field: "prompt_cache_key".into(),
+                reason: LossReason::UnmappedField,
+                detail: Some(oxa_ir::PROMPT_CACHE_KEY_LOSS_DETAIL.into()),
+            }),
+            projection: None,
+        });
+    }
     request.tool_choice = choice;
     losses.extend(choice_losses);
 

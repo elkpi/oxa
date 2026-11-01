@@ -27,11 +27,15 @@ export const NATIVE_KIND_MAX_COMPLETION_TOKENS = "max_completion_tokens";
 export const NATIVE_KIND_TOP_K = "top_k";
 export const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE =
   "disable_parallel_tool_use";
+export const NATIVE_KIND_PROMPT_CACHE_KEY = "prompt_cache_key";
 export const NATIVE_SOURCE_ANTHROPIC = "anthropic";
 export const NATIVE_SOURCE_OPENAI = "openai";
 
 export const CACHE_CONTROL_LOSS_DETAIL =
   "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+export const PROMPT_CACHE_KEY_LOSS_DETAIL =
+  "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped";
 
 export const DEFER_LOADING_LOSS_DETAIL =
   "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
@@ -606,6 +610,20 @@ function validateAnnotations(
             );
           }
           break;
+        case NATIVE_KIND_PROMPT_CACHE_KEY:
+          if (host !== "request") {
+            throw new OxaError(
+              "invalid-input",
+              `${path}: openai ${ann.kind} is only allowed on Request`,
+            );
+          }
+          if (typeof parsedJson !== "string") {
+            throw new OxaError(
+              "invalid-input",
+              `invalid prompt_cache_key ${JSON.stringify(parsedJson)}`,
+            );
+          }
+          break;
       }
     }
   }
@@ -807,6 +825,21 @@ function appendOmissionLoss(
             ...(detail ? { detail } : {}),
           });
         }
+        return;
+      }
+      case NATIVE_KIND_PROMPT_CACHE_KEY: {
+        if (target === "chatcompletions" || target === "responses") {
+          return;
+        }
+        const field = ann.omission?.field || "prompt_cache_key";
+        const reason = ann.omission?.reason || "unmapped-field";
+        const detail = ann.omission?.detail || PROMPT_CACHE_KEY_LOSS_DETAIL;
+        losses.push({
+          path,
+          field,
+          reason,
+          ...(detail ? { detail } : {}),
+        });
         return;
       }
       default:

@@ -60,6 +60,8 @@ from oxa.ir.native import (
     NATIVE_KIND_CONTAINER,
     NATIVE_KIND_DEFER_LOADING,
     DEFER_LOADING_LOSS_DETAIL,
+    NATIVE_KIND_PROMPT_CACHE_KEY,
+    PROMPT_CACHE_KEY_LOSS_DETAIL,
 )
 import json
 from oxa.modelmap import Table
@@ -137,6 +139,24 @@ def decode_request(
             tool_choice = ToolChoice(mode=TOOL_CHOICE_AUTO, disable_parallel=dp)
         else:
             tool_choice = replace(tool_choice, disable_parallel=dp)
+
+    native: list[NativeAnnotation] = []
+    if "prompt_cache_key" in wire:
+        pck = wire["prompt_cache_key"]
+        if not isinstance(pck, str):
+            raise TypeError("responses: prompt_cache_key must be a string")
+        native.append(
+            NativeAnnotation(
+                source=NATIVE_SOURCE_OPENAI,
+                kind=NATIVE_KIND_PROMPT_CACHE_KEY,
+                value=json.dumps(pck),
+                omission=NativeOmission(
+                    field="prompt_cache_key",
+                    reason=LOSS_UNMAPPED_FIELD,
+                    detail=PROMPT_CACHE_KEY_LOSS_DETAIL,
+                ),
+            )
+        )
 
     raw_input = wire.get("input")
     if isinstance(raw_input, str):
@@ -298,6 +318,7 @@ def decode_request(
             tool_choice=tool_choice,
             params=params,
             metadata=string_metadata(wire.get("metadata"), "responses"),
+            native=tuple(native) if native else (),
         ),
         losses,
     )

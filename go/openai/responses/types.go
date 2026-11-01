@@ -104,8 +104,9 @@ type Request struct {
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-R-8).
-	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"`
-	Store             *bool `json:"store,omitempty"`
+	ParallelToolCalls *bool   `json:"parallel_tool_calls,omitempty"`
+	Store             *bool   `json:"store,omitempty"`
+	PromptCacheKey    *string `json:"prompt_cache_key,omitempty"`
 }
 
 func (r *Request) UnmarshalJSON(data []byte) error {
@@ -120,6 +121,9 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	}
 	if rawPTC, ok := rawFields["parallel_tool_calls"]; ok && strings.TrimSpace(string(rawPTC)) == "null" {
 		return fmt.Errorf("responses: parallel_tool_calls must be a boolean")
+	}
+	if rawPCK, ok := rawFields["prompt_cache_key"]; ok && strings.TrimSpace(string(rawPCK)) == "null" {
+		return fmt.Errorf("responses: prompt_cache_key must be a string")
 	}
 	*r = Request(s)
 	return nil

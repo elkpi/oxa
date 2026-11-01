@@ -532,6 +532,27 @@ func encodeRequestNative(req *ir.Request, wire *Request) ([]ir.Loss, error) {
 						Detail: detail,
 					})
 				}
+			case ir.NativeKindPromptCacheKey:
+				field := "prompt_cache_key"
+				reason := ir.LossUnmappedField
+				detail := ir.PromptCacheKeyLossDetail
+				if n.Omission != nil {
+					if n.Omission.Field != "" {
+						field = n.Omission.Field
+					}
+					if n.Omission.Reason != "" {
+						reason = n.Omission.Reason
+					}
+					if n.Omission.Detail != "" {
+						detail = n.Omission.Detail
+					}
+				}
+				losses = append(losses, ir.Loss{
+					Path:   fmt.Sprintf("native[%d]", i),
+					Field:  field,
+					Reason: reason,
+					Detail: detail,
+				})
 			default:
 				if n.Omission != nil {
 					losses = append(losses, ir.Loss{

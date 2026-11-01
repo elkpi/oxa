@@ -39,7 +39,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 73);
+    CHECK(rep_res->executed == 75);
 
     auto wire = oxa::json::parse(R"({
         "model":"gpt-4o",
@@ -64,6 +64,20 @@ int main() {
         auto encoded = oxa::openai::chatcompletions::encode_request(decoded->value);
         CHECK(encoded.ok());
         if (encoded.ok()) CHECK(oxa::json::structurally_equal(*wire, encoded->value));
+    }
+    {
+        auto wire = oxa::json::parse(R"({
+            "model":"gpt-4o",
+            "messages":[{"role":"user","content":"hi"}],
+            "store":true,
+            "prompt_cache_key":"tenant-42"
+        })");
+        CHECK(wire.ok());
+        auto decoded = oxa::openai::chatcompletions::decode_request(*wire);
+        CHECK(decoded.ok());
+        CHECK(decoded->value.native.size() == 2);
+        CHECK(decoded->value.native[0].kind == "store");
+        CHECK(decoded->value.native[1].kind == "prompt_cache_key");
     }
     std::printf("test_chatcompletions: all %zu vectors passed\n", rep_res->executed);
     return 0;

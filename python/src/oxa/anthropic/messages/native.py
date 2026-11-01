@@ -30,6 +30,7 @@ from oxa.ir.native import (
     CACHE_CONTROL_LOSS_DETAIL,
     DEFER_LOADING_LOSS_DETAIL,
     STREAM_OPTIONS_LOSS_DETAIL,
+    PROMPT_CACHE_KEY_LOSS_DETAIL,
     NativeAnnotation,
     NativeOmission,
     NativeProjection,
@@ -464,6 +465,12 @@ def encode_request_native(req: Request, wire: dict[str, Any]) -> list[Loss]:
                         losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
                 except Exception:
                     pass
+                continue
+            if n.kind == "prompt_cache_key":
+                field = n.omission.field if n.omission and n.omission.field else "prompt_cache_key"
+                reason = n.omission.reason if n.omission and n.omission.reason else LOSS_UNMAPPED_FIELD
+                detail = n.omission.detail if n.omission and n.omission.detail else PROMPT_CACHE_KEY_LOSS_DETAIL
+                losses.append(Loss(path=f"native[{i}]", field=field, reason=reason, detail=detail))
                 continue
             if n.omission:
                 losses.append(Loss(path=f"native[{i}]", field=n.omission.field, reason=n.omission.reason, detail=n.omission.detail or ""))

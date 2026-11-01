@@ -48,6 +48,11 @@ const (
 	NativeKindMaxCompletionTokens    = "max_completion_tokens"
 	NativeKindTopK                   = "top_k"
 	NativeKindDisableParallelToolUse = "disable_parallel_tool_use"
+	NativeKindPromptCacheKey         = "prompt_cache_key"
+)
+
+const (
+	PromptCacheKeyLossDetail = "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
 )
 
 const (
@@ -425,6 +430,14 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 						}
 					}
 				}
+			case NativeKindPromptCacheKey:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+				var str *string
+				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil || str == nil {
+					return fmt.Errorf("invalid prompt_cache_key %s", ann.Value)
+				}
 			case NativeKindContainer:
 				if host != hostTool {
 					return fmt.Errorf("openai container is only allowed on Tool")
@@ -669,6 +682,30 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 				})
 			}
 			return losses
+		case NativeKindPromptCacheKey:
+			if target == "chatcompletions" || target == "responses" {
+				return losses
+			}
+			field := "prompt_cache_key"
+			reason := LossUnmappedField
+			detail := PromptCacheKeyLossDetail
+			if ann.Omission != nil {
+				if ann.Omission.Field != "" {
+					field = ann.Omission.Field
+				}
+				if ann.Omission.Reason != "" {
+					reason = ann.Omission.Reason
+				}
+				if ann.Omission.Detail != "" {
+					detail = ann.Omission.Detail
+				}
+			}
+			return append(losses, Loss{
+				Path:   path,
+				Field:  field,
+				Reason: reason,
+				Detail: detail,
+			})
 		default:
 			if target == "responses" {
 				return losses

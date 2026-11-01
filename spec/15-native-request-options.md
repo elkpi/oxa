@@ -51,6 +51,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `Request` | `store` | `store`（`true` / `false`，OpenAI 2.4.10） |
 | `Request` | `stream` | `stream`（`true` / `false`，OpenAI 2.4.10 传输标记） |
 | `Request` | `stream_options` | `stream_options`（OpenAI 2.4.10 流式配置） |
+| `Request` | `prompt_cache_key` | `prompt_cache_key`（OpenAI 2.5.0） |
 | `DocumentBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_title` | `messages[i].content[j].title`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
@@ -157,6 +158,11 @@ Anthropic `document` 内容块（spec/12 N-AN-16）的文档级选项 `title`、
   - 未知属性审计：若包含未知子属性，针对该未知路径（如 `stream_options.extra`）产生精确的 `unmapped-field` 报损。
   - 跨面转换：当编码至无法输出独立的终止前 usage chunk 的目标面时，产生一条 `degraded` 损失（`field: "stream_options"`，`detail: "target does not emit the requested final usage chunk"`）。
   - 同面回转：编码回 Chat Completions 时完整恢复 wire 上的 `"stream_options"` 对象。
+- **`prompt_cache_key`（Prompt 缓存分区键，规范 2.5.0）**：
+  - 取值规则：必须为字符串。缺失不生成注解；显式 `null` 或非字符串作为结构错误（error）拒绝。
+  - 保留方式：`NativeAnnotation{Source: "openai", Kind: "prompt_cache_key", Value: <serialized JSON string>}`。
+  - 同面与 OpenAI 家族回转：编码回 Chat Completions 或 Responses 时无损恢复 `"prompt_cache_key": string`，0 loss。
+  - 跨面转换（Anthropic）：编码至 Anthropic 时无法承载，在 `OmittedNativeRequestLosses` 中记录一条 `unmapped-field` 损失（`field: "prompt_cache_key"`，`detail: "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"`）。
 
 ## 4. 跨协议遗漏报损 — N-NAT-4
 

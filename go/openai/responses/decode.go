@@ -100,6 +100,22 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			req.ToolChoice.DisableParallel = &dp
 		}
 	}
+	if wire.PromptCacheKey != nil {
+		b, err := json.Marshal(*wire.PromptCacheKey)
+		if err != nil {
+			return nil, nil, fmt.Errorf("responses: prompt_cache_key: %w", err)
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindPromptCacheKey,
+			Value:  string(b),
+			Omission: &ir.NativeOmission{
+				Field:  "prompt_cache_key",
+				Reason: ir.LossUnmappedField,
+				Detail: ir.PromptCacheKeyLossDetail,
+			},
+		})
+	}
 
 	// N-R-2: the string shorthand is one user message with one text block.
 	if wire.Input.Text != nil {

@@ -1,0 +1,47 @@
+{
+  "name": "chatcompletions.nonstream.prompt-cache-key-request-to-ir",
+  "description": "Chat Completions prompt_cache_key is preserved as an OpenAI native option (spec/15 §3.7).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      }
+    ],
+    "prompt_cache_key": "tenant-42"
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "gpt-4o",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      }
+    ],
+    "native": [
+      {
+        "source": "openai",
+        "kind": "prompt_cache_key",
+        "value": "\"tenant-42\"",
+        "omission": {
+          "field": "prompt_cache_key",
+          "reason": "unmapped-field",
+          "detail": "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
+        }
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["request", "native", "prompt_cache_key"]
+}

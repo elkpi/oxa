@@ -37,6 +37,7 @@ ts/dist-web/
 rust/**/*.rs.bk
 
 # Python artifacts (per-language, under python/)
+.pytest_cache/
 python/.venv/
 python/**/__pycache__/
 python/**/*.py[cod]

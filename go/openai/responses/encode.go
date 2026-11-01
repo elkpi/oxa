@@ -148,10 +148,18 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 	}
 	for _, n := range req.Native {
-		if n.Source == ir.NativeSourceOpenAI && n.Kind == ir.NativeKindStore {
-			var b bool
-			if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
-				out.Store = &b
+		if n.Source == ir.NativeSourceOpenAI {
+			switch n.Kind {
+			case ir.NativeKindStore:
+				var b bool
+				if err := json.Unmarshal([]byte(n.Value), &b); err == nil {
+					out.Store = &b
+				}
+			case ir.NativeKindPromptCacheKey:
+				var str *string
+				if err := json.Unmarshal([]byte(n.Value), &str); err == nil && str != nil {
+					out.PromptCacheKey = str
+				}
 			}
 		}
 	}

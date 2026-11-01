@@ -33,7 +33,8 @@ type Request struct {
 
 	// ParallelToolCalls has no IR equivalent in v1 and is dropped with an
 	// unmapped-field loss (N-CC-9).
-	ParallelToolCalls *bool `json:"parallel_tool_calls,omitempty"`
+	ParallelToolCalls *bool   `json:"parallel_tool_calls,omitempty"`
+	PromptCacheKey    *string `json:"prompt_cache_key,omitempty"`
 
 	// The legacy functions/function_call shapes have no IR representation.
 	Functions    any `json:"functions,omitempty"`
@@ -73,6 +74,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 		Tools               []ToolWire      `json:"tools,omitempty"`
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+		PromptCacheKey      *string         `json:"prompt_cache_key,omitempty"`
 		Functions           any             `json:"functions,omitempty"`
 		FunctionCall        any             `json:"function_call,omitempty"`
 		ResponseFormat      any             `json:"response_format,omitempty"`
@@ -91,6 +93,9 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	if rawPTC, ok := rawFields["parallel_tool_calls"]; ok && strings.TrimSpace(string(rawPTC)) == "null" {
 		return fmt.Errorf("chatcompletions: parallel_tool_calls must be a boolean")
 	}
+	if rawPCK, ok := rawFields["prompt_cache_key"]; ok && strings.TrimSpace(string(rawPCK)) == "null" {
+		return fmt.Errorf("chatcompletions: prompt_cache_key must be a string")
+	}
 	r.Model = s.Model
 	r.Messages = s.Messages
 	r.Temperature = s.Temperature
@@ -103,6 +108,7 @@ func (r *Request) UnmarshalJSON(data []byte) error {
 	r.Tools = s.Tools
 	r.ToolChoice = s.ToolChoice
 	r.ParallelToolCalls = s.ParallelToolCalls
+	r.PromptCacheKey = s.PromptCacheKey
 	r.Functions = s.Functions
 	r.FunctionCall = s.FunctionCall
 	r.ResponseFormat = s.ResponseFormat
@@ -191,6 +197,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		Tools               []ToolWire      `json:"tools,omitempty"`
 		ToolChoice          any             `json:"tool_choice,omitempty"`
 		ParallelToolCalls   *bool           `json:"parallel_tool_calls,omitempty"`
+		PromptCacheKey      *string         `json:"prompt_cache_key,omitempty"`
 		Functions           any             `json:"functions,omitempty"`
 		FunctionCall        any             `json:"function_call,omitempty"`
 		ResponseFormat      any             `json:"response_format,omitempty"`
@@ -211,6 +218,7 @@ func (r Request) MarshalJSON() ([]byte, error) {
 		Tools:               r.Tools,
 		ToolChoice:          r.ToolChoice,
 		ParallelToolCalls:   r.ParallelToolCalls,
+		PromptCacheKey:      r.PromptCacheKey,
 		Functions:           r.Functions,
 		FunctionCall:        r.FunctionCall,
 		ResponseFormat:      r.ResponseFormat,

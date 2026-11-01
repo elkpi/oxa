@@ -30,6 +30,13 @@ pub const FINISH_REASON_TOOL_CALLS: &str = "tool_calls";
 pub const OBJECT_CHAT_COMPLETION: &str = "chat.completion";
 pub const OBJECT_CHAT_COMPLETION_CHUNK: &str = "chat.completion.chunk";
 
+fn deserialize_optional_value<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    Value::deserialize(deserializer).map(Some)
+}
+
 /// The Chat Completions wire request for the supported non-streaming subset.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -73,9 +80,18 @@ pub struct Request {
     // dropped with an unmapped-field loss (N-CC-9, spec/02 §4).
     #[serde(
         rename = "parallel_tool_calls",
+        default,
+        deserialize_with = "deserialize_optional_value",
         skip_serializing_if = "Option::is_none"
     )]
     pub parallel_tool_calls: Option<Value>,
+    #[serde(
+        rename = "prompt_cache_key",
+        default,
+        deserialize_with = "deserialize_optional_value",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_key: Option<Value>,
     #[serde(rename = "functions", skip_serializing_if = "Option::is_none")]
     pub functions: Option<Value>,
     #[serde(rename = "function_call", skip_serializing_if = "Option::is_none")]

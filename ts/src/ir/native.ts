@@ -833,8 +833,7 @@ function appendOmissionLoss(
         }
         const field = ann.omission?.field || "prompt_cache_key";
         const reason = ann.omission?.reason || "unmapped-field";
-        const detail =
-          ann.omission?.detail || PROMPT_CACHE_KEY_LOSS_DETAIL;
+        const detail = ann.omission?.detail || PROMPT_CACHE_KEY_LOSS_DETAIL;
         losses.push({
           path,
           field,

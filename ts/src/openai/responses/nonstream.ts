@@ -996,7 +996,11 @@ function decodeResponseObject(
     const errObj = object(wire.error, "error");
     if (errObj.code === "refusal") {
       stopReason = "refusal";
-      if (!hasRefusal && typeof errObj.message === "string" && errObj.message !== "") {
+      if (
+        !hasRefusal &&
+        typeof errObj.message === "string" &&
+        errObj.message !== ""
+      ) {
         texts.push({
           type: "refusal",
           refusal: errObj.message,

@@ -357,6 +357,11 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         out.stream_options = Some(val);
                     }
                 }
+                oxa_ir::NATIVE_KIND_PROMPT_CACHE_KEY => {
+                    if let Ok(s) = serde_json::from_str::<String>(&n.value) {
+                        out.prompt_cache_key = Some(serde_json::Value::String(s));
+                    }
+                }
                 _ => {}
             }
         }

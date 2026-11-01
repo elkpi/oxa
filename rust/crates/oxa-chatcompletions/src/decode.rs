@@ -443,6 +443,24 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             }
         }
     }
+    if let Some(val) = &wire.prompt_cache_key {
+        let Some(pck) = val.as_str() else {
+            return Err(Error::new(
+                "chatcompletions: prompt_cache_key must be a string",
+            ));
+        };
+        native.push(oxa_ir::NativeAnnotation {
+            source: oxa_ir::NATIVE_SOURCE_OPENAI.into(),
+            kind: oxa_ir::NATIVE_KIND_PROMPT_CACHE_KEY.into(),
+            value: serde_json::to_string(pck).map_err(|e| Error::new(e.to_string()))?,
+            omission: Some(oxa_ir::NativeOmission {
+                field: "prompt_cache_key".into(),
+                reason: LossReason::UnmappedField,
+                detail: Some(oxa_ir::PROMPT_CACHE_KEY_LOSS_DETAIL.into()),
+            }),
+            projection: None,
+        });
+    }
     req.native = native;
     let stop = wire.stop.clone().filter(|stops| !stops.is_empty());
     let response_format = decode_response_format(wire.response_format.as_ref(), &mut losses)?;

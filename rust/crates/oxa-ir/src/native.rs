@@ -22,11 +22,15 @@ pub const NATIVE_KIND_STREAM_OPTIONS: &str = "stream_options";
 pub const NATIVE_KIND_MAX_COMPLETION_TOKENS: &str = "max_completion_tokens";
 pub const NATIVE_KIND_TOP_K: &str = "top_k";
 pub const NATIVE_KIND_DISABLE_PARALLEL_TOOL_USE: &str = "disable_parallel_tool_use";
+pub const NATIVE_KIND_PROMPT_CACHE_KEY: &str = "prompt_cache_key";
 pub const NATIVE_SOURCE_ANTHROPIC: &str = "anthropic";
 pub const NATIVE_SOURCE_OPENAI: &str = "openai";
 
 pub const CACHE_CONTROL_LOSS_DETAIL: &str =
     "anthropic-native cache breakpoint; the target face has no cache_control representation";
+
+pub const PROMPT_CACHE_KEY_LOSS_DETAIL: &str =
+    "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped";
 
 pub const DEFER_LOADING_LOSS_DETAIL: &str = "deferred tool loading is a provider-side context-assembly instruction; the tool definition is unchanged and loads up front when the target has no tool search";
 
@@ -497,6 +501,19 @@ fn validate_annotations(
                         )));
                     }
                 }
+                NATIVE_KIND_PROMPT_CACHE_KEY => {
+                    if host != HostType::Request {
+                        return Err(Error::Custom(format!(
+                            "{path}: openai {} is only allowed on Request",
+                            ann.kind
+                        )));
+                    }
+                    if !parsed_json.is_string() {
+                        return Err(Error::Custom(format!(
+                            "invalid prompt_cache_key {parsed_json:?}"
+                        )));
+                    }
+                }
                 _ => {}
             }
         }
@@ -762,6 +779,37 @@ fn append_omission_loss(
                         detail,
                     });
                 }
+                return;
+            }
+            NATIVE_KIND_PROMPT_CACHE_KEY => {
+                if target == "chatcompletions" || target == "responses" {
+                    return;
+                }
+                let (field, reason, detail) = if let Some(ref om) = ann.omission {
+                    let f = if om.field.is_empty() {
+                        "prompt_cache_key".to_string()
+                    } else {
+                        om.field.clone()
+                    };
+                    let r = om.reason;
+                    let d = match om.detail.as_deref() {
+                        Some(s) if !s.is_empty() => s.to_string(),
+                        _ => PROMPT_CACHE_KEY_LOSS_DETAIL.to_string(),
+                    };
+                    (f, r, d)
+                } else {
+                    (
+                        "prompt_cache_key".to_string(),
+                        LossReason::UnmappedField,
+                        PROMPT_CACHE_KEY_LOSS_DETAIL.to_string(),
+                    )
+                };
+                losses.push(Loss {
+                    path: path.into(),
+                    field,
+                    reason,
+                    detail,
+                });
                 return;
             }
             _ => {

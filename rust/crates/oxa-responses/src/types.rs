@@ -119,6 +119,12 @@ pub struct Request {
         skip_serializing_if = "Option::is_none"
     )]
     pub parallel_tool_calls: Option<Value>,
+    #[serde(
+        rename = "prompt_cache_key",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub prompt_cache_key: Option<Value>,
 }
 
 /// Responses accepts a string shorthand or an ordered item array as input.

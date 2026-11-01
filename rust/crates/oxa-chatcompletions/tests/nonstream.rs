@@ -746,3 +746,40 @@ fn test_chatcompletions_preserves_missing_format_and_reports_unknown_format() {
     );
     assert_eq!(req.tools.as_ref().unwrap()[0].format, None);
 }
+
+#[test]
+fn prompt_cache_key_rejects_null_and_non_string() {
+    let wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "prompt_cache_key": null
+    }))
+    .expect("wire");
+    assert!(decode_request(&wire, &Config::default()).is_err());
+
+    let raw =
+        r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"prompt_cache_key":null}"#;
+    assert!(oxa_chatcompletions::decode_request_json(raw, &Config::default()).is_err());
+
+    let wire_non_str: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "prompt_cache_key": 123
+    }))
+    .expect("wire");
+    assert!(decode_request(&wire_non_str, &Config::default()).is_err());
+}
+
+#[test]
+fn parallel_tool_calls_rejects_null() {
+    let wire: Request = serde_json::from_value(serde_json::json!({
+        "model": "gpt-4o",
+        "messages": [{ "role": "user", "content": "hi" }],
+        "parallel_tool_calls": null
+    }))
+    .expect("wire");
+    assert!(decode_request(&wire, &Config::default()).is_err());
+
+    let raw = r#"{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}],"parallel_tool_calls":null}"#;
+    assert!(oxa_chatcompletions::decode_request_json(raw, &Config::default()).is_err());
+}

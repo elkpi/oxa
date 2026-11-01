@@ -296,6 +296,13 @@ def encode_request(
         out["tool_choice"] = choice_wire
     if choice_loss is not None:
         losses.append(choice_loss)
+    if req.tool_choice is not None and req.tool_choice.disable_parallel is not None:
+        out["parallel_tool_calls"] = not req.tool_choice.disable_parallel
+    elif req.native:
+        for n in req.native:
+            if n.source == "anthropic" and n.kind == "disable_parallel_tool_use":
+                out["parallel_tool_calls"] = n.value != "true"
+                break
 
     items: list[dict[str, Any]] = list(leading)
     for index, message in enumerate(req.messages):
@@ -357,7 +364,11 @@ def encode_request(
                 except Exception:
                     pass
 
-    losses.extend(omitted_native_request_losses(req, "responses"))
+    omission_losses = omitted_native_request_losses(req, "responses")
+    for l in omission_losses:
+        if l.field == "disable_parallel_tool_use" and "parallel_tool_calls" in out:
+            continue
+        losses.append(l)
 
     return out, losses
 

@@ -42,6 +42,8 @@ from oxa.ir import (
     TextCitation,
     ThinkingBlock,
     Tool,
+    ToolChoice,
+    TOOL_CHOICE_AUTO,
     ToolUseBlock,
     Usage,
 )
@@ -105,17 +107,6 @@ def decode_request(
     losses: list[Loss] = []
 
     text_config = wire.get("text")
-    unmapped_fields = [
-        (
-            "parallel_tool_calls",
-            "parallel_tool_calls",
-            wire.get("parallel_tool_calls") is not None,
-            "Responses parallel tool calls have no IR equivalent in v1.",
-        ),
-    ]
-    for path, field, present, detail in unmapped_fields:
-        if present:
-            losses.append(loss(path, field, LOSS_UNMAPPED_FIELD, detail))
 
     model = str(wire.get("model", ""))
     if table is not None:
@@ -137,6 +128,15 @@ def decode_request(
 
     tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
     losses.extend(tc_losses)
+    if "parallel_tool_calls" in wire and wire["parallel_tool_calls"] is not None:
+        ptc = wire["parallel_tool_calls"]
+        if not isinstance(ptc, bool):
+            raise TypeError("responses: parallel_tool_calls must be a boolean")
+        dp = not ptc
+        if tool_choice is None:
+            tool_choice = ToolChoice(mode=TOOL_CHOICE_AUTO, disable_parallel=dp)
+        else:
+            tool_choice = replace(tool_choice, disable_parallel=dp)
 
     raw_input = wire.get("input")
     if isinstance(raw_input, str):

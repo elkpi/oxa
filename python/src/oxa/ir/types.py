@@ -357,6 +357,7 @@ class ToolChoice:
     mode: str
     name: str | None = None
     tool_type: str = "function"
+    disable_parallel: bool | None = None
 
 
 @dataclass(frozen=True, slots=True)

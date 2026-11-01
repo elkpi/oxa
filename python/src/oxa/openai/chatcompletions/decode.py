@@ -40,6 +40,8 @@ from oxa.ir import (
     ThinkingBlock,
     RefusalBlock,
     Tool,
+    ToolChoice,
+    TOOL_CHOICE_AUTO,
     Usage,
 )
 from oxa.ir import (
@@ -84,10 +86,6 @@ def decode_request(
     losses: list[Loss] = []
 
     unmapped_fields = [
-        (
-            "parallel_tool_calls",
-            "Chat Completions parallel tool calls have no IR equivalent in v1.",
-        ),
         ("functions", "legacy Chat Completions functions have no IR equivalent in v1."),
         ("function_call", "legacy Chat Completions function_call has no IR equivalent in v1."),
         ("logprobs", "Chat Completions log-probability sampling has no IR equivalent in v1."),
@@ -171,6 +169,15 @@ def decode_request(
 
     tool_choice, tc_losses = decode_tool_choice(wire.get("tool_choice"))
     losses.extend(tc_losses)
+    if "parallel_tool_calls" in wire and wire["parallel_tool_calls"] is not None:
+        ptc = wire["parallel_tool_calls"]
+        if not isinstance(ptc, bool):
+            raise TypeError("chatcompletions: parallel_tool_calls must be a boolean")
+        dp = not ptc
+        if tool_choice is None:
+            tool_choice = ToolChoice(mode=TOOL_CHOICE_AUTO, disable_parallel=dp)
+        else:
+            tool_choice = replace(tool_choice, disable_parallel=dp)
 
     system: list[SystemBlock] = []
     messages: list[IrMessage] = []

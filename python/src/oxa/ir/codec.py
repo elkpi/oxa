@@ -1027,6 +1027,8 @@ def dump_request(req: Request) -> dict[str, Any]:
         out["tools"] = tools_out
     if req.tool_choice:
         tc_dict: dict[str, Any] = {"mode": req.tool_choice.mode}
+        if req.tool_choice.disable_parallel is not None:
+            tc_dict["disable_parallel"] = req.tool_choice.disable_parallel
         if req.tool_choice.mode == TOOL_CHOICE_TOOL:
             if req.tool_choice.tool_type == "apply_patch":
                 tc_dict["tool_type"] = "apply_patch"
@@ -1246,19 +1248,22 @@ def load_request(data: dict[str, Any] | str) -> Request:
     if "tool_choice" in raw:
         tc = raw["tool_choice"]
         mode, tool_type = tc["mode"], tc.get("tool_type", "function")
+        disable_parallel = tc.get("disable_parallel")
+        if disable_parallel is not None and not isinstance(disable_parallel, bool):
+            raise CodecError("tool_choice.disable_parallel must be a boolean")
         if mode == TOOL_CHOICE_TOOL:
             if tool_type == "apply_patch":
                 if "name" in tc:
                     raise CodecError("apply_patch choice must not contain name")
-                tool_choice = ToolChoice(mode=mode, tool_type="apply_patch")
+                tool_choice = ToolChoice(mode=mode, tool_type="apply_patch", disable_parallel=disable_parallel)
             else:
                 if tool_type not in ("function", "custom", "native") or not tc.get("name"):
                     raise CodecError("tool choice mode 'tool' requires name and function/custom/native tool_type")
-                tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type)
+                tool_choice = ToolChoice(mode=mode, name=tc.get("name"), tool_type=tool_type, disable_parallel=disable_parallel)
         elif "tool_type" in tc:
             raise CodecError("tool_choice.tool_type is only valid when mode is tool")
         else:
-            tool_choice = ToolChoice(mode=mode)
+            tool_choice = ToolChoice(mode=mode, disable_parallel=disable_parallel)
 
     params: Params | None = None
     if "params" in raw:

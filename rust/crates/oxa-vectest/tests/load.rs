@@ -113,13 +113,13 @@ fn repository_loader_includes_all_spec_2_vectors() {
     ] {
         vectors.extend(load_vectors(&root, face, mode).expect("load vectors"));
     }
-    assert_eq!(vectors.len(), 495);
+    assert_eq!(vectors.len(), 506);
     assert_eq!(
         vectors
             .iter()
             .filter(|vector| vector.spec_version == "0.2.0")
             .count(),
-        347
+        359
     );
 }
 

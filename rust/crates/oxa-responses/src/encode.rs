@@ -131,6 +131,17 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         losses.push(choice_loss);
     }
     out.tool_choice = choice;
+    let mut parallel_tool_calls = None;
+    if let Some(dp) = req.tool_choice.as_ref().and_then(|c| c.disable_parallel) {
+        parallel_tool_calls = Some(!dp);
+    } else if let Some(ann) = req
+        .native
+        .iter()
+        .find(|a| a.source == "anthropic" && a.kind == "disable_parallel_tool_use")
+    {
+        parallel_tool_calls = Some(ann.value != "true");
+    }
+    out.parallel_tool_calls = parallel_tool_calls;
 
     let mut items = leading_system_items;
     for (index, message) in req.messages.iter().enumerate() {
@@ -249,7 +260,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "responses")
         .map_err(|e| Error::new(e.to_string()))?;
-    losses.extend(omission_losses);
+    for l in omission_losses {
+        if l.field == "disable_parallel_tool_use" && out.parallel_tool_calls.is_some() {
+            continue;
+        }
+        losses.push(l);
+    }
     Ok((out, losses))
 }
 

@@ -259,6 +259,20 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         ));
     }
     out.tool_choice = choice;
+    if out.tools.as_deref().unwrap_or(&[]).is_empty()
+        && req
+            .tool_choice
+            .as_ref()
+            .and_then(|c| c.disable_parallel)
+            .is_some()
+    {
+        losses.push(loss(
+            "tool_choice",
+            "disable_parallel_tool_use",
+            LossReason::UnsupportedSemantic,
+            "Anthropic does not support disable_parallel_tool_use without tools",
+        ));
+    }
 
     let shorthand = req.system.is_empty()
         && req.messages.len() == 1

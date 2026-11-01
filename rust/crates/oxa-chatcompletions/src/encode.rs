@@ -168,6 +168,17 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     if let Some(loss) = choice_loss {
         losses.push(loss);
     }
+    let mut parallel_tool_calls = None;
+    if let Some(dp) = req.tool_choice.as_ref().and_then(|c| c.disable_parallel) {
+        parallel_tool_calls = Some(serde_json::Value::Bool(!dp));
+    } else if let Some(ann) = req
+        .native
+        .iter()
+        .find(|a| a.source == "anthropic" && a.kind == "disable_parallel_tool_use")
+    {
+        parallel_tool_calls = Some(serde_json::Value::Bool(ann.value != "true"));
+    }
+    out.parallel_tool_calls = parallel_tool_calls;
     if !req.system.is_empty() {
         let has_developer = req.system.iter().any(
             |block| matches!(block, oxa_ir::SystemBlock::Text { role, .. } if role == "developer"),
@@ -351,7 +362,12 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     }
     let omission_losses = oxa_ir::omitted_native_request_losses(req, "chatcompletions")
         .map_err(|e| Error::new(e.to_string()))?;
-    losses.extend(omission_losses);
+    for l in omission_losses {
+        if l.field == "disable_parallel_tool_use" && out.parallel_tool_calls.is_some() {
+            continue;
+        }
+        losses.push(l);
+    }
     Ok((out, losses))
 }
 

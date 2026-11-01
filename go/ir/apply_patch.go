@@ -238,7 +238,7 @@ func (w *wireToolChoice) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	if head.Type == ToolTypeApplyPatch {
-		if _, err := applyPatchObject(data, "mode", "tool_type"); err != nil {
+		if _, err := applyPatchObject(data, "mode", "tool_type", "disable_parallel"); err != nil {
 			return err
 		}
 	}

@@ -22,7 +22,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 		present bool
 		detail  string
 	}{
-		{"parallel_tool_calls", wire.ParallelToolCalls != nil, "Chat Completions parallel tool calls have no IR equivalent in v1."},
 		{"functions", wire.Functions != nil, "legacy Chat Completions functions have no IR equivalent in v1."},
 		{"function_call", wire.FunctionCall != nil, "legacy Chat Completions function_call has no IR equivalent in v1."},
 		{"logprobs", wire.Logprobs != nil, "Chat Completions log-probability sampling has no IR equivalent in v1."},
@@ -93,6 +92,14 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	choice, choiceLosses := decodeToolChoice(wire.ToolChoice)
 	req.ToolChoice = choice
 	losses = append(losses, choiceLosses...)
+	if wire.ParallelToolCalls != nil {
+		dp := !*wire.ParallelToolCalls
+		if req.ToolChoice == nil {
+			req.ToolChoice = &ir.ToolChoice{Mode: ir.ToolChoiceAuto, DisableParallel: &dp}
+		} else {
+			req.ToolChoice.DisableParallel = &dp
+		}
+	}
 
 	customCallIDs := make(map[string]bool)
 	for _, m := range wire.Messages {

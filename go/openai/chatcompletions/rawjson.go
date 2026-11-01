@@ -443,7 +443,6 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			}}
 			delete(schema.fields, "logprobs")
 			delete(schema.fields, "top_logprobs")
-			delete(schema.fields, "parallel_tool_calls")
 			delete(schema.fields, "functions")
 			delete(schema.fields, "function_call")
 		case reflect.TypeOf(Response{}):

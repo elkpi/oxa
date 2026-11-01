@@ -723,9 +723,10 @@ type wireTool struct {
 }
 
 type wireToolChoice struct {
-	Mode     string `json:"mode"`
-	Name     string `json:"name,omitempty"`
-	ToolType string `json:"tool_type,omitempty"`
+	Mode            string `json:"mode"`
+	Name            string `json:"name,omitempty"`
+	ToolType        string `json:"tool_type,omitempty"`
+	DisableParallel *bool  `json:"disable_parallel,omitempty"`
 }
 
 type wireResponseFormat struct {
@@ -868,7 +869,12 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	}
 	var tc *wireToolChoice
 	if req.ToolChoice != nil {
-		tc = &wireToolChoice{Mode: req.ToolChoice.Mode, Name: req.ToolChoice.Name, ToolType: req.ToolChoice.ToolType}
+		tc = &wireToolChoice{
+			Mode:            req.ToolChoice.Mode,
+			Name:            req.ToolChoice.Name,
+			ToolType:        req.ToolChoice.ToolType,
+			DisableParallel: req.ToolChoice.DisableParallel,
+		}
 	}
 	var params *wireParams
 	if req.Params.set() {
@@ -952,7 +958,12 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 		req.Tools = append(req.Tools, tool)
 	}
 	if w.ToolChoice != nil {
-		req.ToolChoice = &ToolChoice{Mode: w.ToolChoice.Mode, Name: w.ToolChoice.Name, ToolType: w.ToolChoice.ToolType}
+		req.ToolChoice = &ToolChoice{
+			Mode:            w.ToolChoice.Mode,
+			Name:            w.ToolChoice.Name,
+			ToolType:        w.ToolChoice.ToolType,
+			DisableParallel: w.ToolChoice.DisableParallel,
+		}
 		if err := validateToolChoice(req.ToolChoice); err != nil {
 			return nil, err
 		}

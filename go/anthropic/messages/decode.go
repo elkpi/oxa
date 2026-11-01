@@ -746,6 +746,10 @@ func decodeToolChoice(choice *ToolChoiceWire, customTools, nativeTools map[strin
 		if choice.Type == ToolChoiceTypeNone {
 			return nil, nil, fmt.Errorf("anthropic: cannot specify disable_parallel_tool_use with tool_choice type none")
 		}
+		if decoded != nil {
+			dp := choice.DisableParallelToolUse
+			decoded.DisableParallel = &dp
+		}
 	}
 	return decoded, losses, nil
 }

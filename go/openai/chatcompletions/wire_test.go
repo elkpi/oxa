@@ -672,8 +672,8 @@ func TestUnsupportedRequestContentProducesLoss(t *testing.T) {
 	if len(req.Messages) != 1 || len(req.Messages[0].Content) != 1 || !ok || tb.Text != "" || len(tb.Native) != 0 {
 		t.Fatalf("unsupported content must leave an empty text block: %+v", req.Messages)
 	}
-	if len(losses) != 3 {
-		t.Fatalf("want three losses, got %+v", losses)
+	if len(losses) != 2 {
+		t.Fatalf("want two losses, got %+v", losses)
 	}
 	for _, loss := range losses {
 		if loss.Reason != ir.LossUnmappedField && loss.Reason != ir.LossUnsupportedSemantic {

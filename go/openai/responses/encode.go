@@ -160,6 +160,13 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 				if err := json.Unmarshal([]byte(n.Value), &str); err == nil && str != nil {
 					out.PromptCacheKey = str
 				}
+			case ir.NativeKindPromptCacheOptions:
+				trimmed := strings.TrimSpace(n.Value)
+				if trimmed == "null" {
+					out.PromptCacheOptions = json.RawMessage("null")
+				} else {
+					out.PromptCacheOptions = json.RawMessage(n.Value)
+				}
 			}
 		}
 	}
@@ -302,7 +309,15 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	for i, block := range blocks {
 		switch value := block.(type) {
 		case ir.TextBlock:
-			parts = append(parts, ContentPart{Type: PartTypeInputText, Text: value.Text})
+			part := ContentPart{Type: PartTypeInputText, Text: value.Text}
+			for _, ann := range value.Native {
+				if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+					part.PromptCacheBreakpoint = json.RawMessage(ann.Value)
+					otherBlocks++
+					break
+				}
+			}
+			parts = append(parts, part)
 			text += value.Text
 			textBlocks++
 			if len(value.Citations) > 0 {
@@ -364,12 +379,21 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 					fmt.Sprintf("%s[%d]", path, i), "content", ir.LossUnsupportedSemantic,
 					"IR DocumentBlock carries conflicting file sources",
 				))
-			} else if value.FileID != "" {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileID: &value.FileID})
-			} else if value.URL != "" {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileURL: &value.URL})
 			} else {
-				parts = append(parts, ContentPart{Type: PartTypeInputFile, FileData: &value.Data})
+				var pcb json.RawMessage
+				for _, ann := range value.Native {
+					if ann.Source == ir.NativeSourceOpenAI && ann.Kind == ir.NativeKindPromptCacheBreakpoint {
+						pcb = json.RawMessage(ann.Value)
+						break
+					}
+				}
+				if value.FileID != "" {
+					parts = append(parts, ContentPart{Type: PartTypeInputFile, FileID: &value.FileID, PromptCacheBreakpoint: pcb})
+				} else if value.URL != "" {
+					parts = append(parts, ContentPart{Type: PartTypeInputFile, FileURL: &value.URL, PromptCacheBreakpoint: pcb})
+				} else {
+					parts = append(parts, ContentPart{Type: PartTypeInputFile, FileData: &value.Data, PromptCacheBreakpoint: pcb})
+				}
 			}
 		default:
 			otherBlocks++

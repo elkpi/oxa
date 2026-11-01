@@ -77,6 +77,23 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 	blocks := make([]ir.Block, 0, len(parts))
 	var losses []ir.Loss
 	for i, part := range parts {
+		var pcbAnn *ir.NativeAnnotation
+		if len(part.PromptCacheBreakpoint) > 0 {
+			trimmed := strings.TrimSpace(string(part.PromptCacheBreakpoint))
+			if len(trimmed) == 0 || trimmed[0] != '{' {
+				return nil, nil, fmt.Errorf("responses: %s[%d].prompt_cache_breakpoint must be an object", path, i)
+			}
+			pcbAnn = &ir.NativeAnnotation{
+				Source: ir.NativeSourceOpenAI,
+				Kind:   ir.NativeKindPromptCacheBreakpoint,
+				Value:  trimmed,
+				Omission: &ir.NativeOmission{
+					Field:  "prompt_cache_breakpoint",
+					Reason: ir.LossUnmappedField,
+					Detail: ir.PromptCacheBreakpointLossDetail,
+				},
+			}
+		}
 		switch part.Type {
 		case "refusal":
 			if user {
@@ -88,12 +105,19 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 			}
 			blocks = append(blocks, ir.RefusalBlock{Refusal: part.Refusal})
 		case PartTypeInputText, PartTypeOutputText:
-			blocks = append(blocks, ir.TextBlock{Text: part.Text})
+			tb := ir.TextBlock{Text: part.Text}
+			if pcbAnn != nil {
+				tb.Native = append(tb.Native, *pcbAnn)
+			}
+			blocks = append(blocks, tb)
 		case PartTypeInputImage:
 			image, imageLoss := decodeImageURL(part.ImageURL, fmt.Sprintf("%s[%d].image_url", path, i))
 			if imageLoss != nil {
 				losses = append(losses, *imageLoss)
 				continue
+			}
+			if pcbAnn != nil {
+				image.Native = append(image.Native, *pcbAnn)
 			}
 			blocks = append(blocks, image)
 		case PartTypeInputFile:
@@ -129,16 +153,17 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 					"Responses input_file detail has no IR equivalent",
 				))
 			}
+			var doc ir.DocumentBlock
 			if part.FileID != nil {
 				if *part.FileID == "" {
 					return nil, nil, fmt.Errorf("responses: %s[%d].file_id cannot be empty", path, i)
 				}
-				blocks = append(blocks, ir.DocumentBlock{FileID: *part.FileID})
+				doc = ir.DocumentBlock{FileID: *part.FileID}
 			} else if part.FileURL != nil {
 				if *part.FileURL == "" {
 					return nil, nil, fmt.Errorf("responses: %s[%d].file_url cannot be empty", path, i)
 				}
-				blocks = append(blocks, ir.DocumentBlock{URL: *part.FileURL})
+				doc = ir.DocumentBlock{URL: *part.FileURL}
 			} else {
 				if *part.FileData == "" {
 					return nil, nil, fmt.Errorf("responses: %s[%d].file_data cannot be empty", path, i)
@@ -147,8 +172,12 @@ func decodeParts(parts []ContentPart, path string, isUser ...bool) ([]ir.Block, 
 				if err != nil {
 					return nil, nil, err
 				}
-				blocks = append(blocks, ir.DocumentBlock{Data: data, MediaType: mt})
+				doc = ir.DocumentBlock{Data: data, MediaType: mt}
 			}
+			if pcbAnn != nil {
+				doc.Native = append(doc.Native, *pcbAnn)
+			}
+			blocks = append(blocks, doc)
 		default:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,

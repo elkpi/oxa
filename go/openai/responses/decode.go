@@ -116,6 +116,32 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			},
 		})
 	}
+	if wire.PromptCacheOptions != nil {
+		b, err := json.Marshal(wire.PromptCacheOptions)
+		if err != nil {
+			return nil, nil, fmt.Errorf("responses: prompt_cache_options: %w", err)
+		}
+		trimmed := strings.TrimSpace(string(b))
+		val := trimmed
+		if trimmed != "null" {
+			var m map[string]any
+			if err := json.Unmarshal(b, &m); err != nil {
+				return nil, nil, fmt.Errorf("responses: prompt_cache_options: %w", err)
+			}
+			b2, _ := json.Marshal(m)
+			val = string(b2)
+		}
+		req.Native = append(req.Native, ir.NativeAnnotation{
+			Source: ir.NativeSourceOpenAI,
+			Kind:   ir.NativeKindPromptCacheOptions,
+			Value:  val,
+			Omission: &ir.NativeOmission{
+				Field:  "prompt_cache_options",
+				Reason: ir.LossUnmappedField,
+				Detail: ir.PromptCacheOptionsLossDetail,
+			},
+		})
+	}
 
 	// N-R-2: the string shorthand is one user message with one text block.
 	if wire.Input.Text != nil {

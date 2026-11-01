@@ -380,6 +380,7 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 			{Source: NativeSourceOpenAI, Kind: NativeKindStream, Value: "true"},
 			{Source: NativeSourceOpenAI, Kind: NativeKindStreamOptions, Value: `{"include_usage":true}`},
 			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheKey, Value: `"k1"`},
+			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheOptions, Value: `{"mode":"explicit"}`},
 		},
 	}
 	if err := ValidateNativeRequest(reqOpenAI); err != nil {
@@ -410,5 +411,48 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	}
 	if err := ValidateNativeRequest(reqNullPCK); err == nil {
 		t.Fatalf("expected error for null prompt_cache_key")
+	}
+
+	reqInvalidPCO := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{Text: "hi"}}},
+		},
+		Native: []NativeAnnotation{
+			{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheOptions, Value: `"not-object"`},
+		},
+	}
+	if err := ValidateNativeRequest(reqInvalidPCO); err == nil {
+		t.Fatalf("expected error for non-object prompt_cache_options")
+	}
+
+	reqValidPCB := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{
+				Text: "hi",
+				Native: []NativeAnnotation{
+					{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheBreakpoint, Value: `{"mode":"explicit"}`},
+				},
+			}}},
+		},
+	}
+	if err := ValidateNativeRequest(reqValidPCB); err != nil {
+		t.Fatalf("unexpected error for valid prompt_cache_breakpoint: %v", err)
+	}
+
+	reqInvalidPCB := &Request{
+		Model: "m",
+		Messages: []Message{
+			{Role: RoleUser, Content: []Block{TextBlock{
+				Text: "hi",
+				Native: []NativeAnnotation{
+					{Source: NativeSourceOpenAI, Kind: NativeKindPromptCacheBreakpoint, Value: `123`},
+				},
+			}}},
+		},
+	}
+	if err := ValidateNativeRequest(reqInvalidPCB); err == nil {
+		t.Fatalf("expected error for non-object prompt_cache_breakpoint")
 	}
 }

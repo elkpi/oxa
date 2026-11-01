@@ -275,10 +275,13 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
 			case ContentPartTypeText, ContentPartTypeImageURL:
-				return rawObjectSchema(t, []string{"type", "text", "image_url"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "text", "image_url", "prompt_cache_breakpoint"}, map[string]*rawJSONSchema{
+					"prompt_cache_breakpoint": {fields: map[string]*rawJSONSchema{"mode": nil, "ttl": nil}},
+				}, seen)
 			case ContentPartTypeFile:
-				return rawObjectSchema(t, []string{"type", "file"}, map[string]*rawJSONSchema{
-					"file": rawObjectSchema(reflect.TypeOf(FileWire{}), []string{"file_id", "file_data", "filename"}, nil, seen),
+				return rawObjectSchema(t, []string{"type", "file", "prompt_cache_breakpoint"}, map[string]*rawJSONSchema{
+					"file":                    rawObjectSchema(reflect.TypeOf(FileWire{}), []string{"file_id", "file_data", "filename"}, nil, seen),
+					"prompt_cache_breakpoint": {fields: map[string]*rawJSONSchema{"mode": nil, "ttl": nil}},
 				}, seen)
 			default:
 				return nil
@@ -398,6 +401,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		switch t {
 		case reflect.TypeOf(Request{}):
 			schema.fields["tools"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(ToolWire{}), seen)}
+			schema.fields["prompt_cache_options"] = &rawJSONSchema{fields: map[string]*rawJSONSchema{"mode": nil, "ttl": nil}}
 			schema.fields["messages"] = &rawJSONSchema{items: schemaForRawTypeSeen(reflect.TypeOf(Message{}), seen)}
 			schema.fields["tool_choice"] = &rawJSONSchema{variant: func(node *rawJSONNode) *rawJSONSchema {
 				if node == nil || node.kind != '{' {

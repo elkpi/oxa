@@ -49,10 +49,14 @@ const (
 	NativeKindTopK                   = "top_k"
 	NativeKindDisableParallelToolUse = "disable_parallel_tool_use"
 	NativeKindPromptCacheKey         = "prompt_cache_key"
+	NativeKindPromptCacheOptions     = "prompt_cache_options"
+	NativeKindPromptCacheBreakpoint  = "prompt_cache_breakpoint"
 )
 
 const (
-	PromptCacheKeyLossDetail = "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
+	PromptCacheKeyLossDetail        = "Anthropic Messages has no prompt_cache_key parameter; prompt cache key is dropped"
+	PromptCacheOptionsLossDetail    = "Anthropic Messages has no prompt_cache_options parameter; prompt cache options are dropped"
+	PromptCacheBreakpointLossDetail = "Anthropic Messages has no prompt_cache_breakpoint parameter; prompt cache breakpoint is dropped"
 )
 
 const (
@@ -438,6 +442,25 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 				if err := json.Unmarshal([]byte(ann.Value), &str); err != nil || str == nil {
 					return fmt.Errorf("invalid prompt_cache_key %s", ann.Value)
 				}
+			case NativeKindPromptCacheOptions:
+				if host != hostRequest {
+					return fmt.Errorf("openai %s is only allowed on Request", ann.Kind)
+				}
+				trimmed := strings.TrimSpace(ann.Value)
+				if trimmed != "null" {
+					var obj map[string]any
+					if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+						return fmt.Errorf("invalid prompt_cache_options %s", ann.Value)
+					}
+				}
+			case NativeKindPromptCacheBreakpoint:
+				if host != hostContentBlock && host != hostSystem {
+					return fmt.Errorf("openai %s is only allowed on content or system blocks", ann.Kind)
+				}
+				var obj map[string]any
+				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil {
+					return fmt.Errorf("invalid prompt_cache_breakpoint %s", ann.Value)
+				}
 			case NativeKindContainer:
 				if host != hostTool {
 					return fmt.Errorf("openai container is only allowed on Tool")
@@ -689,6 +712,54 @@ func appendAnnotationLoss(losses []Loss, ann NativeAnnotation, path string, hasA
 			field := "prompt_cache_key"
 			reason := LossUnmappedField
 			detail := PromptCacheKeyLossDetail
+			if ann.Omission != nil {
+				if ann.Omission.Field != "" {
+					field = ann.Omission.Field
+				}
+				if ann.Omission.Reason != "" {
+					reason = ann.Omission.Reason
+				}
+				if ann.Omission.Detail != "" {
+					detail = ann.Omission.Detail
+				}
+			}
+			return append(losses, Loss{
+				Path:   path,
+				Field:  field,
+				Reason: reason,
+				Detail: detail,
+			})
+		case NativeKindPromptCacheOptions:
+			if target == "chatcompletions" || target == "responses" {
+				return losses
+			}
+			field := "prompt_cache_options"
+			reason := LossUnmappedField
+			detail := PromptCacheOptionsLossDetail
+			if ann.Omission != nil {
+				if ann.Omission.Field != "" {
+					field = ann.Omission.Field
+				}
+				if ann.Omission.Reason != "" {
+					reason = ann.Omission.Reason
+				}
+				if ann.Omission.Detail != "" {
+					detail = ann.Omission.Detail
+				}
+			}
+			return append(losses, Loss{
+				Path:   path,
+				Field:  field,
+				Reason: reason,
+				Detail: detail,
+			})
+		case NativeKindPromptCacheBreakpoint:
+			if target == "chatcompletions" || target == "responses" {
+				return losses
+			}
+			field := "prompt_cache_breakpoint"
+			reason := LossUnmappedField
+			detail := PromptCacheBreakpointLossDetail
 			if ann.Omission != nil {
 				if ann.Omission.Field != "" {
 					field = ann.Omission.Field

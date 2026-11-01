@@ -310,16 +310,21 @@ export type Tool =
       readonly native?: never;
     };
 export type ToolChoice =
-  | { readonly mode: "auto" | "any" | "none" }
+  | {
+      readonly mode: "auto" | "any" | "none";
+      readonly disable_parallel?: boolean;
+    }
   | {
       readonly mode: "tool";
       readonly name: string;
       readonly tool_type?: "function" | "custom" | "native";
+      readonly disable_parallel?: boolean;
     }
   | {
       readonly mode: "tool";
       readonly tool_type: "apply_patch";
       readonly name?: never;
+      readonly disable_parallel?: boolean;
     };
 export interface ResponseFormatText {
   readonly type: "text";

@@ -742,6 +742,18 @@ export function encodeRequest(
           }),
           undefined)
         : encodeToolChoice(request.tool_choice, losses);
+  if (
+    tools.length === 0 &&
+    request.tool_choice?.disable_parallel !== undefined
+  ) {
+    losses.push({
+      path: "tool_choice",
+      field: "disable_parallel_tool_use",
+      reason: "unsupported-semantic",
+      detail:
+        "Anthropic does not support disable_parallel_tool_use without tools",
+    });
+  }
   const params = request.params;
   const outValue: JsonObject = {
     model: mapModel(options.modelMapper, request.model),
@@ -1576,6 +1588,7 @@ function decodeToolChoice(
   if (value === undefined || value === null) return undefined;
   const choice = object(value, "tool_choice");
   const type = string(choice.type, "tool_choice.type");
+  let disableParallel: boolean | undefined = undefined;
   if (choice.disable_parallel_tool_use !== undefined) {
     if (typeof choice.disable_parallel_tool_use !== "boolean") {
       fail("tool_choice.disable_parallel_tool_use must be a boolean");
@@ -1585,9 +1598,15 @@ function decodeToolChoice(
         "anthropic: cannot specify disable_parallel_tool_use with tool_choice type none",
       );
     }
+    disableParallel = choice.disable_parallel_tool_use;
   }
   if (type === "auto" || type === "any" || type === "none")
-    return { mode: type };
+    return {
+      mode: type,
+      ...(disableParallel !== undefined
+        ? { disable_parallel: disableParallel }
+        : {}),
+    };
   if (type === "tool") {
     const name = string(choice.name, "tool_choice.name");
     return {
@@ -1598,6 +1617,9 @@ function decodeToolChoice(
         : customTools?.has(name)
           ? { tool_type: "custom" as const }
           : {}),
+      ...(disableParallel !== undefined
+        ? { disable_parallel: disableParallel }
+        : {}),
     };
   }
   losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
@@ -1609,19 +1631,35 @@ function encodeToolChoice(
   losses: Loss[],
 ): JsonObject | undefined {
   if (value === undefined) return undefined;
+  let out: JsonObject | undefined;
   if (value.mode === "tool") {
     if (value.tool_type === "custom" || value.tool_type === "native") {
       if (value.name === "") fail("tool_choice.name must not be empty");
-      return { type: "tool", name: value.name };
-    }
-    if (value.tool_type === "apply_patch") {
+      out = { type: "tool", name: value.name };
+    } else if (value.tool_type === "apply_patch") {
       losses.push(loss("tool_choice", "tool_choice", "unsupported-semantic"));
       return undefined;
+    } else {
+      if (value.name === "") fail("tool_choice.name must not be empty");
+      out = { type: "tool", name: value.name };
     }
-    if (value.name === "") fail("tool_choice.name must not be empty");
-    return { type: "tool", name: value.name };
+  } else {
+    out = { type: value.mode };
   }
-  return { type: value.mode };
+  if (out !== undefined && value.disable_parallel !== undefined) {
+    if (value.mode === "none") {
+      losses.push({
+        path: "tool_choice",
+        field: "disable_parallel_tool_use",
+        reason: "unsupported-semantic",
+        detail:
+          "Anthropic does not support disable_parallel_tool_use with tool_choice type none",
+      });
+    } else {
+      out = { ...out, disable_parallel_tool_use: value.disable_parallel };
+    }
+  }
+  return out;
 }
 
 function anthropicMetadata(

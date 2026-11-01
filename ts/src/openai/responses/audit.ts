@@ -413,6 +413,7 @@ export const RESPONSES_REQUEST: WireAuditSpec = {
     max_output_tokens: undefined,
     tools: { items: TOOL },
     tool_choice: TOOL_CHOICE,
+    parallel_tool_calls: undefined,
     text: { fields: { format: FORMAT, verbosity: undefined } },
     reasoning: { fields: { effort: undefined, summary: undefined } },
     metadata: undefined,

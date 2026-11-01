@@ -119,6 +119,20 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 const auto* txt = part.find("text");
                 std::string text = txt && txt->is_string() ? txt->as_string() : "";
                 blocks.push_back(ir::TextBlock{std::move(text)});
+            } else if (kind == "refusal") {
+                if (is_user) {
+                    losses.push_back(make_resp_loss(
+                        part_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "Responses content part type \"refusal\" has no IR equivalent in user messages"));
+                    continue;
+                }
+                const auto* ref = part.find("refusal");
+                if (!ref || !ref->is_string()) {
+                    return invalid_argument("responses: " + part_path + ".refusal must be a string");
+                }
+                ir::RefusalBlock rb;
+                rb.refusal = ref->as_string();
+                blocks.push_back(std::move(rb));
             } else if (kind == "input_image") {
                 const auto* iu = part.find("image_url");
                 std::string raw_url = iu && iu->is_string() ? iu->as_string() : "";
@@ -1760,6 +1774,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             // Assistant turn: reasoning summary, text message, then function_call items
             std::string a_txt;
             bool has_text = false;
+            bool has_refusal = false;
+            json::Value assistant_parts = json::Value::array();
             json::Value reasoning_summary = json::Value::array();
             std::vector<json::Value> fc_items;
 
@@ -1780,6 +1796,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     a_txt += tb->text;
                     has_text = true;
+                    json::Value p = json::Value::object();
+                    p.set("type", json::Value::string("output_text"));
+                    p.set("text", json::Value::string(tb->text));
+                    p.set("annotations", json::Value::array());
+                    assistant_parts.push_back(std::move(p));
                     if (tb->citations.has_value() && !tb->citations->empty()) {
                         bool has_anthropic = false;
                         bool has_openai = false;
@@ -1801,14 +1822,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         }
                     }
                 } else if (const auto* ref = std::get_if<ir::RefusalBlock>(&b)) {
-                    a_txt += ref->refusal;
-                    has_text = true;
+                    has_refusal = true;
                     if (ref->category.has_value() && !ref->category->empty()) {
                         losses.push_back(make_resp_loss(
                             "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].category",
                             "category", ir::LOSS_UNSUPPORTED_SEMANTIC,
                             "Anthropic refusal category has no Responses equivalent"));
                     }
+                    json::Value p = json::Value::object();
+                    p.set("type", json::Value::string("refusal"));
+                    p.set("refusal", json::Value::string(ref->refusal));
+                    assistant_parts.push_back(std::move(p));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1864,7 +1888,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 reasoning.set("summary", std::move(reasoning_summary));
                 items.push_back(std::move(reasoning));
             }
-            if (has_text || (!has_reasoning && fc_items.empty())) {
+            if (has_refusal) {
+                json::Value mi = json::Value::object();
+                mi.set("role", json::Value::string("assistant"));
+                mi.set("content", std::move(assistant_parts));
+                items.push_back(std::move(mi));
+            } else if (has_text || (!has_reasoning && fc_items.empty())) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", json::Value::string(std::move(a_txt)));
@@ -1973,9 +2002,11 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         const auto* pt = part.find("type");
                         std::string pkind = pt && pt->is_string() ? pt->as_string() : "";
                         if (pkind == "refusal") {
-                            std::string ref_txt;
-                            if (const auto* rf = part.find("refusal"); rf && rf->is_string()) ref_txt = rf->as_string();
-                            resp.content.push_back(ir::RefusalBlock{std::move(ref_txt)});
+                            const auto* rf = part.find("refusal");
+                            if (!rf || !rf->is_string()) {
+                                return invalid_argument("responses: " + item_path + ".content[" + std::to_string(ci) + "].refusal must be a string");
+                            }
+                            resp.content.push_back(ir::RefusalBlock{rf->as_string()});
                             continue;
                         }
                         if (pkind != "output_text") {
@@ -2113,16 +2144,26 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
 
     const auto rank = [](const ir::Block& block) {
         if (std::holds_alternative<ir::ThinkingBlock>(block)) return 0;
-        if (std::holds_alternative<ir::TextBlock>(block)) return 1;
+        if (std::holds_alternative<ir::TextBlock>(block) || std::holds_alternative<ir::RefusalBlock>(block)) return 1;
         return 2;
     };
     std::stable_sort(resp.content.begin(), resp.content.end(), [&](const ir::Block& a, const ir::Block& b) { return rank(a) < rank(b); });
     auto [stop_reason, status_losses] = decode_status(wire, has_tool_use);
     resp.stop_reason = std::move(stop_reason);
-    if (std::any_of(resp.content.begin(), resp.content.end(), [](const ir::Block& b) {
+    bool has_refusal = std::any_of(resp.content.begin(), resp.content.end(), [](const ir::Block& b) {
             return std::holds_alternative<ir::RefusalBlock>(b);
-        }) && resp.stop_reason == ir::STOP_END_TURN) {
+        });
+    if (has_refusal && resp.stop_reason == ir::STOP_END_TURN) {
         resp.stop_reason = std::string(ir::STOP_REFUSAL);
+    }
+    if (!has_refusal && resp.stop_reason == ir::STOP_REFUSAL) {
+        if (const auto* err_val = wire.find("error"); err_val && err_val->is_object()) {
+            const auto* code = err_val->find("code");
+            const auto* msg = err_val->find("message");
+            if (code && code->is_string() && code->as_string() == "refusal" && msg && msg->is_string() && !msg->as_string().empty()) {
+                resp.content.push_back(ir::RefusalBlock{msg->as_string()});
+            }
+        }
     }
     losses.insert(losses.end(), status_losses.begin(), status_losses.end());
 

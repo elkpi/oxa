@@ -1539,11 +1539,16 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
 
     if (resp.stop_reason == ir::STOP_REFUSAL) {
         if (const auto* sd = wire.find("stop_details"); sd && sd->is_object()) {
-            std::string expl;
-            std::optional<std::string> cat;
-            if (const auto* ev = sd->find("explanation"); ev && ev->is_string()) expl = ev->as_string();
-            if (const auto* cv = sd->find("category"); cv && cv->is_string()) cat = cv->as_string();
-            resp.content.push_back(ir::RefusalBlock{std::move(expl), std::move(cat)});
+            const auto* tv = sd->find("type");
+            if (tv && tv->is_string() && tv->as_string() == "refusal") {
+                std::string expl;
+                std::optional<std::string> cat;
+                if (const auto* ev = sd->find("explanation"); ev && ev->is_string() && !ev->as_string().empty()) expl = ev->as_string();
+                if (const auto* cv = sd->find("category"); cv && cv->is_string() && !cv->as_string().empty()) cat = cv->as_string();
+                if (!expl.empty() || cat.has_value()) {
+                    resp.content.push_back(ir::RefusalBlock{std::move(expl), std::move(cat)});
+                }
+            }
         }
     }
 
@@ -1658,10 +1663,15 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     out.set("content", std::move(content_arr));
 
     const ir::RefusalBlock* refusal_block = nullptr;
-    for (const auto& b : resp.content) {
-        if (const auto* r = std::get_if<ir::RefusalBlock>(&b)) {
-            refusal_block = r;
-            break;
+    for (std::size_t i = 0; i < resp.content.size(); ++i) {
+        if (const auto* r = std::get_if<ir::RefusalBlock>(&resp.content[i])) {
+            if (refusal_block == nullptr) {
+                refusal_block = r;
+            } else {
+                losses.push_back(make_ant_loss(
+                    "content[" + std::to_string(i) + "]", "refusal", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped"));
+            }
         }
     }
 

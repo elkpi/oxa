@@ -5,7 +5,9 @@
 namespace oxa::openai::responses {
 inline const detail::AuditProfile& wire_profile() {
     static const detail::AuditProfile profile{
-        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"prompt_cache_key", ""}, {"text", "text_params"}, {"reasoning", "reasoning"}, {"metadata", ""}}},
+        {{"request", {{"model", ""}, {"input", "input_item[]"}, {"instructions", ""}, {"temperature", ""}, {"top_p", ""}, {"max_output_tokens", ""}, {"tools", "tool[]"}, {"tool_choice", "tool_choice"}, {"parallel_tool_calls", ""}, {"prompt_cache_key", ""}, {"prompt_cache_options", "prompt_cache_options_def"}, {"text", "text_params"}, {"reasoning", "reasoning"}, {"metadata", ""}}},
+         {"prompt_cache_options_def", {{"mode", ""}, {"ttl", ""}}},
+         {"prompt_cache_breakpoint_def", {{"mode", ""}, {"ttl", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"status", ""}, {"model", ""}, {"output", "output_item[]"}, {"usage", "usage"}, {"incomplete_details", "incomplete"}, {"error", ""}}},
          {"input_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "input_part[]"}}},
          {"additional_tools_item", {{"type", ""}, {"role", ""}, {"tools", "tool[]"}}},
@@ -15,9 +17,9 @@ inline const detail::AuditProfile& wire_profile() {
          {"function_output", {{"type", ""}, {"id", ""}, {"status", ""}, {"call_id", ""}, {"output", ""}}},
          {"reasoning_item", {{"type", ""}, {"id", ""}, {"status", ""}, {"summary", "summary_part[]"}}},
          {"web_search_call", {{"type", ""}, {"id", ""}, {"status", ""}, {"action", ""}}},
-         {"plain_part", {{"type", ""}, {"text", ""}, {"annotations", ""}}},
-         {"input_image", {{"type", ""}, {"image_url", ""}}},
-         {"input_file", {{"type", ""}, {"file_id", ""}, {"file_url", ""}, {"file_data", ""}, {"filename", ""}, {"detail", ""}}},
+         {"plain_part", {{"type", ""}, {"text", ""}, {"annotations", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
+         {"input_image", {{"type", ""}, {"image_url", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
+         {"input_file", {{"type", ""}, {"file_id", ""}, {"file_url", ""}, {"file_data", ""}, {"filename", ""}, {"detail", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
          {"refusal_part", {{"type", ""}, {"refusal", ""}}},
          {"output_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "output_part[]"}}},
          {"container_tool", {{"type", ""}, {"name", ""}, {"description", ""}, {"tools", "tool[]"}}},

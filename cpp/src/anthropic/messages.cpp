@@ -975,6 +975,20 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 sb.set("cache_control", std::move(*cc));
             }
             sys_arr.push_back(std::move(sb));
+            for (std::size_t ai = 0; ai < s.native.size(); ++ai) {
+                const auto& ann = s.native[ai];
+                if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                    std::string field = ann.omission.has_value() && !ann.omission->field.empty() ? ann.omission->field : "prompt_cache_breakpoint";
+                    std::string reason = ann.omission.has_value() && !ann.omission->reason.empty() ? ann.omission->reason : std::string(ir::LOSS_UNMAPPED_FIELD);
+                    std::string detail = ann.omission.has_value() && ann.omission->detail.has_value() ? *ann.omission->detail : std::string(ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL);
+                    losses.push_back(ir::Loss{
+                        "system[" + std::to_string(i) + "].native[" + std::to_string(ai) + "]",
+                        std::move(field),
+                        std::move(reason),
+                        std::move(detail),
+                    });
+                }
+            }
         }
         out.set("system", std::move(sys_arr));
     }
@@ -1166,6 +1180,16 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("tool_choice", std::move(*tool_choice_val));
     }
 
+    auto get_block_native = [](const ir::Block& block) -> const std::vector<ir::NativeAnnotation>* {
+        return std::visit([](const auto& blk) -> const std::vector<ir::NativeAnnotation>* {
+            if constexpr (requires { blk.native; }) {
+                return &blk.native;
+            } else {
+                return nullptr;
+            }
+        }, block);
+    };
+
     bool shorthand = req.system.empty() && req.messages.size() == 1 &&
                      req.messages[0].content.size() == 1 &&
                      std::holds_alternative<ir::TextBlock>(req.messages[0].content[0]) &&
@@ -1185,6 +1209,22 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             json::Value content_arr = json::Value::array();
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
+                if (const auto* nats = get_block_native(b)) {
+                    for (std::size_t ai = 0; ai < nats->size(); ++ai) {
+                        const auto& ann = (*nats)[ai];
+                        if (ann.source == ir::NATIVE_SOURCE_OPENAI && ann.kind == ir::NATIVE_KIND_PROMPT_CACHE_BREAKPOINT) {
+                            std::string field = ann.omission.has_value() && !ann.omission->field.empty() ? ann.omission->field : "prompt_cache_breakpoint";
+                            std::string reason = ann.omission.has_value() && !ann.omission->reason.empty() ? ann.omission->reason : std::string(ir::LOSS_UNMAPPED_FIELD);
+                            std::string detail = ann.omission.has_value() && ann.omission->detail.has_value() ? *ann.omission->detail : std::string(ir::PROMPT_CACHE_BREAKPOINT_LOSS_DETAIL);
+                            losses.push_back(ir::Loss{
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].native[" + std::to_string(ai) + "]",
+                                std::move(field),
+                                std::move(reason),
+                                std::move(detail),
+                            });
+                        }
+                    }
+                }
                 if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("text"));

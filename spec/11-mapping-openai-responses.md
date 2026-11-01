@@ -254,8 +254,8 @@ Each rule has a stable ID usable as a vector tag.
   directions. Responses has NO stop-sequences parameter: IR
   `Params.StopSequences` cannot round-trip, and a non-empty value on
   encode records exactly one unmapped-field loss.
-- **N-R-8 (unmapped request fields).** `parallel_tool_calls` has no IR equivalent and is dropped with an
-  unmapped-field loss. Since 2.5.0 `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
+- **N-R-8 (unmapped request fields).** Since 2.5.0 `parallel_tool_calls` maps to
+  `ToolChoice.DisableParallel` (N-R-21), and `text.verbosity` maps to `Params.Verbosity`. `metadata` is not in this set: it maps 1:1 to
   `Request.Metadata` (since 2.5.0).
   `text.format` and `reasoning.effort` map as described above; unsupported
   members retain their documented losses. Function-tool `strict` maps to

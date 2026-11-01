@@ -281,18 +281,18 @@ function decodeRequestObject(
         `messages[${index}].tool_calls`,
         losses,
       );
-      if (
-        message.refusal !== undefined &&
-        message.refusal !== null &&
-        typeof message.refusal === "string" &&
-        message.refusal !== ""
-      ) {
-        if (message.content === null) {
-          content = content.filter(
-            (block) => block.type !== "text" || block.text !== "",
-          );
+      if (message.refusal !== undefined && message.refusal !== null) {
+        if (typeof message.refusal !== "string") {
+          fail(`messages[${index}].refusal must be a string`);
         }
-        content.push({ type: "refusal", refusal: message.refusal });
+        if (message.refusal !== "") {
+          if (message.content === null) {
+            content = content.filter(
+              (block) => block.type !== "text" || block.text !== "",
+            );
+          }
+          content.push({ type: "refusal", refusal: message.refusal });
+        }
       }
       if (message.content === null && calls.length > 0)
         content = content.filter(
@@ -489,18 +489,18 @@ function decodeResponseObject(
     "choices[0].message.tool_calls",
     losses,
   );
-  if (
-    message.refusal !== undefined &&
-    message.refusal !== null &&
-    typeof message.refusal === "string" &&
-    message.refusal !== ""
-  ) {
-    if (message.content === null) {
-      content = content.filter(
-        (block) => block.type !== "text" || block.text !== "",
-      );
+  if (message.refusal !== undefined && message.refusal !== null) {
+    if (typeof message.refusal !== "string") {
+      fail("choices[0].message.refusal must be a string");
     }
-    content.push({ type: "refusal", refusal: message.refusal });
+    if (message.refusal !== "") {
+      if (message.content === null) {
+        content = content.filter(
+          (block) => block.type !== "text" || block.text !== "",
+        );
+      }
+      content.push({ type: "refusal", refusal: message.refusal });
+    }
   }
   if (message.content === null && calls.length > 0)
     content = content.filter(
@@ -1197,14 +1197,24 @@ function encodeAssistant(
   for (let index = 0; index < blocks.length; index += 1) {
     const block = blocks[index]!;
     if (block.type === "refusal") {
-      refusal = block.refusal;
-      if (block.category) {
+      if (refusal === undefined) {
+        refusal = block.refusal;
+        if (block.category) {
+          losses.push({
+            path: `${path}[${index}].category`,
+            field: "category",
+            reason: "unsupported-semantic",
+            detail:
+              "Anthropic refusal category has no Chat Completions equivalent",
+          });
+        }
+      } else {
         losses.push({
-          path: `${path}[${index}].category`,
-          field: "category",
+          path: `${path}[${index}]`,
+          field: "refusal",
           reason: "unsupported-semantic",
           detail:
-            "Anthropic refusal category has no Chat Completions equivalent",
+            "Chat Completions supports only a single refusal; subsequent refusal block dropped",
         });
       }
     } else if (block.type === "text") {

@@ -481,16 +481,39 @@ function decodeResponseObject(
     wire.stop_details !== undefined &&
     wire.stop_details !== null
   ) {
-    const details = object(wire.stop_details, "stop_details");
-    const category =
-      typeof details.category === "string" ? details.category : undefined;
-    const explanation =
-      typeof details.explanation === "string" ? details.explanation : "";
-    content.push({
-      type: "refusal",
-      refusal: explanation,
-      ...(category === undefined ? {} : { category }),
-    });
+    if (
+      typeof wire.stop_details !== "object" ||
+      Array.isArray(wire.stop_details)
+    ) {
+      fail("anthropic: stop_details must be an object");
+    }
+    const details = wire.stop_details as Record<string, JsonValue>;
+    if (typeof details.type !== "string") {
+      fail("anthropic: stop_details.type must be a string");
+    }
+    if (details.type === "refusal") {
+      let category: string | undefined;
+      if (details.category !== undefined && details.category !== null) {
+        if (typeof details.category !== "string") {
+          fail("anthropic: stop_details.category must be a string or null");
+        }
+        category = details.category;
+      }
+      let explanation: string | undefined;
+      if (details.explanation !== undefined && details.explanation !== null) {
+        if (typeof details.explanation !== "string") {
+          fail("anthropic: stop_details.explanation must be a string or null");
+        }
+        explanation = details.explanation;
+      }
+      if (explanation || category) {
+        content.push({
+          type: "refusal",
+          refusal: explanation ?? "",
+          ...(category === undefined ? {} : { category }),
+        });
+      }
+    }
   }
   const usage = object(wire.usage, "usage");
   return {
@@ -815,10 +838,20 @@ export function encodeResponse(
     fail(`stop reason ${response.stop_reason} is unsupported`);
   const losses: Loss[] = [];
   let refusalBlock: RefusalBlock | undefined;
-  for (const block of response.content) {
+  for (let i = 0; i < response.content.length; i += 1) {
+    const block = response.content[i]!;
     if (block.type === "refusal") {
-      refusalBlock = block;
-      break;
+      if (refusalBlock === undefined) {
+        refusalBlock = block;
+      } else {
+        losses.push({
+          path: `content[${i}]`,
+          field: "refusal",
+          reason: "unsupported-semantic",
+          detail:
+            "Anthropic stop_details supports only a single refusal; subsequent refusal block dropped",
+        });
+      }
     }
   }
   const stopReason =
@@ -854,8 +887,14 @@ export function encodeResponse(
         ? {
             stop_details: {
               type: "refusal",
-              category: refusalBlock?.category ?? null,
-              explanation: refusalBlock?.refusal ?? null,
+              category:
+                refusalBlock?.category && refusalBlock.category.length > 0
+                  ? refusalBlock.category
+                  : null,
+              explanation:
+                refusalBlock?.refusal && refusalBlock.refusal.length > 0
+                  ? refusalBlock.refusal
+                  : null,
             },
           }
         : {}),

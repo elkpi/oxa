@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.5.1] - 2026-11-03
+
+### Fixed
+
+- OpenAI Responses accepts an explicit empty `additional_tools.tools` array as a no-op with one bounded loss. The item no longer splits assistant/tool-result runs or `apply_patch` call/result pairing. Missing or non-array `tools` values still fail, and named `namespace`/`toolbox` containers still require non-empty children.
+
 ## [v2.5.0] - 2026-11-01
 
 ### Added

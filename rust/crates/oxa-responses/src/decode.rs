@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{
     content_system, decode_assistant_run, decode_content, decode_output_run, decode_tool_choice,
-    loss,
+    empty_additional_tools_loss, loss,
 };
 use crate::types::{
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL,
@@ -273,13 +273,13 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     "additional_tools" => {
                         let Some(ref item_tools) = item.tools else {
                             return Err(Error::new(format!(
-                                "responses: input[{index}]: additional_tools requires non-empty tools array"
+                                "responses: input[{index}]: additional_tools requires tools array"
                             )));
                         };
                         if item_tools.is_empty() {
-                            return Err(Error::new(format!(
-                                "responses: input[{index}]: additional_tools requires non-empty tools array"
-                            )));
+                            losses.push(empty_additional_tools_loss(index));
+                            index += 1;
+                            continue;
                         }
                         let mut req_tools = request.tools.take().unwrap_or_default();
                         for (t_idx, t_entry) in item_tools.iter().enumerate() {

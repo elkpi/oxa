@@ -5238,6 +5238,17 @@
       "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-empty-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-empty-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "933470384e65fcb8905b2b25521b3b451e6865e42af1f1540a39a154a07fb1ba"
+    },
+    {
       "name": "responses.nonstream.tool-additional-tools-nested-strict-to-ir",
       "file": "responses/nonstream/tool-additional-tools-nested-strict-to-ir.json",
       "tags": [
@@ -5260,6 +5271,19 @@
         "N-R-15"
       ],
       "sha256": "42705a899d3aff097121f18a9eb9d29629739a5b31d99aacb985466289b1d668"
+    },
+    {
+      "name": "responses.nonstream.tool-additional-tools-transparent-runs-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-transparent-runs-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "apply-patch",
+        "N-R-15",
+        "INV-3"
+      ],
+      "sha256": "86063dd6798f47e6892c6a09d6bc7d5f22ab661bf48cfec64a7f2c9f490d3133"
     },
     {
       "name": "responses.nonstream.tool-choice-auto-from-ir",

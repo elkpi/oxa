@@ -554,6 +554,8 @@ struct PrecheckApplyPatchResult {
     std::vector<ir::Loss> losses;
 };
 
+inline bool is_empty_additional_tools(const json::Value& item);
+
 StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<json::Value>& items) {
     PrecheckApplyPatchResult res;
     std::size_t i = 0;
@@ -586,6 +588,10 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
         std::size_t a_start = i;
         while (a_start < items.size()) {
             const auto& it = items[a_start];
+            if (is_empty_additional_tools(it)) {
+                ++a_start;
+                continue;
+            }
             const auto* it_type = it.find("type");
             std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
             const auto* it_role = it.find("role");
@@ -622,6 +628,10 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
         std::size_t o_start = a_start;
         while (o_start < items.size()) {
             const auto& it = items[o_start];
+            if (is_empty_additional_tools(it)) {
+                ++o_start;
+                continue;
+            }
             const auto* it_type = it.find("type");
             std::string it_kind = it_type && it_type->is_string() ? it_type->as_string() : "";
             std::string matched_kind;
@@ -751,6 +761,19 @@ inline std::string serialize_container_path(const std::vector<ContainerEntry>& p
     }
     payload += "]}";
     return payload;
+}
+
+inline bool is_empty_additional_tools(const json::Value& item) {
+    const auto* type_val = item.find("type");
+    if (!type_val || !type_val->is_string() || type_val->as_string() != "additional_tools") return false;
+    const auto* tools = item.find("tools");
+    return tools && tools->is_array() && tools->as_array().empty();
+}
+
+inline ir::Loss empty_additional_tools_loss(std::size_t index) {
+    return make_resp_loss("input[" + std::to_string(index) + "].tools", "tools",
+                          ir::LOSS_UNMAPPED_FIELD,
+                          "empty additional_tools inventory ignored");
 }
 
 Status decode_responses_tool_item(
@@ -1098,6 +1121,11 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         const auto& cur = items[index];
                         const auto* ct = cur.find("type");
                         std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
+                        if (is_empty_additional_tools(cur)) {
+                            losses.push_back(empty_additional_tools_loss(index));
+                            ++index;
+                            continue;
+                        }
                         if (ckind == "reasoning") {
                             auto blocks = decode_reasoning_summary(cur, index, losses);
                             text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
@@ -1160,6 +1188,11 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
+                    if (is_empty_additional_tools(cur)) {
+                        losses.push_back(empty_additional_tools_loss(index));
+                        ++index;
+                        continue;
+                    }
                     if (ckind == "reasoning") {
                         auto blocks = decode_reasoning_summary(cur, index, losses);
                         text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
@@ -1218,6 +1251,11 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
+                    if (is_empty_additional_tools(cur)) {
+                        losses.push_back(empty_additional_tools_loss(index));
+                        ++index;
+                        continue;
+                    }
                     if (ckind != "function_call_output" && ckind != "custom_tool_call_output" && ckind != "apply_patch_call_output") break;
                     if (ckind == "apply_patch_call_output") {
                         if (precheck.dropped.count(index)) {
@@ -1252,8 +1290,13 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 }
             } else if (kind == "additional_tools") {
                 const auto* item_tools = item.find("tools");
-                if (!item_tools || !item_tools->is_array() || item_tools->as_array().empty()) {
-                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires non-empty tools array");
+                if (!item_tools || !item_tools->is_array()) {
+                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires tools array");
+                }
+                if (item_tools->as_array().empty()) {
+                    losses.push_back(empty_additional_tools_loss(index));
+                    ++index;
+                    continue;
                 }
                 for (std::size_t t_idx = 0; t_idx < item_tools->as_array().size(); ++t_idx) {
                     OXA_RETURN_IF_ERROR(decode_responses_tool_item(

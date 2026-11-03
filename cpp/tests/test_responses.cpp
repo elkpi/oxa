@@ -39,7 +39,27 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 182);
+    CHECK(rep_res->executed == 184);
+
+    {
+        const char* existing = R"({"type":"function","name":"existing","parameters":{"type":"object"}})";
+        const std::string with_empty = std::string(R"({"model":"m","input":[{"type":"additional_tools","role":"developer","tools":[]},{"type":"message","role":"user","content":"hello"}],"tools":[)") + existing + R"(]})";
+        const std::string without_empty = std::string(R"({"model":"m","input":[{"type":"message","role":"user","content":"hello"}],"tools":[)") + existing + R"(]})";
+        auto with_dec = oxa::openai::responses::decode_request(with_empty);
+        auto without_dec = oxa::openai::responses::decode_request(without_empty);
+        CHECK(with_dec.ok());
+        CHECK(without_dec.ok());
+        if (with_dec.ok() && without_dec.ok()) {
+            CHECK(with_dec->losses.size() == 1);
+            if (with_dec->losses.size() == 1) {
+                CHECK(with_dec->losses[0].path == "input[0].tools");
+                CHECK(with_dec->losses[0].field == "tools");
+                CHECK(with_dec->losses[0].reason == "unmapped-field");
+            }
+            CHECK(oxa::json::serialize(oxa::ir::dump_request(with_dec->value)) ==
+                  oxa::json::serialize(oxa::ir::dump_request(without_dec->value)));
+        }
+    }
 
     const char* invalid_actions[] = {
         R"(null)", R"({})", R"({"type":"future"})",

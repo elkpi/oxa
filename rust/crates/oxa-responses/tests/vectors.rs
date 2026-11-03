@@ -117,10 +117,11 @@ fn empty_additional_tools_does_not_split_runs() {
     assert_eq!(with, without);
     assert_eq!(losses.len(), 1);
 
-    let with_split_results =
-        format!(r#"{{"model":"m","input":[{user},{call_a},{result_a},{empty},{result_b}]}}"#);
+    let with_split_results = format!(
+        r#"{{"model":"m","input":[{user},{call_a},{call_b},{result_a},{empty},{result_b}]}}"#
+    );
     let results_baseline =
-        format!(r#"{{"model":"m","input":[{user},{call_a},{result_a},{result_b}]}}"#);
+        format!(r#"{{"model":"m","input":[{user},{call_a},{call_b},{result_a},{result_b}]}}"#);
     let (with_results, losses) =
         decode_request_json(&with_split_results, &Config::default()).expect("decode split results");
     let (baseline_results, _) =

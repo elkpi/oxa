@@ -106,11 +106,11 @@ class ResponsesNonstreamTest(unittest.TestCase):
 
         with_split_results, losses = decode_request({
             "model": "m",
-            "input": [{"role": "user", "content": "hi"}, call_a, result_a, empty, result_b],
+            "input": [{"role": "user", "content": "hi"}, call_a, call_b, result_a, empty, result_b],
         })
         results_baseline, _ = decode_request({
             "model": "m",
-            "input": [{"role": "user", "content": "hi"}, call_a, result_a, result_b],
+            "input": [{"role": "user", "content": "hi"}, call_a, call_b, result_a, result_b],
         })
         self.assertEqual(with_split_results, results_baseline)
         self.assertEqual(len(losses), 1)

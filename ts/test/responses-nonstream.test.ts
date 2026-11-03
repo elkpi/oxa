@@ -57,23 +57,32 @@ test("treats an empty additional_tools inventory as a no-op", () => {
 
 test("requires an explicit additional_tools array", () => {
   for (const tools of [undefined, null, "not-array"]) {
-    assert.throws(
-      () =>
-        decodeRequest({
-          model: "m",
-          input: [
-            { type: "additional_tools", tools },
-            { type: "message", role: "user", content: "hi" },
-          ],
-        } as JsonObject),
+    assert.throws(() =>
+      decodeRequest({
+        model: "m",
+        input: [
+          { type: "additional_tools", tools },
+          { type: "message", role: "user", content: "hi" },
+        ],
+      } as JsonObject),
     );
   }
 });
 
 test("does not let an empty inventory split tool runs", () => {
   const empty = { type: "additional_tools", role: "developer", tools: [] };
-  const callA = { type: "function_call", call_id: "a", name: "a", arguments: "{}" };
-  const callB = { type: "function_call", call_id: "b", name: "b", arguments: "{}" };
+  const callA = {
+    type: "function_call",
+    call_id: "a",
+    name: "a",
+    arguments: "{}",
+  };
+  const callB = {
+    type: "function_call",
+    call_id: "b",
+    name: "b",
+    arguments: "{}",
+  };
   const resultA = { type: "function_call_output", call_id: "a", output: "a" };
   const resultB = { type: "function_call_output", call_id: "b", output: "b" };
   const user = { type: "message", role: "user", content: "hi" };
@@ -91,11 +100,11 @@ test("does not let an empty inventory split tool runs", () => {
 
   const resultsWith = decodeRequest({
     model: "m",
-    input: [user, callA, resultA, empty, resultB],
+    input: [user, callA, callB, resultA, empty, resultB],
   } as JsonObject);
   const resultsWithout = decodeRequest({
     model: "m",
-    input: [user, callA, resultA, resultB],
+    input: [user, callA, callB, resultA, resultB],
   } as JsonObject);
   assert.deepEqual(resultsWith.value, resultsWithout.value);
   assert.equal(resultsWith.losses.length, 1);

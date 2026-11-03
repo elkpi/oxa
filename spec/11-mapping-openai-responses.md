@@ -337,7 +337,9 @@ Each rule has a stable ID usable as a vector tag.
          no-op and record exactly one `unmapped-field` loss at `input[i].tools`
          (`empty additional_tools inventory ignored`). This rule applies only to the
          top-level `additional_tools` item; named `namespace` and `toolbox` containers
-         continue to require non-empty `tools`.
+         continue to require non-empty `tools`. The item is transparent to assistant
+         and tool-result run grouping, including the adjacency used to pair
+         `apply_patch_call` items with their results.
        - The child tools are recursively flattened and hoisted to `req.Tools` at request level.
 
   2. Calling and choice mapping:

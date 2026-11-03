@@ -10,8 +10,9 @@ precedence between spec, vectors, and schemas is defined in
 - Clarify Responses `additional_tools` handling in N-R-15. `tools` must still
   be an array, but an empty array is now a valid no-op inventory update: it
   contributes no tools or IR content and records one `unmapped-field` loss.
-  Named `namespace` and `toolbox` containers continue to require non-empty
-  `tools`. IR contract remains `0.2.0`.
+  The item is transparent to assistant/tool-result runs and `apply_patch`
+  call/result pairing. Named `namespace` and `toolbox` containers continue to
+  require non-empty `tools`. IR contract remains `0.2.0`.
 
 ## 2.5.0 - 2026-11-01
 

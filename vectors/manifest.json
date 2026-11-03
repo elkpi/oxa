@@ -5238,6 +5238,17 @@
       "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-empty-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-empty-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "933470384e65fcb8905b2b25521b3b451e6865e42af1f1540a39a154a07fb1ba"
+    },
+    {
       "name": "responses.nonstream.tool-additional-tools-nested-strict-to-ir",
       "file": "responses/nonstream/tool-additional-tools-nested-strict-to-ir.json",
       "tags": [

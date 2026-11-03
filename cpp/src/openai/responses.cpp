@@ -1252,8 +1252,16 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 }
             } else if (kind == "additional_tools") {
                 const auto* item_tools = item.find("tools");
-                if (!item_tools || !item_tools->is_array() || item_tools->as_array().empty()) {
-                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires non-empty tools array");
+                if (!item_tools || !item_tools->is_array()) {
+                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires tools array");
+                }
+                if (item_tools->as_array().empty()) {
+                    losses.push_back(make_resp_loss(
+                        "input[" + std::to_string(index) + "].tools", "tools",
+                        ir::LOSS_UNMAPPED_FIELD,
+                        "empty additional_tools inventory ignored"));
+                    ++index;
+                    continue;
                 }
                 for (std::size_t t_idx = 0; t_idx < item_tools->as_array().size(); ++t_idx) {
                     OXA_RETURN_IF_ERROR(decode_responses_tool_item(

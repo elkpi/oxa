@@ -232,8 +232,19 @@ def decode_request(
                 index = next_idx
             elif kind == "additional_tools":
                 item_tools = item.get("tools")
-                if not isinstance(item_tools, list) or not item_tools:
-                    raise ValueError(f"responses: input[{index}]: additional_tools requires non-empty tools array")
+                if not isinstance(item_tools, list):
+                    raise ValueError(f"responses: input[{index}]: additional_tools requires tools array")
+                if not item_tools:
+                    losses.append(
+                        loss(
+                            f"input[{index}].tools",
+                            "tools",
+                            LOSS_UNMAPPED_FIELD,
+                            "empty additional_tools inventory ignored",
+                        )
+                    )
+                    index += 1
+                    continue
                 for t_idx, t_entry in enumerate(item_tools):
                     tools.extend(decode_responses_tool_item(t_entry, [], f"input[{index}].tools[{t_idx}]", seen_names, losses, raw_text))
                 index += 1

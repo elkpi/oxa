@@ -234,7 +234,12 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			i = next
 		case ItemTypeAdditionalTools:
 			if len(item.Tools) == 0 {
-				return nil, nil, fmt.Errorf("responses: input[%d]: additional_tools requires non-empty tools array", i)
+				losses = append(losses, loss(
+					fmt.Sprintf("input[%d].tools", i), "tools", ir.LossUnmappedField,
+					"empty additional_tools inventory ignored",
+				))
+				i++
+				continue
 			}
 			for idx, rawTool := range item.Tools {
 				toolPath := fmt.Sprintf("input[%d].tools[%d]", i, idx)

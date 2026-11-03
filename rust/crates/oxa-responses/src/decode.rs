@@ -273,13 +273,18 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     "additional_tools" => {
                         let Some(ref item_tools) = item.tools else {
                             return Err(Error::new(format!(
-                                "responses: input[{index}]: additional_tools requires non-empty tools array"
+                                "responses: input[{index}]: additional_tools requires tools array"
                             )));
                         };
                         if item_tools.is_empty() {
-                            return Err(Error::new(format!(
-                                "responses: input[{index}]: additional_tools requires non-empty tools array"
-                            )));
+                            losses.push(Loss {
+                                path: format!("input[{index}].tools"),
+                                field: "tools".to_string(),
+                                reason: LossReason::UnmappedField,
+                                detail: "empty additional_tools inventory ignored".to_string(),
+                            });
+                            index += 1;
+                            continue;
                         }
                         let mut req_tools = request.tools.take().unwrap_or_default();
                         for (t_idx, t_entry) in item_tools.iter().enumerate() {

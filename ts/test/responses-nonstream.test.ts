@@ -26,6 +26,35 @@ test("runs every Responses non-stream vector", () => {
   );
 });
 
+test("treats an empty additional_tools inventory as a no-op", () => {
+  const existingTool = {
+    type: "function",
+    name: "existing",
+    parameters: { type: "object" },
+  };
+  const withEmpty = {
+    model: "m",
+    input: [
+      { type: "additional_tools", role: "developer", tools: [] },
+      { type: "message", role: "user", content: "hello" },
+    ],
+    tools: [existingTool],
+  };
+  const withoutEmpty = {
+    model: "m",
+    input: [{ type: "message", role: "user", content: "hello" }],
+    tools: [existingTool],
+  };
+
+  const decoded = decodeRequest(withEmpty as JsonObject);
+  const expected = decodeRequest(withoutEmpty as JsonObject);
+  assert.deepEqual(decoded.value, expected.value);
+  assert.deepEqual(
+    decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
+    [{ path: "input[0].tools", field: "tools", reason: "unmapped-field" }],
+  );
+});
+
 test("reports a present-false unknown request field once", () => {
   const raw = '{"model":"m","input":"hi","store":false}';
   const decoded = decodeRequest(parseJson(raw) as JsonObject);

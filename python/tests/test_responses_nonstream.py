@@ -41,6 +41,33 @@ from oxa.openai.responses import (
 
 
 class ResponsesNonstreamTest(unittest.TestCase):
+    def test_empty_additional_tools_is_no_op(self) -> None:
+        with_empty = {
+            "model": "m",
+            "input": [
+                {"type": "additional_tools", "role": "developer", "tools": []},
+                {"type": "message", "role": "user", "content": "hello"},
+            ],
+            "tools": [
+                {"type": "function", "name": "existing", "parameters": {"type": "object"}}
+            ],
+        }
+        without_empty = {
+            "model": "m",
+            "input": [{"type": "message", "role": "user", "content": "hello"}],
+            "tools": [
+                {"type": "function", "name": "existing", "parameters": {"type": "object"}}
+            ],
+        }
+
+        req, losses = decode_request(with_empty)
+        expected, _ = decode_request(without_empty)
+        self.assertEqual(req, expected)
+        self.assertEqual(
+            [(loss.path, loss.field, loss.reason) for loss in losses],
+            [("input[0].tools", "tools", LOSS_UNMAPPED_FIELD)],
+        )
+
     def test_text_format_rejects_non_boolean_strict(self) -> None:
         wire = {
             "model": "gpt-4o",

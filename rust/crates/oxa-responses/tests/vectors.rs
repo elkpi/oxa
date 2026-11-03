@@ -2,7 +2,9 @@
 
 use std::path::Path;
 
-use oxa_responses::{Config, StreamDecoder, StreamEncoder, encode_request, encode_response};
+use oxa_responses::{
+    Config, StreamDecoder, StreamEncoder, decode_request_json, encode_request, encode_response,
+};
 
 struct VectorConverter {
     config: Config,
@@ -70,6 +72,28 @@ fn vectors() {
         }
         Err(err) => panic!("vectest harness error: {err}"),
     }
+}
+
+#[test]
+fn empty_additional_tools_is_a_no_op() {
+    let existing = r#"{"type":"function","name":"existing","parameters":{"type":"object"}}"#;
+    let with_empty = format!(
+        r#"{{"model":"m","input":[{{"type":"additional_tools","role":"developer","tools":[]}},{{"type":"message","role":"user","content":"hello"}}],"tools":[{existing}]}}"#
+    );
+    let without_empty = format!(
+        r#"{{"model":"m","input":[{{"type":"message","role":"user","content":"hello"}}],"tools":[{existing}]}}"#
+    );
+
+    let (request, losses) =
+        decode_request_json(&with_empty, &Config::default()).expect("decode with empty inventory");
+    let (expected, _) = decode_request_json(&without_empty, &Config::default())
+        .expect("decode without empty inventory");
+
+    assert_eq!(request, expected);
+    assert_eq!(losses.len(), 1);
+    assert_eq!(losses[0].path, "input[0].tools");
+    assert_eq!(losses[0].field, "tools");
+    assert_eq!(losses[0].reason, oxa_ir::LossReason::UnmappedField);
 }
 
 struct StreamVectorConverter {

@@ -1,6 +1,7 @@
 package responses_test
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 
@@ -81,11 +82,6 @@ func TestDecodeToolContainerStructuralErrors(t *testing.T) {
 			json: `{"model":"m","input":"hi","tools":[{"type":"function","name":"repo.read","parameters":{}},{"type":"toolbox","name":"repo","tools":[{"type":"function","name":"read","parameters":{}}]}]}`,
 			err:  "duplicate tool name \"repo.read\"",
 		},
-		{
-			name: "empty additional_tools tools array",
-			json: `{"model":"m","input":[{"role":"user","content":"hi"},{"type":"additional_tools","tools":[]}]}`,
-			err:  "requires non-empty tools array",
-		},
 	}
 
 	for _, tc := range cases {
@@ -98,6 +94,53 @@ func TestDecodeToolContainerStructuralErrors(t *testing.T) {
 				t.Fatalf("expected error containing %q, got %q", tc.err, err.Error())
 			}
 		})
+	}
+}
+
+func TestDecodeEmptyAdditionalToolsIsNoOp(t *testing.T) {
+	withEmpty := []byte(`{
+		"model": "m",
+		"input": [
+			{"type": "additional_tools", "role": "developer", "tools": []},
+			{"type": "message", "role": "user", "content": "hello"}
+		],
+		"tools": [
+			{"type": "function", "name": "existing", "parameters": {"type": "object"}}
+		]
+	}`)
+	withoutEmpty := []byte(`{
+		"model": "m",
+		"input": [{"type": "message", "role": "user", "content": "hello"}],
+		"tools": [
+			{"type": "function", "name": "existing", "parameters": {"type": "object"}}
+		]
+	}`)
+
+	req, losses, err := responses.DecodeRequestJSON(withEmpty)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	expected, _, err := responses.DecodeRequestJSON(withoutEmpty)
+	if err != nil {
+		t.Fatalf("unexpected baseline error: %v", err)
+	}
+	if len(losses) != 1 || losses[0].Path != "input[0].tools" ||
+		losses[0].Field != "tools" || losses[0].Reason != ir.LossUnmappedField {
+		t.Fatalf("expected one input[0].tools unmapped-field loss, got %+v", losses)
+	}
+	if len(req.Tools) != 1 || req.Tools[0].Name != "existing" {
+		t.Fatalf("expected existing tool to remain unchanged, got %+v", req.Tools)
+	}
+	reqJSON, err := json.Marshal(req)
+	if err != nil {
+		t.Fatalf("marshal decoded request: %v", err)
+	}
+	expectedJSON, err := json.Marshal(expected)
+	if err != nil {
+		t.Fatalf("marshal baseline request: %v", err)
+	}
+	if string(reqJSON) != string(expectedJSON) {
+		t.Fatalf("empty additional_tools changed IR:\nwith: %s\nwithout: %s", reqJSON, expectedJSON)
 	}
 }
 

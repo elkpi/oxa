@@ -427,9 +427,14 @@ function decodeRequestObject(
       if (type === "additional_tools") {
         const itemTools = array(item.tools, `input[${index}].tools`);
         if (itemTools.length === 0) {
-          fail(
-            `input[${index}]: additional_tools requires non-empty tools array`,
-          );
+          losses.push({
+            path: `input[${index}].tools`,
+            field: "tools",
+            reason: "unmapped-field",
+            detail: "empty additional_tools inventory ignored",
+          });
+          index += 1;
+          continue;
         }
         for (const [tIdx, tEntry] of itemTools.entries()) {
           const decoded = decodeResponsesToolItem(

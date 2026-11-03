@@ -540,6 +540,10 @@ pub(crate) fn precheck_apply_patch_pairs(
         let mut a_start = i;
         while a_start < items.len() {
             let it = &items[a_start];
+            if is_empty_additional_tools(it) {
+                a_start += 1;
+                continue;
+            }
             let kind = match it.kind.as_str() {
                 ITEM_TYPE_FUNCTION_CALL => "function",
                 ITEM_TYPE_CUSTOM_TOOL_CALL => "custom",
@@ -570,6 +574,10 @@ pub(crate) fn precheck_apply_patch_pairs(
         let mut o_start = a_start;
         while o_start < items.len() {
             let it = &items[o_start];
+            if is_empty_additional_tools(it) {
+                o_start += 1;
+                continue;
+            }
             let kind = match it.kind.as_str() {
                 ITEM_TYPE_FUNCTION_CALL_OUTPUT => "function",
                 ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT => "custom",
@@ -713,6 +721,11 @@ pub(crate) fn decode_assistant_run(
     let mut index = start;
     while index < items.len() {
         let item = &items[index];
+        if is_empty_additional_tools(item) {
+            losses.push(empty_additional_tools_loss(index));
+            index += 1;
+            continue;
+        }
         if item.kind == "apply_patch_call" {
             if dropped.contains(&index) {
                 index += 1;
@@ -861,12 +874,19 @@ pub(crate) fn decode_output_run(
     let mut content = Vec::new();
     let mut losses = Vec::new();
     let mut index = start;
-    while index < items.len()
-        && (items[index].kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT
-            || items[index].kind == ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT
-            || items[index].kind == "apply_patch_call_output")
-    {
+    while index < items.len() {
         let item = &items[index];
+        if is_empty_additional_tools(item) {
+            losses.push(empty_additional_tools_loss(index));
+            index += 1;
+            continue;
+        }
+        if item.kind != ITEM_TYPE_FUNCTION_CALL_OUTPUT
+            && item.kind != ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT
+            && item.kind != "apply_patch_call_output"
+        {
+            break;
+        }
         if item.kind == "apply_patch_call_output" {
             if dropped.contains(&index) {
                 index += 1;
@@ -974,6 +994,19 @@ pub(crate) fn decode_output_run(
         index,
         losses,
     ))
+}
+
+pub(crate) fn is_empty_additional_tools(item: &InputItem) -> bool {
+    item.kind == "additional_tools" && matches!(&item.tools, Some(tools) if tools.is_empty())
+}
+
+pub(crate) fn empty_additional_tools_loss(index: usize) -> Loss {
+    loss(
+        format!("input[{index}].tools"),
+        "tools",
+        LossReason::UnmappedField,
+        "empty additional_tools inventory ignored",
+    )
 }
 
 /// N-R-9 maps Responses tool choice forms to the IR modes.

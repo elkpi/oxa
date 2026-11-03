@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{
     content_system, decode_assistant_run, decode_content, decode_output_run, decode_tool_choice,
-    loss,
+    empty_additional_tools_loss, loss,
 };
 use crate::types::{
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL,
@@ -277,12 +277,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             )));
                         };
                         if item_tools.is_empty() {
-                            losses.push(Loss {
-                                path: format!("input[{index}].tools"),
-                                field: "tools".to_string(),
-                                reason: LossReason::UnmappedField,
-                                detail: "empty additional_tools inventory ignored".to_string(),
-                            });
+                            losses.push(empty_additional_tools_loss(index));
                             index += 1;
                             continue;
                         }

@@ -50,6 +50,31 @@ import type {
   WebSearchCallBlock,
 } from "../../ir/index.js";
 
+function isEmptyAdditionalTools(value: unknown): boolean {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    isJsonNumber(value)
+  )
+    return false;
+  const item = value as JsonObject;
+  return (
+    item.type === "additional_tools" &&
+    Array.isArray(item.tools) &&
+    item.tools.length === 0
+  );
+}
+
+function emptyAdditionalToolsLoss(index: number): Loss {
+  return {
+    path: `input[${index}].tools`,
+    field: "tools",
+    reason: "unmapped-field",
+    detail: "empty additional_tools inventory ignored",
+  };
+}
+
 function decodeWebSearchCall(
   item: JsonObject,
   path: string,
@@ -212,6 +237,11 @@ function decodeRequestObject(
             current.type === undefined
               ? "message"
               : string(current.type, `input[${index}].type`);
+          if (isEmptyAdditionalTools(current)) {
+            losses.push(emptyAdditionalToolsLoss(index));
+            index += 1;
+            continue;
+          }
           if (currentType === "reasoning") {
             const summary =
               current.summary === undefined
@@ -337,6 +367,11 @@ function decodeRequestObject(
         const content: Block[] = [];
         while (index < items.length) {
           const current = object(items[index], `input[${index}]`);
+          if (isEmptyAdditionalTools(current)) {
+            losses.push(emptyAdditionalToolsLoss(index));
+            index += 1;
+            continue;
+          }
           if (
             current.type !== "function_call_output" &&
             current.type !== "custom_tool_call_output" &&
@@ -427,12 +462,7 @@ function decodeRequestObject(
       if (type === "additional_tools") {
         const itemTools = array(item.tools, `input[${index}].tools`);
         if (itemTools.length === 0) {
-          losses.push({
-            path: `input[${index}].tools`,
-            field: "tools",
-            reason: "unmapped-field",
-            detail: "empty additional_tools inventory ignored",
-          });
+          losses.push(emptyAdditionalToolsLoss(index));
           index += 1;
           continue;
         }
@@ -581,6 +611,10 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
     let aStart = i;
     while (aStart < items.length) {
       const it = items[aStart];
+      if (isEmptyAdditionalTools(it)) {
+        aStart++;
+        continue;
+      }
       if (
         typeof it !== "object" ||
         it === null ||
@@ -627,6 +661,10 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
     let oStart = aStart;
     while (oStart < items.length) {
       const it = items[oStart];
+      if (isEmptyAdditionalTools(it)) {
+        oStart++;
+        continue;
+      }
       if (
         typeof it !== "object" ||
         it === null ||

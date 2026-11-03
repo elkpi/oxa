@@ -144,6 +144,69 @@ func TestDecodeEmptyAdditionalToolsIsNoOp(t *testing.T) {
 	}
 }
 
+func TestDecodeAdditionalToolsRequiresExplicitArray(t *testing.T) {
+	cases := []struct {
+		name        string
+		json        string
+		errorString string
+	}{
+		{name: "missing tools", json: `{"model":"m","input":[{"type":"additional_tools"},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
+		{name: "null tools", json: `{"model":"m","input":[{"type":"additional_tools","tools":null},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
+		{name: "non-array tools", json: `{"model":"m","input":[{"type":"additional_tools","tools":"not-an-array"},{"role":"user","content":"hi"}]}`},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, _, err := responses.DecodeRequestJSON([]byte(tc.json))
+			if err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if tc.errorString != "" && !strings.Contains(err.Error(), tc.errorString) {
+				t.Fatalf("expected error containing %q, got %v", tc.errorString, err)
+			}
+		})
+	}
+}
+
+func TestDecodeEmptyAdditionalToolsDoesNotSplitRuns(t *testing.T) {
+	withEmpty := []byte(`{"model":"m","input":[{"role":"user","content":"hi"},{"type":"function_call","call_id":"a","name":"a","arguments":"{}"},{"type":"additional_tools","role":"developer","tools":[]},{"type":"function_call","call_id":"b","name":"b","arguments":"{}"},{"type":"function_call_output","call_id":"a","output":"a"},{"type":"function_call_output","call_id":"b","output":"b"}]}`)
+	withoutEmpty := []byte(`{"model":"m","input":[{"role":"user","content":"hi"},{"type":"function_call","call_id":"a","name":"a","arguments":"{}"},{"type":"function_call","call_id":"b","name":"b","arguments":"{}"},{"type":"function_call_output","call_id":"a","output":"a"},{"type":"function_call_output","call_id":"b","output":"b"}]}`)
+	withResults := []byte(`{"model":"m","input":[{"role":"user","content":"hi"},{"type":"function_call","call_id":"a","name":"a","arguments":"{}"},{"type":"function_call_output","call_id":"a","output":"a"},{"type":"additional_tools","role":"developer","tools":[]},{"type":"function_call_output","call_id":"b","output":"b"}]}`)
+	withResultsBaseline := []byte(`{"model":"m","input":[{"role":"user","content":"hi"},{"type":"function_call","call_id":"a","name":"a","arguments":"{}"},{"type":"function_call_output","call_id":"a","output":"a"},{"type":"function_call_output","call_id":"b","output":"b"}]}`)
+	with, losses, err := responses.DecodeRequestJSON(withEmpty)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	without, _, err := responses.DecodeRequestJSON(withoutEmpty)
+	if err != nil {
+		t.Fatalf("unexpected baseline error: %v", err)
+	}
+	if len(losses) != 1 {
+		t.Fatalf("expected one loss, got %+v", losses)
+	}
+	withJSON, _ := json.Marshal(with)
+	withoutJSON, _ := json.Marshal(without)
+	if string(withJSON) != string(withoutJSON) {
+		t.Fatalf("empty inventory split calls:\nwith: %s\nwithout: %s", withJSON, withoutJSON)
+	}
+
+	results, losses, err := responses.DecodeRequestJSON(withResults)
+	if err != nil {
+		t.Fatalf("unexpected results error: %v", err)
+	}
+	resultsBaseline, _, err := responses.DecodeRequestJSON(withResultsBaseline)
+	if err != nil {
+		t.Fatalf("unexpected results baseline error: %v", err)
+	}
+	if len(losses) != 1 {
+		t.Fatalf("expected one results loss, got %+v", losses)
+	}
+	resultsJSON, _ := json.Marshal(results)
+	resultsBaselineJSON, _ := json.Marshal(resultsBaseline)
+	if string(resultsJSON) != string(resultsBaselineJSON) {
+		t.Fatalf("empty inventory split results:\nwith: %s\nwithout: %s", resultsJSON, resultsBaselineJSON)
+	}
+}
+
 func TestRoundTripToolContainers(t *testing.T) {
 	raw := []byte(`{
 		"model": "gpt-5.5",

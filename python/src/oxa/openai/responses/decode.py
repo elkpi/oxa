@@ -97,6 +97,8 @@ from oxa.openai.responses.normalize import (
     decode_image_url,
     decode_output_run,
     decode_tool_choice,
+    empty_additional_tools_loss,
+    is_empty_additional_tools,
     loss,
     precheck_apply_patch_pairs,
 )
@@ -235,14 +237,7 @@ def decode_request(
                 if not isinstance(item_tools, list):
                     raise ValueError(f"responses: input[{index}]: additional_tools requires tools array")
                 if not item_tools:
-                    losses.append(
-                        loss(
-                            f"input[{index}].tools",
-                            "tools",
-                            LOSS_UNMAPPED_FIELD,
-                            "empty additional_tools inventory ignored",
-                        )
-                    )
+                    losses.append(empty_additional_tools_loss(index))
                     index += 1
                     continue
                 for t_idx, t_entry in enumerate(item_tools):

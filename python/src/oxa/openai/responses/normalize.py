@@ -85,6 +85,24 @@ def loss(path: str, field_name: str, reason: str, detail: str) -> Loss:
     return Loss(path=path, field=field_name, reason=reason, detail=detail)
 
 
+def is_empty_additional_tools(item: dict[str, Any]) -> bool:
+    """Returns true for an explicit empty Responses tool inventory."""
+    return (
+        item.get("type") == "additional_tools"
+        and isinstance(item.get("tools"), list)
+        and len(item["tools"]) == 0
+    )
+
+
+def empty_additional_tools_loss(index: int) -> Loss:
+    return loss(
+        f"input[{index}].tools",
+        "tools",
+        LOSS_UNMAPPED_FIELD,
+        "empty additional_tools inventory ignored",
+    )
+
+
 def is_valid_https_url(raw: str) -> bool:
     if not raw.startswith("https://"):
         return False
@@ -383,6 +401,9 @@ def precheck_apply_patch_pairs(
         a_start = i
         while a_start < len(items):
             it = items[a_start]
+            if isinstance(it, dict) and is_empty_additional_tools(it):
+                a_start += 1
+                continue
             if not isinstance(it, dict):
                 break
             k = it.get("type", "")
@@ -412,6 +433,9 @@ def precheck_apply_patch_pairs(
         o_start = a_start
         while o_start < len(items):
             it = items[o_start]
+            if isinstance(it, dict) and is_empty_additional_tools(it):
+                o_start += 1
+                continue
             if not isinstance(it, dict):
                 break
             k = it.get("type", "")
@@ -505,6 +529,10 @@ def decode_assistant_run(
     while index < len(items):
         item = items[index]
         kind = item.get("type", "")
+        if is_empty_additional_tools(item):
+            losses.append(empty_additional_tools_loss(index))
+            index += 1
+            continue
         if kind == ITEM_TYPE_WEB_SEARCH_CALL:
             from oxa.openai.responses.web_search import decode_web_search_item
 
@@ -588,12 +616,18 @@ def decode_output_run(
     content: list[Block] = []
     losses: list[Loss] = []
     index = start
-    while index < len(items) and items[index].get("type") in (
-        ITEM_TYPE_FUNCTION_CALL_OUTPUT,
-        ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
-        "apply_patch_call_output",
-    ):
+    while index < len(items):
         item = items[index]
+        if is_empty_additional_tools(item):
+            losses.append(empty_additional_tools_loss(index))
+            index += 1
+            continue
+        if item.get("type") not in (
+            ITEM_TYPE_FUNCTION_CALL_OUTPUT,
+            ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT,
+            "apply_patch_call_output",
+        ):
+            break
         if item.get("type") == "apply_patch_call_output":
             if dropped is not None and index in dropped:
                 index += 1

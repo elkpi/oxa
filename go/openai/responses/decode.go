@@ -233,11 +233,11 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			losses = append(losses, runLosses...)
 			i = next
 		case ItemTypeAdditionalTools:
-			if len(item.Tools) == 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("input[%d].tools", i), "tools", ir.LossUnmappedField,
-					"empty additional_tools inventory ignored",
-				))
+			if item.Tools == nil {
+				return nil, nil, fmt.Errorf("responses: input[%d]: additional_tools requires tools array", i)
+			}
+			if isEmptyAdditionalTools(wire.Input.Items, i) {
+				losses = append(losses, emptyAdditionalToolsLoss(i))
 				i++
 				continue
 			}
@@ -286,6 +286,21 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	return req, losses, nil
 }
 
+func isEmptyAdditionalTools(items []InputItem, i int) bool {
+	item := items[i]
+	if item.Type != ItemTypeAdditionalTools || item.Tools == nil {
+		return false
+	}
+	return len(item.Tools) == 0
+}
+
+func emptyAdditionalToolsLoss(i int) ir.Loss {
+	return loss(
+		fmt.Sprintf("input[%d].tools", i), "tools", ir.LossUnmappedField,
+		"empty additional_tools inventory ignored",
+	)
+}
+
 type toolItemRef struct {
 	callID string
 	kind   string
@@ -318,6 +333,10 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		seenCallIDs := make(map[string]bool)
 		aStart := i
 		for aStart < len(items) {
+			if isEmptyAdditionalTools(items, aStart) {
+				aStart++
+				continue
+			}
 			it := items[aStart]
 			kind := ""
 			switch it.Type {
@@ -355,6 +374,10 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		var results []toolItemRef
 		oStart := aStart
 		for oStart < len(items) {
+			if isEmptyAdditionalTools(items, oStart) {
+				oStart++
+				continue
+			}
 			it := items[oStart]
 			matchedKind := ""
 			switch it.Type {
@@ -558,6 +581,10 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
+		if isEmptyAdditionalTools(items, i) {
+			losses = append(losses, emptyAdditionalToolsLoss(i))
+			continue
+		}
 		if item.Type == ItemTypeApplyPatchCall {
 			if dropped[i] {
 				continue
@@ -638,6 +665,10 @@ func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Blo
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
+		if isEmptyAdditionalTools(items, i) {
+			losses = append(losses, emptyAdditionalToolsLoss(i))
+			continue
+		}
 		if item.Type == ItemTypeApplyPatchCallOutput {
 			if dropped[i] {
 				continue

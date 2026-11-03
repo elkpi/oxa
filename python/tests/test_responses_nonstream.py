@@ -68,6 +68,53 @@ class ResponsesNonstreamTest(unittest.TestCase):
             [("input[0].tools", "tools", LOSS_UNMAPPED_FIELD)],
         )
 
+    def test_empty_additional_tools_requires_explicit_array(self) -> None:
+        cases = (
+            {"type": "additional_tools"},
+            {"type": "additional_tools", "tools": None},
+            {"type": "additional_tools", "tools": "not-array"},
+        )
+        for item in cases:
+            with self.subTest(item=item):
+                wire = {
+                    "model": "m",
+                    "input": [
+                        item,
+                        {"type": "message", "role": "user", "content": "hi"},
+                    ],
+                }
+                with self.assertRaises(ValueError):
+                    decode_request(wire)
+
+    def test_empty_additional_tools_does_not_split_runs(self) -> None:
+        empty = {"type": "additional_tools", "role": "developer", "tools": []}
+        call_a = {"type": "function_call", "call_id": "a", "name": "a", "arguments": "{}"}
+        call_b = {"type": "function_call", "call_id": "b", "name": "b", "arguments": "{}"}
+        result_a = {"type": "function_call_output", "call_id": "a", "output": "a"}
+        result_b = {"type": "function_call_output", "call_id": "b", "output": "b"}
+
+        with_empty, losses = decode_request({
+            "model": "m",
+            "input": [{"role": "user", "content": "hi"}, call_a, empty, call_b, result_a, result_b],
+        })
+        without_empty, _ = decode_request({
+            "model": "m",
+            "input": [{"role": "user", "content": "hi"}, call_a, call_b, result_a, result_b],
+        })
+        self.assertEqual(with_empty, without_empty)
+        self.assertEqual(len(losses), 1)
+
+        with_split_results, losses = decode_request({
+            "model": "m",
+            "input": [{"role": "user", "content": "hi"}, call_a, result_a, empty, result_b],
+        })
+        results_baseline, _ = decode_request({
+            "model": "m",
+            "input": [{"role": "user", "content": "hi"}, call_a, result_a, result_b],
+        })
+        self.assertEqual(with_split_results, results_baseline)
+        self.assertEqual(len(losses), 1)
+
     def test_text_format_rejects_non_boolean_strict(self) -> None:
         wire = {
             "model": "gpt-4o",

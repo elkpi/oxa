@@ -96,6 +96,39 @@ fn empty_additional_tools_is_a_no_op() {
     assert_eq!(losses[0].reason, oxa_ir::LossReason::UnmappedField);
 }
 
+#[test]
+fn empty_additional_tools_does_not_split_runs() {
+    let empty = r#"{"type":"additional_tools","role":"developer","tools":[]}"#;
+    let user = r#"{"role":"user","content":"hi"}"#;
+    let call_a = r#"{"type":"function_call","call_id":"a","name":"a","arguments":"{}"}"#;
+    let call_b = r#"{"type":"function_call","call_id":"b","name":"b","arguments":"{}"}"#;
+    let result_a = r#"{"type":"function_call_output","call_id":"a","output":"a"}"#;
+    let result_b = r#"{"type":"function_call_output","call_id":"b","output":"b"}"#;
+
+    let with_empty = format!(
+        r#"{{"model":"m","input":[{user},{call_a},{empty},{call_b},{result_a},{result_b}]}}"#
+    );
+    let without_empty =
+        format!(r#"{{"model":"m","input":[{user},{call_a},{call_b},{result_a},{result_b}]}}"#);
+    let (with, losses) =
+        decode_request_json(&with_empty, &Config::default()).expect("decode with split");
+    let (without, _) =
+        decode_request_json(&without_empty, &Config::default()).expect("decode baseline");
+    assert_eq!(with, without);
+    assert_eq!(losses.len(), 1);
+
+    let with_split_results =
+        format!(r#"{{"model":"m","input":[{user},{call_a},{result_a},{empty},{result_b}]}}"#);
+    let results_baseline =
+        format!(r#"{{"model":"m","input":[{user},{call_a},{result_a},{result_b}]}}"#);
+    let (with_results, losses) =
+        decode_request_json(&with_split_results, &Config::default()).expect("decode split results");
+    let (baseline_results, _) =
+        decode_request_json(&results_baseline, &Config::default()).expect("decode result baseline");
+    assert_eq!(with_results, baseline_results);
+    assert_eq!(losses.len(), 1);
+}
+
 struct StreamVectorConverter {
     config: Config,
     decoder: StreamDecoder,

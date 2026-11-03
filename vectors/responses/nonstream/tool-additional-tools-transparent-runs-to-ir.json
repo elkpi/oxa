@@ -1,0 +1,73 @@
+{
+  "name": "responses.nonstream.tool-additional-tools-transparent-runs-to-ir",
+  "description": "An empty additional_tools item does not split assistant calls, tool results, or apply_patch pairing.",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "model": "m",
+    "input": [
+      { "type": "message", "role": "user", "content": "go" },
+      { "type": "function_call", "call_id": "f", "name": "clock", "arguments": "{}" },
+      { "type": "additional_tools", "role": "developer", "tools": [] },
+      {
+        "type": "apply_patch_call",
+        "call_id": "p",
+        "status": "completed",
+        "operation": { "type": "create_file", "path": "new.txt", "diff": "+hello\n" }
+      },
+      { "type": "function_call_output", "call_id": "f", "output": "ok" },
+      { "type": "additional_tools", "role": "developer", "tools": [] },
+      { "type": "apply_patch_call_output", "call_id": "p", "status": "completed", "output": "" }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "m",
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "go" }]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "tool_use", "id": "f", "name": "clock", "input": "{}" },
+          {
+            "type": "apply_patch_tool_use",
+            "id": "p",
+            "status": "completed",
+            "operation": { "type": "create_file", "path": "new.txt", "diff": "+hello\n" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "f",
+            "content": [{ "type": "text", "text": "ok" }]
+          },
+          { "type": "apply_patch_tool_result", "tool_use_id": "p", "status": "completed", "output": "" }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "input[2].tools",
+      "field": "tools",
+      "reason": "unmapped-field",
+      "detail": "empty additional_tools inventory ignored"
+    },
+    {
+      "path": "input[5].tools",
+      "field": "tools",
+      "reason": "unmapped-field",
+      "detail": "empty additional_tools inventory ignored"
+    }
+  ],
+  "tags": ["tools", "request", "additional_tools", "apply-patch", "N-R-15", "INV-3"]
+}

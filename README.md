@@ -7,7 +7,7 @@ in-process libraries.
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Latest coordinated release: v2.5.1.** The source tree targets Spec 2.5.1 across Go,
-TypeScript, Rust, Python, and C++, using 531 shared golden vectors.
+TypeScript, Rust, Python, and C++, using 532 shared golden vectors.
 
 ## What is oxa?
 

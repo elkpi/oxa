@@ -5273,6 +5273,19 @@
       "sha256": "42705a899d3aff097121f18a9eb9d29629739a5b31d99aacb985466289b1d668"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-transparent-runs-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-transparent-runs-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "apply-patch",
+        "N-R-15",
+        "INV-3"
+      ],
+      "sha256": "86063dd6798f47e6892c6a09d6bc7d5f22ab661bf48cfec64a7f2c9f490d3133"
+    },
+    {
       "name": "responses.nonstream.tool-choice-auto-from-ir",
       "file": "responses/nonstream/tool-choice-auto-from-ir.json",
       "tags": [

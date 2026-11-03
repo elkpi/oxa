@@ -332,7 +332,12 @@ Each rule has a stable ID usable as a vector tag.
        - Each flattened child tool records a `NativeAnnotation{Source: "openai", Kind: "container", Value: "{\"path\":[...]}"}` capturing the full ordered container path from outermost to innermost container. Each entry in `path` is an object `{"type": "<container_type>", "name": "<container_name>", "description": "<description>"}` with `description` present iff non-empty.
        - A child tool with `defer_loading: true` retains `NativeAnnotation{Source: "openai", Kind: "defer_loading", Value: "true"}` (per spec/15). Non-boolean `defer_loading` values are structural errors.
      - When `input[]` contains an item with `type: "additional_tools"`:
-       - `tools` MUST be a non-empty array. Missing, non-array, or empty `tools` is a structural error.
+       - `tools` MUST be an array. Missing or non-array `tools` is a structural error.
+       - Empty `tools: []` contributes no tools and no IR content. Decode the item as a
+         no-op and record exactly one `unmapped-field` loss at `input[i].tools`
+         (`empty additional_tools inventory ignored`). This rule applies only to the
+         top-level `additional_tools` item; named `namespace` and `toolbox` containers
+         continue to require non-empty `tools`.
        - The child tools are recursively flattened and hoisted to `req.Tools` at request level.
 
   2. Calling and choice mapping:

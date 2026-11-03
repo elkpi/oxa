@@ -5,6 +5,14 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.5.1 - 2026-11-03
+
+- Clarify Responses `additional_tools` handling in N-R-15. `tools` must still
+  be an array, but an empty array is now a valid no-op inventory update: it
+  contributes no tools or IR content and records one `unmapped-field` loss.
+  Named `namespace` and `toolbox` containers continue to require non-empty
+  `tools`. IR contract remains `0.2.0`.
+
 ## 2.5.0 - 2026-11-01
 
 - 在 IR 请求参数中增加可选 `verbosity`，Chat Completions 与 Responses 双向映射；Anthropic 编码时明确报损。

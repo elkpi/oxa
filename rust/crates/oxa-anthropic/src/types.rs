@@ -533,7 +533,12 @@ pub struct BlockWire {
     )]
     pub citations: Option<Value>,
     // tool_reference
-    #[serde(rename = "tool_name", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "tool_name",
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tool_name: Option<String>,
 }
 

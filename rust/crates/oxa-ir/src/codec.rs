@@ -97,6 +97,35 @@ fn check_no_document(val: &Value) -> Result<(), Error> {
     Ok(())
 }
 
+/// Rejects `tool_reference` blocks with an empty `tool_name`: the IR shape
+/// requires a non-empty string (spec/01 s3.4, since 2.5.3).
+fn check_block_shapes(val: &Value) -> Result<(), Error> {
+    match val {
+        Value::Object(map) => {
+            if map.get("type").and_then(Value::as_str) == Some("tool_reference")
+                && !map
+                    .get("tool_name")
+                    .and_then(Value::as_str)
+                    .is_some_and(|name| !name.is_empty())
+            {
+                return Err(Error::Custom(
+                    "ir: tool_reference tool_name is required".into(),
+                ));
+            }
+            for v in map.values() {
+                check_block_shapes(v)?;
+            }
+        }
+        Value::Array(arr) => {
+            for v in arr {
+                check_block_shapes(v)?;
+            }
+        }
+        _ => {}
+    }
+    Ok(())
+}
+
 fn validate_citation_value(val_str: &str) -> Result<(), Error> {
     if val_str.is_empty() {
         return Err(Error::Custom("ir: citation value cannot be empty".into()));
@@ -513,6 +542,7 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
         check_no_native(&document)?;
     }
     check_no_document(&document)?;
+    check_block_shapes(&document)?;
     check_citations(&document)?;
     check_params(&document)?;
     check_system(&document)?;
@@ -534,6 +564,7 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
         check_no_native(&document)?;
     }
     check_no_document(&document)?;
+    check_block_shapes(&document)?;
     check_citations(&document)?;
     check_params(&document)?;
     check_system(&document)?;

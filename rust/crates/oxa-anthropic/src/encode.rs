@@ -779,16 +779,23 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             )],
             false,
         )),
-        Block::ToolReference { tool_name, native } => Ok((
-            BlockWire {
-                kind: "tool_reference".to_string(),
-                tool_name: Some(tool_name.clone()),
-                cache_control: crate::native::get_block_cache_control(native),
-                ..BlockWire::default()
-            },
-            Vec::new(),
-            true,
-        )),
+        Block::ToolReference { tool_name, native } => {
+            if tool_name.is_empty() {
+                return Err(Error::new(format!(
+                    "anthropic: {path}.tool_name is required"
+                )));
+            }
+            Ok((
+                BlockWire {
+                    kind: "tool_reference".to_string(),
+                    tool_name: Some(tool_name.clone()),
+                    cache_control: crate::native::get_block_cache_control(native),
+                    ..BlockWire::default()
+                },
+                Vec::new(),
+                true,
+            ))
+        }
     }
 }
 
@@ -1073,6 +1080,11 @@ fn encode_tool_result_block(
                 losses.extend(doc_losses);
             }
             Block::ToolReference { tool_name, native } => {
+                if tool_name.is_empty() {
+                    return Err(Error::new(format!(
+                        "anthropic: {content_path}.tool_name is required"
+                    )));
+                }
                 wire_content.push(BlockWire {
                     kind: "tool_reference".to_string(),
                     tool_name: Some(tool_name.clone()),

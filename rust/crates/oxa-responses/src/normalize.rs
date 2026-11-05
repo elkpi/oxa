@@ -1702,11 +1702,16 @@ pub(crate) fn encode_assistant_message(
                     ..Default::default()
                 });
             }
+            Block::ToolReference { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "this IR block cannot be rendered in a Responses item",
+            )),
             Block::Image { .. }
             | Block::Document { .. }
             | Block::ToolResult { .. }
             | Block::CustomToolResult { .. }
-            | Block::ToolReference { .. }
             | Block::ApplyPatchToolResult { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",

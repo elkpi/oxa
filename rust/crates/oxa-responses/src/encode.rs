@@ -1130,10 +1130,10 @@ impl ReasoningBuilder {
     }
 
     fn add_thinking(&mut self, part: OutputPart) {
-        if let Some(idx) = self.cur {
-            if self.items[idx].cipher.is_some() {
-                self.cur = None;
-            }
+        if let Some(idx) = self.cur
+            && self.items[idx].cipher.is_some()
+        {
+            self.cur = None;
         }
         let idx = match self.cur {
             Some(i) => i,
@@ -1151,10 +1151,10 @@ impl ReasoningBuilder {
     }
 
     fn add_cipher(&mut self, cipher: String) {
-        if let Some(idx) = self.cur {
-            if self.items[idx].cipher.is_some() {
-                self.cur = None;
-            }
+        if let Some(idx) = self.cur
+            && self.items[idx].cipher.is_some()
+        {
+            self.cur = None;
         }
         let idx = match self.cur {
             Some(i) => i,

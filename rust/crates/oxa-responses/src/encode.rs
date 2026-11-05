@@ -517,7 +517,10 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     ..OutputItem::default()
                 });
             }
-            Block::Image { .. } | Block::ToolResult { .. } | Block::Document { .. } => {
+            Block::Image { .. }
+            | Block::ToolResult { .. }
+            | Block::ToolReference { .. }
+            | Block::Document { .. } => {
                 losses.push(loss(
                     format!("content[{index}]"),
                     "content",

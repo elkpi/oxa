@@ -1443,15 +1443,15 @@ pub(crate) fn encode_user_message(message: &IrMessage, path: &str) -> (Vec<Input
                 ..
             } => {
                 let mut out = String::new();
-                for inner in content {
+                for (inner_idx, inner) in content.iter().enumerate() {
                     if let Block::Text { text, .. } = inner {
                         out.push_str(text)
                     } else {
                         losses.push(loss(
-                            format!("{path}.content[{i}].content"),
+                            format!("{path}.content[{i}].content[{inner_idx}]"),
                             "content",
                             LossReason::UnsupportedSemantic,
-                            "unsupported function result content",
+                            "this IR block cannot be rendered in a Responses function_call_output item",
                         ));
                     }
                 }
@@ -1706,6 +1706,7 @@ pub(crate) fn encode_assistant_message(
             | Block::Document { .. }
             | Block::ToolResult { .. }
             | Block::CustomToolResult { .. }
+            | Block::ToolReference { .. }
             | Block::ApplyPatchToolResult { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",

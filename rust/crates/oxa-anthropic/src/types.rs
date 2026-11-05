@@ -532,6 +532,9 @@ pub struct BlockWire {
         skip_serializing_if = "Option::is_none"
     )]
     pub citations: Option<Value>,
+    // tool_reference
+    #[serde(rename = "tool_name", skip_serializing_if = "Option::is_none")]
+    pub tool_name: Option<String>,
 }
 
 impl PartialEq for BlockWire {
@@ -552,6 +555,7 @@ impl PartialEq for BlockWire {
             && self.title == other.title
             && self.context == other.context
             && self.citations == other.citations
+            && self.tool_name == other.tool_name
     }
 }
 

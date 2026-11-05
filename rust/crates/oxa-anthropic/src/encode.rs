@@ -779,6 +779,16 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             )],
             false,
         )),
+        Block::ToolReference { tool_name, native } => Ok((
+            BlockWire {
+                kind: "tool_reference".to_string(),
+                tool_name: Some(tool_name.clone()),
+                cache_control: crate::native::get_block_cache_control(native),
+                ..BlockWire::default()
+            },
+            Vec::new(),
+            true,
+        )),
     }
 }
 
@@ -1061,6 +1071,14 @@ fn encode_tool_result_block(
                     wire_content.push(doc);
                 }
                 losses.extend(doc_losses);
+            }
+            Block::ToolReference { tool_name, native } => {
+                wire_content.push(BlockWire {
+                    kind: "tool_reference".to_string(),
+                    tool_name: Some(tool_name.clone()),
+                    cache_control: crate::native::get_block_cache_control(native),
+                    ..BlockWire::default()
+                });
             }
             _ => losses.push(unsupported_block_loss(
                 &content_path,

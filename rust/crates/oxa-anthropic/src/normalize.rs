@@ -984,6 +984,26 @@ pub(crate) fn decode_block(
                 });
             }
         }
+        "tool_reference" => {
+            let tool_name = wire.tool_name.as_deref().or(if !wire.name.is_empty() {
+                Some(wire.name.as_str())
+            } else {
+                None
+            });
+            match tool_name {
+                Some(name) if !name.is_empty() => {
+                    block = Some(Block::ToolReference {
+                        tool_name: name.to_string(),
+                        native: Vec::new(),
+                    });
+                }
+                _ => {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.tool_name is required"
+                    )));
+                }
+            }
+        }
         other => {
             losses.push(loss(
                 path,
@@ -1023,6 +1043,7 @@ pub(crate) fn decode_block(
                     | Block::EncryptedContent { native, .. }
                     | Block::Image { native, .. }
                     | Block::Document { native, .. }
+                    | Block::ToolReference { native, .. }
                     | Block::ToolUse { native, .. }
                     | Block::CustomToolUse { native, .. }
                     | Block::ApplyPatchToolUse { native, .. }

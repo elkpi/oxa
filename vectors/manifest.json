@@ -3336,7 +3336,7 @@
         "n-r-13",
         "n-an-11"
       ],
-      "sha256": "aa5d51ecfdabb9dfd1c588000f9fb58d9949a037ab3f877a1623ddfd9f853b1b"
+      "sha256": "368ad32e22f2ee85f37fa451c240326bd0f9c6eff191542d641b7bb21946cc4e"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-tool-container",
@@ -5232,10 +5232,10 @@
       "tags": [
         "response",
         "thinking",
-        "loss",
+        "encrypted-content",
         "n-r-13"
       ],
-      "sha256": "e784653309e5b71898e23e2fdcf68db94141d1e8dcccd9054245332692236472"
+      "sha256": "0932b1b67d31b82f51c860290bdbf289384db167fa741017582c5696a611d471"
     },
     {
       "name": "responses.nonstream.tool-additional-tools-empty-to-ir",
@@ -6035,7 +6035,7 @@
         "loss",
         "n-r-16"
       ],
-      "sha256": "e46a022b34b0d3bf1c4920d2c6551f579ae48f967be24dee16175395ab26cc97"
+      "sha256": "de6aea6266473093084b7e3a0b1b1ef4aff72d75c36bd75a76b1bb87a225193a"
     }
   ]
 }

@@ -380,6 +380,11 @@ json::Value dump_block_impl(const Block& b, F&& recurse) {
         if (tr->is_error) out.set("is_error", json::Value::boolean(true));
         return out;
     }
+    if (const auto* tr_ref = std::get_if<ToolReferenceBlock>(&b)) {
+        out.set("type", json::Value::string("tool_reference"));
+        out.set("tool_name", json::Value::string(tr_ref->tool_name));
+        return out;
+    }
     return out;
 }
 
@@ -684,6 +689,13 @@ StatusOr<Block> load_block_impl(const json::Value& v, Recurse&& recurse, std::ve
             block.category = std::move(category);
         }
         return Block(std::move(block));
+    }
+    if (kind == "tool_reference") {
+        OXA_ASSIGN_OR_RETURN(std::string tool_name, require_string(v, "tool_name", "tool_reference block"));
+        if (tool_name.empty()) {
+            return invalid_argument("tool_reference block requires non-empty tool_name");
+        }
+        return Block(ToolReferenceBlock{std::move(tool_name), std::move(native)});
     }
     return invalid_argument("unknown block discriminant: " + kind);
 }
@@ -1535,7 +1547,7 @@ Status validate_with(const std::vector<Event>& events, bool allow_synthesized) {
                 open_is_thinking = true;
                 open_is_atomic = false;
                 signature_seen = false;
-            } else if (std::holds_alternative<RedactedThinkingBlock>(cbs->block) || std::holds_alternative<EncryptedContentBlock>(cbs->block) || std::holds_alternative<WebSearchCallBlock>(cbs->block)) {
+            } else if (std::holds_alternative<RedactedThinkingBlock>(cbs->block) || std::holds_alternative<EncryptedContentBlock>(cbs->block) || std::holds_alternative<WebSearchCallBlock>(cbs->block) || std::holds_alternative<ToolReferenceBlock>(cbs->block)) {
                 open_is_tool = false;
                 open_is_custom_tool = false;
                 open_is_thinking = false;

@@ -171,7 +171,7 @@ int main() {
         }
     }
     CHECK(rep_res->failures.empty());
-    CHECK(rep_res->executed == 124);
+    CHECK(rep_res->executed == 126);
 
     // Test non-positive budget rejection in enabled thinking
     {

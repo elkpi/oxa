@@ -461,6 +461,17 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 }
                 blocks.push_back(std::move(tr));
             }
+        } else if (kind == "tool_reference") {
+            std::string tool_name;
+            if (const auto* tn = item.find("tool_name"); tn && tn->is_string()) {
+                tool_name = tn->as_string();
+            } else if (const auto* n = item.find("name"); n && n->is_string()) {
+                tool_name = n->as_string();
+            }
+            if (tool_name.empty()) {
+                return invalid_argument("anthropic: " + block_path + ".tool_name is required");
+            }
+            blocks.push_back(ir::ToolReferenceBlock{std::move(tool_name)});
         } else {
             losses.push_back(make_ant_loss(
                 block_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1497,10 +1508,26 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 ibw.set("cache_control", std::move(*cc));
                             }
                             inner_arr.push_back(std::move(ibw));
+                        } else if (const auto* tr_ref = std::get_if<ir::ToolReferenceBlock>(&inner.block)) {
+                            json::Value ibw = json::Value::object();
+                            ibw.set("type", json::Value::string("tool_reference"));
+                            ibw.set("tool_name", json::Value::string(tr_ref->tool_name));
+                            if (auto cc = get_block_cache_control(tr_ref->native)) {
+                                ibw.set("cache_control", std::move(*cc));
+                            }
+                            inner_arr.push_back(std::move(ibw));
                         }
                     }
                     bw.set("content", std::move(inner_arr));
                     if (auto cc = get_block_cache_control(tr->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
+                    content_arr.push_back(std::move(bw));
+                } else if (const auto* tr_ref = std::get_if<ir::ToolReferenceBlock>(&b)) {
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("tool_reference"));
+                    bw.set("tool_name", json::Value::string(tr_ref->tool_name));
+                    if (auto cc = get_block_cache_control(tr_ref->native)) {
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));

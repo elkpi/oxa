@@ -1310,14 +1310,15 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 tm.set("role", json::Value::string("tool"));
                 tm.set("tool_call_id", json::Value::string(tr->tool_use_id));
                 std::string res_txt;
-                for (const auto& inner : tr->content) {
+                for (std::size_t ci = 0; ci < tr->content.size(); ++ci) {
+                    const auto& inner = tr->content[ci];
                     if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
                         res_txt += itb->text;
                     } else {
                         losses.push_back(make_cc_loss(
-                            "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "]",
+                            "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].content[" + std::to_string(ci) + "]",
                             "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
-                            "IR tool_result content part cannot be rendered in a Chat Completions tool message"));
+                            "this IR block cannot be rendered in a Chat Completions tool result"));
                     }
                 }
                 if (tr->is_error) {

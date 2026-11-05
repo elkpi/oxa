@@ -1943,8 +1943,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     item.set("type", json::Value::string("function_call_output"));
                     item.set("call_id", json::Value::string(tr->tool_use_id));
                     std::string text;
-                    for (const auto& inner : tr->content)
-                        if (const auto* part = std::get_if<ir::TextBlock>(&inner.block)) text += part->text;
+                    for (std::size_t ci = 0; ci < tr->content.size(); ++ci) {
+                        const auto& inner = tr->content[ci];
+                        if (const auto* part = std::get_if<ir::TextBlock>(&inner.block)) {
+                            text += part->text;
+                        } else {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].content[" + std::to_string(ci) + "]",
+                                "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "this IR block cannot be rendered in a Responses function_call_output item"));
+                        }
+                    }
                     item.set("output", json::Value::string(std::move(text)));
                     if (tr->is_error) losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].is_error",

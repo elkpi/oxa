@@ -29,7 +29,7 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestEncryptedContentBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRequestRefusalBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestEncryptedContentBlock | IrSchemaRequestToolReferenceBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRequestRefusalBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
@@ -84,6 +84,12 @@ export interface IrSchemaRequestEncryptedContentBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
+export interface IrSchemaRequestToolReferenceBlock {
+  readonly type: "tool_reference";
+  readonly tool_name: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+}
+
 export interface IrSchemaRequestRedactedThinkingBlock {
   readonly type: "redacted_thinking";
   readonly data: string;
@@ -121,7 +127,7 @@ export interface IrSchemaRequestApplyPatchToolResultBlock {
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
 }
 
-export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaEncryptedContentBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRefusalBlock;
+export type IrSchemaBlock = IrSchemaTextBlock | IrSchemaImageBlock | IrSchemaToolUseBlock | IrSchemaToolResultBlock | IrSchemaThinkingBlock | IrSchemaRedactedThinkingBlock | IrSchemaEncryptedContentBlock | IrSchemaToolReferenceBlock | IrSchemaCustomToolUseBlock | IrSchemaCustomToolResultBlock | IrSchemaApplyPatchToolUseBlock | IrSchemaApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRefusalBlock;
 
 export interface IrSchemaRefusalBlock {
   readonly type: "refusal";
@@ -204,6 +210,11 @@ export interface IrSchemaThinkingBlock {
 export interface IrSchemaEncryptedContentBlock {
   readonly type: "encrypted_content";
   readonly data: string;
+}
+
+export interface IrSchemaToolReferenceBlock {
+  readonly type: "tool_reference";
+  readonly tool_name: string;
 }
 
 export interface IrSchemaRedactedThinkingBlock {

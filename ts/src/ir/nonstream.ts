@@ -622,6 +622,11 @@ function encodeBlockBase(
         type: "encrypted_content",
         data: block.data,
       };
+    case "tool_reference":
+      return {
+        type: "tool_reference",
+        tool_name: block.tool_name,
+      };
     case "image":
       return {
         type: "image",
@@ -785,6 +790,11 @@ function decodeBlockBase(
       return {
         type: "encrypted_content",
         data: nonEmptyString(string(block.data, "block.data"), "block.data"),
+      };
+    case "tool_reference":
+      return {
+        type: "tool_reference",
+        tool_name: nonEmptyString(string(block.tool_name, "block.tool_name"), "block.tool_name"),
       };
     case "image":
       return {

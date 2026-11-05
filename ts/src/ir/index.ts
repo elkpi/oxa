@@ -117,6 +117,7 @@ export {
   type EncryptedContentBlock,
   ENCRYPTED_CONTENT_LOSS_DETAIL,
   type RefusalBlock,
+  type ToolReferenceBlock,
   type ContentBlockDelta,
   type ContentBlockStart,
   type ContentBlockStop,

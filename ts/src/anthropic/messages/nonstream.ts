@@ -60,6 +60,7 @@ import type {
   ThinkingBlock,
   RedactedThinkingBlock,
   RefusalBlock,
+  ToolReferenceBlock,
   Tool,
   ToolChoice,
 } from "../../ir/index.js";
@@ -1298,6 +1299,22 @@ function decodeContent(
           ...(native ? { native } : {}),
         });
       }
+    } else if (type === "tool_reference") {
+      const toolName =
+        (block.tool_name !== undefined
+          ? string(block.tool_name, `${path}[${index}].tool_name`)
+          : undefined) ??
+        (block.name !== undefined
+          ? string(block.name, `${path}[${index}].name`)
+          : undefined);
+      if (!toolName) {
+        fail(`anthropic: ${path}[${index}].tool_name is required`);
+      }
+      blocks.push({
+        type: "tool_reference",
+        tool_name: toolName,
+        ...(native ? { native } : {}),
+      });
     } else {
       losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
       continue;
@@ -1501,6 +1518,12 @@ function encodeContent(
               ...doc,
               ...(nestedCc ? { cache_control: nestedCc } : {}),
             });
+        } else if (nested.type === "tool_reference") {
+          content.push({
+            type: "tool_reference",
+            tool_name: (nested as ToolReferenceBlock).tool_name,
+            ...(nestedCc ? { cache_control: nestedCc } : {}),
+          });
         } else
           losses.push(
             loss(
@@ -1570,6 +1593,12 @@ function encodeContent(
         });
       }
       continue;
+    } else if (block.type === "tool_reference") {
+      output.push({
+        type: "tool_reference",
+        tool_name: (block as ToolReferenceBlock).tool_name,
+        ...(cc ? { cache_control: cc } : {}),
+      });
     } else if (
       block.type === "apply_patch_tool_use" ||
       block.type === "apply_patch_tool_result" ||

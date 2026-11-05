@@ -506,6 +506,11 @@ function blockDocument(block: Block): JsonObject {
         type: "encrypted_content",
         data: block.data,
       };
+    case "tool_reference":
+      return {
+        type: "tool_reference",
+        tool_name: block.tool_name,
+      };
     case "refusal":
       return {
         type: "refusal",

@@ -1293,6 +1293,10 @@ export function encodeRequest(
         } else if (block.type === "encrypted_content") {
           if (block.data === "") fail("encrypted_content data is required");
           reasoning.addCipher(block.data);
+        } else if (block.type === "tool_reference") {
+          losses.push(
+            loss(`messages[${index}].content[${child}]`, "type", "unsupported-semantic"),
+          );
         } else if (block.type === "thinking") {
           reasoning.addThinking(block.thinking);
           if (block.signature !== undefined)
@@ -1603,6 +1607,8 @@ export function encodeResponse(
     } else if (block.type === "encrypted_content") {
       if (block.data === "") fail("encrypted_content data is required");
       reasoning.addCipher(block.data);
+    } else if (block.type === "tool_reference") {
+      losses.push(loss(`content[${index}]`, "type", "unsupported-semantic"));
     } else if (block.type === "thinking") {
       reasoning.addThinking(block.thinking);
       if (block.signature !== undefined)
@@ -2196,6 +2202,9 @@ function encodeUserContent(
         reason: "unsupported-semantic",
         detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
       });
+    } else if (block.type === "tool_reference") {
+      otherBlocks += 1;
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     } else if (block.type === "redacted_thinking") {
       otherBlocks += 1;
       losses.push({

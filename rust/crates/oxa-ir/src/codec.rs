@@ -99,29 +99,62 @@ fn check_no_document(val: &Value) -> Result<(), Error> {
 
 /// Rejects `tool_reference` blocks with an empty `tool_name`: the IR shape
 /// requires a non-empty string (spec/01 s3.4, since 2.5.3).
-fn check_block_shapes(val: &Value) -> Result<(), Error> {
-    match val {
-        Value::Object(map) => {
-            if map.get("type").and_then(Value::as_str) == Some("tool_reference")
-                && !map
+fn check_block_shapes(document: &Value) -> Result<(), Error> {
+    fn check_blocks(blocks: &Value) -> Result<(), Error> {
+        if let Some(blocks) = blocks.as_array() {
+            for block in blocks {
+                check_block(block)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn check_block(block: &Value) -> Result<(), Error> {
+        match block.get("type").and_then(Value::as_str) {
+            Some("tool_reference") => {
+                if !block
                     .get("tool_name")
                     .and_then(Value::as_str)
                     .is_some_and(|name| !name.is_empty())
+                {
+                    return Err(Error::Custom(
+                        "ir: tool_reference tool_name is required".into(),
+                    ));
+                }
+            }
+            Some("tool_result") => {
+                if let Some(content) = block.get("content") {
+                    check_blocks(content)?;
+                }
+            }
+            Some("custom_tool_result") => {
+                if let Some(output) = block.get("output") {
+                    check_blocks(output)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    if let Some(messages) = document.get("messages").and_then(Value::as_array) {
+        for message in messages {
+            if let Some(content) = message.get("content") {
+                check_blocks(content)?;
+            }
+        }
+    }
+    if let Some(content) = document.get("content") {
+        check_blocks(content)?;
+    }
+    if let Some(events) = document.get("events").and_then(Value::as_array) {
+        for event in events {
+            if event.get("type").and_then(Value::as_str) == Some("content_block_start")
+                && let Some(block) = event.get("block")
             {
-                return Err(Error::Custom(
-                    "ir: tool_reference tool_name is required".into(),
-                ));
-            }
-            for v in map.values() {
-                check_block_shapes(v)?;
+                check_block(block)?;
             }
         }
-        Value::Array(arr) => {
-            for v in arr {
-                check_block_shapes(v)?;
-            }
-        }
-        _ => {}
     }
     Ok(())
 }

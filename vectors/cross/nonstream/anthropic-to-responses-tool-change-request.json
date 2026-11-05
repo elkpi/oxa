@@ -1,0 +1,83 @@
+{
+  "name": "cross.nonstream.anthropic-to-responses-tool-change-request",
+  "description": "Cross-protocol: Anthropic mid-conversation tool addition converts to Responses additional_tools item (N-R-15).",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_definition",
+              "definition": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_output_tokens": 1024,
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Calculator",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "cross",
+    "anthropic",
+    "responses",
+    "tool_addition",
+    "N-R-15"
+  ]
+}

@@ -1,10 +1,12 @@
 {
   "name": "responses.nonstream.tool-additional-tools-empty-to-ir",
-  "description": "An empty Responses additional_tools inventory is a no-op and records one bounded unmapped-field loss.",
-  "spec_version": "0.2.0",
+  "description": "An empty Responses additional_tools inventory is preserved as an empty tool change group with zero losses.",
+  "spec_version": "0.3.0",
   "mode": "nonstream",
   "conversion": "to-ir",
-  "source": { "protocol": "responses" },
+  "source": {
+    "protocol": "responses"
+  },
   "input": {
     "model": "gpt-5.5",
     "input": [
@@ -30,7 +32,7 @@
     ]
   },
   "expected_ir": {
-    "specVersion": "0.2.0",
+    "specVersion": "0.3.0",
     "model": "gpt-5.5",
     "messages": [
       {
@@ -50,15 +52,20 @@
           "type": "object"
         }
       }
+    ],
+    "tool_change_groups": [
+      {
+        "message_index": 0,
+        "content_index": -1,
+        "parts": []
+      }
     ]
   },
-  "expected_losses": [
-    {
-      "path": "input[0].tools",
-      "field": "tools",
-      "reason": "unmapped-field",
-      "detail": "empty additional_tools inventory ignored"
-    }
-  ],
-  "tags": ["tools", "request", "additional_tools", "N-R-15"]
+  "expected_losses": [],
+  "tags": [
+    "tools",
+    "request",
+    "additional_tools",
+    "N-R-15"
+  ]
 }

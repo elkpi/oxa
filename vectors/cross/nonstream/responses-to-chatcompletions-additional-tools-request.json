@@ -1,11 +1,15 @@
 {
   "name": "cross.nonstream.responses-to-chatcompletions-additional-tools-request",
-  "description": "Cross-protocol: Responses input additional_tools items are hoisted and convert to Chat Completions request tools (N-R-15).",
-  "spec_version": "0.2.0",
+  "description": "Cross-protocol: Responses input additional_tools items cannot be represented on Chat Completions and record unsupported-semantic loss (N-CC-17).",
+  "spec_version": "0.3.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
-  "source": { "protocol": "responses" },
-  "target": { "protocol": "chatcompletions" },
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
   "input": {
     "model": "gpt-5.5",
     "input": [
@@ -38,21 +42,21 @@
         "role": "user",
         "content": "Use additional tool."
       }
-    ],
-    "tools": [
-      {
-        "type": "function",
-        "function": {
-          "name": "calc",
-          "description": "Calculator",
-          "parameters": {
-            "type": "object"
-          },
-          "strict": true
-        }
-      }
     ]
   },
-  "expected_losses": [],
-  "tags": ["cross", "tools", "request", "additional_tools", "N-R-15"]
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].parts[0]",
+      "field": "op",
+      "reason": "unsupported-semantic",
+      "detail": "positional tool availability change cannot be represented on the target face"
+    }
+  ],
+  "tags": [
+    "cross",
+    "tools",
+    "request",
+    "additional_tools",
+    "N-R-15"
+  ]
 }

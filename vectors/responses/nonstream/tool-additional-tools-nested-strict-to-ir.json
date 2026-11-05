@@ -1,7 +1,7 @@
 {
   "name": "responses.nonstream.tool-additional-tools-nested-strict-to-ir",
-  "description": "Nested additional_tools function strict is hoisted with its container annotation.",
-  "spec_version": "0.2.0",
+  "description": "Nested additional_tools function strict is decoded into positional tool changes with container annotations.",
+  "spec_version": "0.3.0",
   "mode": "nonstream",
   "conversion": "to-ir",
   "source": {
@@ -41,7 +41,12 @@
                 },
                 "strict": true
               },
-              { "type": "function", "name": "null_value", "parameters": {}, "strict": null }
+              {
+                "type": "function",
+                "name": "null_value",
+                "parameters": {},
+                "strict": null
+              }
             ]
           }
         ]
@@ -49,7 +54,7 @@
     ]
   },
   "expected_ir": {
-    "specVersion": "0.2.0",
+    "specVersion": "0.3.0",
     "model": "gpt-5.5",
     "messages": [
       {
@@ -62,44 +67,68 @@
         ]
       }
     ],
-    "tools": [
+    "tool_change_groups": [
       {
-        "name": "editor.submit_patch",
-        "description": "Submit a patch",
-        "input_schema": {
-          "type": "object",
-          "properties": {
-            "diff": {
-              "type": "string"
+        "message_index": 1,
+        "content_index": -1,
+        "parts": [
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "editor.submit_patch",
+                "description": "Submit a patch",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "diff": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "diff"
+                  ]
+                },
+                "strict": true,
+                "native": [
+                  {
+                    "source": "openai",
+                    "kind": "container",
+                    "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
+                    "omission": {
+                      "field": "type",
+                      "reason": "degraded",
+                      "detail": "tool container grouping was flattened into dotted tool names"
+                    }
+                  }
+                ]
+              }
             }
           },
-          "required": [
-            "diff"
-          ]
-        },
-        "strict": true,
-        "native": [
           {
-            "source": "openai",
-            "kind": "container",
-            "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
-            "omission": {
-              "field": "type",
-              "reason": "degraded",
-              "detail": "tool container grouping was flattened into dotted tool names"
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "editor.null_value",
+                "input_schema": {},
+                "native": [
+                  {
+                    "source": "openai",
+                    "kind": "container",
+                    "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
+                    "omission": {
+                      "field": "type",
+                      "reason": "degraded",
+                      "detail": "tool container grouping was flattened into dotted tool names"
+                    }
+                  }
+                ]
+              }
             }
           }
         ]
-      },
-      {
-        "name": "editor.null_value",
-        "input_schema": {},
-        "native": [{
-          "source": "openai",
-          "kind": "container",
-          "value": "{\"path\":[{\"type\":\"namespace\",\"name\":\"editor\",\"description\":\"Code editing tools\"}]}",
-          "omission": { "field": "type", "reason": "degraded", "detail": "tool container grouping was flattened into dotted tool names" }
-        }]
       }
     ]
   },

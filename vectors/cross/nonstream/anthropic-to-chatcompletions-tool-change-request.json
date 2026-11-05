@@ -1,0 +1,73 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-tool-change-request",
+  "description": "Cross-protocol: Anthropic mid-conversation tool addition produces unsupported-semantic loss on Chat Completions (N-CC-17).",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "chatcompletions"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_definition",
+              "definition": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet-20241022",
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].parts[0]",
+      "field": "op",
+      "reason": "unsupported-semantic",
+      "detail": "positional tool availability change cannot be represented on the target face"
+    }
+  ],
+  "tags": [
+    "cross",
+    "anthropic",
+    "chatcompletions",
+    "tool_addition",
+    "N-CC-17"
+  ]
+}

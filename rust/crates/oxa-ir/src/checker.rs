@@ -97,9 +97,9 @@ fn validate_with(stream: &EventStream, allow_synthesized: bool) -> Result<(), Vi
                             signature_seen: false,
                         },
                     ),
-                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
-                        (*index, OpenBlock::Atomic)
-                    }
+                    Block::RedactedThinking { .. }
+                    | Block::EncryptedContent { .. }
+                    | Block::WebSearchCall { .. } => (*index, OpenBlock::Atomic),
                     Block::ToolUse { input, .. } => (
                         *index,
                         OpenBlock::Tool(OpenTool {
@@ -304,6 +304,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::Text { .. } => "text",
         Block::Thinking { .. } => "thinking",
         Block::RedactedThinking { .. } => "redacted_thinking",
+        Block::EncryptedContent { .. } => "encrypted_content",
         Block::Image { .. } => "image",
         Block::Document { .. } => "document",
         Block::ToolUse { .. } => "tool_use",

@@ -706,6 +706,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     }
                 }
             }
+            Block::EncryptedContent { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -867,6 +873,12 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     }
                 }
             }
+            Block::EncryptedContent { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",

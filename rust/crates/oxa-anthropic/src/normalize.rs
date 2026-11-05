@@ -1020,6 +1020,7 @@ pub(crate) fn decode_block(
                     Block::Text { native, .. }
                     | Block::Thinking { native, .. }
                     | Block::RedactedThinking { native, .. }
+                    | Block::EncryptedContent { native, .. }
                     | Block::Image { native, .. }
                     | Block::Document { native, .. }
                     | Block::ToolUse { native, .. }

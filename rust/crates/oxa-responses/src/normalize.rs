@@ -790,6 +790,12 @@ pub(crate) fn decode_assistant_run(
                     ));
                 }
             }
+            if !item.encrypted_content.is_empty() {
+                thinkings.push(Block::EncryptedContent {
+                    data: item.encrypted_content.clone(),
+                    native: Vec::new(),
+                });
+            }
             index += 1;
             continue;
         }
@@ -1302,6 +1308,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     }
                 }
             }
+            Block::EncryptedContent { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -1546,6 +1558,7 @@ pub(crate) fn encode_assistant_message(
     path: &str,
 ) -> (Vec<InputItem>, Vec<Loss>) {
     let mut thinkings = Vec::new();
+    let mut ciphers = Vec::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut has_refusal = false;
@@ -1589,6 +1602,11 @@ pub(crate) fn encode_assistant_message(
                 LossReason::UnsupportedSemantic,
                 "anthropic encrypted thinking replay state; the target face cannot preserve this block",
             )),
+            Block::EncryptedContent { data, .. } => {
+                if !data.is_empty() {
+                    ciphers.push(data.clone());
+                }
+            }
             Block::Thinking {
                 thinking,
                 signature,
@@ -1608,7 +1626,7 @@ pub(crate) fn encode_assistant_message(
                         format!("{path}[{index}].signature"),
                         "signature",
                         LossReason::UnmappedField,
-                        "Responses reasoning input items carry no provider signature",
+                        "Responses request reasoning items carry no provider signature",
                     ));
                 }
             }
@@ -1698,6 +1716,23 @@ pub(crate) fn encode_assistant_message(
         }
     }
     let mut items = Vec::new();
+    for (i, cipher) in ciphers.iter().enumerate() {
+        if i == 0 {
+            items.push(InputItem {
+                kind: ITEM_TYPE_REASONING.to_string(),
+                summary: std::mem::take(&mut thinkings),
+                encrypted_content: cipher.clone(),
+                ..InputItem::default()
+            });
+        } else {
+            items.push(InputItem {
+                kind: ITEM_TYPE_REASONING.to_string(),
+                summary: Vec::new(),
+                encrypted_content: cipher.clone(),
+                ..InputItem::default()
+            });
+        }
+    }
     if !thinkings.is_empty() {
         items.push(InputItem {
             kind: ITEM_TYPE_REASONING.to_string(),
@@ -1711,7 +1746,7 @@ pub(crate) fn encode_assistant_message(
             content: Some(ContentValue::Parts(parts)),
             ..InputItem::default()
         });
-    } else if has_text || blocks.is_empty() {
+    } else if has_text || (blocks.is_empty() && ciphers.is_empty()) {
         items.push(InputItem {
             role: ROLE_ASSISTANT.to_string(),
             content: Some(ContentValue::Text(text)),

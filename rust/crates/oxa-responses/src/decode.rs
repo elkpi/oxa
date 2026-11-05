@@ -699,7 +699,7 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
     for (item_index, item) in wire.output.iter().enumerate() {
         match item.kind.as_str() {
             ITEM_TYPE_REASONING => {
-                if item.summary.is_empty() {
+                if item.summary.is_empty() && item.encrypted_content.is_empty() {
                     losses.push(loss(
                         format!("output[{item_index}]"),
                         "type",
@@ -738,12 +738,10 @@ pub fn decode_response(wire: &Response, config: &Config) -> Result<(IrResponse, 
                     }
                 }
                 if !item.encrypted_content.is_empty() {
-                    losses.push(loss(
-                        format!("output[{item_index}].encrypted_content"),
-                        "encrypted_content",
-                        LossReason::UnmappedField,
-                        "Responses reasoning encrypted_content has no IR equivalent",
-                    ));
+                    thinkings.push(Block::EncryptedContent {
+                        data: item.encrypted_content.clone(),
+                        native: Vec::new(),
+                    });
                 }
             }
             ITEM_TYPE_MESSAGE => {

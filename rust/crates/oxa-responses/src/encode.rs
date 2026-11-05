@@ -292,6 +292,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .ok_or_else(|| Error::new("responses: derived total_tokens exceeds int64"))?;
     let mut losses = Vec::new();
     let mut thinkings = Vec::new();
+    let mut ciphers = Vec::new();
     let mut text_parts: Vec<OutputPart> = Vec::new();
     let mut calls = Vec::new();
     let mut apc_index = 0usize;
@@ -362,6 +363,14 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
                 ));
             }
+            Block::EncryptedContent { data, .. } => {
+                if data.is_empty() {
+                    return Err(Error::new(format!(
+                        "responses: content[{index}].data: encrypted_content data is required"
+                    )));
+                }
+                ciphers.push(data.clone());
+            }
             Block::Thinking {
                 thinking,
                 signature,
@@ -381,7 +390,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         format!("content[{index}].signature"),
                         "signature",
                         LossReason::UnmappedField,
-                        "Responses reasoning output items carry no provider signature",
+                        "Responses reasoning items carry no provider signature",
                     ));
                 }
             }
@@ -540,7 +549,9 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         }
     }
     let mut output = calls;
-    if !text_parts.is_empty() || (resp.content.is_empty() && thinkings.is_empty()) {
+    if !text_parts.is_empty()
+        || (resp.content.is_empty() && thinkings.is_empty() && ciphers.is_empty())
+    {
         output.insert(
             0,
             OutputItem {
@@ -562,16 +573,36 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             },
         );
     }
-    if !thinkings.is_empty() {
-        output.insert(
-            0,
-            OutputItem {
+    let mut reasoning_items = Vec::new();
+    for (i, cipher) in ciphers.iter().enumerate() {
+        if i == 0 {
+            reasoning_items.push(OutputItem {
                 kind: ITEM_TYPE_REASONING.to_string(),
-                id: "rs_abc123".to_string(),
-                summary: thinkings,
+                id: format!("rs_abc{}", 123 + i),
+                summary: std::mem::take(&mut thinkings),
+                encrypted_content: cipher.clone(),
                 ..OutputItem::default()
-            },
-        );
+            });
+        } else {
+            reasoning_items.push(OutputItem {
+                kind: ITEM_TYPE_REASONING.to_string(),
+                id: format!("rs_abc{}", 123 + i),
+                summary: Vec::new(),
+                encrypted_content: cipher.clone(),
+                ..OutputItem::default()
+            });
+        }
+    }
+    if !thinkings.is_empty() {
+        reasoning_items.push(OutputItem {
+            kind: ITEM_TYPE_REASONING.to_string(),
+            id: "rs_abc123".to_string(),
+            summary: thinkings,
+            ..OutputItem::default()
+        });
+    }
+    for item in reasoning_items.into_iter().rev() {
+        output.insert(0, item);
     }
     let (status, incomplete_details, error) = match resp.stop_reason {
         StopReason::EndTurn | StopReason::ToolUse => (STATUS_COMPLETED.to_string(), None, None),

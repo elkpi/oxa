@@ -307,6 +307,7 @@ impl StreamEncoder {
                         ))
                     }
                     Block::WebSearchCall { .. }
+                    | Block::EncryptedContent { .. }
                     | Block::ApplyPatchToolUse { .. }
                     | Block::ApplyPatchToolResult { .. } => {
                         self.next_index += 1;
@@ -315,10 +316,15 @@ impl StreamEncoder {
                         self.open_thinking = false;
                         self.open_custom = false;
                         self.open_atomic = true;
-                        self.custom_seen |= !matches!(block, Block::WebSearchCall { .. });
+                        self.custom_seen |= !matches!(
+                            block,
+                            Block::WebSearchCall { .. } | Block::EncryptedContent { .. }
+                        );
                         self.open_ir_index = *index;
                         let detail = if matches!(block, Block::WebSearchCall { .. }) {
                             "Responses web_search_call has no Anthropic equivalent"
+                        } else if matches!(block, Block::EncryptedContent { .. }) {
+                            oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL
                         } else if matches!(block, Block::ApplyPatchToolUse { .. }) {
                             "Anthropic Messages streaming does not support apply_patch tools"
                         } else {

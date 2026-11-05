@@ -147,7 +147,9 @@ impl StreamEncoder {
                         });
                         Ok((Vec::new(), start_losses))
                     }
-                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
+                    Block::RedactedThinking { .. }
+                    | Block::EncryptedContent { .. }
+                    | Block::WebSearchCall { .. } => {
                         self.active = Some(StreamEncodeBlock {
                             kind: StreamBlockKind::Redacted,
                             index: *index,
@@ -160,15 +162,18 @@ impl StreamEncoder {
                             signature_seen: false,
                             citation_loss_seen: false,
                         });
+                        let detail = if matches!(block, Block::WebSearchCall { .. }) {
+                            "Responses web_search_call has no Chat Completions equivalent"
+                        } else if matches!(block, Block::EncryptedContent { .. }) {
+                            oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL
+                        } else {
+                            "anthropic encrypted thinking replay state; the target face cannot preserve this block"
+                        };
                         let l = loss(
                             format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
-                            if matches!(block, Block::WebSearchCall { .. }) {
-                                "Responses web_search_call has no Chat Completions equivalent"
-                            } else {
-                                "anthropic encrypted thinking replay state; the target face cannot preserve this block"
-                            },
+                            detail,
                         );
                         Ok((Vec::new(), vec![l]))
                     }

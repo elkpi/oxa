@@ -75,6 +75,9 @@ pub struct TextCitation {
 /// A content block (spec/01 §3.4). Sealed; includes the Spec 2.0 thinking variant.
 /// `ToolUseBlock::input` is opaque raw JSON text (INV-1): it is a plain
 /// string and is never parsed or re-serialized by any conversion path.
+pub const ENCRYPTED_CONTENT_LOSS_DETAIL: &str =
+    "responses encrypted reasoning replay state; the target face cannot preserve this block";
+
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum Block {
@@ -98,6 +101,13 @@ pub enum Block {
     },
     #[serde(rename = "redacted_thinking")]
     RedactedThinking {
+        #[serde(rename = "data")]
+        data: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
+    #[serde(rename = "encrypted_content")]
+    EncryptedContent {
         #[serde(rename = "data")]
         data: String,
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
@@ -224,6 +234,7 @@ impl Block {
             Block::Text { native, .. }
             | Block::Thinking { native, .. }
             | Block::RedactedThinking { native, .. }
+            | Block::EncryptedContent { native, .. }
             | Block::Image { native, .. }
             | Block::Document { native, .. }
             | Block::ToolUse { native, .. }
@@ -263,6 +274,11 @@ impl std::fmt::Debug for Block {
                 .finish(),
             Block::RedactedThinking { data, native } => f
                 .debug_struct("RedactedThinking")
+                .field("data", &format!("[REDACTED len={}]", data.len()))
+                .field("native", native)
+                .finish(),
+            Block::EncryptedContent { data, native } => f
+                .debug_struct("EncryptedContent")
                 .field("data", &format!("[REDACTED len={}]", data.len()))
                 .field("native", native)
                 .finish(),

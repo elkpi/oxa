@@ -274,6 +274,9 @@ impl StreamDecoder {
                     });
                     return Ok(Vec::new());
                 }
+                if item.kind == "web_search_call" {
+                    return Ok(Vec::new());
+                }
 
                 self.skipped_item = true;
                 if item.kind == ITEM_TYPE_FUNCTION_CALL_OUTPUT {
@@ -706,8 +709,46 @@ impl StreamDecoder {
                         "responses: response.output_item.done does not match the open item",
                     ));
                 }
-                if self.item_type == ITEM_TYPE_REASONING {
-                    self.record_encrypted_content_loss(output_index, &item.encrypted_content);
+                let mut events = Vec::new();
+                if self.item_type == ITEM_TYPE_REASONING && !item.encrypted_content.is_empty() {
+                    let index = self.next_block_index;
+                    self.next_block_index += 1;
+                    events.push(Event::ContentBlockStart {
+                        index,
+                        block: Block::EncryptedContent {
+                            data: item.encrypted_content.clone(),
+                            native: Vec::new(),
+                        },
+                    });
+                    events.push(Event::ContentBlockStop { index });
+                }
+                if self.item_type == "web_search_call" {
+                    let action = item
+                        .action
+                        .as_ref()
+                        .ok_or_else(|| Error::new("responses: web_search_call missing action"))?;
+                    oxa_ir::validate_web_search_extra(&item.extra)
+                        .map_err(|error| Error::new(error.to_string()))?;
+                    let call_losses = oxa_ir::inspect_web_search_call(
+                        &item.id,
+                        &item.status,
+                        action,
+                        &format!("output[{output_index}]"),
+                    )
+                    .map_err(|error| Error::new(error.to_string()))?;
+                    self.losses.extend(call_losses);
+                    let index = self.next_block_index;
+                    self.next_block_index += 1;
+                    events.push(Event::ContentBlockStart {
+                        index,
+                        block: Block::WebSearchCall {
+                            id: item.id.clone(),
+                            status: item.status.clone(),
+                            action: action.clone(),
+                            extra: item.extra.clone(),
+                        },
+                    });
+                    events.push(Event::ContentBlockStop { index });
                 }
                 if self.skipped_item
                     && self.item_type == ITEM_TYPE_FUNCTION_CALL_OUTPUT
@@ -898,7 +939,7 @@ impl StreamDecoder {
                     self.tool_use_seen = true;
                     return self.close_stream_item(events);
                 }
-                self.close_stream_item(Vec::new())
+                self.close_stream_item(events)
             }
             EVENT_TYPE_RESPONSE_COMPLETED
             | EVENT_TYPE_RESPONSE_INCOMPLETE

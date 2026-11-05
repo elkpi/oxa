@@ -42,6 +42,7 @@ from oxa.ir import (
     ThinkingBlock,
     RedactedThinkingBlock,
     RefusalBlock,
+    ToolReferenceBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -843,6 +844,16 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                     ENCRYPTED_CONTENT_LOSS_DETAIL,
                 )
             )
+        elif isinstance(block, ToolReferenceBlock):
+            other_blocks += 1
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in a Responses item",
+                )
+            )
         elif isinstance(block, RedactedThinkingBlock):
             other_blocks += 1
             losses.append(
@@ -1076,6 +1087,15 @@ def encode_assistant_message(
                     "type",
                     LOSS_UNSUPPORTED_SEMANTIC,
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                )
+            )
+        elif isinstance(block, ToolReferenceBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in a Responses item",
                 )
             )
         elif isinstance(block, EncryptedContentBlock):

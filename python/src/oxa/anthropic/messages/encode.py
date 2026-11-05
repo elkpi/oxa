@@ -15,6 +15,7 @@ from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
+    BLOCK_TYPE_TOOL_REFERENCE,
     ROLE_ASSISTANT,
     ROLE_USER,
     SOURCE_TYPE_BASE64,
@@ -75,6 +76,7 @@ from oxa.ir import (
     EncryptedContentBlock,
     ENCRYPTED_CONTENT_LOSS_DETAIL,
     ToolResultBlock,
+    ToolReferenceBlock,
     ToolUseBlock,
     WebSearchCallBlock,
 )
@@ -552,6 +554,12 @@ def encode_request_block(
     elif isinstance(block, ToolResultBlock):
         return encode_tool_result_block(block, path)
 
+    elif isinstance(block, ToolReferenceBlock):
+        encoded = {
+            "type": BLOCK_TYPE_TOOL_REFERENCE,
+            "tool_name": block.tool_name,
+        }
+
     elif isinstance(block, RefusalBlock):
         return None, [loss(path, "type", LOSS_UNSUPPORTED_SEMANTIC, "Anthropic does not support refusal content blocks in request history")], False
 
@@ -802,6 +810,15 @@ def encode_tool_result_block(
             if mapped and doc_wire is not None:
                 wire_content.append(doc_wire)
             losses.extend(doc_losses)
+        elif isinstance(inner, ToolReferenceBlock):
+            ref_wire: dict[str, Any] = {
+                "type": BLOCK_TYPE_TOOL_REFERENCE,
+                "tool_name": inner.tool_name,
+            }
+            cc = get_block_cache_control(inner.native)
+            if cc is not None:
+                ref_wire["cache_control"] = cc
+            wire_content.append(ref_wire)
         else:
             losses.append(
                 loss(

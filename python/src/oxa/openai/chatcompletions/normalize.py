@@ -36,6 +36,7 @@ from oxa.ir import (
     ThinkingBlock,
     RedactedThinkingBlock,
     RefusalBlock,
+    ToolReferenceBlock,
     ToolChoice,
     ToolResultBlock,
     ToolUseBlock,
@@ -509,6 +510,15 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                     ENCRYPTED_CONTENT_LOSS_DETAIL,
                 )
             )
+        elif isinstance(block, ToolReferenceBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in Chat Completions",
+                )
+            )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(
@@ -635,6 +645,15 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                     "type",
                     LOSS_UNSUPPORTED_SEMANTIC,
                     ENCRYPTED_CONTENT_LOSS_DETAIL,
+                )
+            )
+        elif isinstance(block, ToolReferenceBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in Chat Completions",
                 )
             )
         elif isinstance(block, RedactedThinkingBlock):

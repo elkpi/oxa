@@ -1295,7 +1295,11 @@ export function encodeRequest(
           reasoning.addCipher(block.data);
         } else if (block.type === "tool_reference") {
           losses.push(
-            loss(`messages[${index}].content[${child}]`, "type", "unsupported-semantic"),
+            loss(
+              `messages[${index}].content[${child}]`,
+              "type",
+              "unsupported-semantic",
+            ),
           );
         } else if (block.type === "thinking") {
           reasoning.addThinking(block.thinking);

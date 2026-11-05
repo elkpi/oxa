@@ -794,7 +794,10 @@ function decodeBlockBase(
     case "tool_reference":
       return {
         type: "tool_reference",
-        tool_name: nonEmptyString(string(block.tool_name, "block.tool_name"), "block.tool_name"),
+        tool_name: nonEmptyString(
+          string(block.tool_name, "block.tool_name"),
+          "block.tool_name",
+        ),
       };
     case "image":
       return {

@@ -1,0 +1,144 @@
+{
+  "name": "anthropic.nonstream.tool-reference-unknown-field-to-ir",
+  "description": "An Anthropic tool_reference block carrying an unrecognized property decodes to ToolReferenceBlock and records one unmapped-field loss for the unknown property (N-AN-21, spec/02 s4).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Get current weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "location": { "type": "string" }
+          },
+          "required": ["location"]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is the weather?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "tool_search",
+            "input": {"query":"weather"}
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "tool_reference",
+                "tool_name": "get_weather",
+                "extra": false
+              },
+              {
+                "type": "text",
+                "text": "Found 1 matching tool"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "model": "claude-opus-5-5",
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Get current weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "location": { "type": "string" }
+          },
+          "required": ["location"]
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is the weather?"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "tool_search",
+            "input": "{\"query\":\"weather\"}"
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "tool_reference",
+                "tool_name": "get_weather"
+              },
+              {
+                "type": "text",
+                "text": "Found 1 matching tool"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "params": {
+      "max_tokens": 1024
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "messages[2].content[0].content[0].extra",
+      "field": "extra",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": [
+    "tool_reference",
+    "request",
+    "tool-result",
+    "loss",
+    "n-an-21"
+  ]
+}

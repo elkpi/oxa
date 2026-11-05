@@ -1298,6 +1298,17 @@
       "sha256": "235a8615335695d7387d484d12eb17b1f69082447546eab9c9942f83a0965dd6"
     },
     {
+      "name": "anthropic.nonstream.tool-reference-name-alias-to-ir",
+      "file": "anthropic/nonstream/tool-reference-name-alias-to-ir.json",
+      "tags": [
+        "tool_reference",
+        "request",
+        "tool-result",
+        "n-an-21"
+      ],
+      "sha256": "8a45a84b5394b21324badff7dfd67cdaf71daa87ac2a5e8568331d877cd9bccb"
+    },
+    {
       "name": "anthropic.nonstream.tool-reference-to-ir",
       "file": "anthropic/nonstream/tool-reference-to-ir.json",
       "tags": [
@@ -1307,6 +1318,18 @@
         "n-an-21"
       ],
       "sha256": "d1717ee324201ad71b97a784f7608b275c3b6312de9f5faa74711689d1b87caa"
+    },
+    {
+      "name": "anthropic.nonstream.tool-reference-unknown-field-to-ir",
+      "file": "anthropic/nonstream/tool-reference-unknown-field-to-ir.json",
+      "tags": [
+        "tool_reference",
+        "request",
+        "tool-result",
+        "loss",
+        "n-an-21"
+      ],
+      "sha256": "309441b45787ac4c95a73827a2d164c56e9e09b58cc3e9b56598d5c2a8601fd2"
     },
     {
       "name": "anthropic.nonstream.tools-definition-from-ir",
@@ -2678,6 +2701,30 @@
       "sha256": "50a9a2fde1f2b2dc7bb77824adc90cc264687c58cb2d174bd15a2e9281b6a6d3"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-tool-reference-cache",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-tool-reference-cache.json",
+      "tags": [
+        "cross",
+        "tools",
+        "tool_reference",
+        "request",
+        "n-an-21"
+      ],
+      "sha256": "a8a7a2e43f06832adc0b4935a18d0b792b607727e13837d488decfab486895f0"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-tool-reference-toplevel",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-tool-reference-toplevel.json",
+      "tags": [
+        "cross",
+        "tools",
+        "tool_reference",
+        "request",
+        "n-an-21"
+      ],
+      "sha256": "d3f815e686ae29e048bbb99c0923eaa468e810b0657a323f3f8b451f1db4b68e"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-unnamed-schema-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-unnamed-schema-request.json",
       "tags": [
@@ -2871,6 +2918,18 @@
         "n-an-21"
       ],
       "sha256": "3c624ae19acf655e131768a469d08877dd024e5bfe266969c487e06953d657fd"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-tool-reference-cache",
+      "file": "cross/nonstream/anthropic-to-responses-tool-reference-cache.json",
+      "tags": [
+        "cross",
+        "tools",
+        "tool_reference",
+        "request",
+        "n-an-21"
+      ],
+      "sha256": "c7090deccc046bd38a7fad6ab8ffc5ac51d95ac71a1afbef2736741e7bc2917c"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-unnamed-schema-request",

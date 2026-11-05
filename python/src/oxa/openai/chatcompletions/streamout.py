@@ -24,6 +24,8 @@ from oxa.ir import (
     MessageDone,
     MessageStart,
     RedactedThinkingBlock,
+    EncryptedContentBlock,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     WebSearchCallBlock,
     SignatureDelta,
     TextBlock,
@@ -139,6 +141,16 @@ class StreamEncoder:
             if isinstance(ev.block, WebSearchCallBlock):
                 self._active = _StreamEncodeBlock(kind="redacted", index=ev.index)
                 return [], [loss(f"events[{ordinal}].block", "type", LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent")]
+            if isinstance(ev.block, EncryptedContentBlock):
+                self._active = _StreamEncodeBlock(kind="redacted", index=ev.index)
+                return [], [
+                    loss(
+                        f"events[{ordinal}].block",
+                        "type",
+                        "unsupported-semantic",
+                        ENCRYPTED_CONTENT_LOSS_DETAIL,
+                    )
+                ]
             if isinstance(ev.block, RedactedThinkingBlock):
                 self._active = _StreamEncodeBlock(kind="redacted", index=ev.index)
                 return [], [

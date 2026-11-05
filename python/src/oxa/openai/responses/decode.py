@@ -41,6 +41,7 @@ from oxa.ir import (
     TextBlock,
     TextCitation,
     ThinkingBlock,
+    EncryptedContentBlock,
     Tool,
     ToolChoice,
     TOOL_CHOICE_AUTO,
@@ -462,7 +463,8 @@ def decode_response(
                 text.append(TextBlock(text=part.get("text", ""), citations=citations))
         elif kind == ITEM_TYPE_REASONING:
             summary = item.get("summary", [])
-            if not summary:
+            enc = item.get("encrypted_content")
+            if not summary and not enc:
                 losses.append(
                     loss(
                         f"output[{item_index}]",
@@ -494,15 +496,8 @@ def decode_response(
                                 f"Responses reasoning summary type {part_type!r} has no IR equivalent",
                             )
                         )
-            if item.get("encrypted_content"):
-                losses.append(
-                    loss(
-                        f"output[{item_index}].encrypted_content",
-                        "encrypted_content",
-                        LOSS_UNMAPPED_FIELD,
-                        "Responses reasoning encrypted_content has no IR equivalent in v2.",
-                    )
-                )
+            if isinstance(enc, str) and enc:
+                thinkings.append(EncryptedContentBlock(data=enc))
         elif kind == "apply_patch_call":
             item_id = item.get("id")
             if not isinstance(item_id, str) or not item_id:

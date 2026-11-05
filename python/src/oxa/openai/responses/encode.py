@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from oxa.ir import (
+    EncryptedContentBlock,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
@@ -427,6 +428,7 @@ def encode_response(
     """Converts an IR response to a Responses wire response (IR → face)."""
     losses: list[Loss] = []
     thinkings: list[dict[str, Any]] = []
+    ciphers: list[str] = []
     text_parts: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     apc_index = 0
@@ -483,6 +485,10 @@ def encode_response(
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
                 )
             )
+        elif isinstance(block, EncryptedContentBlock):
+            if not block.data:
+                raise ValueError(f"responses: content[{index}].data: encrypted_content data is required")
+            ciphers.append(block.data)
         elif isinstance(block, ThinkingBlock):
             thinkings.append(
                 {
@@ -497,7 +503,7 @@ def encode_response(
                         f"content[{index}].signature",
                         "signature",
                         LOSS_UNMAPPED_FIELD,
-                        "Responses reasoning output items carry no provider signature",
+                        "Responses reasoning items carry no provider signature",
                     )
                 )
         elif isinstance(block, ApplyPatchToolUseBlock):
@@ -575,7 +581,7 @@ def encode_response(
             )
 
     output = list(calls)
-    if text_parts or (not resp.content and not thinkings):
+    if text_parts or (not resp.content and not thinkings and not ciphers):
         output.insert(
             0,
             {
@@ -592,15 +598,31 @@ def encode_response(
                 ],
             },
         )
-    if thinkings:
-        output.insert(
-            0,
-            {
+    reasoning_items: list[dict[str, Any]] = []
+    for i, cipher in enumerate(ciphers):
+        if i == 0:
+            reasoning_items.append({
                 "type": ITEM_TYPE_REASONING,
-                "id": "rs_abc123",
-                "summary": thinkings,
-            },
-        )
+                "id": f"rs_abc{123 + i}",
+                "summary": list(thinkings),
+                "encrypted_content": cipher,
+            })
+            thinkings.clear()
+        else:
+            reasoning_items.append({
+                "type": ITEM_TYPE_REASONING,
+                "id": f"rs_abc{123 + i}",
+                "summary": [],
+                "encrypted_content": cipher,
+            })
+    if thinkings:
+        reasoning_items.append({
+            "type": ITEM_TYPE_REASONING,
+            "id": "rs_abc123",
+            "summary": thinkings,
+        })
+    for r_item in reversed(reasoning_items):
+        output.insert(0, r_item)
 
     status = STATUS_COMPLETED
     incomplete_details = None

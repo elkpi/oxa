@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from oxa.ir import (
+    EncryptedContentBlock,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     STOP_END_TURN,
@@ -85,6 +86,8 @@ class _StreamOutputItem:
     call_id: str = ""
     name: str = ""
     namespace: str = ""
+    encrypted_content: str = ""
+    web_search_item: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -210,15 +213,9 @@ class StreamEncoder:
             if isinstance(ev.block, CustomToolUseBlock):
                 return self._start_custom_tool_block(ev.index, ev.block.id, ev.block.name, ev.block.input)
             if isinstance(ev.block, WebSearchCallBlock):
-                self._active_block = _StreamEncodeBlock(index=ev.index, kind="redacted", content_index=0)
-                return [], [
-                    loss(
-                        f"events[{ordinal}].block",
-                        "type",
-                        "unsupported-semantic",
-                        "Responses streaming profile does not encode web_search_call",
-                    )
-                ]
+                return self._start_web_search_block(ev.index, ev.block)
+            if isinstance(ev.block, EncryptedContentBlock):
+                return self._start_encrypted_content_block(ev.index, ev.block)
             raise ValueError("responses: ContentBlockStart carries unsupported block")
 
         if isinstance(ev, ContentBlockDelta):
@@ -230,8 +227,8 @@ class StreamEncoder:
             if self._active_block.kind in ("apply_patch_call", "apply_patch_call_output"):
                 raise ValueError("responses: apply patch item does not accept deltas")
 
-            if self._active_block.kind == "redacted":
-                raise ValueError("responses: RedactedThinkingBlock received unexpected delta")
+            if self._active_block.kind in ("redacted", "encrypted_content", "web_search_call"):
+                raise ValueError("responses: block received unexpected delta")
 
             if self._active_block.kind == "message":
                 if isinstance(ev.delta, CitationDelta):
@@ -297,9 +294,11 @@ class StreamEncoder:
         if isinstance(ev, ContentBlockStop):
             if self._active_block is None or ev.index != self._active_block.index:
                 raise ValueError("responses: ContentBlockStop out of grammar order")
-            if self._active_block.kind == "redacted":
+            if self._active_block.kind in ("redacted", "encrypted_content"):
                 self._active_block = None
                 return [], []
+            if self._active_block.kind == "web_search_call":
+                return self._stop_web_search_block()
             if self._active_block.kind == "message":
                 return self._stop_text_block()
             if self._active_block.kind == "reasoning":
@@ -831,6 +830,8 @@ class StreamEncoder:
             "status": STATUS_COMPLETED,
             "summary": item.content,
         }
+        if item.encrypted_content:
+            completed["encrypted_content"] = item.encrypted_content
         event = {
             "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
             "output_index": item.output_index,
@@ -909,3 +910,76 @@ class StreamEncoder:
             ]
 
         raise ValueError("responses: stop reason 'other' has no Responses equivalent")
+
+    def _start_encrypted_content_block(
+        self, index: int, block: EncryptedContentBlock
+    ) -> tuple[list[dict[str, Any]], list[Loss]]:
+        if not block.data:
+            raise ValueError("responses: encrypted_content data is required")
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None and self._active_item.kind == "message":
+            out.append(self._close_message_item())
+        if self._active_item is not None and self._active_item.kind != "reasoning":
+            raise ValueError("responses: encrypted_content cannot open before active item completes")
+        if self._active_item is not None and self._active_item.encrypted_content:
+            out.append(self._close_reasoning_item())
+        if self._active_item is None:
+            item, added = self._open_reasoning_item()
+            self._active_item = item
+            out.append(added)
+        self._active_item.encrypted_content = block.data
+        self._active_block = _StreamEncodeBlock(index=index, kind="encrypted_content", content_index=0)
+        return out, []
+
+    def _start_web_search_block(
+        self, index: int, block: WebSearchCallBlock
+    ) -> tuple[list[dict[str, Any]], list[Loss]]:
+        from oxa.ir.web_search import inspect_web_search, validate_web_search_extra
+        inspect_web_search(block.id, block.status, block.action)
+        validate_web_search_extra(block.extra)
+        out: list[dict[str, Any]] = []
+        if self._active_item is not None:
+            if self._active_item.kind == "message":
+                out.append(self._close_message_item())
+            elif self._active_item.kind == "reasoning":
+                out.append(self._close_reasoning_item())
+            else:
+                raise ValueError("responses: web_search_call cannot open before active item completes")
+        output_index = self._next_output_index
+        self._next_output_index += 1
+        item_dict = {
+            "type": "web_search_call",
+            "id": block.id,
+            "status": block.status,
+            "action": block.action,
+            **block.extra,
+        }
+        item = _StreamOutputItem(
+            kind="web_search_call",
+            id=block.id,
+            output_index=output_index,
+            web_search_item=item_dict,
+        )
+        self._active_item = item
+        self._active_block = _StreamEncodeBlock(index=index, kind="web_search_call", content_index=0)
+        out.append({
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED,
+            "output_index": output_index,
+            "item": item_dict,
+        })
+        return out, []
+
+    def _stop_web_search_block(self) -> tuple[list[dict[str, Any]], list[Loss]]:
+        if self._active_item is None or self._active_item.kind != "web_search_call":
+            raise ValueError("responses: web_search_call stop without active item")
+        item = self._active_item
+        wire_item = item.web_search_item
+        assert wire_item is not None
+        self._completed.append(wire_item)
+        self._active_item = None
+        self._active_block = None
+        return [{
+            "type": EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE,
+            "output_index": item.output_index,
+            "item": wire_item,
+        }], []

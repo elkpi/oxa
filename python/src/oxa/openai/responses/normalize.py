@@ -15,6 +15,8 @@ from oxa.ir.native import (
     NativeOmission,
 )
 from oxa.ir import (
+    EncryptedContentBlock,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
@@ -564,6 +566,8 @@ def decode_assistant_run(
                             f"Responses reasoning summary type {part_type!r} has no IR equivalent",
                         )
                     )
+            if item.get("encrypted_content"):
+                thinkings.append(EncryptedContentBlock(data=item["encrypted_content"]))
             index += 1
             continue
         if kind == "apply_patch_call":
@@ -829,6 +833,16 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                             "openai text annotations; the target face cannot preserve source locations and replay metadata",
                         )
                     )
+        elif isinstance(block, EncryptedContentBlock):
+            other_blocks += 1
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    ENCRYPTED_CONTENT_LOSS_DETAIL,
+                )
+            )
         elif isinstance(block, RedactedThinkingBlock):
             other_blocks += 1
             losses.append(
@@ -1009,6 +1023,7 @@ def encode_assistant_message(
     path: str,
 ) -> tuple[list[dict[str, Any]], list[Loss]]:
     thinkings: list[dict[str, Any]] = []
+    ciphers: list[str] = []
     text_chunks: list[str] = []
     has_text = False
     has_refusal = False
@@ -1063,6 +1078,10 @@ def encode_assistant_message(
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
                 )
             )
+        elif isinstance(block, EncryptedContentBlock):
+            if not block.data:
+                raise ValueError(f"responses: {path}[{index}].data: encrypted_content data is required")
+            ciphers.append(block.data)
         elif isinstance(block, ThinkingBlock):
             thinkings.append(
                 {
@@ -1077,7 +1096,7 @@ def encode_assistant_message(
                         f"{path}[{index}].signature",
                         "signature",
                         LOSS_UNMAPPED_FIELD,
-                        "Responses reasoning input items carry no provider signature",
+                        "Responses request reasoning items carry no provider signature",
                     )
                 )
         elif isinstance(block, ApplyPatchToolUseBlock):
@@ -1127,11 +1146,18 @@ def encode_assistant_message(
             )
 
     items: list[dict[str, Any]] = []
+    for i, cipher in enumerate(ciphers):
+        if i == 0:
+            item_dict: dict[str, Any] = {"type": ITEM_TYPE_REASONING, "summary": list(thinkings), "encrypted_content": cipher}
+            thinkings.clear()
+            items.append(item_dict)
+        else:
+            items.append({"type": ITEM_TYPE_REASONING, "summary": [], "encrypted_content": cipher})
     if thinkings:
         items.append({"type": ITEM_TYPE_REASONING, "summary": thinkings})
     if has_refusal:
         items.append({"role": ROLE_ASSISTANT, "content": parts})
-    elif has_text or not blocks:
+    elif has_text or (not blocks and not ciphers):
         items.append(
             {
                 "role": ROLE_ASSISTANT,

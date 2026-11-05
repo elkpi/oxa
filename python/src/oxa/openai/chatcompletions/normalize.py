@@ -14,6 +14,8 @@ from oxa.ir.native import (
     NativeOmission,
 )
 from oxa.ir import (
+    EncryptedContentBlock,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNSUPPORTED_SEMANTIC,
     ROLE_USER,
@@ -498,6 +500,15 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                             "openai text annotations; the target face cannot preserve source locations and replay metadata",
                         )
                     )
+        elif isinstance(block, EncryptedContentBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    ENCRYPTED_CONTENT_LOSS_DETAIL,
+                )
+            )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(
@@ -617,6 +628,15 @@ def encode_assistant_message(blocks: list[Block], path: str) -> tuple[dict[str, 
                             "openai text annotations; the target face cannot preserve source locations and replay metadata",
                         )
                     )
+        elif isinstance(block, EncryptedContentBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    ENCRYPTED_CONTENT_LOSS_DETAIL,
+                )
+            )
         elif isinstance(block, RedactedThinkingBlock):
             losses.append(
                 loss(

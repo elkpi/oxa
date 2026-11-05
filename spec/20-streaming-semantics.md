@@ -342,8 +342,9 @@ Each rule has a stable ID usable as a streaming vector tag.
 | unsupported native block/item/part | face → IR | one `unsupported-semantic` loss per native unit; matching descendants/done events absorbed |
 | non-function tool call | CC → IR | one `unsupported-semantic` loss; descendants absorbed |
 | RE `function_call_output` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed |
-| RE `web_search_call` item | RE → IR | one `unsupported-semantic` loss; descendants absorbed; non-streaming N-R-16 does not change this profile |
-| IR `web_search_call` block | IR → any streaming face | omit block with one `unsupported-semantic` loss, consume its stop and preserve lifecycle/index ordering |
+| RE `web_search_call` item | RE → IR | since 2.5.2, `output_item.done` emits the non-streaming `WebSearchCallBlock` as start/stop with no deltas (N-R-16) |
+| IR `web_search_call` block | IR → RE | emit the `web_search_call` item |
+| IR `web_search_call` block | IR → CC or AN | omit block with one `unsupported-semantic` loss, consume its stop and preserve lifecycle/index ordering |
 | AN `server_tool_use`, provider-hosted tool | AN → IR | one `unsupported-semantic` loss per unit; descendants absorbed |
 | unknown native stop value | face → IR | mapping-document `unmapped-value` loss and IR `other`, where the face status policy permits it |
 | IR `stop_sequence` for CC or RE | IR → face | native completed/stop form plus `unmapped-value` loss for matched-sequence identity |
@@ -425,8 +426,13 @@ Face-specific stream behaviors:
   `ContentBlockStart` with `ThinkingBlock{Thinking: ""}`;
   `response.reasoning_summary_text.delta` emits `ThinkingDelta`;
   `response.reasoning_summary_part.done` emits `ContentBlockStop`. The inverse
-  encoder synthesizes matching reasoning item/part events. `encrypted_content`
-  events are absorbed with one `unmapped-field` loss per item.
+  encoder synthesizes matching reasoning item/part events. A reasoning
+  `response.output_item.done` with non-empty `encrypted_content` then emits
+  `ContentBlockStart`/`ContentBlockStop` for an `EncryptedContentBlock` and no
+  delta (since 2.5.2). The Responses encoder attaches that ciphertext to the
+  still-open reasoning item. A `SignatureDelta` encoded to Responses records
+  one `unmapped-field` loss with detail
+  `Responses carries no signature delta in streaming reasoning`.
 - **AN (N-AN-11)**: `content_block_start(type: "thinking")` emits
   `ContentBlockStart` with `ThinkingBlock{Thinking: ""}`; `thinking_delta`
   emits `ThinkingDelta`; `signature_delta` emits `SignatureDelta`;
@@ -436,7 +442,7 @@ Face-specific stream behaviors:
 
 Existing losses for AN thinking blocks and RE reasoning items in streaming are
 replaced by full conversion under M9. Unsupported reasoning forms
-(`encrypted_content`, provider signatures on CC encode) record losses per
+(provider signatures on CC encode, and `encrypted_content` on a face that cannot carry it) record losses per
 N-CC-12, N-R-13, and N-AN-11.
 
 ### 11.3 Redacted thinking stream profile (规范 2.4.11)

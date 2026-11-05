@@ -5,6 +5,12 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.5.2 - 2026-11-05
+
+- Document the Responses signature losses that implementations already report (N-R-13, spec/20 §11.2). A non-empty `ThinkingBlock.signature` encoded to Responses is `unmapped-field`. Request detail is `Responses request reasoning items carry no provider signature`. Response detail is `Responses reasoning items carry no provider signature`. A streaming `SignatureDelta` uses `Responses carries no signature delta in streaming reasoning`. The signature is not stored in `encrypted_content`.
+- Responses streaming decodes and encodes `web_search_call` as the same `WebSearchCallBlock` as non-streaming (N-R-16). Cross-face streaming still omits the block with one `unsupported-semantic` loss.
+- Add `EncryptedContentBlock` (`encrypted_content`) for Responses reasoning `encrypted_content` (N-R-13). The ciphertext round-trips on Responses, including streaming onto the open reasoning item, and is omitted on Chat Completions and Anthropic with one `unsupported-semantic` loss whose detail does not contain the ciphertext. It does not convert to `redacted_thinking` or a provider signature. Exhaustive block matches must handle the new variant. IR contract remains `0.2.0`.
+
 ## 2.5.1 - 2026-11-03
 
 - Clarify Responses `additional_tools` handling in N-R-15. `tools` must still

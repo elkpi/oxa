@@ -124,7 +124,7 @@ always renders as a string.
 | RE field | IR destination | Notes |
 |---|---|---|
 | `output[type=message].content[type=output_text].text` | `Response.Content` text blocks | N-R-3 |
-| `output[type=reasoning].summary[]` | `ThinkingBlock.Thinking` | N-R-13 (since 2.0); one block per summary text part; encrypted_content dropped with unmapped-field |
+| `output[type=reasoning].summary[]` | `ThinkingBlock.Thinking` | N-R-13 (since 2.0); one block per summary text part. Non-empty `encrypted_content` is an `EncryptedContentBlock` (since 2.5.2) |
 | `output[type=function_call]` | `ToolUseBlock`s after the text blocks | N-R-5 |
 | `output[type=web_search_call]` | `WebSearchCallBlock` after the text blocks | N-R-16; `id` and `status` are semantic for this item, not envelope defaults |
 | `status` + `incomplete_details.reason` + `error` | `Response.StopReason` | N-R-11 |
@@ -303,10 +303,22 @@ Each rule has a stable ID usable as a vector tag.
   no thinking block; an absent or empty response summary records the existing
   item-level `unsupported-semantic` loss. A non-empty array of unsupported
   parts records only the per-part losses, not an additional empty-summary
-  loss. `encrypted_content` is dropped with an `unmapped-field` loss. On
-  encode, each IR `ThinkingBlock` renders as a `reasoning` output item with
-  a `summary` text part; this clarification does not change the existing
-  encoder representation or streaming profile. Request `reasoning.effort`
+  loss. A non-empty `encrypted_content` string becomes an
+  `EncryptedContentBlock` after that item's summary `ThinkingBlock`s (since
+  2.5.2). The ciphertext is opaque: converters MUST NOT decode it or copy it
+  into a loss detail. An empty summary plus `encrypted_content` is convertible
+  content and does not also record the empty-summary loss. On encode, the
+  `ThinkingBlock`s of one assistant message collapse into one `reasoning`
+  item, and the first `EncryptedContentBlock` in that message supplies that
+  item's `encrypted_content`. Each further `EncryptedContentBlock` is its own
+  reasoning item with no summary. Faces without a wire landing omit the block
+  and record one `unsupported-semantic` loss whose detail is
+  `responses encrypted reasoning replay state; the target face cannot preserve this block`.
+  A non-empty `ThinkingBlock.Signature` encoded to Responses records one
+  `unmapped-field` loss. Request history uses detail
+  `Responses request reasoning items carry no provider signature`. A response
+  uses detail `Responses reasoning items carry no provider signature`. The
+  signature bytes are not a substitute for `encrypted_content`. Request `reasoning.effort`
   maps 1:1 to `Params.ReasoningEffort` (`minimal`, `low`, `medium`, `high`,
   `xhigh`, `max`); other request `reasoning` properties (such as `summary`
   preference) are dropped with `unmapped-field` losses.
@@ -318,7 +330,7 @@ Each rule has a stable ID usable as a vector tag.
   Schema without a non-empty name cannot be represented: omit the entire format
   and record one `unsupported-semantic` loss at `params.response_format`, with
   field `name`. Do not synthesize a name.
-- **N-R-16 (web_search_call history).** (Since 2.4.13). A non-streaming request `input[]` item or response `output[]` item with `type: "web_search_call"` maps to `WebSearchCallBlock`. `id` and `status` MUST be non-empty strings. `action` MUST be a JSON object whose `type` is `search`, `open_page`, or `find_in_page`. Missing or empty `id` or `status`, a missing or non-object `action`, an absent, empty, or unknown `action.type`, and an applicable action field of the wrong JSON type are structural errors. For `search`, `query`, `queries`, and `sources` are optional; each source requires `type: "url"` and a string `url`, and any other key on a source records one `unmapped-field` loss while remaining in the object. For `open_page`, `url` may be absent, a string, or null. For `find_in_page`, string `url` and `pattern` are required. Every other key on the item or inside `action` records one `unmapped-field` loss and does not drop the item; unknown action keys remain in `action`, and unknown item-level keys are retained in the optional `extra` object. Responses encoding restores `extra` keys to the item; `extra` MUST NOT contain `type`, `id`, `status`, or `action`. On a request, the item joins the assistant run used for `reasoning` and `function_call` (N-R-5): thinking, then text, then tool calls and web-search calls in encounter order. It does not set the response `tool_use` stop reason. On encode, Responses renders the block back as `web_search_call` with the same `id`, `status`, and `action`. Chat Completions and Anthropic omit each block and record one `unsupported-semantic` loss at that block, field `type`; they MUST NOT synthesize a function call or `server_tool_use`. The streaming profile does not decode or encode this block: each streamed item or IR block records one `unsupported-semantic` loss and emits no content events.
+- **N-R-16 (web_search_call history).** (Since 2.4.13). A non-streaming request `input[]` item or response `output[]` item with `type: "web_search_call"` maps to `WebSearchCallBlock`. `id` and `status` MUST be non-empty strings. `action` MUST be a JSON object whose `type` is `search`, `open_page`, or `find_in_page`. Missing or empty `id` or `status`, a missing or non-object `action`, an absent, empty, or unknown `action.type`, and an applicable action field of the wrong JSON type are structural errors. For `search`, `query`, `queries`, and `sources` are optional; each source requires `type: "url"` and a string `url`, and any other key on a source records one `unmapped-field` loss while remaining in the object. For `open_page`, `url` may be absent, a string, or null. For `find_in_page`, string `url` and `pattern` are required. Every other key on the item or inside `action` records one `unmapped-field` loss and does not drop the item; unknown action keys remain in `action`, and unknown item-level keys are retained in the optional `extra` object. Responses encoding restores `extra` keys to the item; `extra` MUST NOT contain `type`, `id`, `status`, or `action`. On a request, the item joins the assistant run used for `reasoning` and `function_call` (N-R-5): thinking, then text, then tool calls and web-search calls in encounter order. It does not set the response `tool_use` stop reason. On encode, Responses renders the block back as `web_search_call` with the same `id`, `status`, and `action`. Chat Completions and Anthropic omit each block and record one `unsupported-semantic` loss at that block, field `type`; they MUST NOT synthesize a function call or `server_tool_use`. Since 2.5.2 the Responses streaming profile decodes a `web_search_call` item when `response.output_item.done` carries it, emitting `ContentBlockStart` and `ContentBlockStop` for the same `WebSearchCallBlock` as non-streaming and no deltas. Encoding that block back to Responses emits the item. Chat Completions and Anthropic streaming still omit the block and record one `unsupported-semantic` loss.
 - **N-R-15 (tool containers, namespacing, and native declarations).** (Since 2.4.9).
   Responses supports hierarchical tool containers (`namespace`, `toolbox`), dynamic tool injection items (`additional_tools`), deferred tool loading (`defer_loading`), and OpenAI native tool declarations (`web_search`, `file_search`, `code_interpreter`, `computer`, `mcp`, `tool_search`, etc.).
 
@@ -451,7 +463,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | `text.verbosity` unknown string | unmapped-value | request → IR | unknown verbosity values are dropped |
 | `text.format.type` unknown value | unmapped-value | request → IR | unknown text.format type dropped (N-R-14) |
 | `reasoning.summary` | unmapped-field | request → IR | summary preference is dropped (N-R-13) |
-| `output[i].encrypted_content` | unmapped-field | response → IR | encrypted reasoning content has no IR equivalent (N-R-13) |
+| `output[i].encrypted_content` | — | response → IR | non-empty ciphertext becomes `EncryptedContentBlock` (N-R-13, since 2.5.2) |
+| `ThinkingBlock.signature` encoded to Responses | unmapped-field | IR → request/response | provider signature has no Responses field (N-R-13) |
 | `tools[i].type` ≠ `function` | unsupported-semantic | request → IR | tool variant has no IR equivalent |
 | unknown `input[i].type` | unsupported-semantic | request → IR | item type has no IR equivalent |
 | instruction-only `input` | degraded | request → IR | one empty user message is added to satisfy the IR request shape (N-R-1) |

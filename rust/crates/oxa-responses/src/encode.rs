@@ -291,8 +291,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         .checked_add(resp.usage.output_tokens)
         .ok_or_else(|| Error::new("responses: derived total_tokens exceeds int64"))?;
     let mut losses = Vec::new();
-    let mut thinkings = Vec::new();
-    let mut ciphers = Vec::new();
+    let mut reasoning = ReasoningBuilder::new();
     let mut text_parts: Vec<OutputPart> = Vec::new();
     let mut calls = Vec::new();
     let mut apc_index = 0usize;
@@ -369,14 +368,14 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                         "responses: content[{index}].data: encrypted_content data is required"
                     )));
                 }
-                ciphers.push(data.clone());
+                reasoning.add_cipher(data.clone());
             }
             Block::Thinking {
                 thinking,
                 signature,
                 ..
             } => {
-                thinkings.push(OutputPart {
+                reasoning.add_thinking(OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: thinking.clone(),
                     annotations: Vec::new(),
@@ -549,9 +548,7 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
         }
     }
     let mut output = calls;
-    if !text_parts.is_empty()
-        || (resp.content.is_empty() && thinkings.is_empty() && ciphers.is_empty())
-    {
+    if !text_parts.is_empty() || (resp.content.is_empty() && reasoning.items.is_empty()) {
         output.insert(
             0,
             OutputItem {
@@ -573,36 +570,17 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
             },
         );
     }
-    let mut reasoning_items = Vec::new();
-    for (i, cipher) in ciphers.iter().enumerate() {
-        if i == 0 {
-            reasoning_items.push(OutputItem {
+    for (n, item) in reasoning.items.into_iter().enumerate().rev() {
+        output.insert(
+            0,
+            OutputItem {
                 kind: ITEM_TYPE_REASONING.to_string(),
-                id: format!("rs_abc{}", 123 + i),
-                summary: std::mem::take(&mut thinkings),
-                encrypted_content: cipher.clone(),
+                id: format!("rs_abc{}", 123 + n),
+                summary: item.summary,
+                encrypted_content: item.cipher.unwrap_or_default(),
                 ..OutputItem::default()
-            });
-        } else {
-            reasoning_items.push(OutputItem {
-                kind: ITEM_TYPE_REASONING.to_string(),
-                id: format!("rs_abc{}", 123 + i),
-                summary: Vec::new(),
-                encrypted_content: cipher.clone(),
-                ..OutputItem::default()
-            });
-        }
-    }
-    if !thinkings.is_empty() {
-        reasoning_items.push(OutputItem {
-            kind: ITEM_TYPE_REASONING.to_string(),
-            id: "rs_abc123".to_string(),
-            summary: thinkings,
-            ..OutputItem::default()
-        });
-    }
-    for item in reasoning_items.into_iter().rev() {
-        output.insert(0, item);
+            },
+        );
     }
     let (status, incomplete_details, error) = match resp.stop_reason {
         StopReason::EndTurn | StopReason::ToolUse => (STATUS_COMPLETED.to_string(), None, None),
@@ -1131,4 +1109,64 @@ fn encode_system_instructions(
         index += 1;
     }
     (instructions, items)
+}
+
+struct ReasoningItem {
+    summary: Vec<OutputPart>,
+    cipher: Option<String>,
+}
+
+struct ReasoningBuilder {
+    items: Vec<ReasoningItem>,
+    cur: Option<usize>,
+}
+
+impl ReasoningBuilder {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            cur: None,
+        }
+    }
+
+    fn add_thinking(&mut self, part: OutputPart) {
+        if let Some(idx) = self.cur {
+            if self.items[idx].cipher.is_some() {
+                self.cur = None;
+            }
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                let i = self.items.len() - 1;
+                self.cur = Some(i);
+                i
+            }
+        };
+        self.items[idx].summary.push(part);
+    }
+
+    fn add_cipher(&mut self, cipher: String) {
+        if let Some(idx) = self.cur {
+            if self.items[idx].cipher.is_some() {
+                self.cur = None;
+            }
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                self.items.len() - 1
+            }
+        };
+        self.items[idx].cipher = Some(cipher);
+        self.cur = None;
+    }
 }

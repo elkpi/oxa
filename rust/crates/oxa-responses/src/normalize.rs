@@ -1557,8 +1557,7 @@ pub(crate) fn encode_assistant_message(
     blocks: &[Block],
     path: &str,
 ) -> (Vec<InputItem>, Vec<Loss>) {
-    let mut thinkings = Vec::new();
-    let mut ciphers = Vec::new();
+    let mut reasoning = ReasoningBuilder::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut has_refusal = false;
@@ -1604,7 +1603,7 @@ pub(crate) fn encode_assistant_message(
             )),
             Block::EncryptedContent { data, .. } => {
                 if !data.is_empty() {
-                    ciphers.push(data.clone());
+                    reasoning.add_cipher(data.clone());
                 }
             }
             Block::Thinking {
@@ -1612,7 +1611,7 @@ pub(crate) fn encode_assistant_message(
                 signature,
                 ..
             } => {
-                thinkings.push(OutputPart {
+                reasoning.add_thinking(OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: thinking.clone(),
                     annotations: Vec::new(),
@@ -1716,27 +1715,11 @@ pub(crate) fn encode_assistant_message(
         }
     }
     let mut items = Vec::new();
-    for (i, cipher) in ciphers.iter().enumerate() {
-        if i == 0 {
-            items.push(InputItem {
-                kind: ITEM_TYPE_REASONING.to_string(),
-                summary: std::mem::take(&mut thinkings),
-                encrypted_content: cipher.clone(),
-                ..InputItem::default()
-            });
-        } else {
-            items.push(InputItem {
-                kind: ITEM_TYPE_REASONING.to_string(),
-                summary: Vec::new(),
-                encrypted_content: cipher.clone(),
-                ..InputItem::default()
-            });
-        }
-    }
-    if !thinkings.is_empty() {
+    for item in reasoning.items {
         items.push(InputItem {
             kind: ITEM_TYPE_REASONING.to_string(),
-            summary: thinkings,
+            summary: item.summary,
+            encrypted_content: item.cipher.unwrap_or_default(),
             ..InputItem::default()
         });
     }
@@ -1746,7 +1729,7 @@ pub(crate) fn encode_assistant_message(
             content: Some(ContentValue::Parts(parts)),
             ..InputItem::default()
         });
-    } else if has_text || (blocks.is_empty() && ciphers.is_empty()) {
+    } else if has_text || (blocks.is_empty() && items.is_empty()) {
         items.push(InputItem {
             role: ROLE_ASSISTANT.to_string(),
             content: Some(ContentValue::Text(text)),
@@ -1776,4 +1759,64 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
         }
     }
     (out, losses)
+}
+
+struct ReasoningItem {
+    summary: Vec<OutputPart>,
+    cipher: Option<String>,
+}
+
+struct ReasoningBuilder {
+    items: Vec<ReasoningItem>,
+    cur: Option<usize>,
+}
+
+impl ReasoningBuilder {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            cur: None,
+        }
+    }
+
+    fn add_thinking(&mut self, part: OutputPart) {
+        if let Some(idx) = self.cur {
+            if self.items[idx].cipher.is_some() {
+                self.cur = None;
+            }
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                let i = self.items.len() - 1;
+                self.cur = Some(i);
+                i
+            }
+        };
+        self.items[idx].summary.push(part);
+    }
+
+    fn add_cipher(&mut self, cipher: String) {
+        if let Some(idx) = self.cur {
+            if self.items[idx].cipher.is_some() {
+                self.cur = None;
+            }
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                self.items.len() - 1
+            }
+        };
+        self.items[idx].cipher = Some(cipher);
+        self.cur = None;
+    }
 }

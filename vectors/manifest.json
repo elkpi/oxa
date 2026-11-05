@@ -2675,7 +2675,7 @@
         "request",
         "n-an-21"
       ],
-      "sha256": "40415db149f4b602fff0f8f5caa82539df0da7d0f725178486fc65767e108fbf"
+      "sha256": "50a9a2fde1f2b2dc7bb77824adc90cc264687c58cb2d174bd15a2e9281b6a6d3"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-unnamed-schema-request",
@@ -2870,7 +2870,7 @@
         "request",
         "n-an-21"
       ],
-      "sha256": "cfd6b91652c4a8868b8c6fa9a40b8736ad34c82c495a69841a9d82987e11aac7"
+      "sha256": "3c624ae19acf655e131768a469d08877dd024e5bfe266969c487e06953d657fd"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-unnamed-schema-request",

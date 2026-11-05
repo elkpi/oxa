@@ -9,6 +9,21 @@ import (
 	"github.com/elkpi/oxa/go/v2/ir"
 )
 
+func TestDecodeTypedToolReference(t *testing.T) {
+	wire := &messages.Request{
+		Model: "m", MaxTokens: 32,
+		Messages: []messages.Message{{Role: messages.RoleUser, Content: []messages.BlockWire{{Type: messages.BlockTypeToolReference, ToolName: "Read"}}}},
+	}
+	request, losses, err := messages.DecodeRequest(wire)
+	if err != nil || len(losses) != 0 {
+		t.Fatalf("DecodeRequest: losses=%+v, err=%v", losses, err)
+	}
+	ref, ok := request.Messages[0].Content[0].(ir.ToolReferenceBlock)
+	if !ok || ref.ToolName != "Read" {
+		t.Fatalf("unexpected reference: %+v", request.Messages[0].Content[0])
+	}
+}
+
 func TestDecodeToolReferenceBlock(t *testing.T) {
 	raw := []byte(`{
 		"model": "claude-opus-5-5",

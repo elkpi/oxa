@@ -569,7 +569,7 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 		// (null/empty is a structural error even when name is present);
 		// name is an alias only when tool_name is absent.
 		var toolName string
-		if w.hasToolName {
+		if w.hasToolName || w.ToolName != "" {
 			if w.ToolName == "" {
 				return nil, nil, false, fmt.Errorf("anthropic: %s.tool_name is required", path)
 			}

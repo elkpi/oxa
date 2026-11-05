@@ -1,0 +1,62 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-encrypted-content-request",
+  "description": "Cross-protocol: a Responses request history reasoning item with encrypted_content converts to Anthropic dropping the ciphertext with one unsupported-semantic loss that never quotes the ciphertext (N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "gpt-5",
+    "max_output_tokens": 1024,
+    "input": [
+      { "role": "user", "content": "Recall past reasoning." },
+      {
+        "type": "reasoning",
+        "summary": [{ "type": "summary_text", "text": "Replay reasoning." }],
+        "encrypted_content": "CIPHER_REQ_9f8e7d"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": [{ "type": "output_text", "text": "Continuing from prior context." }]
+      },
+      { "role": "user", "content": "Proceed." }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "Recall past reasoning." }]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "thinking", "thinking": "Replay reasoning." },
+          { "type": "text", "text": "Continuing from prior context." }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [{ "type": "text", "text": "Proceed." }]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[1].content[1]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "responses encrypted reasoning replay state; the target face cannot preserve this block"
+    },
+    {
+      "path": "messages[1].content[0]",
+      "field": "signature",
+      "reason": "degraded"
+    }
+  ],
+  "tags": ["cross", "thinking", "encrypted-content", "request", "n-r-13"]
+}

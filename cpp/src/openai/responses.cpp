@@ -1628,6 +1628,32 @@ static json::Value encode_responses_grouped_tools(
     return out;
 }
 
+struct ReasoningWire {
+    json::Value summary = json::Value::array();
+    std::string cipher;
+};
+
+struct ReasoningBuilder {
+    std::vector<ReasoningWire> items;
+    bool cur_closed = true;
+
+    void add_thinking(json::Value part) {
+        if (cur_closed || items.empty()) {
+            items.push_back(ReasoningWire{});
+            cur_closed = false;
+        }
+        items.back().summary.push_back(std::move(part));
+    }
+
+    void add_cipher(std::string cipher) {
+        if (cur_closed || items.empty()) {
+            items.push_back(ReasoningWire{});
+        }
+        items.back().cipher = std::move(cipher);
+        cur_closed = true;
+    }
+};
+
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
@@ -2022,8 +2048,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             bool has_text = false;
             bool has_refusal = false;
             json::Value assistant_parts = json::Value::array();
-            json::Value reasoning_summary = json::Value::array();
-            std::vector<std::string> ciphers;
+            ReasoningBuilder reasoning;
             std::vector<json::Value> fc_items;
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
@@ -2033,7 +2058,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     part.set("type", json::Value::string("output_text"));
                     part.set("text", json::Value::string(thinking->thinking));
                     part.set("annotations", json::Value::array());
-                    reasoning_summary.push_back(std::move(part));
+                    reasoning.add_thinking(std::move(part));
                     if (thinking->signature.has_value() && !thinking->signature->empty()) {
                         losses.push_back(make_resp_loss(
                             "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].signature",
@@ -2084,7 +2109,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (ec->data.empty()) {
                         return invalid_argument("responses: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].data: encrypted_content data is required");
                     }
-                    ciphers.push_back(ec->data);
+                    reasoning.add_cipher(ec->data);
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -2133,31 +2158,22 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "this IR block cannot be rendered in a Responses assistant input item"));
                 }
             }
-            if (!ciphers.empty()) {
-                for (std::size_t ci = 0; ci < ciphers.size(); ++ci) {
-                    json::Value reasoning = json::Value::object();
-                    reasoning.set("type", json::Value::string("reasoning"));
-                    if (ci == 0) {
-                        reasoning.set("summary", std::move(reasoning_summary));
-                        reasoning_summary = json::Value::array();
-                    } else {
-                        reasoning.set("summary", json::Value::array());
-                    }
-                    reasoning.set("encrypted_content", json::Value::string(ciphers[ci]));
-                    items.push_back(std::move(reasoning));
+            const bool has_reasoning = !reasoning.items.empty();
+            for (auto& item : reasoning.items) {
+                json::Value r = json::Value::object();
+                r.set("type", json::Value::string("reasoning"));
+                r.set("summary", std::move(item.summary));
+                if (!item.cipher.empty()) {
+                    r.set("encrypted_content", json::Value::string(std::move(item.cipher)));
                 }
-            } else if (!reasoning_summary.as_array().empty()) {
-                json::Value reasoning = json::Value::object();
-                reasoning.set("type", json::Value::string("reasoning"));
-                reasoning.set("summary", std::move(reasoning_summary));
-                items.push_back(std::move(reasoning));
+                items.push_back(std::move(r));
             }
             if (has_refusal) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", std::move(assistant_parts));
                 items.push_back(std::move(mi));
-            } else if (has_text || (reasoning_summary.as_array().empty() && fc_items.empty() && ciphers.empty())) {
+            } else if (has_text || (!has_reasoning && fc_items.empty())) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", json::Value::string(std::move(a_txt)));
@@ -2493,8 +2509,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     std::size_t next_apc = 0;
     std::size_t next_apco = 0;
     std::optional<std::string> refusal_msg;
-    json::Value reasoning_parts = json::Value::array();
-    std::vector<std::string> ciphers;
+    ReasoningBuilder reasoning;
     std::vector<json::Value> text_parts;
     std::vector<json::Value> calls;
 
@@ -2545,7 +2560,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             if (ec->data.empty()) {
                 return invalid_argument("responses: content[" + std::to_string(i) + "].data: encrypted_content data is required");
             }
-            ciphers.push_back(ec->data);
+            reasoning.add_cipher(ec->data);
         } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -2555,7 +2570,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             part.set("type", json::Value::string("output_text"));
             part.set("text", json::Value::string(thinking->thinking));
             part.set("annotations", json::Value::array());
-            reasoning_parts.push_back(std::move(part));
+            reasoning.add_thinking(std::move(part));
             if (thinking->signature.has_value() && !thinking->signature->empty()) {
                 losses.push_back(make_resp_loss(
                     "content[" + std::to_string(i) + "].signature", "signature",
@@ -2644,28 +2659,18 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     }
 
     json::Value output_arr = json::Value::array();
-    if (!ciphers.empty()) {
-        for (std::size_t ci = 0; ci < ciphers.size(); ++ci) {
-            json::Value reasoning = json::Value::object();
-            reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
-            reasoning.set("id", json::Value::string("rs_abc" + std::to_string(123 + ci)));
-            if (ci == 0) {
-                reasoning.set("summary", std::move(reasoning_parts));
-                reasoning_parts = json::Value::array();
-            } else {
-                reasoning.set("summary", json::Value::array());
-            }
-            reasoning.set("encrypted_content", json::Value::string(ciphers[ci]));
-            output_arr.push_back(std::move(reasoning));
+    for (std::size_t n = 0; n < reasoning.items.size(); ++n) {
+        auto& item = reasoning.items[n];
+        json::Value r = json::Value::object();
+        r.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
+        r.set("id", json::Value::string("rs_abc" + std::to_string(123 + n)));
+        r.set("summary", std::move(item.summary));
+        if (!item.cipher.empty()) {
+            r.set("encrypted_content", json::Value::string(std::move(item.cipher)));
         }
-    } else if (!reasoning_parts.as_array().empty()) {
-        json::Value reasoning = json::Value::object();
-        reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
-        reasoning.set("id", json::Value::string("rs_abc123"));
-        reasoning.set("summary", std::move(reasoning_parts));
-        output_arr.push_back(std::move(reasoning));
+        output_arr.push_back(std::move(r));
     }
-    if (!text_parts.empty() || (resp.content.empty() && reasoning_parts.as_array().empty() && ciphers.empty())) {
+    if (!text_parts.empty() || (resp.content.empty() && reasoning.items.empty())) {
         json::Value msg = json::Value::object();
         msg.set("type", json::Value::string("message"));
         msg.set("id", json::Value::string("msg_abc123"));

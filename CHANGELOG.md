@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.5.3] - 2026-11-05
+
+### Added
+
+- Add `ToolReferenceBlock` (`tool_reference`) across all five implementations to support Anthropic Messages tool search (N-AN-21). Preserves tool reference blocks inside `tool_result.content` (and request history) with native `cache_control` round-trip fidelity.
+- Unsupported target faces (OpenAI Chat Completions and Responses) report standard `unsupported-semantic` losses when encountering tool reference blocks in tool result content.
+
+### Changed
+
+- Lock new tool search reference behavior across 543 shared vectors.
+- Keep the IR document contract at `0.2.0`.
+
 ## [v2.5.2] - 2026-11-05
 
 ### Added

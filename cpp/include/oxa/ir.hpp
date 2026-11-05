@@ -102,6 +102,7 @@ inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result";
 inline constexpr std::string_view BLOCK_TYPE_REFUSAL = "refusal";
+inline constexpr std::string_view BLOCK_TYPE_TOOL_REFERENCE = "tool_reference";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_ANY = "any";

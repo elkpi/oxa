@@ -1038,3 +1038,33 @@ func TestStreamEncoderPreservesCacheUsage(t *testing.T) {
 		t.Fatalf("cache usage = %#v", out[0].Usage)
 	}
 }
+
+func TestStreamEncoderEncryptedContentOmittedWithoutIndexHole(t *testing.T) {
+	e := NewStreamEncoder()
+	d := NewStreamDecoder()
+	events := []ir.Event{
+		ir.MessageStart{ID: "msg", Model: "claude-3"},
+		ir.ContentBlockStart{Index: 0, Block: ir.EncryptedContentBlock{Data: "OPAQUE"}},
+		ir.ContentBlockStop{Index: 0},
+		ir.ContentBlockStart{Index: 1, Block: ir.TextBlock{Text: "visible"}},
+		ir.ContentBlockStop{Index: 1},
+		ir.MessageDelta{StopReason: ir.StopEndTurn, Usage: ir.Usage{InputTokens: 1, OutputTokens: 1}},
+		ir.MessageDone{},
+	}
+	var allLosses []ir.Loss
+	for _, ev := range events {
+		wires, losses, err := e.Apply(ev)
+		if err != nil {
+			t.Fatalf("Apply(%T): %v", ev, err)
+		}
+		allLosses = append(allLosses, losses...)
+		for _, w := range wires {
+			if _, err := d.Feed(w); err != nil {
+				t.Fatalf("Feed(%s, idx=%v): %v", w.Type, w.Index, err)
+			}
+		}
+	}
+	if len(allLosses) != 1 || allLosses[0].Detail != ir.EncryptedContentLossDetail {
+		t.Fatalf("losses: %+v", allLosses)
+	}
+}

@@ -86,3 +86,37 @@ func TestEncryptedContentOnlyReasoning(t *testing.T) {
 		t.Fatalf("content = %#v", resp.Content)
 	}
 }
+
+func TestMultiReasoningItemsRoundTrip(t *testing.T) {
+	raw := []byte(`{
+		"id":"resp_3","object":"response","status":"completed","model":"gpt-5",
+		"output":[
+			{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"one"}],"encrypted_content":"TEST_ONE"},
+			{"type":"reasoning","id":"rs_2","summary":[{"type":"summary_text","text":"two"}],"encrypted_content":"TEST_TWO"}
+		],
+		"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}
+	}`)
+	resp, losses, err := DecodeResponseJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 0 {
+		t.Fatalf("losses: %+v", losses)
+	}
+	encoded, encLosses, err := EncodeResponse(resp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encLosses) != 0 {
+		t.Fatalf("encLosses: %+v", encLosses)
+	}
+	if len(encoded.Output) != 2 {
+		t.Fatalf("expected 2 output items, got %d", len(encoded.Output))
+	}
+	if encoded.Output[0].EncryptedContent != "TEST_ONE" || len(encoded.Output[0].Summary) != 1 || encoded.Output[0].Summary[0].Text != "one" {
+		t.Fatalf("output[0] = %+v", encoded.Output[0])
+	}
+	if encoded.Output[1].EncryptedContent != "TEST_TWO" || len(encoded.Output[1].Summary) != 1 || encoded.Output[1].Summary[0].Text != "two" {
+		t.Fatalf("output[1] = %+v", encoded.Output[1])
+	}
+}

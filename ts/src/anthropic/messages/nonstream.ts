@@ -1308,7 +1308,7 @@ function decodeContent(
           ? string(block.name, `${path}[${index}].name`)
           : undefined);
       if (!toolName) {
-        fail(`anthropic: ${path}[${index}].tool_name is required`);
+        fail(`${path}[${index}].tool_name is required`);
       }
       blocks.push({
         type: "tool_reference",
@@ -1519,6 +1519,9 @@ function encodeContent(
               ...(nestedCc ? { cache_control: nestedCc } : {}),
             });
         } else if (nested.type === "tool_reference") {
+          if (!(nested as ToolReferenceBlock).tool_name) {
+            fail(`${path}[${index}].content[${child}].tool_name is required`);
+          }
           content.push({
             type: "tool_reference",
             tool_name: (nested as ToolReferenceBlock).tool_name,
@@ -1594,6 +1597,9 @@ function encodeContent(
       }
       continue;
     } else if (block.type === "tool_reference") {
+      if (!(block as ToolReferenceBlock).tool_name) {
+        fail(`${path}[${index}].tool_name is required`);
+      }
       output.push({
         type: "tool_reference",
         tool_name: (block as ToolReferenceBlock).tool_name,

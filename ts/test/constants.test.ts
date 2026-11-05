@@ -13,6 +13,7 @@ test("ir constants values match specification", () => {
   assert.equal(constants.BLOCK_TYPE_IMAGE, "image");
   assert.equal(constants.BLOCK_TYPE_TOOL_USE, "tool_use");
   assert.equal(constants.BLOCK_TYPE_TOOL_RESULT, "tool_result");
+  assert.equal(constants.BLOCK_TYPE_TOOL_REFERENCE, "tool_reference");
   assert.equal(constants.BLOCK_TYPE_THINKING, "thinking");
 
   assert.equal(constants.TOOL_CHOICE_AUTO, "auto");
@@ -50,6 +51,7 @@ test("ir index re-exports constants", () => {
   assert.equal(oxa.ir.STOP_END_TURN, "end_turn");
   assert.equal(oxa.ir.SPEC_VERSION, "0.2.0");
   assert.equal(oxa.ir.BLOCK_TYPE_TEXT, "text");
+  assert.equal(oxa.ir.BLOCK_TYPE_TOOL_REFERENCE, "tool_reference");
   assert.equal(oxa.ir.BLOCK_TYPE_THINKING, "thinking");
   assert.equal(oxa.ir.DELTA_TYPE_THINKING_DELTA, "thinking_delta");
   assert.equal(oxa.ir.DELTA_TYPE_SIGNATURE_DELTA, "signature_delta");

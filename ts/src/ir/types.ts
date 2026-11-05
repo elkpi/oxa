@@ -178,11 +178,18 @@ export interface RefusalBlock {
   readonly native?: readonly NativeAnnotation[];
 }
 
+export interface ToolReferenceBlock {
+  readonly type: "tool_reference";
+  readonly tool_name: string;
+  readonly native?: readonly NativeAnnotation[];
+}
+
 export type Block =
   | TextBlock
   | ThinkingBlock
   | RedactedThinkingBlock
   | EncryptedContentBlock
+  | ToolReferenceBlock
   | ImageBlock
   | DocumentBlock
   | ToolUseBlock

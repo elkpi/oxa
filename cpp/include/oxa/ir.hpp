@@ -102,6 +102,7 @@ inline constexpr std::string_view BLOCK_TYPE_TOOL_RESULT = "tool_result";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use";
 inline constexpr std::string_view BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result";
 inline constexpr std::string_view BLOCK_TYPE_REFUSAL = "refusal";
+inline constexpr std::string_view BLOCK_TYPE_TOOL_REFERENCE = "tool_reference";
 
 inline constexpr std::string_view TOOL_CHOICE_AUTO = "auto";
 inline constexpr std::string_view TOOL_CHOICE_ANY = "any";
@@ -342,10 +343,19 @@ struct RefusalBlock {
         : refusal(std::move(ref)), category(std::move(cat)), native(std::move(nat)) {}
 };
 
+struct ToolReferenceBlock {
+    std::string tool_name;
+    std::vector<NativeAnnotation> native;
+
+    ToolReferenceBlock() = default;
+    explicit ToolReferenceBlock(std::string tname, std::vector<NativeAnnotation> nat = {})
+        : tool_name(std::move(tname)), native(std::move(nat)) {}
+};
+
 using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, EncryptedContentBlock, ImageBlock, DocumentBlock,
                            ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
-                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock, RefusalBlock>;
+                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock, RefusalBlock, ToolReferenceBlock>;
 
 struct BlockHolder {
     Block block;

@@ -25,6 +25,7 @@ const (
 	BlockTypeThinking         = "thinking"
 	BlockTypeRedactedThinking = "redacted_thinking"
 	BlockTypeDocument         = "document"
+	BlockTypeToolReference    = "tool_reference"
 
 	SourceTypeBase64 = "base64"
 	SourceTypeURL    = "url"
@@ -330,6 +331,8 @@ type BlockWire struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   any    `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// tool_reference
+	ToolName string `json:"tool_name,omitempty"`
 	// image
 	Source *SourceWire `json:"source,omitempty"`
 	// document
@@ -340,6 +343,7 @@ type BlockWire struct {
 	hasContext   bool
 	hasData      bool
 	hasCitations bool
+	hasToolName  bool
 }
 
 func (w *BlockWire) UnmarshalJSON(data []byte) error {
@@ -381,6 +385,7 @@ func (w *BlockWire) UnmarshalJSON(data []byte) error {
 	_, w.hasContext = fields["context"]
 	_, w.hasData = fields["data"]
 	_, w.hasCitations = fields["citations"]
+	_, w.hasToolName = fields["tool_name"]
 	return nil
 }
 

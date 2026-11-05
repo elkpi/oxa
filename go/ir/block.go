@@ -25,6 +25,7 @@ const (
 	BlockTypeDocument         = "document"
 	BlockTypeWebSearchCall    = "web_search_call"
 	BlockTypeRefusal          = "refusal"
+	BlockTypeToolReference    = "tool_reference"
 )
 
 // Citation sources.
@@ -99,6 +100,14 @@ type RefusalBlock struct {
 }
 
 func (RefusalBlock) isBlock() {}
+
+// ToolReferenceBlock represents a reference to a declared tool discovered dynamically via tool search (since 2.5.3).
+type ToolReferenceBlock struct {
+	ToolName string
+	Native   []NativeAnnotation
+}
+
+func (ToolReferenceBlock) isBlock() {}
 
 // ImageBlock is an image input. Unused in this milestone (M4 wires it);
 // exactly one of Data / URL must be present.

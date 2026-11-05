@@ -785,6 +785,7 @@ function collectBlockOmissions(
     blk.type === "redacted_thinking" ||
     blk.type === "encrypted_content" ||
     blk.type === "web_search_call" ||
+    (blk.type === "tool_reference" && target !== "anthropic") ||
     (blk.type === "document" &&
       target === "chatcompletions" &&
       (blk.url !== undefined ||

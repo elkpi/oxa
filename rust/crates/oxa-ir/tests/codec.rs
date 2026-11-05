@@ -77,6 +77,14 @@ const SPEC_EVENT_STREAM: &str = r#"{
 }"#;
 
 #[test]
+fn tool_reference_validation_does_not_inspect_tool_input_schema() {
+    let input = r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"search","input_schema":{"type":"object","properties":{"mode":{"const":{"type":"tool_reference"}}}}}]}"#;
+    let request: Request = from_json(input).expect("opaque input schema must decode");
+    let encoded = to_json(&request).expect("opaque input schema must encode");
+    assert_020_encoding_matches(input, &encoded);
+}
+
+#[test]
 fn legacy_request_round_trips_as_spec20() {
     let req: Request = from_json(SPEC_REQUEST).expect("decode");
     let out = to_json(&req).expect("encode");
@@ -122,8 +130,8 @@ fn rejects_present_empty_or_null_schema_name() {
 }
 
 #[test]
-fn workspace_crate_version_is_2_5_2() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.5.2");
+fn workspace_crate_version_is_2_5_3() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "2.5.3");
 }
 
 #[test]

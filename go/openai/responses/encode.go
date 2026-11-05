@@ -349,6 +349,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				ir.EncryptedContentLossDetail,
 			))
+		case ir.ToolReferenceBlock:
+			otherBlocks++
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"this IR block cannot be rendered in a Responses item",
+			))
 		case ir.RedactedThinkingBlock:
 			otherBlocks++
 			losses = append(losses, loss(
@@ -478,6 +484,11 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 				return nil, fmt.Errorf("responses: %s[%d].data: encrypted_content data is required", path, i)
 			}
 			reasoning.addCipher(value.Data)
+		case ir.ToolReferenceBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"this IR block cannot be rendered in a Responses item",
+			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
@@ -623,6 +634,11 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 				return nil, nil, fmt.Errorf("responses: content[%d].data: encrypted_content data is required", i)
 			}
 			reasoning.addCipher(value.Data)
+		case ir.ToolReferenceBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,
+				"this IR block cannot be rendered in a Responses item",
+			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,

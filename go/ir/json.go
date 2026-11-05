@@ -57,6 +57,11 @@ type wireThinkingBlock struct {
 	Signature string `json:"signature,omitempty"`
 }
 
+type wireToolReferenceBlock struct {
+	Type     string `json:"type"`
+	ToolName string `json:"tool_name"`
+}
+
 func hasNative(b Block) bool {
 	switch v := b.(type) {
 	case TextBlock:
@@ -66,6 +71,8 @@ func hasNative(b Block) bool {
 	case RedactedThinkingBlock:
 		return len(v.Native) > 0
 	case EncryptedContentBlock:
+		return len(v.Native) > 0
+	case ToolReferenceBlock:
 		return len(v.Native) > 0
 	case ImageBlock:
 		return len(v.Native) > 0
@@ -176,6 +183,13 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 	case RefusalBlock:
 		return json.Marshal(wireRefusalBlock{
 			Type: BlockTypeRefusal, Refusal: v.Refusal, Category: v.Category,
+		})
+	case ToolReferenceBlock:
+		if v.ToolName == "" {
+			return nil, fmt.Errorf("ir: tool_reference tool_name is required")
+		}
+		return json.Marshal(wireToolReferenceBlock{
+			Type: BlockTypeToolReference, ToolName: v.ToolName,
 		})
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
@@ -318,6 +332,15 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return RefusalBlock{Refusal: w.Refusal, Category: w.Category}, nil
+	case BlockTypeToolReference:
+		var w wireToolReferenceBlock
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.ToolName == "" {
+			return nil, fmt.Errorf("ir: tool_reference tool_name is required")
+		}
+		return ToolReferenceBlock{ToolName: w.ToolName}, nil
 	default:
 		if head.Type == BlockTypeWebSearchCall {
 			return unmarshalWebSearchCall(data)
@@ -502,6 +525,15 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			Category string             `json:"category,omitempty"`
 			Native   []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeRefusal, v.Refusal, v.Category, v.Native})
+	case ToolReferenceBlock:
+		if v.ToolName == "" {
+			return nil, fmt.Errorf("ir: tool_reference tool_name is required")
+		}
+		return json.Marshal(struct {
+			Type     string             `json:"type"`
+			ToolName string             `json:"tool_name"`
+			Native   []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeToolReference, v.ToolName, v.Native})
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
 	}
@@ -710,6 +742,18 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return RefusalBlock{Refusal: w.Refusal, Category: w.Category, Native: w.Native}, nil
+	case BlockTypeToolReference:
+		var w struct {
+			ToolName string             `json:"tool_name"`
+			Native   []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.ToolName == "" {
+			return nil, fmt.Errorf("ir: tool_reference tool_name is required")
+		}
+		return ToolReferenceBlock{ToolName: w.ToolName, Native: w.Native}, nil
 	default:
 		if head.Type == BlockTypeWebSearchCall {
 			return unmarshalWebSearchCall(data)

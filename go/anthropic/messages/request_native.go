@@ -451,6 +451,9 @@ func attachCacheControlToBlock(blk *ir.Block, canon string) {
 	case ir.ToolResultBlock:
 		b.Native = append(b.Native, ann)
 		*blk = b
+	case ir.ToolReferenceBlock:
+		b.Native = append(b.Native, ann)
+		*blk = b
 	case ir.CustomToolUseBlock:
 		b.Native = append(b.Native, ann)
 		*blk = b
@@ -782,6 +785,8 @@ func getBlockNative(item any) []ir.NativeAnnotation {
 	case ir.ToolUseBlock:
 		return b.Native
 	case ir.ToolResultBlock:
+		return b.Native
+	case ir.ToolReferenceBlock:
 		return b.Native
 	case ir.CustomToolUseBlock:
 		return b.Native

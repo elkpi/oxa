@@ -113,6 +113,13 @@ pub enum Block {
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
+    #[serde(rename = "tool_reference")]
+    ToolReference {
+        #[serde(rename = "tool_name")]
+        tool_name: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
     #[serde(rename = "image")]
     Image {
         #[serde(
@@ -235,6 +242,7 @@ impl Block {
             | Block::Thinking { native, .. }
             | Block::RedactedThinking { native, .. }
             | Block::EncryptedContent { native, .. }
+            | Block::ToolReference { native, .. }
             | Block::Image { native, .. }
             | Block::Document { native, .. }
             | Block::ToolUse { native, .. }
@@ -280,6 +288,11 @@ impl std::fmt::Debug for Block {
             Block::EncryptedContent { data, native } => f
                 .debug_struct("EncryptedContent")
                 .field("data", &format!("[REDACTED len={}]", data.len()))
+                .field("native", native)
+                .finish(),
+            Block::ToolReference { tool_name, native } => f
+                .debug_struct("ToolReference")
+                .field("tool_name", tool_name)
                 .field("native", native)
                 .finish(),
             Block::Image {

@@ -569,6 +569,7 @@ fn validate_block_native(blk: &Block, host: HostType, path: &str) -> Result<(), 
         Block::Text { native, .. }
         | Block::Image { native, .. }
         | Block::Document { native, .. }
+        | Block::ToolReference { native, .. }
         | Block::Refusal { native, .. } => {
             validate_annotations(native, host, path)?;
         }
@@ -717,6 +718,14 @@ fn collect_block_omissions(losses: &mut Vec<Loss>, blk: &Block, path: &str, targ
             // Whole-block drop; annotations are part of it and are not reported a second time.
             static EMPTY: Vec<NativeAnnotation> = Vec::new();
             (&EMPTY, None)
+        }
+        Block::ToolReference { native, .. } => {
+            if target != "anthropic" {
+                static EMPTY: Vec<NativeAnnotation> = Vec::new();
+                (&EMPTY, None)
+            } else {
+                (native, None)
+            }
         }
         Block::CustomToolResult { native, output, .. } => {
             let ch = match output {

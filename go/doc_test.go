@@ -11,8 +11,8 @@ import (
 )
 
 func TestVersion(t *testing.T) {
-	if oxa.Version != "2.5.2" {
-		t.Errorf("oxa.Version = %q, want 2.5.2", oxa.Version)
+	if oxa.Version != "2.5.3" {
+		t.Errorf("oxa.Version = %q, want 2.5.3", oxa.Version)
 	}
 }
 

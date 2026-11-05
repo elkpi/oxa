@@ -261,6 +261,11 @@ struct BlockValidator {
     Status operator()(const DocumentBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
+    Status operator()(const ToolReferenceBlock& b) const {
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
+    }
     Status operator()(const ToolUseBlock& b) const {
         auto st = validate_annotations(b.native, host, path);
         if (!st.ok()) return st;
@@ -651,6 +656,14 @@ struct BlockOmissionCollector {
     void operator()(const EncryptedContentBlock& /*b*/) const {
         // Whole-block drop; annotations are part of it and are not reported
         // a second time.
+    }
+    void operator()(const ToolReferenceBlock& b) const {
+        if (target != "anthropic") {
+            return;
+        }
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
+        }
     }
     void operator()(const ToolUseBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {

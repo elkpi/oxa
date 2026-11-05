@@ -461,6 +461,22 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
                 }
                 blocks.push_back(std::move(tr));
             }
+        } else if (kind == "tool_reference") {
+            // N-AN-21: a present tool_name key must carry a non-empty string
+            // (null/empty is a structural error even when name is present);
+            // name is an alias only when tool_name is absent.
+            std::string tool_name;
+            if (const auto* tn = item.find("tool_name"); tn != nullptr) {
+                if (!tn->is_string() || tn->as_string().empty()) {
+                    return invalid_argument("anthropic: " + block_path + ".tool_name is required");
+                }
+                tool_name = tn->as_string();
+            } else if (const auto* n = item.find("name"); n && n->is_string() && !n->as_string().empty()) {
+                tool_name = n->as_string();
+            } else {
+                return invalid_argument("anthropic: " + block_path + ".tool_name is required");
+            }
+            blocks.push_back(ir::ToolReferenceBlock{std::move(tool_name)});
         } else {
             losses.push_back(make_ant_loss(
                 block_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -1497,10 +1513,32 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                 ibw.set("cache_control", std::move(*cc));
                             }
                             inner_arr.push_back(std::move(ibw));
+                        } else if (const auto* tr_ref = std::get_if<ir::ToolReferenceBlock>(&inner.block)) {
+                            if (tr_ref->tool_name.empty()) {
+                                return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "].tool_name is required");
+                            }
+                            json::Value ibw = json::Value::object();
+                            ibw.set("type", json::Value::string("tool_reference"));
+                            ibw.set("tool_name", json::Value::string(tr_ref->tool_name));
+                            if (auto cc = get_block_cache_control(tr_ref->native)) {
+                                ibw.set("cache_control", std::move(*cc));
+                            }
+                            inner_arr.push_back(std::move(ibw));
                         }
                     }
                     bw.set("content", std::move(inner_arr));
                     if (auto cc = get_block_cache_control(tr->native)) {
+                        bw.set("cache_control", std::move(*cc));
+                    }
+                    content_arr.push_back(std::move(bw));
+                } else if (const auto* tr_ref = std::get_if<ir::ToolReferenceBlock>(&b)) {
+                    if (tr_ref->tool_name.empty()) {
+                        return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].tool_name is required");
+                    }
+                    json::Value bw = json::Value::object();
+                    bw.set("type", json::Value::string("tool_reference"));
+                    bw.set("tool_name", json::Value::string(tr_ref->tool_name));
+                    if (auto cc = get_block_cache_control(tr_ref->native)) {
                         bw.set("cache_control", std::move(*cc));
                     }
                     content_arr.push_back(std::move(bw));

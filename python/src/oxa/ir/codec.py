@@ -18,6 +18,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_ENCRYPTED_CONTENT,
+    BLOCK_TYPE_TOOL_REFERENCE,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
@@ -90,6 +91,7 @@ from oxa.ir.types import (
     ThinkingDelta,
     RedactedThinkingBlock,
     EncryptedContentBlock,
+    ToolReferenceBlock,
     CitationDelta,
     Tool,
     ToolChoice,
@@ -365,6 +367,10 @@ def dump_block(block: Block) -> dict[str, Any]:
         if not block.data:
             raise CodecError("encrypted_content data is required")
         return {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
+    if isinstance(block, ToolReferenceBlock):
+        if not block.tool_name:
+            raise CodecError("tool_reference requires non-empty tool_name")
+        return {"type": BLOCK_TYPE_TOOL_REFERENCE, "tool_name": block.tool_name}
     if isinstance(block, ThinkingBlock):
         out: dict[str, Any] = {
             "type": BLOCK_TYPE_THINKING,
@@ -495,6 +501,10 @@ def dump_request_block(block: Block) -> dict[str, Any]:
         if not block.data:
             raise CodecError("encrypted_content data is required")
         out = {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
+    elif isinstance(block, ToolReferenceBlock):
+        if not block.tool_name:
+            raise CodecError("tool_reference requires non-empty tool_name")
+        out = {"type": BLOCK_TYPE_TOOL_REFERENCE, "tool_name": block.tool_name}
     elif isinstance(block, ThinkingBlock):
         out = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
         if block.signature is not None:
@@ -694,6 +704,11 @@ def load_block(data: dict[str, Any]) -> Block:
         if not isinstance(d, str) or not d:
             raise CodecError("encrypted_content requires non-empty string data")
         return EncryptedContentBlock(data=d)
+    if kind == BLOCK_TYPE_TOOL_REFERENCE:
+        tname = data.get("tool_name")
+        if not isinstance(tname, str) or not tname:
+            raise CodecError("tool_reference requires non-empty string tool_name")
+        return ToolReferenceBlock(tool_name=tname)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"))
     if kind == BLOCK_TYPE_IMAGE:
@@ -797,6 +812,11 @@ def load_request_block(data: dict[str, Any]) -> Block:
         if not isinstance(d, str) or not d:
             raise CodecError("encrypted_content requires non-empty string data")
         return EncryptedContentBlock(data=d, native=native)
+    if kind == BLOCK_TYPE_TOOL_REFERENCE:
+        tname = data.get("tool_name")
+        if not isinstance(tname, str) or not tname:
+            raise CodecError("tool_reference requires non-empty string tool_name")
+        return ToolReferenceBlock(tool_name=tname, native=native)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"), native=native)
     if kind == BLOCK_TYPE_IMAGE:

@@ -10,6 +10,7 @@ from typing import Any, Sequence
 from oxa.ir.constants import (
     BLOCK_TYPE_DOCUMENT,
     BLOCK_TYPE_REDACTED_THINKING,
+    BLOCK_TYPE_TOOL_REFERENCE,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     ROLE_USER,
@@ -435,6 +436,10 @@ def _collect_block_omissions(losses: list[Loss], blk: Any, path: str, target: st
         )
     ):
         # whole-block drop; annotations are part of it and are not reported a second time.
+        return
+    if blk_type == BLOCK_TYPE_TOOL_REFERENCE and target != "anthropic":
+        # N-AN-21: whole-block drop; annotations are part of it and are not
+        # reported a second time.
         return
     for i, ann in enumerate(getattr(blk, "native", ())):
         _append_omission_loss(losses, ann, f"{path}.native[{i}]", False, None, target)

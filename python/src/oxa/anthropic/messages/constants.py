@@ -13,6 +13,7 @@ BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"
 BLOCK_TYPE_TOOL_RESULT: Final = "tool_result"
+BLOCK_TYPE_TOOL_REFERENCE: Final = "tool_reference"
 
 SOURCE_TYPE_BASE64: Final = "base64"
 SOURCE_TYPE_URL: Final = "url"

@@ -21,6 +21,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_APPLY_PATCH_TOOL_RESULT,
     BLOCK_TYPE_WEB_SEARCH_CALL,
     BLOCK_TYPE_REFUSAL,
+    BLOCK_TYPE_TOOL_REFERENCE,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
     DELTA_TYPE_INPUT_JSON_DELTA,
     DELTA_TYPE_SIGNATURE_DELTA,
@@ -296,11 +297,25 @@ class RefusalBlock:
             object.__setattr__(self, "native", _normalize_native(self.native))
 
 
+@dataclass(frozen=True, slots=True)
+class ToolReferenceBlock:
+    """Tool reference block discovered dynamically via tool search (spec/01 §3.4, since 2.5.3)."""
+
+    tool_name: str
+    native: tuple[NativeAnnotation, ...] = ()
+    type: str = field(default=BLOCK_TYPE_TOOL_REFERENCE, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
+
+
 Block = (
     TextBlock
     | ThinkingBlock
     | RedactedThinkingBlock
     | EncryptedContentBlock
+    | ToolReferenceBlock
     | ImageBlock
     | DocumentBlock
     | ToolUseBlock

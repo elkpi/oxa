@@ -984,6 +984,31 @@ pub(crate) fn decode_block(
                 });
             }
         }
+        "tool_reference" => {
+            // N-AN-21: a present tool_name key must carry a non-empty string
+            // (null/empty is a structural error even when name is present);
+            // name is an alias only when tool_name is absent.
+            let tool_name = match wire.tool_name.as_deref() {
+                Some(tn) if !tn.is_empty() => tn.to_string(),
+                Some(_) => {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.tool_name is required"
+                    )));
+                }
+                None => match wire.name.as_str() {
+                    "" => {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.tool_name is required"
+                        )));
+                    }
+                    n => n.to_string(),
+                },
+            };
+            block = Some(Block::ToolReference {
+                tool_name,
+                native: Vec::new(),
+            });
+        }
         other => {
             losses.push(loss(
                 path,
@@ -1023,6 +1048,7 @@ pub(crate) fn decode_block(
                     | Block::EncryptedContent { native, .. }
                     | Block::Image { native, .. }
                     | Block::Document { native, .. }
+                    | Block::ToolReference { native, .. }
                     | Block::ToolUse { native, .. }
                     | Block::CustomToolUse { native, .. }
                     | Block::ApplyPatchToolUse { native, .. }

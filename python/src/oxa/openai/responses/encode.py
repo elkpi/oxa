@@ -35,6 +35,7 @@ from oxa.ir import (
     ToolUseBlock,
     WebSearchCallBlock,
     RefusalBlock,
+    ToolReferenceBlock,
 )
 from oxa.ir.native import omitted_native_request_losses
 from oxa.ir.codec import validate_citation
@@ -483,6 +484,15 @@ def encode_response(
                     "type",
                     LOSS_UNSUPPORTED_SEMANTIC,
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+                )
+            )
+        elif isinstance(block, ToolReferenceBlock):
+            losses.append(
+                loss(
+                    f"content[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "this IR block cannot be rendered in a Responses item",
                 )
             )
         elif isinstance(block, EncryptedContentBlock):

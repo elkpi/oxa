@@ -5,6 +5,12 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 2.5.3 - 2026-11-05
+
+- Add `ToolReferenceBlock` (`tool_reference`) for Anthropic Messages tool search (N-AN-21). Represents a reference to a declared tool inside `tool_result.content` (and request history). Round-trips 1:1 on Anthropic with native `cache_control` preservation. Omitted on Chat Completions and Responses with one `unsupported-semantic` loss; annotations attached to the dropped block are part of the whole-block loss and are not reported a second time. Exhaustive block matches must handle the new variant. IR contract remains `0.2.0`.
+- Pin the `tool_reference` name-resolution and audit rules (N-AN-21): a present `tool_name` key must carry a non-empty string (empty or null is a structural error even when `name` is present); `name` is tolerated as an alias only when `tool_name` is absent; unrecognized properties produce one `unmapped-field` loss each; encoders reject an empty `ToolName` as a structural error.
+- `ToolReferenceBlock` is a valid request-side `cache_control` host (spec/15 §2), including when nested in `tool_result.content`; `prompt_cache_breakpoint` remains restricted to text/image/document hosts.
+
 ## 2.5.2 - 2026-11-05
 
 - Document the Responses signature losses that implementations already report (N-R-13, spec/20 §11.2). A non-empty `ThinkingBlock.signature` encoded to Responses is `unmapped-field`. Request detail is `Responses request reasoning items carry no provider signature`. Response detail is `Responses reasoning items carry no provider signature`. A streaming `SignatureDelta` uses `Responses carries no signature delta in streaming reasoning`. The signature is not stored in `encrypted_content`.

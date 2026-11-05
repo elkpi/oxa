@@ -821,6 +821,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     });
                 }
             }
+            Block::ToolReference { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "this IR block cannot be rendered in Chat Completions",
+            )),
             _ => losses.push(loss(
                 format!("{path}[{index}]"),
                 "content",
@@ -944,6 +950,12 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                 "content",
                 LossReason::UnsupportedSemantic,
                 "IR tool_result block cannot be rendered in a Chat Completions assistant message",
+            )),
+            Block::ToolReference { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "this IR block cannot be rendered in Chat Completions",
             )),
             Block::WebSearchCall { .. } => losses.push(loss(
                 format!("{path}[{index}]"), "type", LossReason::UnsupportedSemantic,

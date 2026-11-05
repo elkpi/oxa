@@ -1874,6 +1874,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
                     normal.push_back(&b);
+                } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "this IR block cannot be rendered in a Responses item"));
+                    normal.push_back(&b);
                 } else {
                     if (const auto* utb = std::get_if<ir::TextBlock>(&b);
                         utb && utb->citations.has_value() && !utb->citations->empty()) {
@@ -1943,8 +1949,17 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     item.set("type", json::Value::string("function_call_output"));
                     item.set("call_id", json::Value::string(tr->tool_use_id));
                     std::string text;
-                    for (const auto& inner : tr->content)
-                        if (const auto* part = std::get_if<ir::TextBlock>(&inner.block)) text += part->text;
+                    for (std::size_t ci = 0; ci < tr->content.size(); ++ci) {
+                        const auto& inner = tr->content[ci];
+                        if (const auto* part = std::get_if<ir::TextBlock>(&inner.block)) {
+                            text += part->text;
+                        } else {
+                            losses.push_back(make_resp_loss(
+                                "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].content[" + std::to_string(ci) + "]",
+                                "content", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                                "this IR block cannot be rendered in a Responses function_call_output item"));
+                        }
+                    }
                     item.set("output", json::Value::string(std::move(text)));
                     if (tr->is_error) losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(ri) + "].is_error",
@@ -2151,6 +2166,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                     call.set("input", json::Value::string(custom->input));
                     fc_items.push_back(std::move(call));
+                } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "this IR block cannot be rendered in a Responses item"));
                 } else if (std::holds_alternative<ir::DocumentBlock>(b) || std::holds_alternative<ir::ImageBlock>(b) || std::holds_alternative<ir::ToolResultBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -2651,6 +2671,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 result.set("output", json::Value::string(*apr->output));
             }
             calls.push_back(std::move(result));
+        } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+            losses.push_back(make_resp_loss(
+                "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "this IR block cannot be rendered in a Responses item"));
         } else {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "content", ir::LOSS_UNSUPPORTED_SEMANTIC,

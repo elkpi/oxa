@@ -99,6 +99,7 @@
         { "$ref": "#/$defs/requestThinkingBlock" },
         { "$ref": "#/$defs/requestRedactedThinkingBlock" },
         { "$ref": "#/$defs/requestEncryptedContentBlock" },
+        { "$ref": "#/$defs/requestToolReferenceBlock" },
         { "$ref": "#/$defs/requestCustomToolUseBlock" },
         { "$ref": "#/$defs/requestCustomToolResultBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
@@ -247,6 +248,20 @@
       "required": ["type", "data"],
       "additionalProperties": false
     },
+    "requestToolReferenceBlock": {
+      "type": "object",
+      "description": "Tool reference block in request history (spec/01 s3.4, since 2.5.3).",
+      "properties": {
+        "type": { "const": "tool_reference" },
+        "tool_name": { "type": "string", "minLength": 1 },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
+        }
+      },
+      "required": ["type", "tool_name"],
+      "additionalProperties": false
+    },
     "requestRedactedThinkingBlock": {
       "type": "object",
       "description": "Anthropic encrypted thinking replay content block in request history (spec/01 s3.4, since 2.4.11).",
@@ -343,6 +358,7 @@
         { "$ref": "#/$defs/thinkingBlock" },
         { "$ref": "#/$defs/redactedThinkingBlock" },
         { "$ref": "#/$defs/encryptedContentBlock" },
+        { "$ref": "#/$defs/toolReferenceBlock" },
         { "$ref": "#/$defs/customToolUseBlock" },
         { "$ref": "#/$defs/customToolResultBlock" },
         { "$ref": "#/$defs/applyPatchToolUseBlock" },
@@ -538,6 +554,16 @@
         "data": { "type": "string", "minLength": 1 }
       },
       "required": ["type", "data"],
+      "additionalProperties": false
+    },
+    "toolReferenceBlock": {
+      "type": "object",
+      "description": "Tool reference content block (spec/01 s3.4, since 2.5.3).",
+      "properties": {
+        "type": { "const": "tool_reference" },
+        "tool_name": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "tool_name"],
       "additionalProperties": false
     },
     "redactedThinkingBlock": {

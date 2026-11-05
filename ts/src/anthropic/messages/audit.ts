@@ -168,6 +168,15 @@ const BLOCK: WireAuditSpec = {
             cache_control: undefined,
           },
         };
+      case "tool_reference":
+        return {
+          fields: {
+            type: undefined,
+            tool_name: undefined,
+            name: undefined,
+            cache_control: undefined,
+          },
+        };
       default:
         return undefined;
     }
@@ -282,6 +291,14 @@ const RESPONSE_BLOCK: WireAuditSpec = {
             tool_use_id: undefined,
             content: { items: RESPONSE_BLOCK },
             is_error: undefined,
+          },
+        };
+      case "tool_reference":
+        return {
+          fields: {
+            type: undefined,
+            tool_name: undefined,
+            name: undefined,
           },
         };
       default:

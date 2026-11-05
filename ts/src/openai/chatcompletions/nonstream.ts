@@ -1293,6 +1293,8 @@ function encodeUserContent(
         reason: "unsupported-semantic",
         detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
       });
+    } else if (block.type === "tool_reference") {
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     } else if (block.type === "redacted_thinking") {
       losses.push({
         path: `${path}[${index}]`,
@@ -1454,6 +1456,8 @@ function encodeAssistant(
         reason: "unsupported-semantic",
         detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
       });
+    } else if (block.type === "tool_reference") {
+      losses.push(loss(`${path}[${index}]`, "type", "unsupported-semantic"));
     } else if (block.type === "redacted_thinking") {
       losses.push({
         path: `${path}[${index}]`,

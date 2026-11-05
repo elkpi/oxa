@@ -62,6 +62,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 | `DocumentBlock`（仅限 Request） | `document_context` | `messages[i].content[j].context`（2.4.8） |
 | `DocumentBlock`（仅限 Request） | `document_citations` | `messages[i].content[j].citations`（2.4.8） |
 | `RedactedThinkingBlock`（仅限 Request） | `cache_control` | `messages[i].content[j].cache_control`（2.4.11） |
+| `ToolReferenceBlock`（仅限 Request，含 tool_result 嵌套） | `cache_control` | `messages[i].content[j].cache_control` / `messages[i].content[j].content[k].cache_control`（2.5.3） |
 
 任何已知 kind 出现在上述合法宿主之外（例如在 `Message` 或 `Params` 上，或在 `ToolChoice` 上），均属于结构错误。
 

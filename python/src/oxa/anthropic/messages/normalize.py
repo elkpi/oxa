@@ -14,6 +14,7 @@ from oxa.anthropic.messages.constants import (
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_REDACTED_THINKING,
     BLOCK_TYPE_TOOL_RESULT,
+    BLOCK_TYPE_TOOL_REFERENCE,
     BLOCK_TYPE_TOOL_USE,
     SOURCE_TYPE_BASE64,
     SOURCE_TYPE_FILE,
@@ -47,6 +48,7 @@ from oxa.ir import (
     ThinkingBlock,
     RedactedThinkingBlock,
     ToolChoice,
+    ToolReferenceBlock,
     ToolResultBlock,
     ToolUseBlock,
 )
@@ -581,6 +583,20 @@ def decode_block(
                 losses.extend(c_losses)
             is_error = bool(wire.get("is_error", False))
             block = ToolResultBlock(tool_use_id=tool_use_id, content=content_blocks, is_error=is_error)
+
+    elif kind == BLOCK_TYPE_TOOL_REFERENCE:
+        # N-AN-21: a present tool_name key must carry a non-empty string
+        # (null/empty is a structural error even when name is present);
+        # name is an alias only when tool_name is absent.
+        if "tool_name" in wire:
+            tool_name = wire["tool_name"]
+            if not isinstance(tool_name, str) or not tool_name:
+                raise ValueError(f"anthropic: {path}.tool_name is required")
+        else:
+            tool_name = wire.get("name")
+            if not isinstance(tool_name, str) or not tool_name:
+                raise ValueError(f"anthropic: {path}.tool_name is required")
+        block = ToolReferenceBlock(tool_name=tool_name)
 
     else:
         losses.append(

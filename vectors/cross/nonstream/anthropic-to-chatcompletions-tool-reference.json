@@ -1,0 +1,108 @@
+{
+  "name": "cross.nonstream.anthropic-to-chatcompletions-tool-reference",
+  "description": "Cross-protocol: Anthropic request with tool_reference inside tool_result converts to Chat Completions dropping tool_reference with unsupported-semantic loss (N-AN-21).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "anthropic" },
+  "target": { "protocol": "chatcompletions" },
+  "input": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Get weather",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather?"
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "tool_use",
+            "id": "call_1",
+            "name": "tool_search",
+            "input": { "query": "weather" }
+          }
+        ]
+      },
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "tool_result",
+            "tool_use_id": "call_1",
+            "content": [
+              {
+                "type": "tool_reference",
+                "tool_name": "get_weather"
+              },
+              {
+                "type": "text",
+                "text": "Found 1 matching tool"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-opus-5-5",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "type": "function",
+        "function": {
+          "name": "get_weather",
+          "description": "Get weather",
+          "parameters": {
+            "type": "object"
+          }
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "What is the weather?"
+      },
+      {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+          {
+            "id": "call_1",
+            "type": "function",
+            "function": {
+              "name": "tool_search",
+              "arguments": "{\"query\":\"weather\"}"
+            }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "content": "Found 1 matching tool",
+        "tool_call_id": "call_1"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[2].content[0].content[0]",
+      "field": "content",
+      "reason": "unsupported-semantic",
+      "detail": "this IR block cannot be rendered in a Chat Completions tool result"
+    }
+  ],
+  "tags": ["cross", "tools", "tool_reference", "request", "n-an-21"]
+}

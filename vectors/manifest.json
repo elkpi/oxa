@@ -1287,6 +1287,28 @@
       "sha256": "c6adce1a52c21ddf95266d9d513a54d2fc8f32bad2bc9acdefe2ad47e9dd452a"
     },
     {
+      "name": "anthropic.nonstream.tool-reference-from-ir",
+      "file": "anthropic/nonstream/tool-reference-from-ir.json",
+      "tags": [
+        "tool_reference",
+        "request",
+        "tool-result",
+        "n-an-21"
+      ],
+      "sha256": "235a8615335695d7387d484d12eb17b1f69082447546eab9c9942f83a0965dd6"
+    },
+    {
+      "name": "anthropic.nonstream.tool-reference-to-ir",
+      "file": "anthropic/nonstream/tool-reference-to-ir.json",
+      "tags": [
+        "tool_reference",
+        "request",
+        "tool-result",
+        "n-an-21"
+      ],
+      "sha256": "d1717ee324201ad71b97a784f7608b275c3b6312de9f5faa74711689d1b87caa"
+    },
+    {
       "name": "anthropic.nonstream.tools-definition-from-ir",
       "file": "anthropic/nonstream/tools-definition-from-ir.json",
       "tags": [
@@ -2644,6 +2666,18 @@
       "sha256": "bd05817b46f9fa0feb8bbbe17f3c9acd1e6db1226208467a17cda9ee47550e69"
     },
     {
+      "name": "cross.nonstream.anthropic-to-chatcompletions-tool-reference",
+      "file": "cross/nonstream/anthropic-to-chatcompletions-tool-reference.json",
+      "tags": [
+        "cross",
+        "tools",
+        "tool_reference",
+        "request",
+        "n-an-21"
+      ],
+      "sha256": "40415db149f4b602fff0f8f5caa82539df0da7d0f725178486fc65767e108fbf"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-chatcompletions-unnamed-schema-request",
       "file": "cross/nonstream/anthropic-to-chatcompletions-unnamed-schema-request.json",
       "tags": [
@@ -2825,6 +2859,18 @@
         "N-R-15"
       ],
       "sha256": "ddabbd210c310ed61a7fbb2fe2ac770affccaf6536401fb371f3f0f5b1e70ad3"
+    },
+    {
+      "name": "cross.nonstream.anthropic-to-responses-tool-reference",
+      "file": "cross/nonstream/anthropic-to-responses-tool-reference.json",
+      "tags": [
+        "cross",
+        "tools",
+        "tool_reference",
+        "request",
+        "n-an-21"
+      ],
+      "sha256": "cfd6b91652c4a8868b8c6fa9a40b8736ad34c82c495a69841a9d82987e11aac7"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-unnamed-schema-request",

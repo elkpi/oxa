@@ -503,6 +503,12 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 		return res, losses, true, nil
 	case ir.ToolResultBlock:
 		return encodeToolResultBlock(b, path)
+	case ir.ToolReferenceBlock:
+		bw := BlockWire{Type: BlockTypeToolReference, ToolName: b.ToolName}
+		if cc := getBlockCacheControl(b); len(cc) > 0 {
+			bw.CacheControl = cc
+		}
+		return bw, nil, true, nil
 	default:
 		return BlockWire{}, []ir.Loss{unsupportedBlockLoss(path, block)}, false, nil
 	}
@@ -649,6 +655,12 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 				content = append(content, doc)
 			}
 			losses = append(losses, docLosses...)
+		case ir.ToolReferenceBlock:
+			bw := BlockWire{Type: BlockTypeToolReference, ToolName: b.ToolName}
+			if cc := getBlockCacheControl(b); len(cc) > 0 {
+				bw.CacheControl = cc
+			}
+			content = append(content, bw)
 		default:
 			losses = append(losses, unsupportedBlockLoss(contentPath, block))
 		}

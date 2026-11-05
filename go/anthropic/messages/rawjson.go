@@ -488,6 +488,8 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 						"source": documentSourceSchema(seen),
 					},
 					seen)
+			case BlockTypeToolReference:
+				return rawObjectSchema(t, []string{"type", "tool_name", "name", "cache_control"}, nil, seen)
 			default:
 				return nil
 			}
@@ -707,6 +709,8 @@ func schemaForResponseBlock(seen map[reflect.Type]*rawJSONSchema) *rawJSONSchema
 					"source": schemaForRawTypeSeen(reflect.TypeOf(SourceWire{}), seen),
 				},
 				seen)
+		case BlockTypeToolReference:
+			return rawObjectSchema(t, []string{"type", "tool_name", "name"}, nil, seen)
 		default:
 			return nil
 		}

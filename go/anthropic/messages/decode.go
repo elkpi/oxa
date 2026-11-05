@@ -564,6 +564,15 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 			block = ir.ToolResultBlock{ToolUseID: w.ToolUseID, Content: content, IsError: w.IsError}
 			losses = append(losses, contentLosses...)
 		}
+	case BlockTypeToolReference:
+		toolName := w.ToolName
+		if toolName == "" {
+			toolName = w.Name
+		}
+		if toolName == "" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s.tool_name is required", path)
+		}
+		block = ir.ToolReferenceBlock{ToolName: toolName}
 	default:
 		return nil, []ir.Loss{{
 			Path:   path,

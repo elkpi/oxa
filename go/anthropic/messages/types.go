@@ -25,6 +25,7 @@ const (
 	BlockTypeThinking         = "thinking"
 	BlockTypeRedactedThinking = "redacted_thinking"
 	BlockTypeDocument         = "document"
+	BlockTypeToolReference    = "tool_reference"
 
 	SourceTypeBase64 = "base64"
 	SourceTypeURL    = "url"
@@ -330,6 +331,8 @@ type BlockWire struct {
 	ToolUseID string `json:"tool_use_id,omitempty"`
 	Content   any    `json:"content,omitempty"`
 	IsError   bool   `json:"is_error,omitempty"`
+	// tool_reference
+	ToolName string `json:"tool_name,omitempty"`
 	// image
 	Source *SourceWire `json:"source,omitempty"`
 	// document

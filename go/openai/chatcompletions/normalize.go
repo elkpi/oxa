@@ -606,6 +606,11 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				ir.EncryptedContentLossDetail,
 			))
+		case ir.ToolReferenceBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"this IR block cannot be rendered in Chat Completions",
+			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
@@ -745,6 +750,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				ir.EncryptedContentLossDetail,
+			))
+		case ir.ToolReferenceBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				"this IR block cannot be rendered in Chat Completions",
 			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(

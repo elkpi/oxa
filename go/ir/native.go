@@ -574,6 +574,9 @@ func validateBlockAnnotations(b Block, path string) error {
 	case EncryptedContentBlock:
 		nat = blk.Native
 		allowBreakpoint = false
+	case ToolReferenceBlock:
+		nat = blk.Native
+		allowBreakpoint = true
 	case CustomToolUseBlock:
 		nat = blk.Native
 		allowBreakpoint = false
@@ -687,6 +690,8 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 	case RedactedThinkingBlock:
 		nat = blk.Native
 	case EncryptedContentBlock:
+		nat = blk.Native
+	case ToolReferenceBlock:
 		nat = blk.Native
 	case CustomToolUseBlock:
 		nat = blk.Native

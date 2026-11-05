@@ -64,7 +64,7 @@ A conversation to be sent to a model, face-neutral.
 
 | Go field | JSON property | Type | Required | Notes |
 |----------|---------------|------|----------|-------|
-| — | `specVersion` | enum `"0.1.0"` \| `"0.2.0"` | yes | document-layer field (§6); not part of in-memory types |
+| — | `specVersion` | enum `"0.1.0"` \| `"0.2.0"` \| `"0.3.0"` | yes | document-layer field (§6); not part of in-memory types |
 | `Model` | `model` | string | yes | non-empty; opaque, passed through verbatim (document [03](03-model-handling.md)) |
 | `System` | `system` | `[]SystemBlock` | no | absent means no system prompt |
 | `Messages` | `messages` | `[]Message` | yes, ≥ 1 | INV-2 through INV-4 |
@@ -72,6 +72,7 @@ A conversation to be sent to a model, face-neutral.
 | `ToolChoice` | `tool_choice` | `ToolChoice` | no | absent defers to the target's default |
 | `Params` | `params` | `Params` | no | absent means all fields unset |
 | `Metadata` | `metadata` | `map[string]string` | no | string-to-string map. Since 2.5.0 the three faces map it: OpenAI round-trips every key; Anthropic round-trips only `user_id` |
+| `ToolChangeGroups` | `tool_change_groups` | `[]ToolChangeGroup` | no | ordered mid-conversation tool availability changes (since 0.3.0) |
 
 ### 3.2 SystemBlock
 
@@ -110,8 +111,9 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
 | `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
 | `WebSearchCallBlock` | `web_search_call` | Responses 已完成或进行中的 web search 历史项（2.4.13，spec/11 N-R-16） |
+| `CompactionBlock` | `compaction` | Anthropic compaction summary block with tool changes and replay metadata (since 0.3.0, request-side only; mapping in spec/12 N-AN-22) |
 
-Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), `WebSearchCallBlock` (2.4.13), `EncryptedContentBlock` (2.5.2), and `ToolReferenceBlock` (2.5.3) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers. The IR contract version stays `0.2.0`.
+Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), `WebSearchCallBlock` (2.4.13), `EncryptedContentBlock` (2.5.2), `ToolReferenceBlock` (2.5.3), and `CompactionBlock` (3.0.0 / IR 0.3.0) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers. The IR contract version is `0.3.0`.
 
 #### TextBlock
 

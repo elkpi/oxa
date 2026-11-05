@@ -298,7 +298,25 @@ Each rule has a stable ID usable as a vector tag.
     When `DisableParallel` is absent, `parallel_tool_calls` is omitted.
     0 encode loss.
 
+
+- **N-CC-17 (positional tool availability, since 3.0.0).** Chat Completions has only request-level `tools`
+  and cannot represent mid-conversation tool additions, removals, or compaction blocks.
+  - **Encode.** `Request.Tools` is NOT mutated. For each part in `req.ToolChangeGroups`:
+    - Text part emits `unsupported-semantic` loss at `tool_change_groups[i].parts[j]`, field `type`:
+      `positional system text has no equivalent on the target face`.
+    - Tool change emits `unsupported-semantic` loss at `tool_change_groups[i].parts[j]`, field `op`:
+      `positional tool availability change cannot be represented on the target face`.
+    - An empty group emits `unsupported-semantic` loss at `tool_change_groups[i]`, field `tools`:
+      `empty positional tool group cannot be represented on the target face`.
+  - A `CompactionBlock` in `messages[i].content[j]` emits `unsupported-semantic` loss, field `type`:
+    `Anthropic compaction block cannot be represented on the target face`.
+
 ## 8. Loss Catalog
+
+| `tool_change_groups[i].parts[j]` (text part) | unsupported-semantic | IR → request | positional system text has no equivalent on the target face |
+| `tool_change_groups[i].parts[j]` (tool change) | unsupported-semantic | IR → request | positional tool availability change cannot be represented on the target face |
+| `tool_change_groups[i]` (empty group) | unsupported-semantic | IR → request | empty positional tool group cannot be represented on the target face |
+| `messages[i].content[j]` (compaction) | unsupported-semantic | IR → request | Anthropic compaction block cannot be represented on the target face |
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
 ENVELOPE fields are exempt; everything else MUST record a loss.

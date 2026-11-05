@@ -86,7 +86,7 @@ The wire objects in scope are:
 | `tools[type=namespace/toolbox]` | `Tools[]` | flattened with `<name>.` prefix; container preserved in native annotation (N-R-15) |
 | `tools[type=web_search/...]` | `Tools[]` (`type: "native"`) | source="openai", definition verbatim (N-R-15, spec/16) |
 | `tools[].defer_loading` | `Tools[].Native` (`kind: "defer_loading"`) | 1:1 round-trip loss-free (N-R-15, spec/15) |
-| `input[type=additional_tools]` | `Tools[]` | hoisted to request Tools (N-R-15) |
+| `input[type=additional_tools]` | `ToolChangeGroups[]` | positional tool addition at message/content boundary (N-R-15, since 3.0.0) |
 | `tool_choice` | `ToolChoice` (`required` ⇄ mode `any`; `{type:"function",name}` ⇄ mode `tool`) | N-R-9; namespace split/join (N-R-15) |
 | `temperature` | `Params.Temperature` | 1:1 |
 | `top_p` | `Params.TopP` | 1:1 |
@@ -344,16 +344,13 @@ Each rule has a stable ID usable as a vector tag.
        - Flattening MUST NOT produce duplicate tool names across callable tools in the request. Duplicate tool names are structural errors.
        - Each flattened child tool records a `NativeAnnotation{Source: "openai", Kind: "container", Value: "{\"path\":[...]}"}` capturing the full ordered container path from outermost to innermost container. Each entry in `path` is an object `{"type": "<container_type>", "name": "<container_name>", "description": "<description>"}` with `description` present iff non-empty.
        - A child tool with `defer_loading: true` retains `NativeAnnotation{Source: "openai", Kind: "defer_loading", Value: "true"}` (per spec/15). Non-boolean `defer_loading` values are structural errors.
-     - When `input[]` contains an item with `type: "additional_tools"`:
+     - When `input[]` contains an item with `type: "additional_tools"` (since 3.0.0):
        - `tools` MUST be an array. Missing or non-array `tools` is a structural error.
-       - Empty `tools: []` contributes no tools and no IR content. Decode the item as a
-         no-op and record exactly one `unmapped-field` loss at `input[i].tools`
-         (`empty additional_tools inventory ignored`). This rule applies only to the
-         top-level `additional_tools` item; named `namespace` and `toolbox` containers
-         continue to require non-empty `tools`. The item is transparent to assistant
-         and tool-result run grouping, including the adjacency used to pair
-         `apply_patch_call` items with their results.
-       - The child tools are recursively flattened and hoisted to `req.Tools` at request level.
+       - `role` MUST be `"developer"`. Missing or other role is a structural error.
+       - Empty `tools: []` decodes to a `ToolChangeGroup` with empty `parts` at the item's boundary; zero losses are recorded, and `id` and unknown fields (`extra`) are preserved.
+       - The item is transparent to assistant and tool-result run grouping. Non-empty items do not split assistant runs; the group's `content_index` points between adjacent tool calls.
+       - Child declarations are recursively flattened into `ToolChange` additions (`op: "add"`), preserving container annotations, and placed in `req.ToolChangeGroups` at `message_index` and `content_index`. They are NOT hoisted to `req.Tools`.
+       - On encode (IR → RE): `req.ToolChangeGroups` render at their message/content boundaries as `additional_tools` input items with `role: "developer"` and original `id`. Removals, references, and textual parts in the group record `unsupported-semantic` losses and are omitted.
 
   2. Calling and choice mapping:
      - An `input` or `output` item with `type: "function_call"` or `type: "custom_tool_call"`, as well as streaming function call items, may carry an optional `namespace` string.
@@ -451,6 +448,10 @@ Each rule has a stable ID usable as a vector tag.
     0 encode loss.
 
 ## 8. Loss Catalog
+
+| `tool_change_groups[i].parts[j]` (text part) | unsupported-semantic | IR → request | positional system text has no equivalent on the target face |
+| `tool_change_groups[i].parts[j]` (removal or ref) | unsupported-semantic | IR → request | positional tool availability change cannot be represented on the target face |
+| `messages[i].content[j]` (compaction) | unsupported-semantic | IR → request | Anthropic compaction block cannot be represented on the target face |
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
 ENVELOPE fields are exempt; everything else MUST record a loss.

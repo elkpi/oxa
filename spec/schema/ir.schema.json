@@ -4,9 +4,15 @@
   "title": "oxa IR document",
   "description": "Validates one IR document: a request, a response, or an event stream, as defined by spec/01-intermediate-representation.md. Only per-document structure is checked here; sequence rules (INV-2..INV-6, INV-8) are enforced by converters and vector checking, not by JSON Schema (INV-9).",
   "oneOf": [
-    { "$ref": "#/$defs/request" },
-    { "$ref": "#/$defs/response" },
-    { "$ref": "#/$defs/eventStream" }
+    {
+      "$ref": "#/$defs/request"
+    },
+    {
+      "$ref": "#/$defs/response"
+    },
+    {
+      "$ref": "#/$defs/eventStream"
+    }
   ],
   "$defs": {
     "request": {
@@ -14,7 +20,11 @@
       "description": "IR request document (spec/01 s3.1).",
       "properties": {
         "specVersion": {
-          "enum": ["0.1.0", "0.2.0"],
+          "enum": [
+            "0.1.0",
+            "0.2.0",
+            "0.3.0"
+          ],
           "description": "Spec version this document conforms to (document-layer field)."
         },
         "model": {
@@ -24,18 +34,24 @@
         },
         "system": {
           "type": "array",
-          "items": { "$ref": "#/$defs/systemBlock" },
+          "items": {
+            "$ref": "#/$defs/systemBlock"
+          },
           "description": "System prompt blocks; absent means no system prompt."
         },
         "messages": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/message" },
+          "items": {
+            "$ref": "#/$defs/message"
+          },
           "description": "Conversation turns; INV-2..INV-4 apply."
         },
         "tools": {
           "type": "array",
-          "items": { "$ref": "#/$defs/tool" },
+          "items": {
+            "$ref": "#/$defs/tool"
+          },
           "description": "Tool definitions."
         },
         "tool_choice": {
@@ -46,166 +62,366 @@
         },
         "metadata": {
           "type": "object",
-          "propertyNames": { "minLength": 1 },
-          "additionalProperties": { "type": "string" },
+          "propertyNames": {
+            "minLength": 1
+          },
+          "additionalProperties": {
+            "type": "string"
+          },
           "description": "String-to-string map."
         },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" },
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          },
           "description": "Provider-specific request annotations (spec/15)."
+        },
+        "tool_change_groups": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolChangeGroup"
+          },
+          "description": "Ordered positional tool availability change groups (spec/01 s3.8, since 0.3.0)."
         }
       },
-      "required": ["specVersion", "model", "messages"],
+      "required": [
+        "specVersion",
+        "model",
+        "messages"
+      ],
       "additionalProperties": false
     },
     "systemBlock": {
       "type": "object",
       "description": "System prompt block with optional native request annotations (spec/01, spec/15).",
       "properties": {
-        "type": { "const": "text" },
-        "text": { "type": "string" },
-        "role": { "const": "developer", "description": "Developer instruction tier (spec/01, since 2.5.0). Absent means system tier." },
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        },
+        "role": {
+          "const": "developer",
+          "description": "Developer instruction tier (spec/01, since 2.5.0). Absent means system tier."
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "message": {
       "type": "object",
       "description": "IR message (spec/01 s3.3).",
       "properties": {
-        "role": { "enum": ["user", "assistant"] },
+        "role": {
+          "enum": [
+            "user",
+            "assistant"
+          ]
+        },
         "content": {
           "type": "array",
           "minItems": 1,
-          "items": { "$ref": "#/$defs/requestBlock" }
+          "items": {
+            "$ref": "#/$defs/requestBlock"
+          }
         }
       },
-      "required": ["role", "content"],
+      "required": [
+        "role",
+        "content"
+      ],
       "additionalProperties": false
     },
     "requestBlock": {
       "description": "Sealed union of request content block types, permitted to carry native request annotations (spec/01, spec/15).",
       "oneOf": [
-        { "$ref": "#/$defs/requestTextBlock" },
-        { "$ref": "#/$defs/requestImageBlock" },
-        { "$ref": "#/$defs/requestDocumentBlock" },
-        { "$ref": "#/$defs/requestToolUseBlock" },
-        { "$ref": "#/$defs/requestToolResultBlock" },
-        { "$ref": "#/$defs/requestThinkingBlock" },
-        { "$ref": "#/$defs/requestRedactedThinkingBlock" },
-        { "$ref": "#/$defs/requestEncryptedContentBlock" },
-        { "$ref": "#/$defs/requestToolReferenceBlock" },
-        { "$ref": "#/$defs/requestCustomToolUseBlock" },
-        { "$ref": "#/$defs/requestCustomToolResultBlock" },
-        { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
-        { "$ref": "#/$defs/requestApplyPatchToolResultBlock" },
-        { "$ref": "#/$defs/webSearchCallBlock" },
-        { "$ref": "#/$defs/requestRefusalBlock" }
+        {
+          "$ref": "#/$defs/requestTextBlock"
+        },
+        {
+          "$ref": "#/$defs/requestImageBlock"
+        },
+        {
+          "$ref": "#/$defs/requestDocumentBlock"
+        },
+        {
+          "$ref": "#/$defs/requestToolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/requestToolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/requestThinkingBlock"
+        },
+        {
+          "$ref": "#/$defs/requestRedactedThinkingBlock"
+        },
+        {
+          "$ref": "#/$defs/requestEncryptedContentBlock"
+        },
+        {
+          "$ref": "#/$defs/requestToolReferenceBlock"
+        },
+        {
+          "$ref": "#/$defs/requestCustomToolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/requestCustomToolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/requestApplyPatchToolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/requestApplyPatchToolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/webSearchCallBlock"
+        },
+        {
+          "$ref": "#/$defs/requestRefusalBlock"
+        },
+        {
+          "$ref": "#/$defs/requestCompactionBlock"
+        }
       ]
     },
     "requestTextBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "text" },
-        "text": { "type": "string" },
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        },
         "citations": {
           "type": "array",
-          "items": { "$ref": "#/$defs/textCitation" }
+          "items": {
+            "$ref": "#/$defs/textCitation"
+          }
         },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "requestImageBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "image" },
-        "media_type": { "type": "string" },
-        "data": { "type": "string" },
-        "url": { "type": "string" },
+        "type": {
+          "const": "image"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "oneOf": [
         {
-          "required": ["data", "media_type"],
-          "not": { "required": ["url"] }
+          "required": [
+            "data",
+            "media_type"
+          ],
+          "not": {
+            "required": [
+              "url"
+            ]
+          }
         },
         {
-          "required": ["url"],
-          "not": { "required": ["data"] }
+          "required": [
+            "url"
+          ],
+          "not": {
+            "required": [
+              "data"
+            ]
+          }
         }
       ]
     },
     "requestDocumentBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "document" },
-        "media_type": { "type": "string" },
-        "data": { "type": "string" },
-        "url": { "type": "string" },
-        "file_id": { "type": "string" },
+        "type": {
+          "const": "document"
+        },
+        "media_type": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string"
+        },
+        "url": {
+          "type": "string"
+        },
+        "file_id": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "oneOf": [
         {
-          "required": ["data", "media_type"],
-          "not": { "anyOf": [{ "required": ["url"] }, { "required": ["file_id"] }] }
+          "required": [
+            "data",
+            "media_type"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "required": [
+                  "file_id"
+                ]
+              }
+            ]
+          }
         },
         {
-          "required": ["url"],
-          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["file_id"] }, { "required": ["media_type"] }] }
+          "required": [
+            "url"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "data"
+                ]
+              },
+              {
+                "required": [
+                  "file_id"
+                ]
+              },
+              {
+                "required": [
+                  "media_type"
+                ]
+              }
+            ]
+          }
         },
         {
-          "required": ["file_id"],
-          "not": { "anyOf": [{ "required": ["data"] }, { "required": ["url"] }, { "required": ["media_type"] }] }
+          "required": [
+            "file_id"
+          ],
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "data"
+                ]
+              },
+              {
+                "required": [
+                  "url"
+                ]
+              },
+              {
+                "required": [
+                  "media_type"
+                ]
+              }
+            ]
+          }
         }
       ]
     },
     "requestToolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
         "input": {
           "type": "string",
           "description": "Raw JSON text (INV-1); never parsed or re-serialized by converters; may be malformed in degraded cases (spec/02)."
         },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "id", "name", "input"],
+      "required": [
+        "type",
+        "id",
+        "name",
+        "input"
+      ],
       "additionalProperties": false
     },
     "requestToolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "content": {
           "type": "array",
-          "items": { "$ref": "#/$defs/requestBlock" },
+          "items": {
+            "$ref": "#/$defs/requestBlock"
+          },
           "description": "May be empty."
         },
         "is_error": {
@@ -214,97 +430,171 @@
         },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "tool_use_id", "content"],
+      "required": [
+        "type",
+        "tool_use_id",
+        "content"
+      ],
       "additionalProperties": false
     },
     "requestThinkingBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "thinking" },
-        "thinking": { "type": "string" },
-        "signature": { "type": "string" },
+        "type": {
+          "const": "thinking"
+        },
+        "thinking": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "thinking"],
+      "required": [
+        "type",
+        "thinking"
+      ],
       "additionalProperties": false
     },
     "requestEncryptedContentBlock": {
       "type": "object",
       "description": "Responses reasoning replay ciphertext in request history (spec/01 s3.4, since 2.5.2).",
       "properties": {
-        "type": { "const": "encrypted_content" },
-        "data": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "encrypted_content"
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "additionalProperties": false
     },
     "requestToolReferenceBlock": {
       "type": "object",
       "description": "Tool reference block in request history (spec/01 s3.4, since 2.5.3).",
       "properties": {
-        "type": { "const": "tool_reference" },
-        "tool_name": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "tool_reference"
+        },
+        "tool_name": {
+          "type": "string",
+          "minLength": 1
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "tool_name"],
+      "required": [
+        "type",
+        "tool_name"
+      ],
       "additionalProperties": false
     },
     "requestRedactedThinkingBlock": {
       "type": "object",
       "description": "Anthropic encrypted thinking replay content block in request history (spec/01 s3.4, since 2.4.11).",
       "properties": {
-        "type": { "const": "redacted_thinking" },
-        "data": { "type": "string" },
+        "type": {
+          "const": "redacted_thinking"
+        },
+        "data": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "additionalProperties": false
     },
     "requestCustomToolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "custom_tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 },
-        "input": { "type": "string" },
+        "type": {
+          "const": "custom_tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "id", "name", "input"],
+      "required": [
+        "type",
+        "id",
+        "name",
+        "input"
+      ],
       "additionalProperties": false
     },
     "requestCustomToolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "custom_tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "custom_tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "output": {
           "oneOf": [
-            { "type": "string" },
+            {
+              "type": "string"
+            },
             {
               "type": "array",
               "items": {
                 "oneOf": [
-                  { "$ref": "#/$defs/requestTextBlock" },
-                  { "$ref": "#/$defs/requestImageBlock" }
+                  {
+                    "$ref": "#/$defs/requestTextBlock"
+                  },
+                  {
+                    "$ref": "#/$defs/requestImageBlock"
+                  }
                 ]
               }
             }
@@ -312,202 +602,563 @@
         },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "tool_use_id", "output"],
+      "required": [
+        "type",
+        "tool_use_id",
+        "output"
+      ],
       "additionalProperties": false
     },
     "requestApplyPatchToolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "apply_patch_tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["in_progress", "completed"] },
-        "operation": { "$ref": "#/$defs/applyPatchOperation" },
+        "type": {
+          "const": "apply_patch_tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "in_progress",
+            "completed"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/applyPatchOperation"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "id", "status", "operation"],
+      "required": [
+        "type",
+        "id",
+        "status",
+        "operation"
+      ],
       "additionalProperties": false
     },
     "requestApplyPatchToolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "apply_patch_tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["completed", "failed"] },
-        "output": { "type": "string" },
+        "type": {
+          "const": "apply_patch_tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "output": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "tool_use_id", "status"],
+      "required": [
+        "type",
+        "tool_use_id",
+        "status"
+      ],
       "additionalProperties": false
     },
     "block": {
       "description": "Sealed union of block types, discriminated on \"type\" (spec/01 s3.4).",
       "oneOf": [
-        { "$ref": "#/$defs/textBlock" },
-        { "$ref": "#/$defs/imageBlock" },
-        { "$ref": "#/$defs/toolUseBlock" },
-        { "$ref": "#/$defs/toolResultBlock" },
-        { "$ref": "#/$defs/thinkingBlock" },
-        { "$ref": "#/$defs/redactedThinkingBlock" },
-        { "$ref": "#/$defs/encryptedContentBlock" },
-        { "$ref": "#/$defs/toolReferenceBlock" },
-        { "$ref": "#/$defs/customToolUseBlock" },
-        { "$ref": "#/$defs/customToolResultBlock" },
-        { "$ref": "#/$defs/applyPatchToolUseBlock" },
-        { "$ref": "#/$defs/applyPatchToolResultBlock" },
-        { "$ref": "#/$defs/webSearchCallBlock" },
-        { "$ref": "#/$defs/refusalBlock" }
+        {
+          "$ref": "#/$defs/textBlock"
+        },
+        {
+          "$ref": "#/$defs/imageBlock"
+        },
+        {
+          "$ref": "#/$defs/toolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/toolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/thinkingBlock"
+        },
+        {
+          "$ref": "#/$defs/redactedThinkingBlock"
+        },
+        {
+          "$ref": "#/$defs/encryptedContentBlock"
+        },
+        {
+          "$ref": "#/$defs/toolReferenceBlock"
+        },
+        {
+          "$ref": "#/$defs/customToolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/customToolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/applyPatchToolUseBlock"
+        },
+        {
+          "$ref": "#/$defs/applyPatchToolResultBlock"
+        },
+        {
+          "$ref": "#/$defs/webSearchCallBlock"
+        },
+        {
+          "$ref": "#/$defs/refusalBlock"
+        },
+        {
+          "$ref": "#/$defs/compactionBlock"
+        }
       ]
     },
     "refusalBlock": {
       "type": "object",
       "description": "Assistant refusal content block (spec/01 s3.4, since 2.5.0).",
       "properties": {
-        "type": { "const": "refusal" },
-        "refusal": { "type": "string" },
-        "category": { "type": "string" }
+        "type": {
+          "const": "refusal"
+        },
+        "refusal": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        }
       },
-      "required": ["type", "refusal"],
+      "required": [
+        "type",
+        "refusal"
+      ],
       "additionalProperties": false
     },
     "requestRefusalBlock": {
       "type": "object",
       "description": "Assistant refusal block in request history (spec/01 s3.4, since 2.5.0).",
       "properties": {
-        "type": { "const": "refusal" },
-        "refusal": { "type": "string" },
-        "category": { "type": "string" },
+        "type": {
+          "const": "refusal"
+        },
+        "refusal": {
+          "type": "string"
+        },
+        "category": {
+          "type": "string"
+        },
         "native": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nativeAnnotation" }
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
         }
       },
-      "required": ["type", "refusal"],
+      "required": [
+        "type",
+        "refusal"
+      ],
       "additionalProperties": false
     },
     "webSearchCallBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "web_search_call" },
-        "id": { "type": "string", "minLength": 1 },
-        "status": { "type": "string", "minLength": 1 },
-        "action": { "$ref": "#/$defs/webSearchAction" },
-        "extra": { "type": "object", "not": { "anyOf": [ { "required": ["type"] }, { "required": ["id"] }, { "required": ["status"] }, { "required": ["action"] } ] } }
+        "type": {
+          "const": "web_search_call"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "type": "string",
+          "minLength": 1
+        },
+        "action": {
+          "$ref": "#/$defs/webSearchAction"
+        },
+        "extra": {
+          "type": "object",
+          "not": {
+            "anyOf": [
+              {
+                "required": [
+                  "type"
+                ]
+              },
+              {
+                "required": [
+                  "id"
+                ]
+              },
+              {
+                "required": [
+                  "status"
+                ]
+              },
+              {
+                "required": [
+                  "action"
+                ]
+              }
+            ]
+          }
+        }
       },
-      "required": ["type", "id", "status", "action"],
+      "required": [
+        "type",
+        "id",
+        "status",
+        "action"
+      ],
       "additionalProperties": false
     },
     "webSearchAction": {
       "type": "object",
-      "required": ["type"],
-      "properties": { "type": { "enum": ["search", "open_page", "find_in_page"] } },
+      "required": [
+        "type"
+      ],
+      "properties": {
+        "type": {
+          "enum": [
+            "search",
+            "open_page",
+            "find_in_page"
+          ]
+        }
+      },
       "allOf": [
-        { "if": { "properties": { "type": { "const": "search" } } }, "then": { "properties": { "query": { "type": "string" }, "queries": { "type": "array", "items": { "type": "string" } }, "sources": { "type": "array", "items": { "type": "object", "properties": { "type": { "const": "url" }, "url": { "type": "string" } }, "required": ["type", "url"] } } } } },
-        { "if": { "properties": { "type": { "const": "open_page" } } }, "then": { "properties": { "url": { "type": ["string", "null"] } } } },
-        { "if": { "properties": { "type": { "const": "find_in_page" } } }, "then": { "required": ["url", "pattern"], "properties": { "url": { "type": "string" }, "pattern": { "type": "string" } } } }
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "search"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "query": {
+                "type": "string"
+              },
+              "queries": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "sources": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "const": "url"
+                    },
+                    "url": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "type",
+                    "url"
+                  ]
+                }
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "open_page"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "url": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "find_in_page"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "url",
+              "pattern"
+            ],
+            "properties": {
+              "url": {
+                "type": "string"
+              },
+              "pattern": {
+                "type": "string"
+              }
+            }
+          }
+        }
       ]
     },
     "applyPatchOperation": {
       "oneOf": [
         {
           "type": "object",
-          "properties": { "type": { "const": "create_file" }, "path": { "type": "string" }, "diff": { "type": "string" } },
-          "required": ["type", "path", "diff"], "additionalProperties": false
+          "properties": {
+            "type": {
+              "const": "create_file"
+            },
+            "path": {
+              "type": "string"
+            },
+            "diff": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "path",
+            "diff"
+          ],
+          "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": { "type": { "const": "delete_file" }, "path": { "type": "string" } },
-          "required": ["type", "path"], "additionalProperties": false
+          "properties": {
+            "type": {
+              "const": "delete_file"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "path"
+          ],
+          "additionalProperties": false
         },
         {
           "type": "object",
-          "properties": { "type": { "const": "update_file" }, "path": { "type": "string" }, "diff": { "type": "string" } },
-          "required": ["type", "path", "diff"], "additionalProperties": false
+          "properties": {
+            "type": {
+              "const": "update_file"
+            },
+            "path": {
+              "type": "string"
+            },
+            "diff": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "path",
+            "diff"
+          ],
+          "additionalProperties": false
         }
       ]
     },
     "applyPatchToolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "apply_patch_tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["in_progress", "completed"] },
-        "operation": { "$ref": "#/$defs/applyPatchOperation" }
+        "type": {
+          "const": "apply_patch_tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "in_progress",
+            "completed"
+          ]
+        },
+        "operation": {
+          "$ref": "#/$defs/applyPatchOperation"
+        }
       },
-      "required": ["type", "id", "status", "operation"], "additionalProperties": false
+      "required": [
+        "type",
+        "id",
+        "status",
+        "operation"
+      ],
+      "additionalProperties": false
     },
     "applyPatchToolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "apply_patch_tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
-        "status": { "enum": ["completed", "failed"] },
-        "output": { "type": "string" }
+        "type": {
+          "const": "apply_patch_tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "completed",
+            "failed"
+          ]
+        },
+        "output": {
+          "type": "string"
+        }
       },
-      "required": ["type", "tool_use_id", "status"], "additionalProperties": false
+      "required": [
+        "type",
+        "tool_use_id",
+        "status"
+      ],
+      "additionalProperties": false
     },
     "customToolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "custom_tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 },
-        "input": { "type": "string" }
+        "type": {
+          "const": "custom_tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "input": {
+          "type": "string"
+        }
       },
-      "required": ["type", "id", "name", "input"],
+      "required": [
+        "type",
+        "id",
+        "name",
+        "input"
+      ],
       "additionalProperties": false
     },
     "customToolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "custom_tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "custom_tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "output": {
           "oneOf": [
-            { "type": "string" },
-            { "type": "array", "items": { "oneOf": [
-              { "$ref": "#/$defs/textBlock" },
-              { "$ref": "#/$defs/imageBlock" }
-            ] } }
+            {
+              "type": "string"
+            },
+            {
+              "type": "array",
+              "items": {
+                "oneOf": [
+                  {
+                    "$ref": "#/$defs/textBlock"
+                  },
+                  {
+                    "$ref": "#/$defs/imageBlock"
+                  }
+                ]
+              }
+            }
           ]
         }
       },
-      "required": ["type", "tool_use_id", "output"],
+      "required": [
+        "type",
+        "tool_use_id",
+        "output"
+      ],
       "additionalProperties": false
     },
     "customToolInputDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "custom_tool_input_delta" },
-        "text": { "type": "string" }
+        "type": {
+          "const": "custom_tool_input_delta"
+        },
+        "text": {
+          "type": "string"
+        }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "customToolFormat": {
       "oneOf": [
         {
           "type": "object",
-          "properties": { "type": { "const": "text" } },
-          "required": ["type"],
+          "properties": {
+            "type": {
+              "const": "text"
+            }
+          },
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "grammar" },
-            "syntax": { "enum": ["lark", "regex"] },
-            "definition": { "type": "string" }
+            "type": {
+              "const": "grammar"
+            },
+            "syntax": {
+              "enum": [
+                "lark",
+                "regex"
+              ]
+            },
+            "definition": {
+              "type": "string"
+            }
           },
-          "required": ["type", "syntax", "definition"],
+          "required": [
+            "type",
+            "syntax",
+            "definition"
+          ],
           "additionalProperties": false
         }
       ]
@@ -515,72 +1166,127 @@
     "textBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "text" },
-        "text": { "type": "string" },
+        "type": {
+          "const": "text"
+        },
+        "text": {
+          "type": "string"
+        },
         "citations": {
           "type": "array",
-          "items": { "$ref": "#/$defs/textCitation" }
+          "items": {
+            "$ref": "#/$defs/textCitation"
+          }
         }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "textCitation": {
       "type": "object",
       "description": "Provider text citation reference (spec/01 s3.4, since 2.4.11; openai since 2.5.0).",
       "properties": {
-        "source": { "type": "string", "enum": ["anthropic", "openai"] },
-        "value": { "type": "string" }
+        "source": {
+          "type": "string",
+          "enum": [
+            "anthropic",
+            "openai"
+          ]
+        },
+        "value": {
+          "type": "string"
+        }
       },
-      "required": ["source", "value"],
+      "required": [
+        "source",
+        "value"
+      ],
       "additionalProperties": false
     },
     "thinkingBlock": {
       "type": "object",
       "description": "Reasoning content block (spec/01 s3.4, since 2.0).",
       "properties": {
-        "type": { "const": "thinking" },
-        "thinking": { "type": "string" },
-        "signature": { "type": "string", "minLength": 1 }
+        "type": {
+          "const": "thinking"
+        },
+        "thinking": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["type", "thinking"],
+      "required": [
+        "type",
+        "thinking"
+      ],
       "additionalProperties": false
     },
     "encryptedContentBlock": {
       "type": "object",
       "description": "Responses reasoning replay ciphertext (spec/01 s3.4, since 2.5.2). Opaque; never copied into a loss detail.",
       "properties": {
-        "type": { "const": "encrypted_content" },
-        "data": { "type": "string", "minLength": 1 }
+        "type": {
+          "const": "encrypted_content"
+        },
+        "data": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "additionalProperties": false
     },
     "toolReferenceBlock": {
       "type": "object",
       "description": "Tool reference content block (spec/01 s3.4, since 2.5.3).",
       "properties": {
-        "type": { "const": "tool_reference" },
-        "tool_name": { "type": "string", "minLength": 1 }
+        "type": {
+          "const": "tool_reference"
+        },
+        "tool_name": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["type", "tool_name"],
+      "required": [
+        "type",
+        "tool_name"
+      ],
       "additionalProperties": false
     },
     "redactedThinkingBlock": {
       "type": "object",
       "description": "Anthropic encrypted thinking replay content block (spec/01 s3.4, since 2.4.11).",
       "properties": {
-        "type": { "const": "redacted_thinking" },
-        "data": { "type": "string" }
+        "type": {
+          "const": "redacted_thinking"
+        },
+        "data": {
+          "type": "string"
+        }
       },
-      "required": ["type", "data"],
+      "required": [
+        "type",
+        "data"
+      ],
       "additionalProperties": false
     },
     "imageBlock": {
       "type": "object",
       "description": "Image input. Exactly one of data or url MUST be present; media_type is required with data (spec/01 s3.4).",
       "properties": {
-        "type": { "const": "image" },
+        "type": {
+          "const": "image"
+        },
         "media_type": {
           "type": "string",
           "pattern": "^image/.+$",
@@ -598,41 +1304,76 @@
           "description": "Image URL."
         }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false,
       "oneOf": [
         {
-          "required": ["data", "media_type"],
-          "not": { "required": ["url"] }
+          "required": [
+            "data",
+            "media_type"
+          ],
+          "not": {
+            "required": [
+              "url"
+            ]
+          }
         },
         {
-          "required": ["url"],
-          "not": { "required": ["data"] }
+          "required": [
+            "url"
+          ],
+          "not": {
+            "required": [
+              "data"
+            ]
+          }
         }
       ]
     },
     "toolUseBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "tool_use" },
-        "id": { "type": "string", "minLength": 1 },
-        "name": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "tool_use"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
         "input": {
           "type": "string",
           "description": "Raw JSON text (INV-1); never parsed or re-serialized by converters; may be malformed in degraded cases (spec/02)."
         }
       },
-      "required": ["type", "id", "name", "input"],
+      "required": [
+        "type",
+        "id",
+        "name",
+        "input"
+      ],
       "additionalProperties": false
     },
     "toolResultBlock": {
       "type": "object",
       "properties": {
-        "type": { "const": "tool_result" },
-        "tool_use_id": { "type": "string", "minLength": 1 },
+        "type": {
+          "const": "tool_result"
+        },
+        "tool_use_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "content": {
           "type": "array",
-          "items": { "$ref": "#/$defs/block" },
+          "items": {
+            "$ref": "#/$defs/block"
+          },
           "description": "May be empty."
         },
         "is_error": {
@@ -640,7 +1381,11 @@
           "default": false
         }
       },
-      "required": ["type", "tool_use_id", "content"],
+      "required": [
+        "type",
+        "tool_use_id",
+        "content"
+      ],
       "additionalProperties": false
     },
     "tool": {
@@ -648,58 +1393,109 @@
         {
           "type": "object",
           "properties": {
-            "type": { "const": "function" },
-            "name": { "type": "string", "minLength": 1 },
-            "description": { "type": "string" },
+            "type": {
+              "const": "function"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string"
+            },
             "input_schema": {
               "type": "object",
               "description": "JSON-Schema-shaped object carried verbatim; never analyzed or rewritten."
             },
-            "strict": { "type": "boolean" },
+            "strict": {
+              "type": "boolean"
+            },
             "native": {
               "type": "array",
-              "items": { "$ref": "#/$defs/nativeAnnotation" }
+              "items": {
+                "$ref": "#/$defs/nativeAnnotation"
+              }
             }
           },
-          "required": ["name", "input_schema"],
+          "required": [
+            "name",
+            "input_schema"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "custom" },
-            "name": { "type": "string", "minLength": 1 },
-            "description": { "type": "string" },
-            "format": { "$ref": "#/$defs/customToolFormat" },
+            "type": {
+              "const": "custom"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string"
+            },
+            "format": {
+              "$ref": "#/$defs/customToolFormat"
+            },
             "native": {
               "type": "array",
-              "items": { "$ref": "#/$defs/nativeAnnotation" }
+              "items": {
+                "$ref": "#/$defs/nativeAnnotation"
+              }
             }
           },
-          "required": ["type", "name"],
+          "required": [
+            "type",
+            "name"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "apply_patch" },
+            "type": {
+              "const": "apply_patch"
+            },
             "native": {
               "type": "array",
-              "items": { "$ref": "#/$defs/nativeAnnotation" }
+              "items": {
+                "$ref": "#/$defs/nativeAnnotation"
+              }
             }
           },
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "native" },
-            "name": { "type": "string", "minLength": 1 },
-            "source": { "type": "string", "minLength": 1 },
-            "definition": { "type": "string", "minLength": 2, "description": "Opaque provider declaration JSON object text; identity validation follows spec/16." }
+            "type": {
+              "const": "native"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "source": {
+              "type": "string",
+              "minLength": 1
+            },
+            "definition": {
+              "type": "string",
+              "minLength": 2,
+              "description": "Opaque provider declaration JSON object text; identity validation follows spec/16."
+            }
           },
-          "required": ["type", "name", "source", "definition"],
+          "required": [
+            "type",
+            "name",
+            "source",
+            "definition"
+          ],
           "additionalProperties": false
         }
       ]
@@ -710,85 +1506,148 @@
         {
           "type": "object",
           "properties": {
-            "mode": { "const": "auto" },
-            "disable_parallel": { "type": "boolean" }
+            "mode": {
+              "const": "auto"
+            },
+            "disable_parallel": {
+              "type": "boolean"
+            }
           },
-          "required": ["mode"],
+          "required": [
+            "mode"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "mode": { "const": "any" },
-            "disable_parallel": { "type": "boolean" }
+            "mode": {
+              "const": "any"
+            },
+            "disable_parallel": {
+              "type": "boolean"
+            }
           },
-          "required": ["mode"],
+          "required": [
+            "mode"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "mode": { "const": "none" },
-            "disable_parallel": { "type": "boolean" }
+            "mode": {
+              "const": "none"
+            },
+            "disable_parallel": {
+              "type": "boolean"
+            }
           },
-          "required": ["mode"],
+          "required": [
+            "mode"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "mode": { "const": "tool" },
-            "name": { "type": "string", "minLength": 1 },
-            "tool_type": { "enum": ["function", "custom", "native"] },
-            "disable_parallel": { "type": "boolean" }
+            "mode": {
+              "const": "tool"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "tool_type": {
+              "enum": [
+                "function",
+                "custom",
+                "native"
+              ]
+            },
+            "disable_parallel": {
+              "type": "boolean"
+            }
           },
-          "required": ["mode", "name"],
+          "required": [
+            "mode",
+            "name"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "mode": { "const": "tool" },
-            "tool_type": { "const": "apply_patch" },
-            "disable_parallel": { "type": "boolean" }
+            "mode": {
+              "const": "tool"
+            },
+            "tool_type": {
+              "const": "apply_patch"
+            },
+            "disable_parallel": {
+              "type": "boolean"
+            }
           },
-          "required": ["mode", "tool_type"],
+          "required": [
+            "mode",
+            "tool_type"
+          ],
           "additionalProperties": false
         }
       ]
     },
     "responseFormat": {
-      "description": "Output formatting preference (spec/01 §3.7.1, since 2.1).",
+      "description": "Output formatting preference (spec/01 \u00a73.7.1, since 2.1).",
       "oneOf": [
         {
           "type": "object",
           "properties": {
-            "type": { "const": "text" }
+            "type": {
+              "const": "text"
+            }
           },
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "json_object" }
+            "type": {
+              "const": "json_object"
+            }
           },
-          "required": ["type"],
+          "required": [
+            "type"
+          ],
           "additionalProperties": false
         },
         {
           "type": "object",
           "properties": {
-            "type": { "const": "json_schema" },
-            "name": { "type": "string", "minLength": 1 },
-            "description": { "type": "string" },
+            "type": {
+              "const": "json_schema"
+            },
+            "name": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": {
+              "type": "string"
+            },
             "schema": {
               "type": "object",
               "description": "JSON Schema object; carried verbatim per INV-1."
             },
-            "strict": { "type": "boolean" }
+            "strict": {
+              "type": "boolean"
+            }
           },
-          "required": ["type", "schema"],
+          "required": [
+            "type",
+            "schema"
+          ],
           "additionalProperties": false
         }
       ]
@@ -797,17 +1656,32 @@
       "type": "object",
       "description": "Sampling parameters (spec/01 s3.7); optional fields are omitted, never null. Ranges are face concerns.",
       "properties": {
-        "temperature": { "type": "number" },
-        "top_p": { "type": "number" },
-        "max_tokens": { "type": "integer", "minimum": 1 },
+        "temperature": {
+          "type": "number"
+        },
+        "top_p": {
+          "type": "number"
+        },
+        "max_tokens": {
+          "type": "integer",
+          "minimum": 1
+        },
         "stop_sequences": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "reasoning_effort": {
           "$ref": "#/$defs/reasoningEffort"
         },
-        "verbosity": { "enum": ["low", "medium", "high"] },
+        "verbosity": {
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ]
+        },
         "response_format": {
           "$ref": "#/$defs/responseFormat"
         }
@@ -819,34 +1693,69 @@
       "description": "IR response document (spec/01 s4.1).",
       "properties": {
         "specVersion": {
-          "enum": ["0.1.0", "0.2.0"],
+          "enum": [
+            "0.1.0",
+            "0.2.0",
+            "0.3.0"
+          ],
           "description": "Spec version this document conforms to (document-layer field)."
         },
-        "id": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        },
         "content": {
           "type": "array",
-          "items": { "$ref": "#/$defs/block" },
+          "items": {
+            "$ref": "#/$defs/block"
+          },
           "description": "May be empty (a stream with zero blocks)."
         },
-        "stop_reason": { "$ref": "#/$defs/stopReason" },
+        "stop_reason": {
+          "$ref": "#/$defs/stopReason"
+        },
         "stop_sequence": {
           "type": "string",
           "minLength": 1,
           "description": "The matched stop sequence. MUST be absent unless stop_reason is stop_sequence; then permitted but not required (a converter may not know the matched sequence), and non-empty when present."
         },
-        "usage": { "$ref": "#/$defs/usage" }
+        "usage": {
+          "$ref": "#/$defs/usage"
+        }
       },
-      "required": ["specVersion", "id", "model", "content", "stop_reason", "usage"],
+      "required": [
+        "specVersion",
+        "id",
+        "model",
+        "content",
+        "stop_reason",
+        "usage"
+      ],
       "additionalProperties": false,
       "allOf": [
         {
           "if": {
-            "properties": { "stop_reason": { "const": "stop_sequence" } },
-            "required": ["stop_reason"]
+            "properties": {
+              "stop_reason": {
+                "const": "stop_sequence"
+              }
+            },
+            "required": [
+              "stop_reason"
+            ]
           },
           "then": true,
-          "else": { "not": { "required": ["stop_sequence"] } }
+          "else": {
+            "not": {
+              "required": [
+                "stop_sequence"
+              ]
+            }
+          }
         }
       ]
     },
@@ -863,174 +1772,329 @@
     "usage": {
       "type": "object",
       "properties": {
-        "input_tokens": { "type": "integer", "minimum": 0 },
-        "output_tokens": { "type": "integer", "minimum": 0 },
-        "cache_read_input_tokens": { "type": "integer", "minimum": 0 },
-        "cache_creation_input_tokens": { "type": "integer", "minimum": 0 },
-        "input_tokens_details": { "$ref": "#/$defs/inputTokensDetails" },
-        "output_tokens_details": { "$ref": "#/$defs/outputTokensDetails" }
+        "input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "output_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_read_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cache_creation_input_tokens": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "input_tokens_details": {
+          "$ref": "#/$defs/inputTokensDetails"
+        },
+        "output_tokens_details": {
+          "$ref": "#/$defs/outputTokensDetails"
+        }
       },
-      "required": ["input_tokens", "output_tokens"],
+      "required": [
+        "input_tokens",
+        "output_tokens"
+      ],
       "additionalProperties": false
     },
     "inputTokensDetails": {
       "type": "object",
       "properties": {
-        "cached_tokens": { "type": "integer", "minimum": 0 }
+        "cached_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
-      "required": ["cached_tokens"],
+      "required": [
+        "cached_tokens"
+      ],
       "additionalProperties": false
     },
     "outputTokensDetails": {
       "type": "object",
       "properties": {
-        "reasoning_tokens": { "type": "integer", "minimum": 0 }
+        "reasoning_tokens": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
-      "required": ["reasoning_tokens"],
+      "required": [
+        "reasoning_tokens"
+      ],
       "additionalProperties": false
     },
     "event": {
       "description": "Sealed union of the six v1 event types, discriminated on \"type\" (spec/01 s5.1).",
       "oneOf": [
-        { "$ref": "#/$defs/messageStart" },
-        { "$ref": "#/$defs/contentBlockStart" },
-        { "$ref": "#/$defs/contentBlockDelta" },
-        { "$ref": "#/$defs/contentBlockStop" },
-        { "$ref": "#/$defs/messageDelta" },
-        { "$ref": "#/$defs/messageDone" }
+        {
+          "$ref": "#/$defs/messageStart"
+        },
+        {
+          "$ref": "#/$defs/contentBlockStart"
+        },
+        {
+          "$ref": "#/$defs/contentBlockDelta"
+        },
+        {
+          "$ref": "#/$defs/contentBlockStop"
+        },
+        {
+          "$ref": "#/$defs/messageDelta"
+        },
+        {
+          "$ref": "#/$defs/messageDone"
+        }
       ]
     },
     "messageStart": {
       "type": "object",
       "properties": {
-        "type": { "const": "message_start" },
-        "id": { "type": "string", "minLength": 1 },
-        "model": { "type": "string", "minLength": 1 }
+        "type": {
+          "const": "message_start"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["type", "id", "model"],
+      "required": [
+        "type",
+        "id",
+        "model"
+      ],
       "additionalProperties": false
     },
     "contentBlockStart": {
       "type": "object",
       "properties": {
-        "type": { "const": "content_block_start" },
-        "index": { "type": "integer", "minimum": 0 },
-        "block": { "$ref": "#/$defs/block" }
+        "type": {
+          "const": "content_block_start"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "block": {
+          "$ref": "#/$defs/block"
+        }
       },
-      "required": ["type", "index", "block"],
+      "required": [
+        "type",
+        "index",
+        "block"
+      ],
       "additionalProperties": false
     },
     "contentBlockDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "content_block_delta" },
-        "index": { "type": "integer", "minimum": 0 },
-        "delta": { "$ref": "#/$defs/delta" }
+        "type": {
+          "const": "content_block_delta"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "delta": {
+          "$ref": "#/$defs/delta"
+        }
       },
-      "required": ["type", "index", "delta"],
+      "required": [
+        "type",
+        "index",
+        "delta"
+      ],
       "additionalProperties": false
     },
     "contentBlockStop": {
       "type": "object",
       "properties": {
-        "type": { "const": "content_block_stop" },
-        "index": { "type": "integer", "minimum": 0 }
+        "type": {
+          "const": "content_block_stop"
+        },
+        "index": {
+          "type": "integer",
+          "minimum": 0
+        }
       },
-      "required": ["type", "index"],
+      "required": [
+        "type",
+        "index"
+      ],
       "additionalProperties": false
     },
     "messageDelta": {
       "type": "object",
       "description": "Occurs exactly once, immediately before message_done (INV-5); stop_reason and usage are the final values.",
       "properties": {
-        "type": { "const": "message_delta" },
-        "stop_reason": { "$ref": "#/$defs/stopReason" },
+        "type": {
+          "const": "message_delta"
+        },
+        "stop_reason": {
+          "$ref": "#/$defs/stopReason"
+        },
         "stop_sequence": {
           "type": "string",
           "minLength": 1,
           "description": "Same conditional rule as response.stop_sequence: MUST be absent unless stop_reason is stop_sequence; then permitted but not required, and non-empty when present."
         },
-        "usage": { "$ref": "#/$defs/usage" }
+        "usage": {
+          "$ref": "#/$defs/usage"
+        }
       },
-      "required": ["type", "stop_reason", "usage"],
+      "required": [
+        "type",
+        "stop_reason",
+        "usage"
+      ],
       "additionalProperties": false,
       "allOf": [
         {
           "if": {
-            "properties": { "stop_reason": { "const": "stop_sequence" } },
-            "required": ["stop_reason"]
+            "properties": {
+              "stop_reason": {
+                "const": "stop_sequence"
+              }
+            },
+            "required": [
+              "stop_reason"
+            ]
           },
           "then": true,
-          "else": { "not": { "required": ["stop_sequence"] } }
+          "else": {
+            "not": {
+              "required": [
+                "stop_sequence"
+              ]
+            }
+          }
         }
       ]
     },
     "messageDone": {
       "type": "object",
       "properties": {
-        "type": { "const": "message_done" }
+        "type": {
+          "const": "message_done"
+        }
       },
-      "required": ["type"],
+      "required": [
+        "type"
+      ],
       "additionalProperties": false
     },
     "delta": {
       "description": "Sealed union of delta types, discriminated on \"type\" (spec/01 s5.2).",
       "oneOf": [
-        { "$ref": "#/$defs/textDelta" },
-        { "$ref": "#/$defs/inputJSONDelta" },
-        { "$ref": "#/$defs/thinkingDelta" },
-        { "$ref": "#/$defs/signatureDelta" },
-        { "$ref": "#/$defs/customToolInputDelta" },
-        { "$ref": "#/$defs/citationDelta" }
+        {
+          "$ref": "#/$defs/textDelta"
+        },
+        {
+          "$ref": "#/$defs/inputJSONDelta"
+        },
+        {
+          "$ref": "#/$defs/thinkingDelta"
+        },
+        {
+          "$ref": "#/$defs/signatureDelta"
+        },
+        {
+          "$ref": "#/$defs/customToolInputDelta"
+        },
+        {
+          "$ref": "#/$defs/citationDelta"
+        }
       ]
     },
     "citationDelta": {
       "type": "object",
       "description": "Provider text citation delta (spec/01 s5.2, since 2.4.11).",
       "properties": {
-        "type": { "const": "citation_delta" },
-        "citation": { "$ref": "#/$defs/textCitation" }
+        "type": {
+          "const": "citation_delta"
+        },
+        "citation": {
+          "$ref": "#/$defs/textCitation"
+        }
       },
-      "required": ["type", "citation"],
+      "required": [
+        "type",
+        "citation"
+      ],
       "additionalProperties": false
     },
     "textDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "text_delta" },
-        "text": { "type": "string" }
+        "type": {
+          "const": "text_delta"
+        },
+        "text": {
+          "type": "string"
+        }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "inputJSONDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "input_json_delta" },
+        "type": {
+          "const": "input_json_delta"
+        },
         "partial_json": {
           "type": "string",
           "description": "Raw fragment of the tool-argument string (INV-1); may be empty or syntactically incomplete."
         }
       },
-      "required": ["type", "partial_json"],
+      "required": [
+        "type",
+        "partial_json"
+      ],
       "additionalProperties": false
     },
     "thinkingDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "thinking_delta" },
-        "text": { "type": "string" }
+        "type": {
+          "const": "thinking_delta"
+        },
+        "text": {
+          "type": "string"
+        }
       },
-      "required": ["type", "text"],
+      "required": [
+        "type",
+        "text"
+      ],
       "additionalProperties": false
     },
     "signatureDelta": {
       "type": "object",
       "properties": {
-        "type": { "const": "signature_delta" },
-        "signature": { "type": "string", "minLength": 1 }
+        "type": {
+          "const": "signature_delta"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1
+        }
       },
-      "required": ["type", "signature"],
+      "required": [
+        "type",
+        "signature"
+      ],
       "additionalProperties": false
     },
     "eventStream": {
@@ -1038,50 +2102,428 @@
       "description": "JSON document form of a streamed response (spec/01 s5.3).",
       "properties": {
         "specVersion": {
-          "enum": ["0.1.0", "0.2.0"],
+          "enum": [
+            "0.1.0",
+            "0.2.0",
+            "0.3.0"
+          ],
           "description": "Spec version this document conforms to (document-layer field)."
         },
         "events": {
           "type": "array",
           "minItems": 3,
-          "items": { "$ref": "#/$defs/event" },
+          "items": {
+            "$ref": "#/$defs/event"
+          },
           "description": "Minimum valid stream: message_start, message_delta, message_done."
         }
       },
-      "required": ["specVersion", "events"],
+      "required": [
+        "specVersion",
+        "events"
+      ],
       "additionalProperties": false
     },
     "reasoningEffort": {
-      "enum": ["minimal", "low", "medium", "high", "xhigh", "max"]
+      "enum": [
+        "minimal",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
     },
     "nativeAnnotation": {
       "type": "object",
       "description": "Provider-specific native request annotation preserved across IR (spec/15).",
       "properties": {
-        "source": { "type": "string", "minLength": 1 },
-        "kind": { "type": "string", "minLength": 1 },
-        "value": { "type": "string" },
+        "source": {
+          "type": "string",
+          "minLength": 1
+        },
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "value": {
+          "type": "string"
+        },
         "omission": {
           "type": "object",
           "properties": {
-            "field": { "type": "string", "minLength": 1 },
-            "reason": { "enum": ["unmapped-field", "unmapped-value", "unsupported-semantic", "degraded"] },
-            "detail": { "type": "string" }
+            "field": {
+              "type": "string",
+              "minLength": 1
+            },
+            "reason": {
+              "enum": [
+                "unmapped-field",
+                "unmapped-value",
+                "unsupported-semantic",
+                "degraded"
+              ]
+            },
+            "detail": {
+              "type": "string"
+            }
           },
-          "required": ["field", "reason"],
+          "required": [
+            "field",
+            "reason"
+          ],
           "additionalProperties": false
         },
         "projection": {
           "type": "object",
           "properties": {
-            "origin": { "enum": ["budget", "explicit"] },
-            "effort": { "$ref": "#/$defs/reasoningEffort" }
+            "origin": {
+              "enum": [
+                "budget",
+                "explicit"
+              ]
+            },
+            "effort": {
+              "$ref": "#/$defs/reasoningEffort"
+            }
           },
-          "required": ["origin", "effort"],
+          "required": [
+            "origin",
+            "effort"
+          ],
           "additionalProperties": false
         }
       },
-      "required": ["source", "kind", "value"],
+      "required": [
+        "source",
+        "kind",
+        "value"
+      ],
+      "additionalProperties": false
+    },
+    "compactionBlock": {
+      "type": "object",
+      "description": "Compaction summary block with tool changes and replay metadata (spec/01 s3.4, since 0.3.0).",
+      "properties": {
+        "type": {
+          "const": "compaction"
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "encrypted_content": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "tool_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolChange"
+          }
+        },
+        "extra": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "requestCompactionBlock": {
+      "type": "object",
+      "description": "Compaction block in request history with optional native annotations (spec/01 s3.4, since 0.3.0).",
+      "properties": {
+        "type": {
+          "const": "compaction"
+        },
+        "content": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "encrypted_content": {
+          "type": "string"
+        },
+        "signature": {
+          "type": "string"
+        },
+        "tool_changes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolChange"
+          }
+        },
+        "native": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
+        },
+        "extra": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false
+    },
+    "toolChange": {
+      "type": "object",
+      "description": "Positional tool availability change: add or remove a tool (spec/01 s3.8, since 0.3.0).",
+      "properties": {
+        "op": {
+          "enum": [
+            "add",
+            "remove"
+          ]
+        },
+        "tool": {
+          "$ref": "#/$defs/tool"
+        },
+        "ref": {
+          "$ref": "#/$defs/toolChangeRef"
+        },
+        "native": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/nativeAnnotation"
+          }
+        },
+        "extra": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "op"
+      ],
+      "oneOf": [
+        {
+          "properties": {
+            "op": {
+              "const": "add"
+            }
+          },
+          "oneOf": [
+            {
+              "required": [
+                "tool"
+              ],
+              "not": {
+                "required": [
+                  "ref"
+                ]
+              }
+            },
+            {
+              "required": [
+                "ref"
+              ],
+              "not": {
+                "required": [
+                  "tool"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "properties": {
+            "op": {
+              "const": "remove"
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "not": {
+            "required": [
+              "tool"
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "toolChangeRef": {
+      "type": "object",
+      "description": "Reference to a tool in a tool change directive (spec/01 s3.8, since 0.3.0).",
+      "properties": {
+        "type": {
+          "enum": [
+            "tool_reference",
+            "mcp_tool_reference",
+            "mcp_toolset_reference"
+          ]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "server_name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name"
+            ],
+            "not": {
+              "required": [
+                "server_name"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "mcp_tool_reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "name",
+              "server_name"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "mcp_toolset_reference"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "server_name"
+            ],
+            "not": {
+              "required": [
+                "name"
+              ]
+            }
+          }
+        }
+      ],
+      "additionalProperties": false
+    },
+    "toolChangeGroup": {
+      "type": "object",
+      "description": "Group of positional tool availability changes and system content associated with a message/content boundary (spec/01 s3.8, since 0.3.0).",
+      "properties": {
+        "message_index": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "content_index": {
+          "type": "integer",
+          "minimum": -1
+        },
+        "id": {
+          "type": "string"
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/toolChangePart"
+          }
+        },
+        "extra": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "message_index",
+        "content_index",
+        "parts"
+      ],
+      "additionalProperties": false
+    },
+    "toolChangePart": {
+      "type": "object",
+      "description": "One part in a tool change group: text or a tool change directive (spec/01 s3.8, since 0.3.0).",
+      "properties": {
+        "type": {
+          "enum": [
+            "text",
+            "tool_change"
+          ]
+        },
+        "text": {
+          "type": "string"
+        },
+        "change": {
+          "$ref": "#/$defs/toolChange"
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "text"
+            ],
+            "not": {
+              "required": [
+                "change"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "tool_change"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "change"
+            ],
+            "not": {
+              "required": [
+                "text"
+              ]
+            }
+          }
+        }
+      ],
       "additionalProperties": false
     }
   }

@@ -11,6 +11,7 @@ from oxa.ir import (
     BLOCK_TYPE_IMAGE,
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
+    BLOCK_TYPE_TOOL_REFERENCE,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_INPUT_JSON_DELTA,
@@ -78,6 +79,7 @@ def test_ir_constants_values() -> None:
     assert BLOCK_TYPE_THINKING == "thinking"
     assert BLOCK_TYPE_TOOL_USE == "tool_use"
     assert BLOCK_TYPE_TOOL_RESULT == "tool_result"
+    assert BLOCK_TYPE_TOOL_REFERENCE == "tool_reference"
     tc_mode: ToolChoiceMode = TOOL_CHOICE_AUTO
     assert tc_mode == "auto"
     assert TOOL_CHOICE_ANY == "any"

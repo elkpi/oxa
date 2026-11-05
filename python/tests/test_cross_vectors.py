@@ -71,7 +71,7 @@ class CrossVectorsTest(unittest.TestCase):
             return
 
         vectors = load_cross_vectors(root)
-        self.assertEqual(len(vectors), 101, "expected 101 cross nonstream vectors")
+        self.assertEqual(len(vectors), 104, "expected 104 cross nonstream vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):

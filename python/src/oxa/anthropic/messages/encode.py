@@ -555,6 +555,8 @@ def encode_request_block(
         return encode_tool_result_block(block, path)
 
     elif isinstance(block, ToolReferenceBlock):
+        if not block.tool_name:
+            raise ValueError(f"anthropic: {path}.tool_name is required")
         encoded = {
             "type": BLOCK_TYPE_TOOL_REFERENCE,
             "tool_name": block.tool_name,
@@ -811,6 +813,8 @@ def encode_tool_result_block(
                 wire_content.append(doc_wire)
             losses.extend(doc_losses)
         elif isinstance(inner, ToolReferenceBlock):
+            if not inner.tool_name:
+                raise ValueError(f"anthropic: {content_path}.tool_name is required")
             ref_wire: dict[str, Any] = {
                 "type": BLOCK_TYPE_TOOL_REFERENCE,
                 "tool_name": inner.tool_name,

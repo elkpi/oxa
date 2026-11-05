@@ -449,7 +449,7 @@ def encode_request_block(
     elif isinstance(block, EncryptedContentBlock):
         losses.append(
             loss(
-                f"{path}[{index}]",
+                path,
                 "type",
                 LOSS_UNSUPPORTED_SEMANTIC,
                 ENCRYPTED_CONTENT_LOSS_DETAIL,

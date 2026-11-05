@@ -197,14 +197,9 @@ class StreamEncoder:
                 ], []
 
             if isinstance(ev.block, EncryptedContentBlock):
-                self._next_index += 1
-                self._block_open = True
-                self._open_tool = False
-                self._open_custom = False
-                self._open_thinking = False
-                self._open_redacted = False
-                self._open_atomic = True
                 self._open_index = ev.index
+                self._native_index = -1
+                self._open_apply_patch = True
                 return [], [
                     loss(
                         f"events[{ev.index}].block",

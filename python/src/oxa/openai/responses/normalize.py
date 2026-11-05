@@ -1022,8 +1022,8 @@ def encode_assistant_message(
     blocks: list[Block],
     path: str,
 ) -> tuple[list[dict[str, Any]], list[Loss]]:
-    thinkings: list[dict[str, Any]] = []
-    ciphers: list[str] = []
+    reasoning_items: list[dict[str, Any]] = []
+    cur_reasoning: dict[str, Any] | None = None
     text_chunks: list[str] = []
     has_text = False
     has_refusal = False
@@ -1081,9 +1081,20 @@ def encode_assistant_message(
         elif isinstance(block, EncryptedContentBlock):
             if not block.data:
                 raise ValueError(f"responses: {path}[{index}].data: encrypted_content data is required")
-            ciphers.append(block.data)
+            if cur_reasoning is not None and "encrypted_content" in cur_reasoning:
+                cur_reasoning = None
+            if cur_reasoning is None:
+                cur_reasoning = {"summary": []}
+                reasoning_items.append(cur_reasoning)
+            cur_reasoning["encrypted_content"] = block.data
+            cur_reasoning = None
         elif isinstance(block, ThinkingBlock):
-            thinkings.append(
+            if cur_reasoning is not None and "encrypted_content" in cur_reasoning:
+                cur_reasoning = None
+            if cur_reasoning is None:
+                cur_reasoning = {"summary": []}
+                reasoning_items.append(cur_reasoning)
+            cur_reasoning["summary"].append(
                 {
                     "type": PART_TYPE_OUTPUT_TEXT,
                     "text": block.thinking,
@@ -1146,18 +1157,14 @@ def encode_assistant_message(
             )
 
     items: list[dict[str, Any]] = []
-    for i, cipher in enumerate(ciphers):
-        if i == 0:
-            item_dict: dict[str, Any] = {"type": ITEM_TYPE_REASONING, "summary": list(thinkings), "encrypted_content": cipher}
-            thinkings.clear()
-            items.append(item_dict)
-        else:
-            items.append({"type": ITEM_TYPE_REASONING, "summary": [], "encrypted_content": cipher})
-    if thinkings:
-        items.append({"type": ITEM_TYPE_REASONING, "summary": thinkings})
+    for r_item in reasoning_items:
+        item_dict = {"type": ITEM_TYPE_REASONING, "summary": r_item["summary"]}
+        if "encrypted_content" in r_item:
+            item_dict["encrypted_content"] = r_item["encrypted_content"]
+        items.append(item_dict)
     if has_refusal:
         items.append({"role": ROLE_ASSISTANT, "content": parts})
-    elif has_text or (not blocks and not ciphers):
+    elif has_text or (not blocks and not reasoning_items):
         items.append(
             {
                 "role": ROLE_ASSISTANT,

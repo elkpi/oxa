@@ -362,6 +362,8 @@ def dump_block(block: Block) -> dict[str, Any]:
     if isinstance(block, RedactedThinkingBlock):
         return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     if isinstance(block, EncryptedContentBlock):
+        if not block.data:
+            raise CodecError("encrypted_content data is required")
         return {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
     if isinstance(block, ThinkingBlock):
         out: dict[str, Any] = {
@@ -490,6 +492,8 @@ def dump_request_block(block: Block) -> dict[str, Any]:
     elif isinstance(block, RedactedThinkingBlock):
         out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
     elif isinstance(block, EncryptedContentBlock):
+        if not block.data:
+            raise CodecError("encrypted_content data is required")
         out = {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
     elif isinstance(block, ThinkingBlock):
         out = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
@@ -687,8 +691,8 @@ def load_block(data: dict[str, Any]) -> Block:
         return RedactedThinkingBlock(data=d)
     if kind == BLOCK_TYPE_ENCRYPTED_CONTENT:
         d = data.get("data")
-        if not isinstance(d, str):
-            raise CodecError("encrypted_content requires string data")
+        if not isinstance(d, str) or not d:
+            raise CodecError("encrypted_content requires non-empty string data")
         return EncryptedContentBlock(data=d)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"))
@@ -790,8 +794,8 @@ def load_request_block(data: dict[str, Any]) -> Block:
         return RedactedThinkingBlock(data=d, native=native)
     if kind == BLOCK_TYPE_ENCRYPTED_CONTENT:
         d = data.get("data")
-        if not isinstance(d, str):
-            raise CodecError("encrypted_content requires string data")
+        if not isinstance(d, str) or not d:
+            raise CodecError("encrypted_content requires non-empty string data")
         return EncryptedContentBlock(data=d, native=native)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"), native=native)

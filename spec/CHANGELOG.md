@@ -7,7 +7,9 @@ precedence between spec, vectors, and schemas is defined in
 
 ## 2.5.3 - 2026-11-05
 
-- Add `ToolReferenceBlock` (`tool_reference`) for Anthropic Messages tool search (N-AN-21). Represents a reference to a declared tool inside `tool_result.content` (and request history). Round-trips 1:1 on Anthropic with native `cache_control` preservation. Omitted on Chat Completions and Responses with one `unsupported-semantic` loss. Exhaustive block matches must handle the new variant. IR contract remains `0.2.0`.
+- Add `ToolReferenceBlock` (`tool_reference`) for Anthropic Messages tool search (N-AN-21). Represents a reference to a declared tool inside `tool_result.content` (and request history). Round-trips 1:1 on Anthropic with native `cache_control` preservation. Omitted on Chat Completions and Responses with one `unsupported-semantic` loss; annotations attached to the dropped block are part of the whole-block loss and are not reported a second time. Exhaustive block matches must handle the new variant. IR contract remains `0.2.0`.
+- Pin the `tool_reference` name-resolution and audit rules (N-AN-21): a present `tool_name` key must carry a non-empty string (empty or null is a structural error even when `name` is present); `name` is tolerated as an alias only when `tool_name` is absent; unrecognized properties produce one `unmapped-field` loss each; encoders reject an empty `ToolName` as a structural error.
+- `ToolReferenceBlock` is a valid request-side `cache_control` host (spec/15 §2), including when nested in `tool_result.content`; `prompt_cache_breakpoint` remains restricted to text/image/document hosts.
 
 ## 2.5.2 - 2026-11-05
 

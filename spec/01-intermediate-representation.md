@@ -205,7 +205,7 @@ The exactly-one-of-three rule is enforced by the schema: a document carrying non
 |----------|---------------|------|----------|-------|
 | `ToolName` | `tool_name` | string | yes, non-empty | name of the referenced tool (Anthropic tool search, since 2.5.3) |
 
-`ToolReferenceBlock` represents a reference to a declared tool discovered dynamically through tool search (since 2.5.3). It is primarily carried in request history inside `ToolResultBlock.Content` (client-side custom tool search) or `Message.Content`. On encode to Anthropic Messages, it renders as `{"type": "tool_reference", "tool_name": ...}`. On encode to protocols that lack tool reference / deferred tool loading constructs (Chat Completions and Responses), it records an `unsupported-semantic` loss.
+`ToolReferenceBlock` represents a reference to a declared tool discovered dynamically through tool search (since 2.5.3). It is primarily carried in request history inside `ToolResultBlock.Content` (client-side custom tool search) or `Message.Content`. On encode to Anthropic Messages, it renders as `{"type": "tool_reference", "tool_name": ...}`. On encode to protocols that lack tool reference / deferred tool loading constructs (Chat Completions and Responses), it records an `unsupported-semantic` loss. It is a valid request-side `cache_control` host (spec/15 §2, since 2.5.3); a directly-constructed block MUST carry a non-empty `tool_name`.
 
 ### 3.5 Tool
 

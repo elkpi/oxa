@@ -427,9 +427,9 @@ Each rule has a stable ID usable as a vector tag.
     (detail: `"Anthropic does not support refusal content blocks in request history"`).
 
 - **N-AN-21 (tool reference blocks, since 2.5.3).** Anthropic `tool_reference` content blocks in requests (typically inside `tool_result.content` or `messages[].content`) map 1:1 to `ToolReferenceBlock{ToolName}`.
-  - **Decode (Messages → IR).** An object with `type: "tool_reference"` decodes to `ToolReferenceBlock{ToolName: tool_name}`. `tool_name` is required and non-empty (the decoder tolerates `name` as an alias if `tool_name` is absent); a missing or empty tool name is a structural error. If `cache_control` is present, it is attached as a `NativeAnnotation` (`kind: "cache_control"`).
-  - **Encode (IR → Messages).** `ToolReferenceBlock` encodes as `{"type": "tool_reference", "tool_name": b.ToolName}`. If a `cache_control` native annotation is attached, it is emitted on the wire block.
-  - **Cross-face.** Target faces without tool search reference representation (OpenAI Chat Completions, OpenAI Responses) omit the block and emit an `unsupported-semantic` loss.
+  - **Decode (Messages → IR).** An object with `type: "tool_reference"` decodes to `ToolReferenceBlock{ToolName: tool_name}`. When the `tool_name` key is present it MUST be a non-empty string (an empty or null `tool_name` is a structural error, even when `name` is present); when `tool_name` is absent, `name` is tolerated as an alias under the same non-empty-string rule; a block carrying neither is a structural error. Unrecognized properties on the block are audited per [spec/02 §4](02-loss-policy.md): one `unmapped-field` loss per present property. If `cache_control` is present, it is attached as a `NativeAnnotation` (`kind: "cache_control"`; `ToolReferenceBlock` is a valid request-side `cache_control` host per [spec/15 §2](15-native-request-options.md)).
+  - **Encode (IR → Messages).** `ToolReferenceBlock` encodes as `{"type": "tool_reference", "tool_name": b.ToolName}`; an empty `ToolName` is a structural error. If a `cache_control` native annotation is attached, it is emitted on the wire block.
+  - **Cross-face.** Target faces without tool search reference representation (OpenAI Chat Completions, OpenAI Responses) omit the block and emit exactly one `unsupported-semantic` loss; annotations attached to the dropped block are part of the whole-block loss and MUST NOT be reported a second time.
 
 ## 8. Loss Catalog
 

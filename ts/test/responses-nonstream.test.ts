@@ -119,7 +119,7 @@ test("reports a present-false unknown request field once", () => {
   );
 });
 
-test("decodes a reasoning output item and reports encrypted content loss", () => {
+test("decodes a reasoning output item and preserves encrypted content", () => {
   const decoded = decodeResponse({
     id: "resp_reasoning1",
     object: "response",
@@ -154,17 +154,12 @@ test("decodes a reasoning output item and reports encrypted content loss", () =>
   assert.deepEqual(decoded.value.content, [
     { type: "thinking", thinking: "Step 1: analyze." },
     { type: "thinking", thinking: "Step 2: conclude." },
+    { type: "encrypted_content", data: "gAAAAABnz..." },
     { type: "text", text: "Final answer is 42." },
   ]);
   assert.deepEqual(
     decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
-    [
-      {
-        path: "output[0].encrypted_content",
-        field: "encrypted_content",
-        reason: "unmapped-field",
-      },
-    ],
+    [],
   );
 });
 

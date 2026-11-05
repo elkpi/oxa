@@ -187,6 +187,12 @@ pub struct InputItem {
         deserialize_with = "deserialize_summary_parts"
     )]
     pub summary: Vec<OutputPart>,
+    #[serde(
+        rename = "encrypted_content",
+        default,
+        skip_serializing_if = "String::is_empty"
+    )]
+    pub encrypted_content: String,
     #[serde(rename = "call_id", default, skip_serializing_if = "String::is_empty")]
     pub call_id: String,
     #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]

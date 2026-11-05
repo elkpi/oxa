@@ -199,22 +199,23 @@ func (in Input) MarshalJSON() ([]byte, error) {
 // (type absent or "message", role user/assistant/system), a function_call
 // item, a function_call_output item, or an unknown type dropped with a loss.
 type InputItem struct {
-	ID        string                     `json:"id,omitempty"`
-	Type      string                     `json:"type,omitempty"`
-	Role      string                     `json:"role,omitempty"`
-	Content   any                        `json:"content,omitempty"` // string or []ContentPart
-	CallID    string                     `json:"call_id,omitempty"`
-	Name      string                     `json:"name,omitempty"`
-	Namespace string                     `json:"namespace,omitempty"`
-	Arguments string                     `json:"arguments,omitempty"`
-	Output    any                        `json:"output,omitempty"`
-	Input     *string                    `json:"input,omitempty"`
-	Status    string                     `json:"status,omitempty"`
-	Operation *ApplyPatchOperationWire   `json:"operation,omitempty"`
-	Summary   []OutputContent            `json:"summary,omitempty"`
-	Tools     []json.RawMessage          `json:"tools,omitempty"`
-	Action    json.RawMessage            `json:"action,omitempty"`
-	Extra     map[string]json.RawMessage `json:"-"`
+	ID               string                     `json:"id,omitempty"`
+	Type             string                     `json:"type,omitempty"`
+	Role             string                     `json:"role,omitempty"`
+	Content          any                        `json:"content,omitempty"` // string or []ContentPart
+	CallID           string                     `json:"call_id,omitempty"`
+	Name             string                     `json:"name,omitempty"`
+	Namespace        string                     `json:"namespace,omitempty"`
+	Arguments        string                     `json:"arguments,omitempty"`
+	Output           any                        `json:"output,omitempty"`
+	Input            *string                    `json:"input,omitempty"`
+	Status           string                     `json:"status,omitempty"`
+	Operation        *ApplyPatchOperationWire   `json:"operation,omitempty"`
+	Summary          []OutputContent            `json:"summary,omitempty"`
+	EncryptedContent string                     `json:"encrypted_content,omitempty"`
+	Tools            []json.RawMessage          `json:"tools,omitempty"`
+	Action           json.RawMessage            `json:"action,omitempty"`
+	Extra            map[string]json.RawMessage `json:"-"`
 }
 
 // ContentPart is one element of a parts-array item content: input_text,

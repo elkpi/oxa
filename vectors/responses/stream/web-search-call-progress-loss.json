@@ -1,0 +1,35 @@
+{
+  "name": "responses.stream.web-search-call-progress-loss",
+  "description": "Responses web_search_call in-progress lifecycle events (in_progress, searching, completed) each record one unsupported-semantic loss and leave state unchanged; the block is emitted at output_item.done (N-R-16, spec/20 §3).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "to-ir",
+  "source": {"protocol": "responses"},
+  "input": {
+    "events": [
+      {"type": "response.created", "response": {"id": "resp_ws_prog", "object": "response", "status": "in_progress", "model": "gpt-5", "output": []}},
+      {"type": "response.output_item.added", "output_index": 0, "item": {"type": "web_search_call", "id": "ws_2", "status": "in_progress", "action": {"type": "search", "query": "weather"}}},
+      {"type": "response.web_search_call.in_progress", "output_index": 0, "item_id": "ws_2"},
+      {"type": "response.web_search_call.searching", "output_index": 0, "item_id": "ws_2", "query": "weather"},
+      {"type": "response.web_search_call.completed", "output_index": 0, "item_id": "ws_2"},
+      {"type": "response.output_item.done", "output_index": 0, "item": {"type": "web_search_call", "id": "ws_2", "status": "completed", "action": {"type": "search", "query": "weather"}}},
+      {"type": "response.completed", "response": {"id": "resp_ws_prog", "object": "response", "status": "completed", "model": "gpt-5", "output": [{"type": "web_search_call", "id": "ws_2", "status": "completed", "action": {"type": "search", "query": "weather"}}], "usage": {"input_tokens": 2, "output_tokens": 2, "total_tokens": 4}}}
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "events": [
+      {"type": "message_start", "id": "resp_ws_prog", "model": "gpt-5"},
+      {"type": "content_block_start", "index": 0, "block": {"type": "web_search_call", "id": "ws_2", "status": "completed", "action": {"type": "search", "query": "weather"}}},
+      {"type": "content_block_stop", "index": 0},
+      {"type": "message_delta", "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 2}},
+      {"type": "message_done"}
+    ]
+  },
+  "expected_losses": [
+    {"path": "type", "field": "type", "reason": "unsupported-semantic", "detail": "Responses stream event type \"response.web_search_call.in_progress\" is not decoded in the Responses stream profile"},
+    {"path": "type", "field": "type", "reason": "unsupported-semantic", "detail": "Responses stream event type \"response.web_search_call.searching\" is not decoded in the Responses stream profile"},
+    {"path": "type", "field": "type", "reason": "unsupported-semantic", "detail": "Responses stream event type \"response.web_search_call.completed\" is not decoded in the Responses stream profile"}
+  ],
+  "tags": ["stream", "web-search", "loss", "n-r-16"]
+}

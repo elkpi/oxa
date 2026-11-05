@@ -121,7 +121,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 26);
+        CHECK(r->executed == 29);
         std::printf("test_stream (responses): all %zu vectors passed\n", r->executed);
     }
 

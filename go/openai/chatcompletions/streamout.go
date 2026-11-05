@@ -114,6 +114,12 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*Chunk, []ir.Loss, error) {
 		case ir.WebSearchCallBlock:
 			e.active = &streamEncodeBlock{kind: streamRedactedBlock, index: event.Index}
 			return nil, []ir.Loss{loss(fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic, "Responses web_search_call has no Chat Completions equivalent")}, nil
+		case ir.EncryptedContentBlock:
+			e.active = &streamEncodeBlock{kind: streamRedactedBlock, index: event.Index}
+			return nil, []ir.Loss{loss(
+				fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic,
+				ir.EncryptedContentLossDetail,
+			)}, nil
 		case ir.RedactedThinkingBlock:
 			e.active = &streamEncodeBlock{kind: streamRedactedBlock, index: event.Index}
 			l := loss(

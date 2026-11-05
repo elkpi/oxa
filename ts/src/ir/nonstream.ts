@@ -617,6 +617,11 @@ function encodeBlockBase(
         type: "redacted_thinking",
         data: block.data,
       };
+    case "encrypted_content":
+      return {
+        type: "encrypted_content",
+        data: block.data,
+      };
     case "image":
       return {
         type: "image",
@@ -775,6 +780,11 @@ function decodeBlockBase(
       return {
         type: "redacted_thinking",
         data: string(block.data, "block.data"),
+      };
+    case "encrypted_content":
+      return {
+        type: "encrypted_content",
+        data: nonEmptyString(string(block.data, "block.data"), "block.data"),
       };
     case "image":
       return {

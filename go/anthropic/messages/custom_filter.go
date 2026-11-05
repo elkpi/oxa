@@ -55,6 +55,10 @@ func (f *customStreamFilter) filter(ev ir.Event) (ir.Event, []ir.Loss, error) {
 			f.atomic = true
 			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: "Responses web_search_call has no Anthropic equivalent"}}, nil
 		}
+		if _, ok := e.Block.(ir.EncryptedContentBlock); ok {
+			f.atomic = true
+			return nil, []ir.Loss{{Path: fmt.Sprintf("events[%d].block", eventNumber), Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: ir.EncryptedContentLossDetail}}, nil
+		}
 		if b, ok := e.Block.(ir.ApplyPatchToolUseBlock); ok {
 			if b.ID == "" || b.Status == "" || b.Operation == nil {
 				return fail()

@@ -790,6 +790,12 @@ pub(crate) fn decode_assistant_run(
                     ));
                 }
             }
+            if !item.encrypted_content.is_empty() {
+                thinkings.push(Block::EncryptedContent {
+                    data: item.encrypted_content.clone(),
+                    native: Vec::new(),
+                });
+            }
             index += 1;
             continue;
         }
@@ -1302,6 +1308,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     }
                 }
             }
+            Block::EncryptedContent { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -1545,7 +1557,7 @@ pub(crate) fn encode_assistant_message(
     blocks: &[Block],
     path: &str,
 ) -> (Vec<InputItem>, Vec<Loss>) {
-    let mut thinkings = Vec::new();
+    let mut reasoning = ReasoningBuilder::new();
     let mut text = String::new();
     let mut has_text = false;
     let mut has_refusal = false;
@@ -1589,12 +1601,17 @@ pub(crate) fn encode_assistant_message(
                 LossReason::UnsupportedSemantic,
                 "anthropic encrypted thinking replay state; the target face cannot preserve this block",
             )),
+            Block::EncryptedContent { data, .. } => {
+                if !data.is_empty() {
+                    reasoning.add_cipher(data.clone());
+                }
+            }
             Block::Thinking {
                 thinking,
                 signature,
                 ..
             } => {
-                thinkings.push(OutputPart {
+                reasoning.add_thinking(OutputPart {
                     kind: PART_TYPE_OUTPUT_TEXT.to_string(),
                     text: thinking.clone(),
                     annotations: Vec::new(),
@@ -1608,7 +1625,7 @@ pub(crate) fn encode_assistant_message(
                         format!("{path}[{index}].signature"),
                         "signature",
                         LossReason::UnmappedField,
-                        "Responses reasoning input items carry no provider signature",
+                        "Responses request reasoning items carry no provider signature",
                     ));
                 }
             }
@@ -1698,10 +1715,11 @@ pub(crate) fn encode_assistant_message(
         }
     }
     let mut items = Vec::new();
-    if !thinkings.is_empty() {
+    for item in reasoning.items {
         items.push(InputItem {
             kind: ITEM_TYPE_REASONING.to_string(),
-            summary: thinkings,
+            summary: item.summary,
+            encrypted_content: item.cipher.unwrap_or_default(),
             ..InputItem::default()
         });
     }
@@ -1711,7 +1729,7 @@ pub(crate) fn encode_assistant_message(
             content: Some(ContentValue::Parts(parts)),
             ..InputItem::default()
         });
-    } else if has_text || blocks.is_empty() {
+    } else if has_text || (blocks.is_empty() && items.is_empty()) {
         items.push(InputItem {
             role: ROLE_ASSISTANT.to_string(),
             content: Some(ContentValue::Text(text)),
@@ -1741,4 +1759,64 @@ pub(crate) fn content_system(blocks: Vec<Block>, path: &str) -> (Vec<SystemBlock
         }
     }
     (out, losses)
+}
+
+struct ReasoningItem {
+    summary: Vec<OutputPart>,
+    cipher: Option<String>,
+}
+
+struct ReasoningBuilder {
+    items: Vec<ReasoningItem>,
+    cur: Option<usize>,
+}
+
+impl ReasoningBuilder {
+    fn new() -> Self {
+        Self {
+            items: Vec::new(),
+            cur: None,
+        }
+    }
+
+    fn add_thinking(&mut self, part: OutputPart) {
+        if let Some(idx) = self.cur
+            && self.items[idx].cipher.is_some()
+        {
+            self.cur = None;
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                let i = self.items.len() - 1;
+                self.cur = Some(i);
+                i
+            }
+        };
+        self.items[idx].summary.push(part);
+    }
+
+    fn add_cipher(&mut self, cipher: String) {
+        if let Some(idx) = self.cur
+            && self.items[idx].cipher.is_some()
+        {
+            self.cur = None;
+        }
+        let idx = match self.cur {
+            Some(i) => i,
+            None => {
+                self.items.push(ReasoningItem {
+                    summary: Vec::new(),
+                    cipher: None,
+                });
+                self.items.len() - 1
+            }
+        };
+        self.items[idx].cipher = Some(cipher);
+        self.cur = None;
+    }
 }

@@ -98,6 +98,7 @@
         { "$ref": "#/$defs/requestToolResultBlock" },
         { "$ref": "#/$defs/requestThinkingBlock" },
         { "$ref": "#/$defs/requestRedactedThinkingBlock" },
+        { "$ref": "#/$defs/requestEncryptedContentBlock" },
         { "$ref": "#/$defs/requestCustomToolUseBlock" },
         { "$ref": "#/$defs/requestCustomToolResultBlock" },
         { "$ref": "#/$defs/requestApplyPatchToolUseBlock" },
@@ -232,6 +233,20 @@
       "required": ["type", "thinking"],
       "additionalProperties": false
     },
+    "requestEncryptedContentBlock": {
+      "type": "object",
+      "description": "Responses reasoning replay ciphertext in request history (spec/01 s3.4, since 2.5.2).",
+      "properties": {
+        "type": { "const": "encrypted_content" },
+        "data": { "type": "string", "minLength": 1 },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
+        }
+      },
+      "required": ["type", "data"],
+      "additionalProperties": false
+    },
     "requestRedactedThinkingBlock": {
       "type": "object",
       "description": "Anthropic encrypted thinking replay content block in request history (spec/01 s3.4, since 2.4.11).",
@@ -327,6 +342,7 @@
         { "$ref": "#/$defs/toolResultBlock" },
         { "$ref": "#/$defs/thinkingBlock" },
         { "$ref": "#/$defs/redactedThinkingBlock" },
+        { "$ref": "#/$defs/encryptedContentBlock" },
         { "$ref": "#/$defs/customToolUseBlock" },
         { "$ref": "#/$defs/customToolResultBlock" },
         { "$ref": "#/$defs/applyPatchToolUseBlock" },
@@ -512,6 +528,16 @@
         "signature": { "type": "string", "minLength": 1 }
       },
       "required": ["type", "thinking"],
+      "additionalProperties": false
+    },
+    "encryptedContentBlock": {
+      "type": "object",
+      "description": "Responses reasoning replay ciphertext (spec/01 s3.4, since 2.5.2). Opaque; never copied into a loss detail.",
+      "properties": {
+        "type": { "const": "encrypted_content" },
+        "data": { "type": "string", "minLength": 1 }
+      },
+      "required": ["type", "data"],
       "additionalProperties": false
     },
     "redactedThinkingBlock": {

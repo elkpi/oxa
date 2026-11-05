@@ -20,6 +20,7 @@ import {
   parseUsageInteger,
   validateCitationValue,
   validateRequest,
+  ENCRYPTED_CONTENT_LOSS_DETAIL,
 } from "../../ir/index.js";
 import { auditWire, mergeWireLosses } from "../../json/wire-audit.js";
 import { ANTHROPIC_REQUEST, ANTHROPIC_RESPONSE } from "./audit.js";
@@ -373,6 +374,11 @@ function decodeRequestObject(
             `messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`,
           );
         }
+        if (b.type === "encrypted_content") {
+          fail(
+            `messages[${index}].content[${bIdx}]: encrypted_content is not permitted in user messages`,
+          );
+        }
         if (
           b.type === "text" &&
           (b as TextBlock).citations &&
@@ -584,6 +590,11 @@ export function encodeRequest(
         if (b.type === "redacted_thinking") {
           fail(
             `messages[${index}].content[${bIdx}]: redacted_thinking is not permitted in user messages`,
+          );
+        }
+        if (b.type === "encrypted_content") {
+          fail(
+            `messages[${index}].content[${bIdx}]: encrypted_content is not permitted in user messages`,
           );
         }
         if (b.type === "text" && b.citations && b.citations.length > 0) {
@@ -1216,6 +1227,11 @@ function decodeContent(
                 `${path}[${index}].content[${cIdx}]: redacted_thinking is not permitted in tool_result`,
               );
             }
+            if (cb.type === "encrypted_content") {
+              fail(
+                `${path}[${index}].content[${cIdx}]: encrypted_content is not permitted in tool_result`,
+              );
+            }
             if (
               cb.type === "text" &&
               (cb as TextBlock).citations &&
@@ -1253,6 +1269,11 @@ function decodeContent(
           if (cb.type === "redacted_thinking") {
             fail(
               `${path}[${index}].content[${cIdx}]: redacted_thinking is not permitted in tool_result`,
+            );
+          }
+          if (cb.type === "encrypted_content") {
+            fail(
+              `${path}[${index}].content[${cIdx}]: encrypted_content is not permitted in tool_result`,
             );
           }
           if (
@@ -1368,6 +1389,14 @@ function encodeContent(
           : {}),
         ...(cc ? { cache_control: cc } : {}),
       });
+    } else if (block.type === "encrypted_content") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
+      });
+      continue;
     } else if (block.type === "redacted_thinking") {
       output.push({
         type: "redacted_thinking",
@@ -1424,6 +1453,11 @@ function encodeContent(
         if (nested.type === "redacted_thinking") {
           fail(
             `${path}[${index}].content[${child}]: redacted_thinking is not permitted in tool_result`,
+          );
+        }
+        if (nested.type === "encrypted_content") {
+          fail(
+            `${path}[${index}].content[${child}]: encrypted_content is not permitted in tool_result`,
           );
         }
         if (nested.type === "text") {

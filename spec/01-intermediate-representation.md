@@ -103,13 +103,14 @@ A content block. Sealed; discriminated on the JSON `type` property:
 | `ToolResultBlock` | `tool_result` | the outcome of a tool invocation, supplied by the caller |
 | `ThinkingBlock` | `thinking` | the model's reasoning content, with optional opaque provider signature (since 2.0) |
 | `RedactedThinkingBlock` | `redacted_thinking` | Anthropic encrypted thinking replay content block (since 2.4.11) |
+| `EncryptedContentBlock` | `encrypted_content` | Responses reasoning replay ciphertext (since 2.5.2). Opaque; not interchangeable with `redacted_thinking` or `signature` |
 | `CustomToolUseBlock` | `custom_tool_use` | 任意文本输入的自定义工具调用（2.2，见 spec/13） |
 | `CustomToolResultBlock` | `custom_tool_result` | 自定义工具结果：字符串或受限 text/image 列表（2.2） |
 | `ApplyPatchToolUseBlock` | `apply_patch_tool_use` | 专用补丁调用：id、调用状态与强类型 Operation（2.3，spec/14） |
 | `ApplyPatchToolResultBlock` | `apply_patch_tool_result` | 专用补丁结果：tool_use_id、结果状态与可选 output（2.3） |
 | `WebSearchCallBlock` | `web_search_call` | Responses 已完成或进行中的 web search 历史项（2.4.13，spec/11 N-R-16） |
 
-Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), and `WebSearchCallBlock` (2.4.13) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers. The IR contract version stays `0.2.0`.
+Adding `DocumentBlock` (2.4.8), `RedactedThinkingBlock` (2.4.11), `WebSearchCallBlock` (2.4.13), and `EncryptedContentBlock` (2.5.2) extends the sealed variant set. Consumers that exhaustively match on block variants MUST extend their matches to handle the new variants; per the versioning policy in [README](README.md) this additive change does not by itself require a major version bump, but the match extension is a REQUIRED migration for exhaustive consumers. The IR contract version stays `0.2.0`.
 
 #### TextBlock
 

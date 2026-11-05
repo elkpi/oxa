@@ -6,6 +6,7 @@ import json
 from typing import Any
 
 from oxa.ir import (
+    EncryptedContentBlock,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
     LOSS_UNSUPPORTED_SEMANTIC,
@@ -426,7 +427,8 @@ def encode_response(
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR response to a Responses wire response (IR → face)."""
     losses: list[Loss] = []
-    thinkings: list[dict[str, Any]] = []
+    reasoning_items: list[dict[str, Any]] = []
+    cur_reasoning: dict[str, Any] | None = None
     text_parts: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
     apc_index = 0
@@ -483,8 +485,23 @@ def encode_response(
                     "anthropic encrypted thinking replay state; the target face cannot preserve this block",
                 )
             )
+        elif isinstance(block, EncryptedContentBlock):
+            if not block.data:
+                raise ValueError(f"responses: content[{index}].data: encrypted_content data is required")
+            if cur_reasoning is not None and "encrypted_content" in cur_reasoning:
+                cur_reasoning = None
+            if cur_reasoning is None:
+                cur_reasoning = {"summary": []}
+                reasoning_items.append(cur_reasoning)
+            cur_reasoning["encrypted_content"] = block.data
+            cur_reasoning = None
         elif isinstance(block, ThinkingBlock):
-            thinkings.append(
+            if cur_reasoning is not None and "encrypted_content" in cur_reasoning:
+                cur_reasoning = None
+            if cur_reasoning is None:
+                cur_reasoning = {"summary": []}
+                reasoning_items.append(cur_reasoning)
+            cur_reasoning["summary"].append(
                 {
                     "type": PART_TYPE_OUTPUT_TEXT,
                     "text": block.thinking,
@@ -497,7 +514,7 @@ def encode_response(
                         f"content[{index}].signature",
                         "signature",
                         LOSS_UNMAPPED_FIELD,
-                        "Responses reasoning output items carry no provider signature",
+                        "Responses reasoning items carry no provider signature",
                     )
                 )
         elif isinstance(block, ApplyPatchToolUseBlock):
@@ -575,7 +592,7 @@ def encode_response(
             )
 
     output = list(calls)
-    if text_parts or (not resp.content and not thinkings):
+    if text_parts or (not resp.content and not reasoning_items):
         output.insert(
             0,
             {
@@ -592,15 +609,16 @@ def encode_response(
                 ],
             },
         )
-    if thinkings:
-        output.insert(
-            0,
-            {
-                "type": ITEM_TYPE_REASONING,
-                "id": "rs_abc123",
-                "summary": thinkings,
-            },
-        )
+    for n in range(len(reasoning_items) - 1, -1, -1):
+        item = reasoning_items[n]
+        item_dict = {
+            "type": ITEM_TYPE_REASONING,
+            "id": f"rs_abc{123 + n}",
+            "summary": item["summary"],
+        }
+        if "encrypted_content" in item:
+            item_dict["encrypted_content"] = item["encrypted_content"]
+        output.insert(0, item_dict)
 
     status = STATUS_COMPLETED
     incomplete_details = None

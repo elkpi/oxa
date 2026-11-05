@@ -122,7 +122,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 184);
+        CHECK(r->executed == 187);
     }
 
     // 4. Cross-protocol nonstream
@@ -136,7 +136,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 98);
+        CHECK(r->executed == 99);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

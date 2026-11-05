@@ -17,6 +17,7 @@ from oxa.ir.constants import (
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_REDACTED_THINKING,
+    BLOCK_TYPE_ENCRYPTED_CONTENT,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     DELTA_TYPE_CUSTOM_TOOL_INPUT_DELTA,
@@ -88,6 +89,7 @@ from oxa.ir.types import (
     ThinkingBlock,
     ThinkingDelta,
     RedactedThinkingBlock,
+    EncryptedContentBlock,
     CitationDelta,
     Tool,
     ToolChoice,
@@ -359,6 +361,10 @@ def dump_block(block: Block) -> dict[str, Any]:
         return out
     if isinstance(block, RedactedThinkingBlock):
         return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
+    if isinstance(block, EncryptedContentBlock):
+        if not block.data:
+            raise CodecError("encrypted_content data is required")
+        return {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
     if isinstance(block, ThinkingBlock):
         out: dict[str, Any] = {
             "type": BLOCK_TYPE_THINKING,
@@ -485,6 +491,10 @@ def dump_request_block(block: Block) -> dict[str, Any]:
             raise CodecError("role is only permitted on system blocks")
     elif isinstance(block, RedactedThinkingBlock):
         out = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
+    elif isinstance(block, EncryptedContentBlock):
+        if not block.data:
+            raise CodecError("encrypted_content data is required")
+        out = {"type": BLOCK_TYPE_ENCRYPTED_CONTENT, "data": block.data}
     elif isinstance(block, ThinkingBlock):
         out = {"type": BLOCK_TYPE_THINKING, "thinking": block.thinking}
         if block.signature is not None:
@@ -679,6 +689,11 @@ def load_block(data: dict[str, Any]) -> Block:
         if not isinstance(d, str):
             raise CodecError("redacted_thinking requires string data")
         return RedactedThinkingBlock(data=d)
+    if kind == BLOCK_TYPE_ENCRYPTED_CONTENT:
+        d = data.get("data")
+        if not isinstance(d, str) or not d:
+            raise CodecError("encrypted_content requires non-empty string data")
+        return EncryptedContentBlock(data=d)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"))
     if kind == BLOCK_TYPE_IMAGE:
@@ -777,6 +792,11 @@ def load_request_block(data: dict[str, Any]) -> Block:
         if not isinstance(d, str):
             raise CodecError("redacted_thinking requires string data")
         return RedactedThinkingBlock(data=d, native=native)
+    if kind == BLOCK_TYPE_ENCRYPTED_CONTENT:
+        d = data.get("data")
+        if not isinstance(d, str) or not d:
+            raise CodecError("encrypted_content requires non-empty string data")
+        return EncryptedContentBlock(data=d, native=native)
     if kind == BLOCK_TYPE_THINKING:
         return ThinkingBlock(thinking=data["thinking"], signature=data.get("signature"), native=native)
     if kind == BLOCK_TYPE_IMAGE:

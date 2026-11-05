@@ -15,7 +15,7 @@ inline const detail::AuditProfile& wire_profile() {
          {"custom_call", {{"type", ""}, {"id", ""}, {"call_id", ""}, {"name", ""}, {"namespace", ""}, {"input", ""}}},
          {"custom_output", {{"type", ""}, {"id", ""}, {"call_id", ""}, {"output", "custom_output_part[]"}}},
          {"function_output", {{"type", ""}, {"id", ""}, {"status", ""}, {"call_id", ""}, {"output", ""}}},
-         {"reasoning_item", {{"type", ""}, {"id", ""}, {"status", ""}, {"summary", "summary_part[]"}}},
+         {"reasoning_item", {{"type", ""}, {"id", ""}, {"status", ""}, {"summary", "summary_part[]"}, {"encrypted_content", ""}}},
          {"web_search_call", {{"type", ""}, {"id", ""}, {"status", ""}, {"action", ""}}},
          {"plain_part", {{"type", ""}, {"text", ""}, {"annotations", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},
          {"input_image", {{"type", ""}, {"image_url", ""}, {"prompt_cache_breakpoint", "prompt_cache_breakpoint_def"}}},

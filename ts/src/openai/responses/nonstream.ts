@@ -23,6 +23,7 @@ import {
   validateCitation,
   validateRequest,
   omittedNativeRequestLosses,
+  ENCRYPTED_CONTENT_LOSS_DETAIL,
   DEFER_LOADING_LOSS_DETAIL,
   PROMPT_CACHE_KEY_LOSS_DETAIL,
   PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
@@ -75,7 +76,7 @@ function emptyAdditionalToolsLoss(index: number): Loss {
   };
 }
 
-function decodeWebSearchCall(
+export function decodeWebSearchCall(
   item: JsonObject,
   path: string,
   losses: Loss[],
@@ -272,6 +273,15 @@ function decodeRequestObject(
               const text = string(part.text, `${partPath}.text`);
               if (text !== "")
                 thinking.push({ type: "thinking", thinking: text });
+            }
+            if (current.encrypted_content !== undefined) {
+              const cipher = string(
+                current.encrypted_content,
+                `input[${index}].encrypted_content`,
+              );
+              if (cipher !== "") {
+                thinking.push({ type: "encrypted_content", data: cipher });
+              }
             }
             index += 1;
             continue;
@@ -985,7 +995,7 @@ function decodeResponseObject(
           thinking: string(part.text, `${partPath}.text`),
         });
       }
-      if (parts.length === 0)
+      if (parts.length === 0 && item.encrypted_content === undefined)
         losses.push({
           path: `output[${index}]`,
           field: "type",
@@ -993,14 +1003,15 @@ function decodeResponseObject(
           detail:
             "Responses reasoning output item with empty summary carries no convertible content",
         });
-      if (item.encrypted_content !== undefined)
-        losses.push(
-          loss(
-            `output[${index}].encrypted_content`,
-            "encrypted_content",
-            "unmapped-field",
-          ),
+      if (item.encrypted_content !== undefined) {
+        const cipher = string(
+          item.encrypted_content,
+          `output[${index}].encrypted_content`,
         );
+        if (cipher !== "") {
+          texts.push({ type: "encrypted_content", data: cipher });
+        }
+      }
     } else if (item.type === "apply_patch_call") {
       nonEmptyString(item.id, `output[${index}].id`);
       const statusResult = decodeApplyPatchCallStatusWire(
@@ -1219,7 +1230,7 @@ export function encodeRequest(
       let hasText = false;
       let hasRefusal = false;
       const parts: JsonValue[] = [];
-      const thinking: string[] = [];
+      const reasoning = new ReasoningBuilder();
       const calls: JsonValue[] = [];
       for (let child = 0; child < message.content.length; child += 1) {
         const block = message.content[child]!;
@@ -1279,16 +1290,19 @@ export function encodeRequest(
             detail:
               "anthropic encrypted thinking replay state; the target face cannot preserve this block",
           });
+        } else if (block.type === "encrypted_content") {
+          if (block.data === "") fail("encrypted_content data is required");
+          reasoning.addCipher(block.data);
         } else if (block.type === "thinking") {
-          thinking.push(block.thinking);
+          reasoning.addThinking(block.thinking);
           if (block.signature !== undefined)
-            losses.push(
-              loss(
-                `messages[${index}].content[${child}].signature`,
-                "signature",
-                "unmapped-field",
-              ),
-            );
+            losses.push({
+              path: `messages[${index}].content[${child}].signature`,
+              field: "signature",
+              reason: "unmapped-field",
+              detail:
+                "Responses request reasoning items carry no provider signature",
+            });
         } else if (block.type === "apply_patch_tool_use") {
           calls.push({
             type: "apply_patch_call",
@@ -1333,21 +1347,27 @@ export function encodeRequest(
             ),
           );
       }
-      if (thinking.length > 0) {
+      for (const item of reasoning.items) {
         requestOrdinal += 1;
         items.push({
           type: "reasoning",
           id: `rs_abc${String(123 + 333 * (requestOrdinal - 1)).padStart(3, "0")}`,
-          summary: thinking.map((entry) => ({
+          summary: item.summary.map((entry) => ({
             type: "output_text",
             text: entry,
             annotations: [],
           })),
+          ...(item.cipher !== undefined
+            ? { encrypted_content: item.cipher }
+            : {}),
         });
       }
       if (hasRefusal) {
         items.push({ role: "assistant", content: parts });
-      } else if (hasText) {
+      } else if (
+        hasText ||
+        (message.content.length === 0 && reasoning.items.length === 0)
+      ) {
         items.push({ role: "assistant", content: text });
       }
       items.push(...calls);
@@ -1523,7 +1543,7 @@ export function encodeResponse(
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
   const losses: Loss[] = [];
-  const thinking: string[] = [];
+  const reasoning = new ReasoningBuilder();
   const textParts: JsonValue[] = [];
   const calls: JsonValue[] = [];
   let apcIndex = 0;
@@ -1580,12 +1600,18 @@ export function encodeResponse(
         detail:
           "anthropic encrypted thinking replay state; the target face cannot preserve this block",
       });
+    } else if (block.type === "encrypted_content") {
+      if (block.data === "") fail("encrypted_content data is required");
+      reasoning.addCipher(block.data);
     } else if (block.type === "thinking") {
-      thinking.push(block.thinking);
+      reasoning.addThinking(block.thinking);
       if (block.signature !== undefined)
-        losses.push(
-          loss(`content[${index}].signature`, "signature", "unmapped-field"),
-        );
+        losses.push({
+          path: `content[${index}].signature`,
+          field: "signature",
+          reason: "unmapped-field",
+          detail: "Responses reasoning items carry no provider signature",
+        });
     } else if (block.type === "apply_patch_tool_use") {
       calls.push({
         type: "apply_patch_call",
@@ -1650,19 +1676,22 @@ export function encodeResponse(
       losses.push(loss(`content[${index}]`, "content", "unsupported-semantic"));
   }
   const output: JsonValue[] = [];
-  if (thinking.length > 0)
-    output.push({
+  for (let n = reasoning.items.length - 1; n >= 0; n--) {
+    const item = reasoning.items[n]!;
+    output.unshift({
       type: "reasoning",
-      id: "rs_abc123",
-      summary: thinking.map((entry) => ({
+      id: `rs_abc${123 + n}`,
+      summary: item.summary.map((entry) => ({
         type: "output_text",
         text: entry,
         annotations: [],
       })),
+      ...(item.cipher !== undefined ? { encrypted_content: item.cipher } : {}),
     });
+  }
   if (
     textParts.length > 0 ||
-    (response.content.length === 0 && thinking.length === 0)
+    (response.content.length === 0 && reasoning.items.length === 0)
   )
     output.push({
       type: "message",
@@ -2159,6 +2188,14 @@ function encodeUserContent(
           });
         }
       }
+    } else if (block.type === "encrypted_content") {
+      otherBlocks += 1;
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
+      });
     } else if (block.type === "redacted_thinking") {
       otherBlocks += 1;
       losses.push({
@@ -3035,5 +3072,35 @@ function encodeTextFormat(format: ResponseFormat): JsonObject {
         schema: format.schema,
         ...(format.strict === undefined ? {} : { strict: format.strict }),
       };
+  }
+}
+
+class ReasoningBuilder {
+  readonly items: { summary: string[]; cipher?: string }[] = [];
+  #cur: { summary: string[]; cipher?: string } | undefined;
+
+  addThinking(text: string): void {
+    if (this.#cur !== undefined && this.#cur.cipher !== undefined) {
+      this.#cur = undefined;
+    }
+    if (this.#cur === undefined) {
+      const item: { summary: string[]; cipher?: string } = { summary: [] };
+      this.items.push(item);
+      this.#cur = item;
+    }
+    this.#cur.summary.push(text);
+  }
+
+  addCipher(cipher: string): void {
+    if (this.#cur !== undefined && this.#cur.cipher !== undefined) {
+      this.#cur = undefined;
+    }
+    if (this.#cur === undefined) {
+      const item: { summary: string[]; cipher?: string } = { summary: [] };
+      this.items.push(item);
+      this.#cur = item;
+    }
+    this.#cur.cipher = cipher;
+    this.#cur = undefined;
   }
 }

@@ -50,6 +50,8 @@ from oxa.ir import (
     ThinkingBlock,
     ThinkingDelta,
     RedactedThinkingBlock,
+    EncryptedContentBlock,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     WebSearchCallBlock,
     CitationDelta,
     ToolUseBlock,
@@ -194,6 +196,18 @@ class StreamEncoder:
                     }
                 ], []
 
+            if isinstance(ev.block, EncryptedContentBlock):
+                self._open_index = ev.index
+                self._native_index = -1
+                self._open_apply_patch = True
+                return [], [
+                    loss(
+                        f"events[{ev.index}].block",
+                        "type",
+                        "unsupported-semantic",
+                        ENCRYPTED_CONTENT_LOSS_DETAIL,
+                    )
+                ]
             if isinstance(ev.block, RedactedThinkingBlock):
                 self._open_index = ev.index
                 self._native_index = self._next_native_index

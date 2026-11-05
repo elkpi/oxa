@@ -8,6 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from oxa.ir import (
+    EncryptedContentBlock,
     LOSS_UNSUPPORTED_SEMANTIC,
     ApplyPatchToolResultBlock,
     ApplyPatchToolUseBlock,
@@ -29,6 +30,7 @@ from oxa.ir import (
     ThinkingBlock,
     ThinkingDelta,
     ToolUseBlock,
+    WebSearchCallBlock,
     Usage,
 )
 from oxa.modelmap import Table
@@ -270,6 +272,8 @@ class StreamDecoder:
                 self._custom_tool_call = _StreamCustomToolCall(call_id=call_id, name=name)
                 return []
 
+            if item_type == "web_search_call":
+                return []
             self._skipped_item = True
             if item_type == ITEM_TYPE_FUNCTION_CALL_OUTPUT:
                 self._skipped_call_id = item.get("call_id", "")
@@ -673,6 +677,25 @@ class StreamDecoder:
                 events.append(ContentBlockStop(index=idx))
                 self._custom_tool_call = None
                 self._tool_use_seen = True
+
+            if self._item_type == ITEM_TYPE_REASONING and item.get("encrypted_content"):
+                idx = self._next_block_index
+                self._next_block_index += 1
+                events.append(ContentBlockStart(index=idx, block=EncryptedContentBlock(data=item["encrypted_content"])))
+                events.append(ContentBlockStop(index=idx))
+            if self._item_type == "web_search_call":
+                from oxa.ir.web_search import inspect_web_search, validate_web_search_extra
+                item_id = item.get("id", "")
+                status = item.get("status", "")
+                action = item.get("action", {})
+                extra = {k: v for k, v in item.items() if k not in ("type", "id", "status", "action")}
+                validate_web_search_extra(extra)
+                call_losses = inspect_web_search(item_id, status, action, f"output[{output_index}]")
+                self._losses.extend(call_losses)
+                idx = self._next_block_index
+                self._next_block_index += 1
+                events.append(ContentBlockStart(index=idx, block=WebSearchCallBlock(id=item_id, status=status, action=action, extra=extra)))
+                events.append(ContentBlockStop(index=idx))
 
             self._item_open = False
             self._item_type = ""

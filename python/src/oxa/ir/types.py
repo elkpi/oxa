@@ -11,6 +11,8 @@ from oxa.ir.constants import (
     BLOCK_TYPE_TEXT,
     BLOCK_TYPE_THINKING,
     BLOCK_TYPE_REDACTED_THINKING,
+    BLOCK_TYPE_ENCRYPTED_CONTENT,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     BLOCK_TYPE_TOOL_RESULT,
     BLOCK_TYPE_TOOL_USE,
     BLOCK_TYPE_CUSTOM_TOOL_USE,
@@ -86,6 +88,22 @@ class RedactedThinkingBlock:
 
     def __repr__(self) -> str:
         return "[RedactedThinkingBlock]"
+
+
+@dataclass(frozen=True, slots=True)
+class EncryptedContentBlock:
+    """Responses reasoning replay ciphertext (spec/01 §3.4, since 2.5.2)."""
+
+    data: str
+    native: tuple[NativeAnnotation, ...] = ()
+    type: str = field(default=BLOCK_TYPE_ENCRYPTED_CONTENT, init=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.native, tuple):
+            object.__setattr__(self, "native", _normalize_native(self.native))
+
+    def __repr__(self) -> str:
+        return "[EncryptedContentBlock]"
 
 
 @dataclass(frozen=True, slots=True)
@@ -282,6 +300,7 @@ Block = (
     TextBlock
     | ThinkingBlock
     | RedactedThinkingBlock
+    | EncryptedContentBlock
     | ImageBlock
     | DocumentBlock
     | ToolUseBlock

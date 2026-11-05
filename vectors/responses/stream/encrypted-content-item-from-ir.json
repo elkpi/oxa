@@ -1,0 +1,44 @@
+{
+  "name": "responses.stream.encrypted-content-item-from-ir",
+  "description": "An IR encrypted_content block following a thinking block attaches to the still-open reasoning item; the item completes with summary and encrypted_content when the text block opens (N-R-13, spec/20 §9).",
+  "spec_version": "0.2.0",
+  "mode": "stream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.2.0",
+    "events": [
+      { "type": "message_start", "id": "resp_cipher_from", "model": "o3-mini" },
+      { "type": "content_block_start", "index": 0, "block": { "type": "thinking", "thinking": "" } },
+      { "type": "content_block_delta", "index": 0, "delta": { "type": "thinking_delta", "text": "Analyzing..." } },
+      { "type": "content_block_stop", "index": 0 },
+      { "type": "content_block_start", "index": 1, "block": { "type": "encrypted_content", "data": "STREAM_CIPHER" } },
+      { "type": "content_block_stop", "index": 1 },
+      { "type": "content_block_start", "index": 2, "block": { "type": "text", "text": "" } },
+      { "type": "content_block_delta", "index": 2, "delta": { "type": "text_delta", "text": "Done." } },
+      { "type": "content_block_stop", "index": 2 },
+      { "type": "message_delta", "stop_reason": "end_turn", "usage": { "input_tokens": 6, "output_tokens": 11 } },
+      { "type": "message_done" }
+    ]
+  },
+  "expected_output": {
+    "events": [
+      { "type": "response.created", "response": { "id": "resp_cipher_from", "object": "response", "status": "in_progress", "model": "o3-mini", "output": [] } },
+      { "type": "response.output_item.added", "output_index": 0, "item": { "type": "reasoning", "id": "rs_abc123", "status": "in_progress" } },
+      { "type": "response.reasoning_summary_part.added", "item_id": "rs_abc123", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.reasoning_summary_text.delta", "item_id": "rs_abc123", "output_index": 0, "content_index": 0, "delta": "Analyzing..." },
+      { "type": "response.reasoning_summary_part.done", "item_id": "rs_abc123", "output_index": 0, "content_index": 0, "part": { "type": "output_text", "text": "Analyzing...", "annotations": [] } },
+      { "type": "response.output_item.done", "output_index": 0, "item": { "type": "reasoning", "id": "rs_abc123", "status": "completed", "summary": [{ "type": "output_text", "text": "Analyzing...", "annotations": [] }], "encrypted_content": "STREAM_CIPHER" } },
+      { "type": "response.output_item.added", "output_index": 1, "item": { "type": "message", "id": "msg_abc123", "status": "in_progress", "role": "assistant" } },
+      { "type": "response.content_part.added", "item_id": "msg_abc123", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "", "annotations": [] } },
+      { "type": "response.output_text.delta", "item_id": "msg_abc123", "output_index": 1, "content_index": 0, "delta": "Done." },
+      { "type": "response.output_text.done", "item_id": "msg_abc123", "output_index": 1, "content_index": 0, "text": "Done." },
+      { "type": "response.content_part.done", "item_id": "msg_abc123", "output_index": 1, "content_index": 0, "part": { "type": "output_text", "text": "Done.", "annotations": [] } },
+      { "type": "response.output_item.done", "output_index": 1, "item": { "type": "message", "id": "msg_abc123", "status": "completed", "role": "assistant", "content": [{ "type": "output_text", "text": "Done.", "annotations": [] }] } },
+      { "type": "response.completed", "response": { "id": "resp_cipher_from", "object": "response", "status": "completed", "model": "o3-mini", "output": [ { "type": "reasoning", "id": "rs_abc123", "status": "completed", "summary": [{ "type": "output_text", "text": "Analyzing...", "annotations": [] }], "encrypted_content": "STREAM_CIPHER" }, { "type": "message", "id": "msg_abc123", "status": "completed", "role": "assistant", "content": [{ "type": "output_text", "text": "Done.", "annotations": [] }] } ], "usage": { "input_tokens": 6, "output_tokens": 11, "total_tokens": 17 } } }
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["stream", "thinking", "encrypted-content", "n-r-13"]
+}

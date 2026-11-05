@@ -72,6 +72,8 @@ from oxa.ir import (
     TextBlock,
     ThinkingBlock,
     RedactedThinkingBlock,
+    EncryptedContentBlock,
+    ENCRYPTED_CONTENT_LOSS_DETAIL,
     ToolResultBlock,
     ToolUseBlock,
     WebSearchCallBlock,
@@ -444,6 +446,15 @@ def encode_request_block(
             if raw_cites:
                 encoded["citations"] = raw_cites
 
+    elif isinstance(block, EncryptedContentBlock):
+        losses.append(
+            loss(
+                path,
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )
+        )
     elif isinstance(block, RedactedThinkingBlock):
         encoded = {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}
 
@@ -918,6 +929,15 @@ def encode_response_block(
             if raw_cites:
                 encoded["citations"] = raw_cites
         return encoded, losses, True
+    if isinstance(block, EncryptedContentBlock):
+        return None, [
+            loss(
+                path,
+                "type",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )
+        ], False
     if isinstance(block, RedactedThinkingBlock):
         return {"type": BLOCK_TYPE_REDACTED_THINKING, "data": block.data}, [], True
     if isinstance(block, ThinkingBlock):

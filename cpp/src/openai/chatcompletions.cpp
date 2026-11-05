@@ -1096,6 +1096,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                 } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
+                } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1217,6 +1222,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                 } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
                     losses.push_back(make_cc_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
+                } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+                    losses.push_back(make_cc_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_cc_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -1687,6 +1697,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             }
         } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
             losses.push_back(make_cc_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Chat Completions equivalent"));
+        } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+            losses.push_back(make_cc_loss(
+                "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
         } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
             losses.push_back(make_cc_loss(
                 "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -2058,14 +2072,19 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             active_ = std::move(act);
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
-        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block) || std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block) || std::holds_alternative<ir::EncryptedContentBlock>(cbs->block) || std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
             ActiveBlock act;
             act.kind = ActiveBlock::Kind::Redacted;
             act.index = cbs->index;
             active_ = std::move(act);
+            std::string detail = "anthropic encrypted thinking replay state; the target face cannot preserve this block";
+            if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
+                detail = "Responses web_search_call has no Chat Completions equivalent";
+            } else if (std::holds_alternative<ir::EncryptedContentBlock>(cbs->block)) {
+                detail = std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL);
+            }
             losses.push_back(make_cc_loss("events[" + std::to_string(ordinal) + "].block", "type",
-                ir::LOSS_UNSUPPORTED_SEMANTIC, "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
-            if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) losses.back().detail = "Responses web_search_call has no Chat Completions equivalent";
+                ir::LOSS_UNSUPPORTED_SEMANTIC, detail));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (std::holds_alternative<ir::ThinkingBlock>(cbs->block)) {

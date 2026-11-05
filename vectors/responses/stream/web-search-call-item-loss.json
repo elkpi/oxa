@@ -1,6 +1,6 @@
 {
   "name": "responses.stream.web-search-call-item-loss",
-  "description": "The streaming profile reports one unsupported-semantic loss for a web_search_call item and emits no content block (N-R-16).",
+  "description": "Responses streaming emits the same WebSearchCallBlock as non-streaming when the web_search_call item completes (N-R-16).",
   "spec_version": "0.2.0",
   "mode": "stream",
   "conversion": "to-ir",
@@ -17,12 +17,12 @@
     "specVersion": "0.2.0",
     "events": [
       {"type": "message_start", "id": "resp_ws", "model": "gpt-5"},
+      {"type": "content_block_start", "index": 0, "block": {"type": "web_search_call", "id": "ws_1", "status": "completed", "action": {"type": "search", "query": "news"}}},
+      {"type": "content_block_stop", "index": 0},
       {"type": "message_delta", "stop_reason": "end_turn", "usage": {"input_tokens": 2, "output_tokens": 2}},
       {"type": "message_done"}
     ]
   },
-  "expected_losses": [
-    {"path": "output[0]", "field": "type", "reason": "unsupported-semantic"}
-  ],
+  "expected_losses": [],
   "tags": ["stream", "web-search", "loss", "n-r-16"]
 }

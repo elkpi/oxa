@@ -273,7 +273,11 @@ fn decodes_reasoning_output_encrypted_content_and_usage_details() {
         decoded.content.first(),
         Some(Block::Thinking { thinking, .. }) if thinking == "Analyze."
     ));
-    assert!(matches!(decoded.content.get(1), Some(Block::Text { text, .. }) if text == "Answer."));
+    assert!(matches!(
+        decoded.content.get(1),
+        Some(Block::EncryptedContent { data, .. }) if data == "opaque"
+    ));
+    assert!(matches!(decoded.content.get(2), Some(Block::Text { text, .. }) if text == "Answer."));
     assert_eq!(
         decoded.usage.input_tokens_details,
         Some(InputTokensDetails { cached_tokens: 4 })
@@ -285,7 +289,7 @@ fn decodes_reasoning_output_encrypted_content_and_usage_details() {
         })
     );
     assert!(
-        losses
+        !losses
             .iter()
             .any(|loss| loss.path == "output[0].encrypted_content")
     );

@@ -1065,9 +1065,15 @@ test("reports each stream signature source exactly once for reasoning blocks", (
   });
   assert.deepEqual(
     stoppedCached.value.at(-1)?.type,
-    "response.output_item.done",
+    "response.reasoning_summary_part.done",
   );
   assert.deepEqual(stoppedCached.losses, []);
+  const terminal = unsigned.Apply({
+    type: "message_delta",
+    stop_reason: "end_turn",
+    usage: { input_tokens: 1n, output_tokens: 1n },
+  });
+  assert.deepEqual(terminal.value.at(0)?.type, "response.output_item.done");
 });
 
 test("encodes the M7 Responses function call vector with synthesized envelopes", () => {

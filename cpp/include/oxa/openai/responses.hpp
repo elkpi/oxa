@@ -197,7 +197,7 @@ public:
     StatusOr<Conversion<std::vector<json::Value>>> apply(const ir::Event& event);
 
 private:
-    enum class OutputItemKind { Message, Reasoning, Redacted, FunctionCall, CustomToolCall, ApplyPatchCall, ApplyPatchResult };
+    enum class OutputItemKind { Message, Reasoning, Redacted, FunctionCall, CustomToolCall, ApplyPatchCall, ApplyPatchResult, EncryptedContent, WebSearchCall };
 
     struct StreamOutputItem {
         OutputItemKind kind;
@@ -208,6 +208,8 @@ private:
         std::string call_id;
         std::string name;
         std::string namespace_val;
+        std::string encrypted_content;
+        std::optional<json::Value> web_search_item;
     };
 
     struct StreamEncodeBlock {
@@ -252,6 +254,9 @@ private:
     json::Value close_reasoning_item();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_text_block(std::int64_t index, const ir::TextBlock& block, std::size_t ordinal);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_redacted_block(std::int64_t index, std::size_t ordinal);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_encrypted_content_block(std::int64_t index, const ir::EncryptedContentBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_web_search_block(std::int64_t index, const ir::WebSearchCallBlock& block);
+    StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> stop_web_search_block();
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_thinking_block(std::int64_t index, const ir::ThinkingBlock& block, std::size_t ordinal);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_function_call_block(std::int64_t index, const ir::ToolUseBlock& block);
     StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> start_custom_tool_call_block(std::int64_t index, const ir::CustomToolUseBlock& block);

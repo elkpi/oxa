@@ -313,6 +313,11 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
                         "anthropic: messages[{index}].content[{j}]: redacted_thinking is not permitted in user messages"
                     )));
                 }
+                if matches!(b, Block::EncryptedContent { .. }) {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}]: encrypted_content is not permitted in user messages"
+                    )));
+                }
                 if let Block::Text { citations, .. } = b
                     && citations.as_ref().is_some_and(|c| !c.is_empty())
                 {
@@ -581,6 +586,16 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 true,
             ))
         }
+        Block::EncryptedContent { .. } => Ok((
+            BlockWire::default(),
+            vec![loss(
+                path,
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )],
+            false,
+        )),
         Block::RedactedThinking { data, .. } => Ok((
             BlockWire {
                 kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),
@@ -982,6 +997,11 @@ fn encode_tool_result_block(
                     "anthropic: {content_path}: redacted_thinking is not permitted in tool_result"
                 )));
             }
+            Block::EncryptedContent { .. } => {
+                return Err(Error::new(format!(
+                    "anthropic: {content_path}: encrypted_content is not permitted in tool_result"
+                )));
+            }
             Block::Text {
                 text,
                 native,
@@ -1191,6 +1211,16 @@ fn encode_response_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Lo
                 true,
             ))
         }
+        Block::EncryptedContent { .. } => Ok((
+            BlockWire::default(),
+            vec![loss(
+                path,
+                "type",
+                LossReason::UnsupportedSemantic,
+                oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
+            )],
+            false,
+        )),
         Block::RedactedThinking { data, .. } => Ok((
             BlockWire {
                 kind: BLOCK_TYPE_REDACTED_THINKING.to_string(),

@@ -32,6 +32,8 @@ enum StreamOutputItemKind {
     CustomToolCall,
     ApplyPatchCall,
     ApplyPatchResult,
+    EncryptedContent,
+    WebSearchCall,
 }
 
 struct StreamOutputItem {
@@ -43,6 +45,8 @@ struct StreamOutputItem {
     call_id: String,
     name: String,
     namespace: String,
+    encrypted_content: String,
+    web_search_item: Option<OutputItem>,
 }
 
 struct StreamEncodeBlock {
@@ -158,7 +162,16 @@ impl StreamEncoder {
                     Block::Text {
                         text, citations, ..
                     } => self.start_text_block(*index, text, citations.as_deref(), ordinal),
-                    Block::RedactedThinking { .. } | Block::WebSearchCall { .. } => {
+                    Block::WebSearchCall {
+                        id,
+                        status,
+                        action,
+                        extra,
+                    } => self.start_web_search_block(*index, id, status, action, extra, ordinal),
+                    Block::EncryptedContent { data, .. } => {
+                        self.start_encrypted_content_block(*index, data)
+                    }
+                    Block::RedactedThinking { .. } => {
                         self.active_block = Some(StreamEncodeBlock {
                             index: *index,
                             kind: StreamOutputItemKind::Redacted,
@@ -172,11 +185,7 @@ impl StreamEncoder {
                             format!("events[{ordinal}].block"),
                             "type",
                             LossReason::UnsupportedSemantic,
-                            if matches!(block, Block::WebSearchCall { .. }) {
-                                "Responses streaming profile does not encode web_search_call"
-                            } else {
-                                "anthropic encrypted thinking replay state; the target face cannot preserve this block"
-                            },
+                            "anthropic encrypted thinking replay state; the target face cannot preserve this block",
                         );
                         Ok((Vec::new(), vec![l]))
                     }
@@ -213,14 +222,17 @@ impl StreamEncoder {
                         "responses: ContentBlockDelta out of grammar order",
                     ));
                 }
-                if active_block.kind == StreamOutputItemKind::Redacted {
-                    return Err(Error::new(
-                        "responses: RedactedThinkingBlock received unexpected delta",
-                    ));
+                if active_block.kind == StreamOutputItemKind::Redacted
+                    || active_block.kind == StreamOutputItemKind::EncryptedContent
+                    || active_block.kind == StreamOutputItemKind::WebSearchCall
+                {
+                    return Err(Error::new("responses: block received unexpected delta"));
                 }
                 let active_item = self.active_item.as_ref().expect("active item");
                 match active_block.kind {
-                    StreamOutputItemKind::Redacted => unreachable!(),
+                    StreamOutputItemKind::Redacted
+                    | StreamOutputItemKind::EncryptedContent
+                    | StreamOutputItemKind::WebSearchCall => unreachable!(),
                     StreamOutputItemKind::Message => match delta {
                         Delta::TextDelta { text } => {
                             active_block.text.push_str(text);
@@ -335,10 +347,11 @@ impl StreamEncoder {
                     ));
                 }
                 match active_block.kind {
-                    StreamOutputItemKind::Redacted => {
+                    StreamOutputItemKind::Redacted | StreamOutputItemKind::EncryptedContent => {
                         self.active_block = None;
                         Ok((Vec::new(), Vec::new()))
                     }
+                    StreamOutputItemKind::WebSearchCall => self.stop_web_search_block(),
                     StreamOutputItemKind::Message => self.stop_text_block(),
                     StreamOutputItemKind::Reasoning => self.stop_thinking_block(),
                     StreamOutputItemKind::FunctionCall => self.stop_function_call_block(),
@@ -359,12 +372,14 @@ impl StreamEncoder {
                         StreamOutputItemKind::FunctionCall
                         | StreamOutputItemKind::CustomToolCall
                         | StreamOutputItemKind::ApplyPatchCall
-                        | StreamOutputItemKind::ApplyPatchResult => {
+                        | StreamOutputItemKind::ApplyPatchResult
+                        | StreamOutputItemKind::WebSearchCall => {
                             return Err(Error::new(
                                 "responses: MessageDelta with an uncompleted tool-call item",
                             ));
                         }
-                        StreamOutputItemKind::Redacted => {}
+                        StreamOutputItemKind::Redacted | StreamOutputItemKind::EncryptedContent => {
+                        }
                     }
                 }
                 let (mut terminal, losses) = self.terminal(ev)?;
@@ -413,12 +428,13 @@ impl StreamEncoder {
                 StreamOutputItemKind::FunctionCall
                 | StreamOutputItemKind::CustomToolCall
                 | StreamOutputItemKind::ApplyPatchCall
-                | StreamOutputItemKind::ApplyPatchResult => {
+                | StreamOutputItemKind::ApplyPatchResult
+                | StreamOutputItemKind::WebSearchCall => {
                     return Err(Error::new(
                         "responses: TextBlock cannot open before the active tool item completes",
                     ));
                 }
-                StreamOutputItemKind::Redacted => {}
+                StreamOutputItemKind::Redacted | StreamOutputItemKind::EncryptedContent => {}
             }
         }
         if self.active_item.is_none() {
@@ -473,12 +489,13 @@ impl StreamEncoder {
                 StreamOutputItemKind::FunctionCall
                 | StreamOutputItemKind::CustomToolCall
                 | StreamOutputItemKind::ApplyPatchCall
-                | StreamOutputItemKind::ApplyPatchResult => {
+                | StreamOutputItemKind::ApplyPatchResult
+                | StreamOutputItemKind::WebSearchCall => {
                     return Err(Error::new(
                         "responses: ThinkingBlock cannot open before the active tool item completes",
                     ));
                 }
-                StreamOutputItemKind::Redacted => {}
+                StreamOutputItemKind::Redacted | StreamOutputItemKind::EncryptedContent => {}
             }
         }
         if self.active_item.is_none() {
@@ -547,12 +564,13 @@ impl StreamEncoder {
                 StreamOutputItemKind::FunctionCall
                 | StreamOutputItemKind::CustomToolCall
                 | StreamOutputItemKind::ApplyPatchCall
-                | StreamOutputItemKind::ApplyPatchResult => {
+                | StreamOutputItemKind::ApplyPatchResult
+                | StreamOutputItemKind::WebSearchCall => {
                     return Err(Error::new(
                         "responses: ToolUseBlock cannot open before the active tool item completes",
                     ));
                 }
-                StreamOutputItemKind::Redacted => {}
+                StreamOutputItemKind::Redacted | StreamOutputItemKind::EncryptedContent => {}
             }
         }
         let (item, added) = self.open_function_call_item(id, name);
@@ -692,6 +710,8 @@ impl StreamEncoder {
             call_id: id.to_string(),
             name: raw_name.to_string(),
             namespace: namespace.to_string(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -884,6 +904,8 @@ impl StreamEncoder {
             call_id: id.clone(),
             name: String::new(),
             namespace: String::new(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -996,6 +1018,8 @@ impl StreamEncoder {
             call_id: tool_use_id.clone(),
             name: String::new(),
             namespace: String::new(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         });
         self.active_block = Some(StreamEncodeBlock {
             index,
@@ -1082,6 +1106,8 @@ impl StreamEncoder {
             call_id: String::new(),
             name: String::new(),
             namespace: String::new(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -1127,6 +1153,8 @@ impl StreamEncoder {
             call_id: call_id.to_string(),
             name: raw_name.to_string(),
             namespace: namespace.to_string(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -1164,6 +1192,8 @@ impl StreamEncoder {
             call_id: String::new(),
             name: String::new(),
             namespace: String::new(),
+            encrypted_content: String::new(),
+            web_search_item: None,
         };
         let event = StreamEvent {
             kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
@@ -1189,6 +1219,7 @@ impl StreamEncoder {
             kind: ITEM_TYPE_REASONING.to_string(),
             status: STATUS_COMPLETED.to_string(),
             summary: item.content,
+            encrypted_content: item.encrypted_content,
             ..Default::default()
         };
         let event = StreamEvent {
@@ -1314,6 +1345,139 @@ impl StreamEncoder {
                 "responses: stop reason \"other\" has no Responses equivalent",
             )),
         }
+    }
+    fn start_encrypted_content_block(
+        &mut self,
+        index: i64,
+        data: &str,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        if data.is_empty() {
+            return Err(Error::new("responses: encrypted_content data is required"));
+        }
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => {
+                    if !active.encrypted_content.is_empty() {
+                        out.push(self.close_reasoning_item());
+                    }
+                }
+                _ => {
+                    return Err(Error::new(
+                        "responses: encrypted_content cannot open before active item completes",
+                    ));
+                }
+            }
+        }
+        if self.active_item.is_none() {
+            let (item, added) = self.open_reasoning_item();
+            self.active_item = Some(item);
+            out.push(added);
+        }
+        if let Some(active) = &mut self.active_item {
+            active.encrypted_content = data.to_string();
+        }
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::EncryptedContent,
+            content_index: 0,
+            text: String::new(),
+            tool_input: String::new(),
+            fragments: Vec::new(),
+            citation_loss_seen: false,
+        });
+        Ok((out, Vec::new()))
+    }
+
+    fn start_web_search_block(
+        &mut self,
+        index: i64,
+        id: &str,
+        status: &str,
+        action: &serde_json::Value,
+        extra: &std::collections::BTreeMap<String, serde_json::Value>,
+        ordinal: usize,
+    ) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        oxa_ir::validate_web_search_extra(extra).map_err(|e| Error::new(e.to_string()))?;
+        oxa_ir::inspect_web_search_call(id, status, action, &format!("events[{ordinal}].block"))
+            .map_err(|e| Error::new(e.to_string()))?;
+        let mut out = Vec::new();
+        if let Some(active) = &self.active_item {
+            match active.kind {
+                StreamOutputItemKind::Message => out.push(self.close_message_item()),
+                StreamOutputItemKind::Reasoning => out.push(self.close_reasoning_item()),
+                _ => {
+                    return Err(Error::new(
+                        "responses: web_search_call cannot open before active item completes",
+                    ));
+                }
+            }
+        }
+        let output_index = self.next_output_index;
+        self.next_output_index += 1;
+        let mut extra_map = extra.clone();
+        extra_map.remove("type");
+        extra_map.remove("id");
+        extra_map.remove("status");
+        extra_map.remove("action");
+        let wire_item = OutputItem {
+            kind: "web_search_call".to_string(),
+            id: id.to_string(),
+            status: status.to_string(),
+            action: Some(action.clone()),
+            extra: extra_map,
+            ..OutputItem::default()
+        };
+        self.active_item = Some(StreamOutputItem {
+            kind: StreamOutputItemKind::WebSearchCall,
+            id: id.to_string(),
+            output_index,
+            content: Vec::new(),
+            next_content_index: 0,
+            call_id: String::new(),
+            name: String::new(),
+            namespace: String::new(),
+            encrypted_content: String::new(),
+            web_search_item: Some(wire_item.clone()),
+        });
+        self.active_block = Some(StreamEncodeBlock {
+            index,
+            kind: StreamOutputItemKind::WebSearchCall,
+            content_index: 0,
+            text: String::new(),
+            tool_input: String::new(),
+            fragments: Vec::new(),
+            citation_loss_seen: false,
+        });
+        out.push(StreamEvent {
+            kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_ADDED.to_string(),
+            output_index: Some(output_index),
+            item: Some(wire_item),
+            ..StreamEvent::default()
+        });
+        Ok((out, Vec::new()))
+    }
+
+    fn stop_web_search_block(&mut self) -> Result<(Vec<StreamEvent>, Vec<Loss>), Error> {
+        let item = self
+            .active_item
+            .take()
+            .ok_or_else(|| Error::new("responses: web_search_call stop without active item"))?;
+        let wire_item = item
+            .web_search_item
+            .ok_or_else(|| Error::new("responses: web_search_call item missing"))?;
+        self.completed.push(wire_item.clone());
+        self.active_block = None;
+        Ok((
+            vec![StreamEvent {
+                kind: EVENT_TYPE_RESPONSE_OUTPUT_ITEM_DONE.to_string(),
+                output_index: Some(item.output_index),
+                item: Some(wire_item),
+                ..StreamEvent::default()
+            }],
+            Vec::new(),
+        ))
     }
 }
 

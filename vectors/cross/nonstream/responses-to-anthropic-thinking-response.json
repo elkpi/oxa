@@ -1,6 +1,6 @@
 {
   "name": "cross.nonstream.responses-to-anthropic-thinking-response",
-  "description": "Cross-protocol: Responses reasoning item converts to Anthropic thinking, dropping encrypted_content and recording degraded unsigned signature on encode.",
+  "description": "Cross-protocol: Responses reasoning item converts to Anthropic thinking. encrypted_content is omitted without copying the ciphertext, and the unsigned thinking block records degraded.",
   "spec_version": "0.2.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
@@ -42,9 +42,10 @@
   },
   "expected_losses": [
     {
-      "path": "output[0].encrypted_content",
-      "field": "encrypted_content",
-      "reason": "unmapped-field"
+      "path": "content[1]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "responses encrypted reasoning replay state; the target face cannot preserve this block"
     },
     {
       "path": "content[0]",

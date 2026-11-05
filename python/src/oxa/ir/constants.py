@@ -14,6 +14,10 @@ Role = Literal["user", "assistant"]
 BLOCK_TYPE_TEXT: Final = "text"
 BLOCK_TYPE_THINKING: Final = "thinking"
 BLOCK_TYPE_REDACTED_THINKING: Final = "redacted_thinking"
+BLOCK_TYPE_ENCRYPTED_CONTENT: Final = "encrypted_content"
+ENCRYPTED_CONTENT_LOSS_DETAIL: Final = (
+    "responses encrypted reasoning replay state; the target face cannot preserve this block"
+)
 BLOCK_TYPE_IMAGE: Final = "image"
 BLOCK_TYPE_DOCUMENT: Final = "document"
 BLOCK_TYPE_TOOL_USE: Final = "tool_use"

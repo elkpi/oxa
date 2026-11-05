@@ -394,6 +394,7 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("id", ""),
             ("status", ""),
             ("summary", "summary_part[]"),
+            ("encrypted_content", ""),
         ]),
         "input_part" => match tag(object, "type") {
             Some(value) => match value.as_str() {

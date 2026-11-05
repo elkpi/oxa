@@ -1,0 +1,52 @@
+{
+  "name": "responses.nonstream.encrypted-content-multi-item-to-ir",
+  "description": "Two Responses reasoning items keep their own summaries and ciphertexts as alternating ThinkingBlock and EncryptedContentBlock pairs (N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_multi_cipher",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_m1",
+        "summary": [{ "type": "summary_text", "text": "first pass", "annotations": [] }],
+        "encrypted_content": "CIPHER_ONE"
+      },
+      {
+        "type": "reasoning",
+        "id": "rs_m2",
+        "summary": [{ "type": "summary_text", "text": "second pass", "annotations": [] }],
+        "encrypted_content": "CIPHER_TWO"
+      },
+      {
+        "type": "message",
+        "id": "msg_m1",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Done.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 5, "output_tokens": 9, "total_tokens": 14 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_multi_cipher",
+    "model": "o3-mini",
+    "content": [
+      { "type": "thinking", "thinking": "first pass" },
+      { "type": "encrypted_content", "data": "CIPHER_ONE" },
+      { "type": "thinking", "thinking": "second pass" },
+      { "type": "encrypted_content", "data": "CIPHER_TWO" },
+      { "type": "text", "text": "Done." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 5, "output_tokens": 9 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "thinking", "encrypted-content", "n-r-13"]
+}

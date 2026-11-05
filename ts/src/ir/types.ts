@@ -71,8 +71,16 @@ export interface ThinkingBlock {
   readonly signature?: string;
   readonly native?: readonly NativeAnnotation[];
 }
+export const ENCRYPTED_CONTENT_LOSS_DETAIL =
+  "responses encrypted reasoning replay state; the target face cannot preserve this block";
+
 export interface RedactedThinkingBlock {
   readonly type: "redacted_thinking";
+  readonly data: string;
+  readonly native?: readonly NativeAnnotation[];
+}
+export interface EncryptedContentBlock {
+  readonly type: "encrypted_content";
   readonly data: string;
   readonly native?: readonly NativeAnnotation[];
 }
@@ -174,6 +182,7 @@ export type Block =
   | TextBlock
   | ThinkingBlock
   | RedactedThinkingBlock
+  | EncryptedContentBlock
   | ImageBlock
   | DocumentBlock
   | ToolUseBlock

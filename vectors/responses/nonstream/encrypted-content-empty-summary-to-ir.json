@@ -1,0 +1,43 @@
+{
+  "name": "responses.nonstream.encrypted-content-empty-summary-to-ir",
+  "description": "A reasoning item with an empty summary but non-empty encrypted_content is convertible content: only the EncryptedContentBlock is emitted and no empty-summary loss is recorded (N-R-13).",
+  "spec_version": "0.2.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "responses" },
+  "input": {
+    "id": "resp_cipher_only",
+    "object": "response",
+    "status": "completed",
+    "model": "o3-mini",
+    "output": [
+      {
+        "type": "reasoning",
+        "id": "rs_empty",
+        "summary": [],
+        "encrypted_content": "OPAQUE_REPLAY_STATE"
+      },
+      {
+        "type": "message",
+        "id": "msg_empty",
+        "role": "assistant",
+        "status": "completed",
+        "content": [{ "type": "output_text", "text": "Answer.", "annotations": [] }]
+      }
+    ],
+    "usage": { "input_tokens": 3, "output_tokens": 4, "total_tokens": 7 }
+  },
+  "expected_ir": {
+    "specVersion": "0.2.0",
+    "id": "resp_cipher_only",
+    "model": "o3-mini",
+    "content": [
+      { "type": "encrypted_content", "data": "OPAQUE_REPLAY_STATE" },
+      { "type": "text", "text": "Answer." }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 3, "output_tokens": 4 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "encrypted-content", "n-r-13"]
+}

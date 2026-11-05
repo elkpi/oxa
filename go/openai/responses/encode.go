@@ -343,6 +343,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 					))
 				}
 			}
+		case ir.EncryptedContentBlock:
+			otherBlocks++
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				ir.EncryptedContentLossDetail,
+			))
 		case ir.RedactedThinkingBlock:
 			otherBlocks++
 			losses = append(losses, loss(
@@ -423,7 +429,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 // verbatim (N-R-5, INV-1).
 func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) ([]ir.Loss, error) {
 	var losses []ir.Loss
-	var thinkings []OutputContent
+	var reasoning reasoningBuilder
 	var calls []InputItem
 	var parts []ContentPart
 	text := ""
@@ -467,13 +473,18 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 					))
 				}
 			}
+		case ir.EncryptedContentBlock:
+			if value.Data == "" {
+				return nil, fmt.Errorf("responses: %s[%d].data: encrypted_content data is required", path, i)
+			}
+			reasoning.addCipher(value.Data)
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
 				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
 			))
 		case ir.ThinkingBlock:
-			thinkings = append(thinkings, OutputContent{
+			reasoning.addThinking(OutputContent{
 				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
 			})
 			if value.Signature != "" {
@@ -536,12 +547,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 		}
 	}
 	// Reasoning, text, and tool calls preserve the normalized IR block order.
-	if len(thinkings) > 0 {
-		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: thinkings})
+	for _, part := range reasoning.items {
+		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: part.summary, EncryptedContent: part.cipher})
 	}
 	if hasRefusal {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: parts})
-	} else if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
+	} else if hasText || (len(blocks) == 0 && len(reasoning.items) == 0) {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)
@@ -559,7 +570,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	var losses []ir.Loss
 	var output []OutputItem
-	var thinkings []OutputContent
+	var reasoning reasoningBuilder
 	var textParts []OutputContent
 	apcIndex := 0
 	apcoIndex := 0
@@ -607,13 +618,18 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			textParts = append(textParts, OutputContent{
 				Type: PartTypeOutputText, Text: value.Text, Annotations: partAnnotations,
 			})
+		case ir.EncryptedContentBlock:
+			if value.Data == "" {
+				return nil, nil, fmt.Errorf("responses: content[%d].data: encrypted_content data is required", i)
+			}
+			reasoning.addCipher(value.Data)
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,
 				"anthropic encrypted thinking replay state; the target face cannot preserve this block",
 			))
 		case ir.ThinkingBlock:
-			thinkings = append(thinkings, OutputContent{
+			reasoning.addThinking(OutputContent{
 				Type: PartTypeOutputText, Text: value.Thinking, Annotations: []json.RawMessage{},
 			})
 			if value.Signature != "" {
@@ -685,7 +701,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			))
 		}
 	}
-	if len(textParts) > 0 || (len(resp.Content) == 0 && len(thinkings) == 0) {
+	if len(textParts) > 0 || (len(resp.Content) == 0 && len(reasoning.items) == 0) {
 		if len(textParts) == 0 {
 			textParts = []OutputContent{{
 				Type: PartTypeOutputText, Text: "", Annotations: []json.RawMessage{},
@@ -696,10 +712,11 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			Content: textParts,
 		}}, output...)
 	}
-	if len(thinkings) > 0 {
+	for n := len(reasoning.items) - 1; n >= 0; n-- {
+		part := reasoning.items[n]
 		output = append([]OutputItem{{
-			Type: ItemTypeReasoning, ID: "rs_abc123",
-			Summary: thinkings,
+			Type: ItemTypeReasoning, ID: fmt.Sprintf("rs_abc%d", 123+n),
+			Summary: part.summary, EncryptedContent: part.cipher,
 		}}, output...)
 	}
 
@@ -831,4 +848,37 @@ func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
 		items = append(items, InputItem{Role: role, Content: blocks[i].Text})
 	}
 	return instructions, items
+}
+
+type reasoningWire struct {
+	summary []OutputContent
+	cipher  string
+}
+
+type reasoningBuilder struct {
+	items []reasoningWire
+	cur   *reasoningWire
+}
+
+func (b *reasoningBuilder) addThinking(content OutputContent) {
+	if b.cur != nil && b.cur.cipher != "" {
+		b.cur = nil
+	}
+	if b.cur == nil {
+		b.items = append(b.items, reasoningWire{summary: []OutputContent{}})
+		b.cur = &b.items[len(b.items)-1]
+	}
+	b.cur.summary = append(b.cur.summary, content)
+}
+
+func (b *reasoningBuilder) addCipher(cipher string) {
+	if b.cur != nil && b.cur.cipher != "" {
+		b.cur = nil
+	}
+	if b.cur == nil {
+		b.items = append(b.items, reasoningWire{summary: []OutputContent{}})
+		b.cur = &b.items[len(b.items)-1]
+	}
+	b.cur.cipher = cipher
+	b.cur = nil
 }

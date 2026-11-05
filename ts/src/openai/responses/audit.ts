@@ -179,6 +179,7 @@ const INPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
+            encrypted_content: undefined,
           },
         };
       case "web_search_call":
@@ -389,6 +390,7 @@ const OUTPUT_ITEM: WireAuditSpec = {
             id: undefined,
             status: undefined,
             summary: { items: SUMMARY_PART },
+            encrypted_content: undefined,
           },
         };
       case "web_search_call":

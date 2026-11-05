@@ -1874,6 +1874,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "anthropic encrypted thinking replay state; the target face cannot preserve this block"));
                     normal.push_back(&b);
+                } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "this IR block cannot be rendered in a Responses item"));
+                    normal.push_back(&b);
                 } else {
                     if (const auto* utb = std::get_if<ir::TextBlock>(&b);
                         utb && utb->citations.has_value() && !utb->citations->empty()) {
@@ -2160,6 +2166,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     }
                     call.set("input", json::Value::string(custom->input));
                     fc_items.push_back(std::move(call));
+                } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        "this IR block cannot be rendered in a Responses item"));
                 } else if (std::holds_alternative<ir::DocumentBlock>(b) || std::holds_alternative<ir::ImageBlock>(b) || std::holds_alternative<ir::ToolResultBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -2660,6 +2671,10 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 result.set("output", json::Value::string(*apr->output));
             }
             calls.push_back(std::move(result));
+        } else if (std::holds_alternative<ir::ToolReferenceBlock>(b)) {
+            losses.push_back(make_resp_loss(
+                "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                "this IR block cannot be rendered in a Responses item"));
         } else {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "content", ir::LOSS_UNSUPPORTED_SEMANTIC,

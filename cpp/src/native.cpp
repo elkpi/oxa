@@ -262,7 +262,9 @@ struct BlockValidator {
         return validate_annotations(b.native, host, path);
     }
     Status operator()(const ToolReferenceBlock& b) const {
-        return validate_annotations(b.native, host, path);
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
     }
     Status operator()(const ToolUseBlock& b) const {
         auto st = validate_annotations(b.native, host, path);

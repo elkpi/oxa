@@ -1278,7 +1278,9 @@ type EncoderItem =
       readonly kind: "reasoning";
       readonly id: string;
       readonly outputIndex: number;
-      readonly contentIndex: number;
+      contentIndex: number;
+      readonly content: ResponsesOutputTextPart[];
+      encryptedContent?: string;
     }
   | {
       readonly kind: "function_call";
@@ -1339,6 +1341,7 @@ type EncoderBlock =
   | {
       readonly kind: "thinking";
       readonly index: number;
+      readonly contentIndex: number;
       text: string;
       sawSignatureDelta: boolean;
     }
@@ -1498,23 +1501,40 @@ export class ResponsesStreamEncoder {
         detail: "Responses carries no signature in reasoning summary",
       });
     if (this.#activeItem !== undefined) {
-      if (this.#activeItem.kind !== "message")
+      if (this.#activeItem.kind === "message") {
+        events.push(this.#closeMessageItem());
+      } else if (this.#activeItem.kind === "reasoning") {
+        if (this.#activeItem.encryptedContent !== undefined) {
+          events.push(this.#closeReasoningItem());
+        }
+      } else {
         this.#lifecycle(
           "thinking block cannot open before the active item completes",
         );
-      events.push(this.#closeMessageItem());
+      }
     }
-    const ordinal = this.#nextReasoningItem++;
-    const item: Extract<EncoderItem, { kind: "reasoning" }> = {
-      kind: "reasoning",
-      id: this.#generatedId("rs", ordinal),
-      outputIndex: this.#nextOutputIndex++,
-      contentIndex: 0,
-    };
-    this.#activeItem = item;
+    let itemAdded = false;
+    if (this.#activeItem === undefined) {
+      const ordinal = this.#nextReasoningItem++;
+      const item: Extract<EncoderItem, { kind: "reasoning" }> = {
+        kind: "reasoning",
+        id: this.#generatedId("rs", ordinal),
+        outputIndex: this.#nextOutputIndex++,
+        contentIndex: 0,
+        content: [],
+      };
+      this.#activeItem = item;
+      itemAdded = true;
+    }
+    const item = this.#activeItem as Extract<
+      EncoderItem,
+      { kind: "reasoning" }
+    >;
+    const contentIndex = item.contentIndex++;
     this.#activeBlock = {
       kind: "thinking",
       index,
+      contentIndex,
       text: block.thinking,
       sawSignatureDelta: false,
     };
@@ -1523,20 +1543,21 @@ export class ResponsesStreamEncoder {
       text: block.thinking,
       annotations: [],
     };
-    events.push(
-      {
+    item.content.push(part);
+    if (itemAdded) {
+      events.push({
         type: "response.output_item.added",
         output_index: item.outputIndex,
         item: { type: "reasoning", id: item.id, status: "in_progress" },
-      },
-      {
-        type: "response.reasoning_summary_part.added",
-        item_id: item.id,
-        output_index: item.outputIndex,
-        content_index: item.contentIndex,
-        part,
-      },
-    );
+      });
+    }
+    events.push({
+      type: "response.reasoning_summary_part.added",
+      item_id: item.id,
+      output_index: item.outputIndex,
+      content_index: contentIndex,
+      part,
+    });
     return { value: events, losses };
   }
 
@@ -1547,6 +1568,15 @@ export class ResponsesStreamEncoder {
     citations?: readonly unknown[],
   ): ConversionResult<readonly ResponsesStreamEvent[]> {
     const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined) {
+      if (this.#activeItem.kind === "reasoning") {
+        events.push(this.#closeReasoningItem());
+      } else if (this.#activeItem.kind !== "message") {
+        this.#lifecycle(
+          "text block cannot open before the active item completes",
+        );
+      }
+    }
     if (this.#activeItem === undefined) {
       const item = this.#openMessageItem();
       this.#activeItem = item;
@@ -1561,18 +1591,18 @@ export class ResponsesStreamEncoder {
         },
       });
     }
-    if (this.#activeItem.kind !== "message")
-      this.#lifecycle(
-        "text block cannot open before the active function_call item completes",
-      );
-    const contentIndex = this.#activeItem.nextContentIndex;
-    this.#activeItem.nextContentIndex += 1;
+    const messageItem = this.#activeItem as Extract<
+      EncoderItem,
+      { kind: "message" }
+    >;
+    const contentIndex = messageItem.nextContentIndex;
+    messageItem.nextContentIndex += 1;
     const part: ResponsesOutputTextPart = {
       type: "output_text",
       text: initial,
       annotations: [],
     };
-    this.#activeItem.content.push(part);
+    messageItem.content.push(part);
     this.#activeBlock = {
       kind: "text",
       index,
@@ -1611,11 +1641,13 @@ export class ResponsesStreamEncoder {
       this.#lifecycle("tool_use requires nonempty id and name");
     const events: ResponsesStreamEvent[] = [];
     if (this.#activeItem !== undefined) {
-      if (this.#activeItem.kind !== "message")
-        this.#lifecycle(
-          "tool block cannot open before the active function_call item completes",
-        );
-      events.push(this.#closeMessageItem());
+      if (this.#activeItem.kind === "message") {
+        events.push(this.#closeMessageItem());
+      } else if (this.#activeItem.kind === "reasoning") {
+        events.push(this.#closeReasoningItem());
+      } else {
+        this.#lifecycle("item cannot open before active item completes");
+      }
     }
     const dotIdx = name.indexOf(".");
     const rawName = dotIdx > 0 ? name.slice(dotIdx + 1) : name;
@@ -1648,11 +1680,13 @@ export class ResponsesStreamEncoder {
       this.#lifecycle("custom_tool_use requires nonempty id and name");
     const events: ResponsesStreamEvent[] = [];
     if (this.#activeItem !== undefined) {
-      if (this.#activeItem.kind !== "message")
-        this.#lifecycle(
-          "custom tool block cannot open before the active call completes",
-        );
-      events.push(this.#closeMessageItem());
+      if (this.#activeItem.kind === "message") {
+        events.push(this.#closeMessageItem());
+      } else if (this.#activeItem.kind === "reasoning") {
+        events.push(this.#closeReasoningItem());
+      } else {
+        this.#lifecycle("item cannot open before active item completes");
+      }
     }
     const dotIdx = name.indexOf(".");
     const rawName = dotIdx > 0 ? name.slice(dotIdx + 1) : name;
@@ -1820,7 +1854,7 @@ export class ResponsesStreamEncoder {
             type: "response.reasoning_summary_text.delta",
             item_id: this.#activeItem.id,
             output_index: this.#activeItem.outputIndex,
-            content_index: this.#activeItem.contentIndex,
+            content_index: this.#activeBlock.contentIndex,
             delta: event.delta.text,
           },
         ]);
@@ -1924,32 +1958,17 @@ export class ResponsesStreamEncoder {
       text: block.text,
       annotations: [],
     };
-    const completed: ResponsesOutputItem = {
-      type: "reasoning",
-      id: item.id,
-      status: "completed",
-      summary: [part],
-    };
-    this.#completed.push(completed);
+    item.content[block.contentIndex] = part;
     this.#activeBlock = undefined;
-    this.#activeItem = undefined;
-    return {
-      value: [
-        {
-          type: "response.reasoning_summary_part.done",
-          item_id: item.id,
-          output_index: item.outputIndex,
-          content_index: item.contentIndex,
-          part,
-        },
-        {
-          type: "response.output_item.done",
-          output_index: item.outputIndex,
-          item: completed,
-        },
-      ],
-      losses: [],
-    };
+    return this.#result([
+      {
+        type: "response.reasoning_summary_part.done",
+        item_id: item.id,
+        output_index: item.outputIndex,
+        content_index: block.contentIndex,
+        part,
+      },
+    ]);
   }
 
   #stopText(): ConversionResult<readonly ResponsesStreamEvent[]> {
@@ -2149,9 +2168,13 @@ export class ResponsesStreamEncoder {
       this.#lifecycle("message_delta out of grammar order");
     const events: ResponsesStreamEvent[] = [];
     if (this.#activeItem !== undefined) {
-      if (this.#activeItem.kind !== "message")
+      if (this.#activeItem.kind === "message") {
+        events.push(this.#closeMessageItem());
+      } else if (this.#activeItem.kind === "reasoning") {
+        events.push(this.#closeReasoningItem());
+      } else {
         this.#lifecycle("message_delta with an uncompleted item");
-      events.push(this.#closeMessageItem());
+      }
     }
     const result = this.#terminalEvent(stopReason, usage);
     events.push(result.value);
@@ -2183,6 +2206,29 @@ export class ResponsesStreamEncoder {
       callId,
       name,
       ...(namespace !== undefined ? { namespace } : {}),
+    };
+  }
+
+  #closeReasoningItem(): ResponsesStreamEvent {
+    const item = this.#activeItem as Extract<
+      EncoderItem,
+      { kind: "reasoning" }
+    >;
+    this.#activeItem = undefined;
+    const completed: ResponsesOutputItem = {
+      type: "reasoning",
+      id: item.id,
+      status: "completed",
+      summary: item.content,
+      ...(item.encryptedContent !== undefined
+        ? { encrypted_content: item.encryptedContent }
+        : {}),
+    };
+    this.#completed.push(completed);
+    return {
+      type: "response.output_item.done",
+      output_index: item.outputIndex,
+      item: completed,
     };
   }
 
@@ -2342,30 +2388,47 @@ export class ResponsesStreamEncoder {
     if (this.#activeItem !== undefined && this.#activeItem.kind === "message") {
       events.push(this.#closeMessageItem());
     }
-    const ordinal = this.#nextReasoningItem++;
-    const outputIndex = this.#nextOutputIndex++;
-    const id = this.#generatedId("rs", ordinal);
-    const item = {
-      type: "reasoning" as const,
-      id,
-      status: "completed" as const,
-      summary: [],
-      encrypted_content: block.data,
-    };
-    this.#completed.push(item);
-    this.#activeBlock = { kind: "encrypted_content", index };
-    events.push(
-      {
+    if (
+      this.#activeItem !== undefined &&
+      this.#activeItem.kind !== "reasoning"
+    ) {
+      this.#lifecycle(
+        "encrypted_content cannot open before active item completes",
+      );
+    }
+    if (
+      this.#activeItem !== undefined &&
+      (this.#activeItem as any).encryptedContent !== undefined
+    ) {
+      events.push(this.#closeReasoningItem());
+    }
+    if (this.#activeItem === undefined) {
+      const ordinal = this.#nextReasoningItem++;
+      const outputIndex = this.#nextOutputIndex++;
+      const id = this.#generatedId("rs", ordinal);
+      const item: Extract<EncoderItem, { kind: "reasoning" }> = {
+        kind: "reasoning",
+        id,
+        outputIndex,
+        contentIndex: 0,
+        content: [],
+        encryptedContent: block.data,
+      };
+      this.#activeItem = item;
+      events.push({
         type: "response.output_item.added",
         output_index: outputIndex,
-        item,
-      },
-      {
-        type: "response.output_item.done",
-        output_index: outputIndex,
-        item,
-      },
-    );
+        item: {
+          id,
+          type: "reasoning",
+          status: "in_progress",
+          summary: [],
+        },
+      });
+    } else {
+      (this.#activeItem as any).encryptedContent = block.data;
+    }
+    this.#activeBlock = { kind: "encrypted_content", index };
     return this.#result(events);
   }
 

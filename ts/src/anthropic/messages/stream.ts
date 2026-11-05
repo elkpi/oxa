@@ -2,6 +2,7 @@ import { OxaError } from "../../error.js";
 import {
   encodeUsageInteger,
   parseUsageInteger,
+  ENCRYPTED_CONTENT_LOSS_DETAIL,
   type Event,
   type StopReason,
   type TextCitation,
@@ -598,7 +599,8 @@ type EncoderBlock =
         | "custom_tool_result"
         | "apply_patch_tool_use"
         | "apply_patch_tool_result"
-        | "web_search_call";
+        | "web_search_call"
+        | "encrypted_content";
     }
   | {
       readonly kind: "thinking";
@@ -828,7 +830,8 @@ export class AnthropicStreamEncoder {
       event.block.type === "custom_tool_result" ||
       event.block.type === "apply_patch_tool_use" ||
       event.block.type === "apply_patch_tool_result" ||
-      event.block.type === "web_search_call"
+      event.block.type === "web_search_call" ||
+      event.block.type === "encrypted_content"
     ) {
       if (
         event.block.type === "custom_tool_result" &&
@@ -842,6 +845,10 @@ export class AnthropicStreamEncoder {
         irIndex: event.index,
         blockType: event.block.type,
       };
+      const detail =
+        event.block.type === "encrypted_content"
+          ? ENCRYPTED_CONTENT_LOSS_DETAIL
+          : undefined;
       return {
         value: [],
         losses: [
@@ -849,6 +856,7 @@ export class AnthropicStreamEncoder {
             path: `events[${event.index}].block`,
             field: "type",
             reason: "unsupported-semantic",
+            ...(detail !== undefined ? { detail } : {}),
           },
         ],
       };

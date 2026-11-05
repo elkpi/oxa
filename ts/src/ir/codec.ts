@@ -170,7 +170,7 @@ function encodeBlock(block: Block): JsonObject {
       id: block.id,
       status: block.status,
       action: block.action,
-      ...(block.extra ? block.extra : {}),
+      ...(block.extra === undefined ? {} : { extra: block.extra }),
     };
   if (block.type === "tool_use")
     return {
@@ -267,21 +267,17 @@ function decodeBlock(value: JsonValue | undefined): Block {
       data: nonEmptyString(string(block.data, "block.data"), "block.data"),
     };
   if (block.type === "web_search_call") {
-    const {
-      type: _type,
-      id,
-      status,
-      action,
-      ...extra
-    } = block as unknown as Record<string, JsonValue>;
     return {
       type: "web_search_call",
-      id: string(id, "block.id"),
-      status: string(status, "block.status"),
-      action: object(action, "block.action"),
-      ...(Object.keys(extra).length > 0
-        ? { extra: object(extra, "block.extra") }
-        : {}),
+      id: nonEmptyString(string(block.id, "block.id"), "block.id"),
+      status: nonEmptyString(
+        string(block.status, "block.status"),
+        "block.status",
+      ),
+      action: object(block.action, "block.action"),
+      ...(block.extra === undefined
+        ? {}
+        : { extra: object(block.extra, "block.extra") }),
     };
   }
   if (block.type === "tool_use")

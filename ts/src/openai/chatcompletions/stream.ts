@@ -2,6 +2,7 @@ import { OxaError } from "../../error.js";
 import {
   encodeUsageInteger,
   parseUsageInteger,
+  ENCRYPTED_CONTENT_LOSS_DETAIL,
   type Event,
   type StopReason,
   type Usage,
@@ -510,6 +511,20 @@ export class ChatCompletionsStreamEncoder {
             reason: "unsupported-semantic",
             detail:
               "Responses web_search_call has no Chat Completions equivalent",
+          },
+        ],
+      };
+    }
+    if (event.block.type === "encrypted_content") {
+      this.#active = { kind: "redacted_thinking", index: event.index };
+      return {
+        value: [],
+        losses: [
+          {
+            path: `events[${ordinal}].block`,
+            field: "type",
+            reason: "unsupported-semantic",
+            detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
           },
         ],
       };

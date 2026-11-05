@@ -8,6 +8,7 @@ import {
   type MessageDelta,
   type Usage,
 } from "../ir/index.js";
+import { compareJson } from "./compare.js";
 
 interface NormalizedTextBlock {
   readonly type: "text";
@@ -291,6 +292,14 @@ function compareBlock(
     if (expected.id !== actual.id) return "web_search_call id differs";
     if (expected.status !== actual.status)
       return "web_search_call status differs";
+    const actionDiff = compareJson(expected.action, actual.action);
+    if (actionDiff !== undefined)
+      return `web_search_call action differs: ${actionDiff}`;
+    const expExtra = expected.extra === undefined ? {} : expected.extra;
+    const actExtra = actual.extra === undefined ? {} : actual.extra;
+    const extraDiff = compareJson(expExtra, actExtra);
+    if (extraDiff !== undefined)
+      return `web_search_call extra differs: ${extraDiff}`;
     return undefined;
   }
   if (expected.type === "thinking" && actual.type === "thinking") {

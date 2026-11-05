@@ -1230,8 +1230,7 @@ export function encodeRequest(
       let hasText = false;
       let hasRefusal = false;
       const parts: JsonValue[] = [];
-      const thinking: string[] = [];
-      const ciphers: string[] = [];
+      const reasoning = new ReasoningBuilder();
       const calls: JsonValue[] = [];
       for (let child = 0; child < message.content.length; child += 1) {
         const block = message.content[child]!;
@@ -1293,9 +1292,9 @@ export function encodeRequest(
           });
         } else if (block.type === "encrypted_content") {
           if (block.data === "") fail("encrypted_content data is required");
-          ciphers.push(block.data);
+          reasoning.addCipher(block.data);
         } else if (block.type === "thinking") {
-          thinking.push(block.thinking);
+          reasoning.addThinking(block.thinking);
           if (block.signature !== undefined)
             losses.push({
               path: `messages[${index}].content[${child}].signature`,
@@ -1348,7 +1347,7 @@ export function encodeRequest(
             ),
           );
       }
-      for (const item of splitReasoning(thinking, ciphers)) {
+      for (const item of reasoning.items) {
         requestOrdinal += 1;
         items.push({
           type: "reasoning",
@@ -1367,9 +1366,7 @@ export function encodeRequest(
         items.push({ role: "assistant", content: parts });
       } else if (
         hasText ||
-        (message.content.length === 0 &&
-          thinking.length === 0 &&
-          ciphers.length === 0)
+        (message.content.length === 0 && reasoning.items.length === 0)
       ) {
         items.push({ role: "assistant", content: text });
       }
@@ -1546,8 +1543,7 @@ export function encodeResponse(
   options: NonstreamOptions = {},
 ): ConversionResult<JsonObject> {
   const losses: Loss[] = [];
-  const thinking: string[] = [];
-  const ciphers: string[] = [];
+  const reasoning = new ReasoningBuilder();
   const textParts: JsonValue[] = [];
   const calls: JsonValue[] = [];
   let apcIndex = 0;
@@ -1606,9 +1602,9 @@ export function encodeResponse(
       });
     } else if (block.type === "encrypted_content") {
       if (block.data === "") fail("encrypted_content data is required");
-      ciphers.push(block.data);
+      reasoning.addCipher(block.data);
     } else if (block.type === "thinking") {
-      thinking.push(block.thinking);
+      reasoning.addThinking(block.thinking);
       if (block.signature !== undefined)
         losses.push({
           path: `content[${index}].signature`,
@@ -1680,9 +1676,8 @@ export function encodeResponse(
       losses.push(loss(`content[${index}]`, "content", "unsupported-semantic"));
   }
   const output: JsonValue[] = [];
-  const reasoningItems = splitReasoning(thinking, ciphers);
-  for (let n = reasoningItems.length - 1; n >= 0; n--) {
-    const item = reasoningItems[n]!;
+  for (let n = reasoning.items.length - 1; n >= 0; n--) {
+    const item = reasoning.items[n]!;
     output.unshift({
       type: "reasoning",
       id: `rs_abc${123 + n}`,
@@ -1696,9 +1691,7 @@ export function encodeResponse(
   }
   if (
     textParts.length > 0 ||
-    (response.content.length === 0 &&
-      thinking.length === 0 &&
-      ciphers.length === 0)
+    (response.content.length === 0 && reasoning.items.length === 0)
   )
     output.push({
       type: "message",
@@ -3082,23 +3075,32 @@ function encodeTextFormat(format: ResponseFormat): JsonObject {
   }
 }
 
-function splitReasoning(
-  summary: readonly string[],
-  ciphers: readonly string[],
-): readonly {
-  readonly summary: readonly string[];
-  readonly cipher?: string | undefined;
-}[] {
-  if (summary.length === 0 && ciphers.length === 0) return [];
-  if (ciphers.length === 0) return [{ summary, cipher: undefined }];
-  if (summary.length === 0)
-    return ciphers.map((cipher) => ({ summary: [], cipher }));
-  const out: {
-    readonly summary: readonly string[];
-    readonly cipher?: string | undefined;
-  }[] = [{ summary, cipher: ciphers[0] }];
-  for (let i = 1; i < ciphers.length; i++) {
-    out.push({ summary: [], cipher: ciphers[i] });
+class ReasoningBuilder {
+  readonly items: { summary: string[]; cipher?: string }[] = [];
+  #cur: { summary: string[]; cipher?: string } | undefined;
+
+  addThinking(text: string): void {
+    if (this.#cur !== undefined && this.#cur.cipher !== undefined) {
+      this.#cur = undefined;
+    }
+    if (this.#cur === undefined) {
+      const item: { summary: string[]; cipher?: string } = { summary: [] };
+      this.items.push(item);
+      this.#cur = item;
+    }
+    this.#cur.summary.push(text);
   }
-  return out;
+
+  addCipher(cipher: string): void {
+    if (this.#cur !== undefined && this.#cur.cipher !== undefined) {
+      this.#cur = undefined;
+    }
+    if (this.#cur === undefined) {
+      const item: { summary: string[]; cipher?: string } = { summary: [] };
+      this.items.push(item);
+      this.#cur = item;
+    }
+    this.#cur.cipher = cipher;
+    this.#cur = undefined;
+  }
 }

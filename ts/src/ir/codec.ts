@@ -159,6 +159,19 @@ function encodeBlock(block: Block): JsonObject {
       type: "redacted_thinking",
       data: block.data,
     };
+  if (block.type === "encrypted_content")
+    return {
+      type: "encrypted_content",
+      data: block.data,
+    };
+  if (block.type === "web_search_call")
+    return {
+      type: "web_search_call",
+      id: block.id,
+      status: block.status,
+      action: block.action,
+      ...(block.extra ? block.extra : {}),
+    };
   if (block.type === "tool_use")
     return {
       type: "tool_use",
@@ -248,6 +261,29 @@ function decodeBlock(value: JsonValue | undefined): Block {
       type: "redacted_thinking",
       data: string(block.data, "block.data"),
     };
+  if (block.type === "encrypted_content")
+    return {
+      type: "encrypted_content",
+      data: nonEmptyString(string(block.data, "block.data"), "block.data"),
+    };
+  if (block.type === "web_search_call") {
+    const {
+      type: _type,
+      id,
+      status,
+      action,
+      ...extra
+    } = block as unknown as Record<string, JsonValue>;
+    return {
+      type: "web_search_call",
+      id: string(id, "block.id"),
+      status: string(status, "block.status"),
+      action: object(action, "block.action"),
+      ...(Object.keys(extra).length > 0
+        ? { extra: object(extra, "block.extra") }
+        : {}),
+    };
+  }
   if (block.type === "tool_use")
     return {
       type: "tool_use",

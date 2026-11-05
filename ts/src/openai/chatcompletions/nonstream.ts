@@ -16,6 +16,7 @@ import {
   parseUsageInteger,
   validateRequest,
   omittedNativeRequestLosses,
+  ENCRYPTED_CONTENT_LOSS_DETAIL,
   STREAM_OPTIONS_LOSS_DETAIL,
   PROMPT_CACHE_KEY_LOSS_DETAIL,
   PROMPT_CACHE_OPTIONS_LOSS_DETAIL,
@@ -1285,6 +1286,13 @@ function encodeUserContent(
           });
         }
       }
+    } else if (block.type === "encrypted_content") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
+      });
     } else if (block.type === "redacted_thinking") {
       losses.push({
         path: `${path}[${index}]`,
@@ -1439,6 +1447,13 @@ function encodeAssistant(
           });
         }
       }
+    } else if (block.type === "encrypted_content") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: ENCRYPTED_CONTENT_LOSS_DETAIL,
+      });
     } else if (block.type === "redacted_thinking") {
       losses.push({
         path: `${path}[${index}]`,

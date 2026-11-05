@@ -501,6 +501,11 @@ function blockDocument(block: Block): JsonObject {
         type: "redacted_thinking",
         data: block.data,
       };
+    case "encrypted_content":
+      return {
+        type: "encrypted_content",
+        data: block.data,
+      };
     case "refusal":
       return {
         type: "refusal",

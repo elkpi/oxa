@@ -23,6 +23,11 @@ import {
   parseWireEvent,
 } from "../../json/wire-audit.js";
 import { RESPONSES_STREAM_EVENT } from "./audit.js";
+import {
+  inspectWebSearchCall,
+  validateWebSearchExtra,
+} from "../../ir/web-search.js";
+import { decodeWebSearchCall } from "./nonstream.js";
 import type {
   ApplyPatchOperationWire,
   ResponsesOutputItem,
@@ -252,6 +257,9 @@ export class ResponsesStreamDecoder {
     this.#applyPatchResult = undefined;
     if (event.item.type === "message" && event.item.role === "assistant")
       return [];
+    if (event.item.type === "web_search_call") {
+      return [];
+    }
     if (event.item.type === "reasoning") {
       this.#reasoningOpen = true;
       this.#reasoningSummaryCount = 0;
@@ -834,12 +842,30 @@ export class ResponsesStreamDecoder {
       ];
       this.#toolUseSeen = true;
     }
+    if (this.#itemType === "web_search_call") {
+      const block = decodeWebSearchCall(
+        event.item as unknown as JsonObject,
+        `output[${index}]`,
+        this.#losses,
+      );
+      const blockIndex = this.#nextBlockIndex;
+      this.#nextBlockIndex += 1;
+      events = [
+        {
+          type: "content_block_start",
+          index: blockIndex,
+          block,
+        },
+        { type: "content_block_stop", index: blockIndex },
+      ];
+    }
     if (this.#itemType === "reasoning") {
       if (!this.#reasoningOpen)
         this.#lifecycle("reasoning item closed without being opened");
       if (
         this.#reasoningSummaryCount === 0 &&
-        this.#reasoningSkippedIndex === undefined
+        this.#reasoningSkippedIndex === undefined &&
+        event.item.encrypted_content === undefined
       )
         this.#losses.push({
           path: `output[${index}]`,
@@ -851,6 +877,25 @@ export class ResponsesStreamDecoder {
       this.#reasoningOpen = false;
       this.#reasoningSummaryCount = 0;
       this.#reasoningSkippedIndex = undefined;
+      if (
+        typeof event.item.encrypted_content === "string" &&
+        event.item.encrypted_content !== ""
+      ) {
+        const blockIndex = this.#nextBlockIndex;
+        this.#nextBlockIndex += 1;
+        events = [
+          ...events,
+          {
+            type: "content_block_start",
+            index: blockIndex,
+            block: {
+              type: "encrypted_content",
+              data: event.item.encrypted_content,
+            },
+          },
+          { type: "content_block_stop", index: blockIndex },
+        ];
+      }
     }
     this.#itemOpen = false;
     this.#skipped = undefined;
@@ -1263,6 +1308,12 @@ type EncoderItem =
       readonly id: string;
       readonly outputIndex: number;
       readonly block: Extract<Block, { type: "apply_patch_tool_result" }>;
+    }
+  | {
+      readonly kind: "web_search_call";
+      readonly id: string;
+      readonly outputIndex: number;
+      readonly item: any;
     };
 
 type EncoderBlock =
@@ -1275,6 +1326,14 @@ type EncoderBlock =
     }
   | {
       readonly kind: "redacted_thinking";
+      readonly index: number;
+    }
+  | {
+      readonly kind: "encrypted_content";
+      readonly index: number;
+    }
+  | {
+      readonly kind: "web_search_call";
       readonly index: number;
     }
   | {
@@ -1417,19 +1476,10 @@ export class ResponsesStreamEncoder {
         event.block.input,
       );
     if (event.block.type === "web_search_call") {
-      this.#activeBlock = { kind: "redacted_thinking", index: event.index };
-      return {
-        value: [],
-        losses: [
-          {
-            path: `events[${ordinal}].block`,
-            field: "type",
-            reason: "unsupported-semantic",
-            detail:
-              "Responses streaming profile does not encode web_search_call",
-          },
-        ],
-      };
+      return this.#startWebSearchCall(event.index, event.block);
+    }
+    if (event.block.type === "encrypted_content") {
+      return this.#startEncryptedContent(event.index, event.block);
     }
     this.#lifecycle(`unsupported content block ${event.block.type}`);
   }
@@ -1445,8 +1495,7 @@ export class ResponsesStreamEncoder {
         path: `events[${index}].signature`,
         field: "signature",
         reason: "unmapped-field",
-        detail:
-          "Responses reasoning summaries have no signature field; the opaque ThinkingBlock signature is lost",
+        detail: "Responses carries no signature in reasoning summary",
       });
     if (this.#activeItem !== undefined) {
       if (this.#activeItem.kind !== "message")
@@ -1714,8 +1763,14 @@ export class ResponsesStreamEncoder {
       event.index !== this.#activeBlock.index
     )
       this.#lifecycle("content_block_delta out of grammar order");
-    if (this.#activeBlock.kind === "redacted_thinking") {
-      this.#lifecycle("redacted_thinking block received unexpected delta");
+    if (
+      this.#activeBlock.kind === "redacted_thinking" ||
+      this.#activeBlock.kind === "encrypted_content" ||
+      this.#activeBlock.kind === "web_search_call"
+    ) {
+      this.#lifecycle(
+        `${this.#activeBlock.kind} block received unexpected delta`,
+      );
     }
     if (this.#activeItem === undefined)
       this.#lifecycle("content block has no active item");
@@ -1782,7 +1837,7 @@ export class ResponsesStreamEncoder {
               field: "signature",
               reason: "unmapped-field",
               detail:
-                "Responses reasoning summaries have no signature field; the opaque signature delta is lost",
+                "Responses carries no signature delta in streaming reasoning",
             },
           ],
         };
@@ -1834,9 +1889,15 @@ export class ResponsesStreamEncoder {
   #stopBlock(index: number): ConversionResult<readonly ResponsesStreamEvent[]> {
     if (this.#activeBlock === undefined || index !== this.#activeBlock.index)
       this.#lifecycle("content_block_stop out of grammar order");
-    if (this.#activeBlock.kind === "redacted_thinking") {
+    if (
+      this.#activeBlock.kind === "redacted_thinking" ||
+      this.#activeBlock.kind === "encrypted_content"
+    ) {
       this.#activeBlock = undefined;
       return this.#result([]);
+    }
+    if (this.#activeBlock.kind === "web_search_call") {
+      return this.#stopWebSearchCall();
     }
     if (this.#activeItem === undefined)
       this.#lifecycle("content block has no active item");
@@ -2269,5 +2330,95 @@ export class ResponsesStreamEncoder {
 
   #lifecycle(message: string): never {
     throw new OxaError("stream-lifecycle", `responses: ${message}`);
+  }
+
+  #startEncryptedContent(
+    index: number,
+    block: Extract<Block, { type: "encrypted_content" }>,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (block.data === "")
+      this.#lifecycle("encrypted_content data is required");
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined && this.#activeItem.kind === "message") {
+      events.push(this.#closeMessageItem());
+    }
+    const ordinal = this.#nextReasoningItem++;
+    const outputIndex = this.#nextOutputIndex++;
+    const id = this.#generatedId("rs", ordinal);
+    const item = {
+      type: "reasoning" as const,
+      id,
+      status: "completed" as const,
+      summary: [],
+      encrypted_content: block.data,
+    };
+    this.#completed.push(item);
+    this.#activeBlock = { kind: "encrypted_content", index };
+    events.push(
+      {
+        type: "response.output_item.added",
+        output_index: outputIndex,
+        item,
+      },
+      {
+        type: "response.output_item.done",
+        output_index: outputIndex,
+        item,
+      },
+    );
+    return this.#result(events);
+  }
+
+  #startWebSearchCall(
+    index: number,
+    block: Extract<Block, { type: "web_search_call" }>,
+  ): ConversionResult<readonly ResponsesStreamEvent[]> {
+    inspectWebSearchCall(block.id, block.status, block.action);
+    validateWebSearchExtra(block.extra);
+    const events: ResponsesStreamEvent[] = [];
+    if (this.#activeItem !== undefined && this.#activeItem.kind === "message") {
+      events.push(this.#closeMessageItem());
+    }
+    const outputIndex = this.#nextOutputIndex++;
+    const item = {
+      type: "web_search_call" as const,
+      id: block.id,
+      status: block.status,
+      action: block.action,
+      ...(block.extra ?? {}),
+    };
+    this.#activeItem = {
+      kind: "web_search_call",
+      id: block.id,
+      outputIndex,
+      item,
+    };
+    this.#activeBlock = {
+      kind: "web_search_call",
+      index,
+    };
+    events.push({
+      type: "response.output_item.added",
+      output_index: outputIndex,
+      item,
+    });
+    return this.#result(events);
+  }
+
+  #stopWebSearchCall(): ConversionResult<readonly ResponsesStreamEvent[]> {
+    if (this.#activeItem?.kind !== "web_search_call") {
+      this.#lifecycle("web_search_call stop without active item");
+    }
+    const item = this.#activeItem;
+    this.#completed.push(item.item);
+    this.#activeItem = undefined;
+    this.#activeBlock = undefined;
+    return this.#result([
+      {
+        type: "response.output_item.done",
+        output_index: item.outputIndex,
+        item: item.item,
+      },
+    ]);
   }
 }

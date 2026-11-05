@@ -15,6 +15,7 @@ export const BLOCK_TYPE_TOOL_USE = "tool_use" as const;
 export const BLOCK_TYPE_TOOL_RESULT = "tool_result" as const;
 export const BLOCK_TYPE_THINKING = "thinking" as const;
 export const BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking" as const;
+export const BLOCK_TYPE_ENCRYPTED_CONTENT = "encrypted_content" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_USE = "custom_tool_use" as const;
 export const BLOCK_TYPE_CUSTOM_TOOL_RESULT = "custom_tool_result" as const;
 export const BLOCK_TYPE_APPLY_PATCH_TOOL_USE = "apply_patch_tool_use" as const;

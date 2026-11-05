@@ -23,6 +23,17 @@ interface NormalizedRedactedThinkingBlock {
   readonly type: "redacted_thinking";
   readonly data: string;
 }
+interface NormalizedEncryptedContentBlock {
+  readonly type: "encrypted_content";
+  readonly data: string;
+}
+interface NormalizedWebSearchCallBlock {
+  readonly type: "web_search_call";
+  readonly id: string;
+  readonly status: string;
+  readonly action: any;
+  readonly extra?: any;
+}
 interface NormalizedToolUseBlock {
   readonly type: "tool_use";
   readonly id: string;
@@ -51,6 +62,8 @@ type NormalizedBlock =
   | NormalizedTextBlock
   | NormalizedThinkingBlock
   | NormalizedRedactedThinkingBlock
+  | NormalizedEncryptedContentBlock
+  | NormalizedWebSearchCallBlock
   | NormalizedToolUseBlock
   | NormalizedCustomToolUseBlock
   | NormalizedApplyPatchToolUseBlock
@@ -158,6 +171,21 @@ function normalize(stream: EventStream): NormalizedStream {
           type: "redacted_thinking",
           data: open!.block.data,
         });
+      } else if (open!.block.type === "encrypted_content") {
+        blocks.push({
+          type: "encrypted_content",
+          data: open!.block.data,
+        });
+      } else if (open!.block.type === "web_search_call") {
+        blocks.push({
+          type: "web_search_call",
+          id: open!.block.id,
+          status: open!.block.status,
+          action: open!.block.action,
+          ...(open!.block.extra !== undefined
+            ? { extra: open!.block.extra }
+            : {}),
+        });
       } else if (open!.block.type === "thinking") {
         blocks.push({
           type: "thinking",
@@ -247,6 +275,23 @@ function compareBlock(
     return expected.data === actual.data
       ? undefined
       : "redacted_thinking data differs";
+  }
+  if (
+    expected.type === "encrypted_content" &&
+    actual.type === "encrypted_content"
+  ) {
+    return expected.data === actual.data
+      ? undefined
+      : "encrypted_content data differs";
+  }
+  if (
+    expected.type === "web_search_call" &&
+    actual.type === "web_search_call"
+  ) {
+    if (expected.id !== actual.id) return "web_search_call id differs";
+    if (expected.status !== actual.status)
+      return "web_search_call status differs";
+    return undefined;
   }
   if (expected.type === "thinking" && actual.type === "thinking") {
     if (expected.thinking !== actual.thinking) return "thinking differs";

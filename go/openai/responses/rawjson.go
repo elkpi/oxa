@@ -314,7 +314,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeFunctionCallOutput:
 				return rawObjectSchema(t, []string{"type", "call_id", "output"}, nil, seen)
 			case ItemTypeReasoning:
-				return rawObjectSchema(t, []string{"type", "summary"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "summary", "encrypted_content"}, nil, seen)
 			case ItemTypeWebSearchCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			case ItemTypeAdditionalTools:
@@ -405,7 +405,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeFunctionCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "call_id", "name", "namespace", "arguments"}, nil, seen)
 			case ItemTypeReasoning:
-				return rawObjectSchema(t, []string{"type", "id", "status", "summary"}, nil, seen)
+				return rawObjectSchema(t, []string{"type", "id", "status", "summary", "encrypted_content"}, nil, seen)
 			case ItemTypeWebSearchCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			default:

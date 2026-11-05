@@ -27,6 +27,7 @@ type StreamEncoder struct {
 	openCustom       bool
 	openThinking     bool
 	openRedacted     bool
+	openOmitted      bool
 	toolInput        string
 	toolParts        []string
 	thinkingInput    string
@@ -149,6 +150,19 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
 				Type: BlockTypeThinking, Thinking: "",
 			}}}, nil, nil
+		case ir.EncryptedContentBlock:
+			e.nextIndex++
+			e.blockOpen = true
+			e.openTool = false
+			e.openCustom = false
+			e.openThinking = false
+			e.openRedacted = false
+			e.openOmitted = true
+			e.openIndex = event.Index
+			return nil, []ir.Loss{{
+				Path: fmt.Sprintf("events[%d].block", event.Index), Field: "type",
+				Reason: ir.LossUnsupportedSemantic, Detail: ir.EncryptedContentLossDetail,
+			}}, nil
 		case ir.RedactedThinkingBlock:
 			e.nextIndex++
 			e.blockOpen = true
@@ -156,6 +170,7 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			e.openCustom = false
 			e.openThinking = false
 			e.openRedacted = true
+			e.openOmitted = false
 			e.openIndex = event.Index
 			return []*StreamEvent{{Type: EventTypeContentBlockStart, Index: event.Index, ContentBlock: &BlockWire{
 				Type: BlockTypeRedactedThinking, Data: block.Data,
@@ -210,6 +225,9 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 	case ir.ContentBlockDelta:
 		if !e.blockOpen || event.Index != e.openIndex {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta out of grammar order")
+		}
+		if e.openOmitted {
+			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta on encrypted_content block")
 		}
 		if e.openRedacted {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockDelta on redacted_thinking block")
@@ -290,6 +308,11 @@ func (e *StreamEncoder) apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 	case ir.ContentBlockStop:
 		if !e.blockOpen || event.Index != e.openIndex {
 			return nil, nil, fmt.Errorf("anthropic: ContentBlockStop out of grammar order")
+		}
+		if e.openOmitted {
+			e.blockOpen = false
+			e.openOmitted = false
+			return nil, nil, nil
 		}
 		if e.openRedacted {
 			e.blockOpen = false

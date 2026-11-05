@@ -65,6 +65,8 @@ func hasNative(b Block) bool {
 		return len(v.Native) > 0
 	case RedactedThinkingBlock:
 		return len(v.Native) > 0
+	case EncryptedContentBlock:
+		return len(v.Native) > 0
 	case ImageBlock:
 		return len(v.Native) > 0
 	case DocumentBlock:
@@ -144,6 +146,13 @@ func MarshalBlock(b Block) (json.RawMessage, error) {
 	case RedactedThinkingBlock:
 		return json.Marshal(wireRedactedThinkingBlock{
 			Type: BlockTypeRedactedThinking, Data: v.Data,
+		})
+	case EncryptedContentBlock:
+		if v.Data == "" {
+			return nil, fmt.Errorf("ir: encrypted_content data is required")
+		}
+		return json.Marshal(wireRedactedThinkingBlock{
+			Type: BlockTypeEncryptedContent, Data: v.Data,
 		})
 	case ImageBlock:
 		return json.Marshal(wireImageBlock{
@@ -263,6 +272,15 @@ func UnmarshalBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return RedactedThinkingBlock{Data: w.Data}, nil
+	case BlockTypeEncryptedContent:
+		var w wireRedactedThinkingBlock
+		if err := json.Unmarshal(data, &w); err != nil {
+			return nil, err
+		}
+		if w.Data == "" {
+			return nil, fmt.Errorf("ir: encrypted_content data is required")
+		}
+		return EncryptedContentBlock{Data: w.Data}, nil
 	case BlockTypeImage:
 		var w wireImageBlock
 		if err := json.Unmarshal(data, &w); err != nil {
@@ -428,6 +446,15 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			Data   string             `json:"data"`
 			Native []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeRedactedThinking, v.Data, v.Native})
+	case EncryptedContentBlock:
+		if v.Data == "" {
+			return nil, fmt.Errorf("ir: encrypted_content data is required")
+		}
+		return json.Marshal(struct {
+			Type   string             `json:"type"`
+			Data   string             `json:"data"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}{BlockTypeEncryptedContent, v.Data, v.Native})
 	case ImageBlock:
 		return json.Marshal(struct {
 			Type      string             `json:"type"`
@@ -603,6 +630,18 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, err
 		}
 		return RedactedThinkingBlock{Data: w.Data, Native: w.Native}, nil
+	case BlockTypeEncryptedContent:
+		var ew struct {
+			Data   string             `json:"data"`
+			Native []NativeAnnotation `json:"native,omitempty"`
+		}
+		if err := json.Unmarshal(data, &ew); err != nil {
+			return nil, err
+		}
+		if ew.Data == "" {
+			return nil, fmt.Errorf("ir: encrypted_content data is required")
+		}
+		return EncryptedContentBlock{Data: ew.Data, Native: ew.Native}, nil
 	case BlockTypeImage:
 		var w struct {
 			MediaType string             `json:"media_type,omitempty"`

@@ -21,6 +21,7 @@ const (
 	BlockTypeToolResult       = "tool_result"
 	BlockTypeThinking         = "thinking"
 	BlockTypeRedactedThinking = "redacted_thinking"
+	BlockTypeEncryptedContent = "encrypted_content"
 	BlockTypeDocument         = "document"
 	BlockTypeWebSearchCall    = "web_search_call"
 	BlockTypeRefusal          = "refusal"
@@ -61,6 +62,27 @@ func (r RedactedThinkingBlock) String() string {
 func (r RedactedThinkingBlock) GoString() string {
 	return "ir.RedactedThinkingBlock{Data: [REDACTED]}"
 }
+
+// EncryptedContentBlock is Responses reasoning replay ciphertext (since 2.5.2).
+// Data is opaque and MUST NOT be logged, decoded, or copied into a loss detail.
+type EncryptedContentBlock struct {
+	Data   string
+	Native []NativeAnnotation
+}
+
+func (EncryptedContentBlock) isBlock() {}
+
+func (e EncryptedContentBlock) String() string {
+	return "[EncryptedContentBlock]"
+}
+
+func (e EncryptedContentBlock) GoString() string {
+	return "ir.EncryptedContentBlock{Data: [REDACTED]}"
+}
+
+// EncryptedContentLossDetail is the cross-face omission text for an
+// EncryptedContentBlock. It MUST NOT contain the ciphertext.
+const EncryptedContentLossDetail = "responses encrypted reasoning replay state; the target face cannot preserve this block"
 
 // ThinkingBlock is the model's reasoning content with optional opaque provider signature (since 2.0).
 type ThinkingBlock struct {

@@ -601,6 +601,11 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 					))
 				}
 			}
+		case ir.EncryptedContentBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				ir.EncryptedContentLossDetail,
+			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
@@ -736,6 +741,11 @@ func encodeAssistantMessage(blocks []ir.Block, path string) (Message, []ir.Loss,
 					"Chat Completions carries no signature field on reasoning_content",
 				))
 			}
+		case ir.EncryptedContentBlock:
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				ir.EncryptedContentLossDetail,
+			))
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,

@@ -204,6 +204,10 @@ func validateEventStream(es *ir.EventStream, allowSynthesizedToolInput bool) err
 				block.kind = "thinking"
 			case ir.RedactedThinkingBlock:
 				block.kind = "redacted_thinking"
+			case ir.EncryptedContentBlock:
+				block.kind = "encrypted_content"
+			case ir.WebSearchCallBlock:
+				block.kind = "web_search_call"
 			case ir.CustomToolUseBlock:
 				input, err := decodeEventString(b.Input)
 				if err != nil {

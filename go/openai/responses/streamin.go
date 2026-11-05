@@ -166,6 +166,8 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 			return nil, nil
 		case ev.Item.Type == ItemTypeReasoning:
 			return nil, nil
+		case ev.Item.Type == ItemTypeWebSearchCall:
+			return nil, nil
 		case ev.Item.Type == ItemTypeFunctionCall:
 			if ev.Item.ID == "" || ev.Item.CallID == "" || ev.Item.Name == "" {
 				return nil, fmt.Errorf("responses: function_call item requires id, call_id, and name")
@@ -447,6 +449,27 @@ func (d *StreamDecoder) Feed(ev *StreamEvent) ([]ir.Event, error) {
 				return nil, err
 			}
 			d.toolUseSeen = true
+		}
+		if d.itemType == ItemTypeReasoning && ev.Item.EncryptedContent != "" {
+			index := d.nextBlockIndex
+			d.nextBlockIndex++
+			events = append(events,
+				ir.ContentBlockStart{Index: index, Block: ir.EncryptedContentBlock{Data: ev.Item.EncryptedContent}},
+				ir.ContentBlockStop{Index: index},
+			)
+		}
+		if d.itemType == ItemTypeWebSearchCall {
+			block, callLosses, err := decodeWebSearchCall(ev.Item.ID, ev.Item.Status, ev.Item.Action, ev.Item.Extra, fmt.Sprintf("output[%d]", ev.OutputIndex))
+			if err != nil {
+				return nil, err
+			}
+			d.losses = append(d.losses, callLosses...)
+			index := d.nextBlockIndex
+			d.nextBlockIndex++
+			events = append(events,
+				ir.ContentBlockStart{Index: index, Block: block},
+				ir.ContentBlockStop{Index: index},
+			)
 		}
 		d.itemOpen = false
 		d.itemType = ""

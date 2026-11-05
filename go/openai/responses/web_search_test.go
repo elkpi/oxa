@@ -43,7 +43,7 @@ func TestWebSearchRetainsUnknownTopLevelFields(t *testing.T) {
 	}
 }
 
-func TestWebSearchStreamDropContinues(t *testing.T) {
+func TestWebSearchStreamEmitsAndContinues(t *testing.T) {
 	e := NewStreamEncoder()
 	events := []ir.Event{
 		ir.MessageStart{ID: "resp", Model: "m"},
@@ -62,7 +62,7 @@ func TestWebSearchStreamDropContinues(t *testing.T) {
 		}
 		losses = append(losses, emitted...)
 	}
-	if len(losses) != 1 || losses[0].Reason != ir.LossUnsupportedSemantic {
+	if len(losses) != 0 {
 		t.Fatalf("losses: %+v", losses)
 	}
 }

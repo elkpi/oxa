@@ -409,6 +409,10 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 			return bw, citeLosses, true, nil
 		}
 		return bw, nil, true, nil
+	case ir.EncryptedContentBlock:
+		return BlockWire{}, []ir.Loss{{
+			Path: path, Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: ir.EncryptedContentLossDetail,
+		}}, false, nil
 	case ir.RedactedThinkingBlock:
 		return BlockWire{Type: BlockTypeRedactedThinking, Data: b.Data}, nil, true, nil
 	case ir.ThinkingBlock:
@@ -789,6 +793,10 @@ func encodeResponseBlock(block ir.Block, path string) (BlockWire, []ir.Loss, boo
 			blockLosses = append(blockLosses, citeLosses...)
 		}
 		return bw, blockLosses, true, nil
+	case ir.EncryptedContentBlock:
+		return BlockWire{}, []ir.Loss{{
+			Path: path, Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: ir.EncryptedContentLossDetail,
+		}}, false, nil
 	case ir.RedactedThinkingBlock:
 		return BlockWire{Type: BlockTypeRedactedThinking, Data: b.Data}, nil, true, nil
 	case ir.ThinkingBlock:

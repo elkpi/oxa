@@ -632,6 +632,9 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			blocks, summaryLosses := decodeReasoningSummary(item.Summary, fmt.Sprintf("input[%d].summary", i))
 			thinkings = append(thinkings, blocks...)
 			losses = append(losses, summaryLosses...)
+			if item.EncryptedContent != "" {
+				thinkings = append(thinkings, ir.EncryptedContentBlock{Data: item.EncryptedContent})
+			}
 			continue
 		}
 		if item.Type != "" && item.Type != ItemTypeMessage {
@@ -874,20 +877,19 @@ func DecodeResponse(wire *Response, opts ...Option) (*ir.Response, []ir.Loss, er
 			hasToolUse = true
 		case ItemTypeReasoning:
 			if len(item.Summary) == 0 {
-				losses = append(losses, loss(
-					fmt.Sprintf("output[%d]", i), "type", ir.LossUnsupportedSemantic,
-					"Responses reasoning output item with empty summary carries no convertible content",
-				))
+				if item.EncryptedContent == "" {
+					losses = append(losses, loss(
+						fmt.Sprintf("output[%d]", i), "type", ir.LossUnsupportedSemantic,
+						"Responses reasoning output item with empty summary carries no convertible content",
+					))
+				}
 			} else {
 				blocks, summaryLosses := decodeReasoningSummary(item.Summary, fmt.Sprintf("output[%d].summary", i))
 				thinkings = append(thinkings, blocks...)
 				losses = append(losses, summaryLosses...)
 			}
 			if item.EncryptedContent != "" {
-				losses = append(losses, loss(
-					fmt.Sprintf("output[%d].encrypted_content", i), "encrypted_content", ir.LossUnmappedField,
-					"Responses reasoning encrypted_content has no IR equivalent in v2.",
-				))
+				thinkings = append(thinkings, ir.EncryptedContentBlock{Data: item.EncryptedContent})
 			}
 		case ItemTypeMessage:
 			for j, part := range item.Content {

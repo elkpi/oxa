@@ -343,6 +343,12 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 					))
 				}
 			}
+		case ir.EncryptedContentBlock:
+			otherBlocks++
+			losses = append(losses, loss(
+				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
+				ir.EncryptedContentLossDetail,
+			))
 		case ir.RedactedThinkingBlock:
 			otherBlocks++
 			losses = append(losses, loss(
@@ -424,6 +430,7 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) ([]ir.Loss, error) {
 	var losses []ir.Loss
 	var thinkings []OutputContent
+	var ciphers []string
 	var calls []InputItem
 	var parts []ContentPart
 	text := ""
@@ -467,6 +474,11 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 					))
 				}
 			}
+		case ir.EncryptedContentBlock:
+			if value.Data == "" {
+				return nil, fmt.Errorf("responses: %s[%d].data: encrypted_content data is required", path, i)
+			}
+			ciphers = append(ciphers, value.Data)
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic,
@@ -536,12 +548,12 @@ func encodeAssistantMessage(items *[]InputItem, blocks []ir.Block, path string) 
 		}
 	}
 	// Reasoning, text, and tool calls preserve the normalized IR block order.
-	if len(thinkings) > 0 {
-		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: thinkings})
+	for _, part := range splitReasoning(thinkings, ciphers) {
+		*items = append(*items, InputItem{Type: ItemTypeReasoning, Summary: part.summary, EncryptedContent: part.cipher})
 	}
 	if hasRefusal {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: parts})
-	} else if hasText || (len(blocks) == 0 && len(thinkings) == 0) {
+	} else if hasText || (len(blocks) == 0 && len(thinkings) == 0 && len(ciphers) == 0) {
 		*items = append(*items, InputItem{Role: RoleAssistant, Content: text})
 	}
 	*items = append(*items, calls...)
@@ -560,6 +572,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	var losses []ir.Loss
 	var output []OutputItem
 	var thinkings []OutputContent
+	var ciphers []string
 	var textParts []OutputContent
 	apcIndex := 0
 	apcoIndex := 0
@@ -607,6 +620,11 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			textParts = append(textParts, OutputContent{
 				Type: PartTypeOutputText, Text: value.Text, Annotations: partAnnotations,
 			})
+		case ir.EncryptedContentBlock:
+			if value.Data == "" {
+				return nil, nil, fmt.Errorf("responses: content[%d].data: encrypted_content data is required", i)
+			}
+			ciphers = append(ciphers, value.Data)
 		case ir.RedactedThinkingBlock:
 			losses = append(losses, loss(
 				fmt.Sprintf("content[%d]", i), "type", ir.LossUnsupportedSemantic,
@@ -685,7 +703,7 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			))
 		}
 	}
-	if len(textParts) > 0 || (len(resp.Content) == 0 && len(thinkings) == 0) {
+	if len(textParts) > 0 || (len(resp.Content) == 0 && len(thinkings) == 0 && len(ciphers) == 0) {
 		if len(textParts) == 0 {
 			textParts = []OutputContent{{
 				Type: PartTypeOutputText, Text: "", Annotations: []json.RawMessage{},
@@ -696,10 +714,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 			Content: textParts,
 		}}, output...)
 	}
-	if len(thinkings) > 0 {
+	built := splitReasoning(thinkings, ciphers)
+	for n := len(built) - 1; n >= 0; n-- {
+		part := built[n]
 		output = append([]OutputItem{{
-			Type: ItemTypeReasoning, ID: "rs_abc123",
-			Summary: thinkings,
+			Type: ItemTypeReasoning, ID: fmt.Sprintf("rs_abc%d", 123+n),
+			Summary: part.summary, EncryptedContent: part.cipher,
 		}}, output...)
 	}
 
@@ -831,4 +851,30 @@ func encodeSystemInstructions(blocks []ir.SystemBlock) (*string, []InputItem) {
 		items = append(items, InputItem{Role: role, Content: blocks[i].Text})
 	}
 	return instructions, items
+}
+
+type reasoningWire struct {
+	summary []OutputContent
+	cipher  string
+}
+
+func splitReasoning(summary []OutputContent, ciphers []string) []reasoningWire {
+	if len(summary) == 0 && len(ciphers) == 0 {
+		return nil
+	}
+	if len(ciphers) == 0 {
+		return []reasoningWire{{summary: summary}}
+	}
+	if len(summary) == 0 {
+		out := make([]reasoningWire, len(ciphers))
+		for i, cipher := range ciphers {
+			out[i] = reasoningWire{cipher: cipher}
+		}
+		return out
+	}
+	out := []reasoningWire{{summary: summary, cipher: ciphers[0]}}
+	for _, cipher := range ciphers[1:] {
+		out = append(out, reasoningWire{cipher: cipher})
+	}
+	return out
 }

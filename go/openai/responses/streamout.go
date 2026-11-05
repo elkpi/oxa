@@ -19,6 +19,8 @@ const (
 	streamApplyPatchCallOutputItem
 	streamApplyPatchResultOutputItem
 	streamRedactedBlock
+	streamEncryptedBlock
+	streamWebSearchBlock
 )
 
 // streamOutputItem retains one native Responses output-item lifecycle. A message
@@ -33,6 +35,7 @@ type streamOutputItem struct {
 	callID           string
 	name             string
 	namespace        string
+	encrypted        string
 }
 
 type streamEncodeBlock struct {
@@ -47,6 +50,7 @@ type streamEncodeBlock struct {
 	applyPatchCall   *ir.ApplyPatchToolUseBlock
 	applyPatchResult *ir.ApplyPatchToolResultBlock
 	citationLossSeen bool
+	webSearch        *OutputItem
 }
 
 // StreamEncoder incrementally converts an IR event stream into OpenAI
@@ -127,6 +131,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			out, losses, err = e.startTextBlock(event.Index, block)
 		case ir.ThinkingBlock:
 			out, losses, err = e.startThinkingBlock(event.Index, block)
+		case ir.EncryptedContentBlock:
+			out, losses, err = e.startEncryptedBlock(event.Index, block)
 		case ir.RedactedThinkingBlock:
 			e.activeBlock = &streamEncodeBlock{
 				index: event.Index,
@@ -146,12 +152,9 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			out, losses, err = e.startCustomCallBlock(event.Index, block)
 		case ir.ToolUseBlock:
 			out, losses, err = e.startFunctionCallBlock(event.Index, block)
+		case ir.WebSearchCallBlock:
+			out, losses, err = e.startWebSearchBlock(event.Index, block)
 		default:
-			if _, ok := event.Block.(ir.WebSearchCallBlock); ok {
-				e.activeBlock = &streamEncodeBlock{index: event.Index, kind: streamRedactedBlock}
-				e.nextBlockIndex++
-				return nil, []ir.Loss{loss(fmt.Sprintf("events[%d].block", ordinal), "type", ir.LossUnsupportedSemantic, "Responses streaming profile does not encode web_search_call")}, nil
-			}
 			return nil, nil, fmt.Errorf("responses: ContentBlockStart carries unsupported block %T", block)
 		}
 		if err != nil {
@@ -191,6 +194,10 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			}
 		case streamRedactedBlock:
 			return nil, nil, fmt.Errorf("responses: RedactedThinkingBlock received unexpected delta %T", event.Delta)
+		case streamEncryptedBlock:
+			return nil, nil, fmt.Errorf("responses: EncryptedContentBlock received unexpected delta %T", event.Delta)
+		case streamWebSearchBlock:
+			return nil, nil, fmt.Errorf("responses: WebSearchCallBlock received unexpected delta %T", event.Delta)
 		case streamReasoningOutputItem:
 			switch delta := event.Delta.(type) {
 			case ir.ThinkingDelta:
@@ -251,9 +258,11 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 			return nil, nil, fmt.Errorf("responses: ContentBlockStop out of grammar order")
 		}
 		switch e.activeBlock.kind {
-		case streamRedactedBlock:
+		case streamRedactedBlock, streamEncryptedBlock:
 			e.activeBlock = nil
 			return nil, nil, nil
+		case streamWebSearchBlock:
+			return e.stopWebSearchBlock()
 		case streamMessageOutputItem:
 			return e.stopTextBlock()
 		case streamReasoningOutputItem:
@@ -281,6 +290,8 @@ func (e *StreamEncoder) Apply(ev ir.Event) ([]*StreamEvent, []ir.Loss, error) {
 				out = append(out, e.closeMessageItem())
 			case streamReasoningOutputItem:
 				out = append(out, e.closeReasoningItem())
+			case streamWebSearchBlock:
+				return nil, nil, fmt.Errorf("responses: MessageDelta before web_search_call block stop")
 			default:
 				return nil, nil, fmt.Errorf("responses: MessageDelta with an uncompleted function_call item")
 			}
@@ -564,7 +575,8 @@ func (e *StreamEncoder) closeReasoningItem() *StreamEvent {
 	outputIndex := e.activeItem.outputIndex
 	completed := OutputItem{
 		ID: e.activeItem.id, Type: ItemTypeReasoning, Status: StatusCompleted,
-		Summary: append([]OutputContent(nil), e.activeItem.content...),
+		Summary:          append([]OutputContent(nil), e.activeItem.content...),
+		EncryptedContent: e.activeItem.encrypted,
 	}
 	e.completed = append(e.completed, completed)
 	e.activeItem = nil
@@ -635,4 +647,64 @@ func (e *StreamEncoder) terminal(delta ir.MessageDelta) (*StreamEvent, []ir.Loss
 func isMessageDone(ev ir.Event) bool {
 	_, ok := ev.(ir.MessageDone)
 	return ok
+}
+
+func (e *StreamEncoder) startEncryptedBlock(index int, block ir.EncryptedContentBlock) ([]*StreamEvent, []ir.Loss, error) {
+	if block.Data == "" {
+		return nil, nil, fmt.Errorf("responses: encrypted_content data is required")
+	}
+	var out []*StreamEvent
+	if e.activeItem != nil && e.activeItem.kind == streamMessageOutputItem {
+		out = append(out, e.closeMessageItem())
+	}
+	if e.activeItem != nil && e.activeItem.kind != streamReasoningOutputItem {
+		return nil, nil, fmt.Errorf("responses: encrypted_content cannot open before the active item completes")
+	}
+	if e.activeItem != nil && e.activeItem.encrypted != "" {
+		out = append(out, e.closeReasoningItem())
+	}
+	if e.activeItem == nil {
+		item, added := e.openReasoningItem()
+		e.activeItem = item
+		out = append(out, added)
+	}
+	e.activeItem.encrypted = block.Data
+	e.activeBlock = &streamEncodeBlock{index: index, kind: streamEncryptedBlock}
+	return out, nil, nil
+}
+
+func (e *StreamEncoder) startWebSearchBlock(index int, block ir.WebSearchCallBlock) ([]*StreamEvent, []ir.Loss, error) {
+	item, err := encodeWebSearchCall(block, fmt.Sprintf("events[%d].block", index))
+	if err != nil {
+		return nil, nil, err
+	}
+	var out []*StreamEvent
+	if e.activeItem != nil {
+		switch e.activeItem.kind {
+		case streamMessageOutputItem:
+			out = append(out, e.closeMessageItem())
+		case streamReasoningOutputItem:
+			out = append(out, e.closeReasoningItem())
+		default:
+			return nil, nil, fmt.Errorf("responses: web_search_call cannot open before the active item completes")
+		}
+	}
+	wire := &OutputItem{Type: item.Type, ID: item.ID, Status: item.Status, Action: item.Action, Extra: item.Extra}
+	e.activeItem = &streamOutputItem{kind: streamWebSearchBlock, id: item.ID, outputIndex: e.nextOutputIndex}
+	e.nextOutputIndex++
+	e.activeBlock = &streamEncodeBlock{index: index, kind: streamWebSearchBlock, webSearch: wire}
+	out = append(out, &StreamEvent{Type: EventTypeResponseOutputItemAdded, OutputIndex: e.activeItem.outputIndex, Item: wire})
+	return out, nil, nil
+}
+
+func (e *StreamEncoder) stopWebSearchBlock() ([]*StreamEvent, []ir.Loss, error) {
+	if e.activeItem == nil || e.activeBlock == nil || e.activeBlock.webSearch == nil {
+		return nil, nil, fmt.Errorf("responses: web_search_call stop without an active item")
+	}
+	done := *e.activeBlock.webSearch
+	e.completed = append(e.completed, done)
+	outputIndex := e.activeItem.outputIndex
+	e.activeItem = nil
+	e.activeBlock = nil
+	return []*StreamEvent{{Type: EventTypeResponseOutputItemDone, OutputIndex: outputIndex, Item: &done}}, nil, nil
 }

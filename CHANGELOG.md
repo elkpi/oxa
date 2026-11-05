@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v2.5.2] - 2026-11-05
+
+### Added
+
+- Add `EncryptedContentBlock` to preserve OpenAI Responses reasoning `encrypted_content` as opaque replay state through IR and Responses request/response/stream round trips. Distinct reasoning items retain their own summaries and ciphertexts; unsupported target faces omit ciphertext with one safe `unsupported-semantic` loss.
+- Decode and encode Responses streaming `web_search_call` items as atomic `WebSearchCallBlock`s. Provider progress events remain explicitly unsupported and produce one contained loss each.
+
+### Changed
+
+- Document Responses reasoning signature losses with stable cross-language details and lock new behavior with 539 shared vectors.
+- Keep the IR document contract at `0.2.0`.
+
 ## [v2.5.1] - 2026-11-03
 
 ### Fixed

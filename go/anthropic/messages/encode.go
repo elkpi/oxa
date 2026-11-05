@@ -504,6 +504,9 @@ func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool
 	case ir.ToolResultBlock:
 		return encodeToolResultBlock(b, path)
 	case ir.ToolReferenceBlock:
+		if b.ToolName == "" {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.tool_name is required", path)
+		}
 		bw := BlockWire{Type: BlockTypeToolReference, ToolName: b.ToolName}
 		if cc := getBlockCacheControl(b); len(cc) > 0 {
 			bw.CacheControl = cc
@@ -656,6 +659,9 @@ func encodeToolResultBlock(result ir.ToolResultBlock, path string) (BlockWire, [
 			}
 			losses = append(losses, docLosses...)
 		case ir.ToolReferenceBlock:
+			if b.ToolName == "" {
+				return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s.tool_name is required", contentPath)
+			}
 			bw := BlockWire{Type: BlockTypeToolReference, ToolName: b.ToolName}
 			if cc := getBlockCacheControl(b); len(cc) > 0 {
 				bw.CacheControl = cc

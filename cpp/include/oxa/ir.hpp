@@ -84,6 +84,8 @@ inline constexpr std::string_view DOCUMENT_CONTEXT_LOSS_DETAIL =
     "anthropic-native document context; the target face has no document representation";
 inline constexpr std::string_view DOCUMENT_CITATIONS_LOSS_DETAIL =
     "anthropic-native document citations; citations alter response semantics and the target face has no document representation";
+inline constexpr std::string_view ENCRYPTED_CONTENT_LOSS_DETAIL =
+    "responses encrypted reasoning replay state; the target face cannot preserve this block";
 
 inline constexpr std::string_view ROLE_USER = "user";
 inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
@@ -91,6 +93,7 @@ inline constexpr std::string_view ROLE_ASSISTANT = "assistant";
 inline constexpr std::string_view BLOCK_TYPE_TEXT = "text";
 inline constexpr std::string_view BLOCK_TYPE_THINKING = "thinking";
 inline constexpr std::string_view BLOCK_TYPE_REDACTED_THINKING = "redacted_thinking";
+inline constexpr std::string_view BLOCK_TYPE_ENCRYPTED_CONTENT = "encrypted_content";
 inline constexpr std::string_view BLOCK_TYPE_IMAGE = "image";
 inline constexpr std::string_view BLOCK_TYPE_DOCUMENT = "document";
 inline constexpr std::string_view BLOCK_TYPE_WEB_SEARCH_CALL = "web_search_call";
@@ -206,6 +209,15 @@ struct RedactedThinkingBlock {
 
     RedactedThinkingBlock() = default;
     explicit RedactedThinkingBlock(std::string d, std::vector<NativeAnnotation> nat = {})
+        : data(std::move(d)), native(std::move(nat)) {}
+};
+
+struct EncryptedContentBlock {
+    std::string data;
+    std::vector<NativeAnnotation> native;
+
+    EncryptedContentBlock() = default;
+    explicit EncryptedContentBlock(std::string d, std::vector<NativeAnnotation> nat = {})
         : data(std::move(d)), native(std::move(nat)) {}
 };
 
@@ -330,7 +342,7 @@ struct RefusalBlock {
         : refusal(std::move(ref)), category(std::move(cat)), native(std::move(nat)) {}
 };
 
-using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, ImageBlock, DocumentBlock,
+using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, EncryptedContentBlock, ImageBlock, DocumentBlock,
                            ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
                            ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock, RefusalBlock>;

@@ -890,6 +890,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 if (std::holds_alternative<ir::RedactedThinkingBlock>(c_res.first[j])) {
                     return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "]: redacted_thinking is not permitted in user messages");
                 }
+                if (std::holds_alternative<ir::EncryptedContentBlock>(c_res.first[j])) {
+                    return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "]: encrypted_content is not permitted in user messages");
+                }
                 if (const auto* utb = std::get_if<ir::TextBlock>(&c_res.first[j])) {
                     if (utb->citations.has_value() && !utb->citations->empty()) {
                         return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "].citations: citations are not permitted on user text blocks");
@@ -1241,6 +1244,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     content_arr.push_back(std::move(bw));
                 } else if (std::holds_alternative<ir::WebSearchCallBlock>(b)) {
                     losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
+                } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+                    losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
                 } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("redacted_thinking"));
@@ -1414,6 +1419,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         const auto& inner = tr->content[ci];
                         if (std::holds_alternative<ir::RedactedThinkingBlock>(inner.block)) {
                             return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "]: redacted_thinking is not permitted in tool_result");
+                        }
+                        if (std::holds_alternative<ir::EncryptedContentBlock>(inner.block)) {
+                            return invalid_argument("anthropic: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].content[" + std::to_string(ci) + "]: encrypted_content is not permitted in tool_result");
                         }
                         if (const auto* itb = std::get_if<ir::TextBlock>(&inner.block)) {
                             if (itb->citations.has_value() && !itb->citations->empty()) {
@@ -1667,6 +1675,8 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 }
             }
             content_arr.push_back(std::move(bw));
+        } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+            losses.push_back(make_ant_loss("content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
         } else if (const auto* rtb = std::get_if<ir::RedactedThinkingBlock>(&b)) {
             json::Value bw = json::Value::object();
             bw.set("type", json::Value::string("redacted_thinking"));
@@ -2236,6 +2246,16 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             open_tool_ = false;
             open_thinking_ = false;
             losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Responses web_search_call has no Anthropic equivalent"));
+            return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
+        }
+        if (const auto* ec = std::get_if<ir::EncryptedContentBlock>(&cbs->block)) {
+            (void)ec;
+            skipped_atomic_ = true;
+            skipped_custom_ = false;
+            open_tool_ = false;
+            open_thinking_ = false;
+            losses.push_back(make_ant_loss("events[" + std::to_string(cbs->index) + "].block", "type",
+                ir::LOSS_UNSUPPORTED_SEMANTIC, std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
             return Conversion<std::vector<json::Value>>{std::move(chunks), std::move(losses)};
         }
         if (const auto* ap = std::get_if<ir::ApplyPatchToolUseBlock>(&cbs->block)) {

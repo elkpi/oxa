@@ -250,6 +250,11 @@ struct BlockValidator {
         if (!st.ok()) return st;
         return check_no_prompt_cache_breakpoint(b.native, path);
     }
+    Status operator()(const EncryptedContentBlock& b) const {
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
+    }
     Status operator()(const ImageBlock& b) const {
         return validate_annotations(b.native, host, path);
     }
@@ -640,6 +645,10 @@ struct BlockOmissionCollector {
         }
     }
     void operator()(const RedactedThinkingBlock& /*b*/) const {
+        // Whole-block drop; annotations are part of it and are not reported
+        // a second time.
+    }
+    void operator()(const EncryptedContentBlock& /*b*/) const {
         // Whole-block drop; annotations are part of it and are not reported
         // a second time.
     }

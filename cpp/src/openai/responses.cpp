@@ -1130,6 +1130,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                             auto blocks = decode_reasoning_summary(cur, index, losses);
                             text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                                std::make_move_iterator(blocks.end()));
+                            if (const auto* enc = cur.find("encrypted_content"); enc && enc->is_string() && !enc->as_string().empty()) {
+                                text_blocks.push_back(ir::EncryptedContentBlock{enc->as_string()});
+                            }
                             ++index;
                             continue;
                         }
@@ -1197,6 +1200,9 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         auto blocks = decode_reasoning_summary(cur, index, losses);
                         text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
                                            std::make_move_iterator(blocks.end()));
+                        if (const auto* enc = cur.find("encrypted_content"); enc && enc->is_string() && !enc->as_string().empty()) {
+                            text_blocks.push_back(ir::EncryptedContentBlock{enc->as_string()});
+                        }
                         ++index;
                         continue;
                     }
@@ -1830,6 +1836,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         if (!first_normal.has_value()) first_normal = bi;
                         normal.push_back(&b);
                     }
+                } else if (std::holds_alternative<ir::EncryptedContentBlock>(b)) {
+                    losses.push_back(make_resp_loss(
+                        "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
+                        "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
+                        std::string(ir::ENCRYPTED_CONTENT_LOSS_DETAIL)));
+                    normal.push_back(&b);
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -2011,6 +2023,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             bool has_refusal = false;
             json::Value assistant_parts = json::Value::array();
             json::Value reasoning_summary = json::Value::array();
+            std::vector<std::string> ciphers;
             std::vector<json::Value> fc_items;
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
@@ -2067,6 +2080,11 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     p.set("type", json::Value::string("refusal"));
                     p.set("refusal", json::Value::string(ref->refusal));
                     assistant_parts.push_back(std::move(p));
+                } else if (const auto* ec = std::get_if<ir::EncryptedContentBlock>(&b)) {
+                    if (ec->data.empty()) {
+                        return invalid_argument("responses: messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].data: encrypted_content data is required");
+                    }
+                    ciphers.push_back(ec->data);
                 } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
                     losses.push_back(make_resp_loss(
                         "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "]",
@@ -2115,8 +2133,20 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         "this IR block cannot be rendered in a Responses assistant input item"));
                 }
             }
-            const bool has_reasoning = !reasoning_summary.as_array().empty();
-            if (has_reasoning) {
+            if (!ciphers.empty()) {
+                for (std::size_t ci = 0; ci < ciphers.size(); ++ci) {
+                    json::Value reasoning = json::Value::object();
+                    reasoning.set("type", json::Value::string("reasoning"));
+                    if (ci == 0) {
+                        reasoning.set("summary", std::move(reasoning_summary));
+                        reasoning_summary = json::Value::array();
+                    } else {
+                        reasoning.set("summary", json::Value::array());
+                    }
+                    reasoning.set("encrypted_content", json::Value::string(ciphers[ci]));
+                    items.push_back(std::move(reasoning));
+                }
+            } else if (!reasoning_summary.as_array().empty()) {
                 json::Value reasoning = json::Value::object();
                 reasoning.set("type", json::Value::string("reasoning"));
                 reasoning.set("summary", std::move(reasoning_summary));
@@ -2127,7 +2157,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", std::move(assistant_parts));
                 items.push_back(std::move(mi));
-            } else if (has_text || (!has_reasoning && fc_items.empty())) {
+            } else if (has_text || (reasoning_summary.as_array().empty() && fc_items.empty() && ciphers.empty())) {
                 json::Value mi = json::Value::object();
                 mi.set("role", json::Value::string("assistant"));
                 mi.set("content", json::Value::string(std::move(a_txt)));
@@ -2302,11 +2332,14 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                 }
             } else if (kind == ITEM_TYPE_REASONING) {
                 const auto* summary = item.find("summary");
-                if (!summary || !summary->is_array() || summary->as_array().empty()) {
+                const auto* encrypted = item.find("encrypted_content");
+                const bool has_encrypted = encrypted && encrypted->is_string() && !encrypted->as_string().empty();
+                const bool has_summary = summary && summary->is_array() && !summary->as_array().empty();
+                if (!has_summary && !has_encrypted) {
                     losses.push_back(make_resp_loss(
                         item_path, "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
                         "Responses reasoning output item with empty summary carries no convertible content"));
-                } else {
+                } else if (has_summary) {
                     for (std::size_t si = 0; si < summary->as_array().size(); ++si) {
                         const auto& part = summary->as_array()[si];
                         const auto* pt = part.find("type");
@@ -2330,12 +2363,8 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
                         }
                     }
                 }
-                if (const auto* encrypted = item.find("encrypted_content");
-                    encrypted && encrypted->is_string() && !encrypted->as_string().empty()) {
-                    losses.push_back(make_resp_loss(
-                        item_path + ".encrypted_content", "encrypted_content",
-                        ir::LOSS_UNMAPPED_FIELD,
-                        "Responses reasoning encrypted_content has no IR equivalent in v2."));
+                if (has_encrypted) {
+                    resp.content.push_back(ir::EncryptedContentBlock{encrypted->as_string()});
                 }
             } else if (kind == "web_search_call") {
                 OXA_ASSIGN_OR_RETURN(auto block, decode_web_search_item(item, item_path, losses));
@@ -2398,7 +2427,7 @@ static StatusOr<Conversion<ir::Response>> decode_response_unchecked(const json::
     }
 
     const auto rank = [](const ir::Block& block) {
-        if (std::holds_alternative<ir::ThinkingBlock>(block)) return 0;
+        if (std::holds_alternative<ir::ThinkingBlock>(block) || std::holds_alternative<ir::EncryptedContentBlock>(block)) return 0;
         if (std::holds_alternative<ir::TextBlock>(block) || std::holds_alternative<ir::RefusalBlock>(block)) return 1;
         return 2;
     };
@@ -2465,6 +2494,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     std::size_t next_apco = 0;
     std::optional<std::string> refusal_msg;
     json::Value reasoning_parts = json::Value::array();
+    std::vector<std::string> ciphers;
     std::vector<json::Value> text_parts;
     std::vector<json::Value> calls;
 
@@ -2511,6 +2541,11 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
             op.set("text", json::Value::string(tb->text));
             op.set("annotations", std::move(part_annotations));
             text_parts.push_back(std::move(op));
+        } else if (const auto* ec = std::get_if<ir::EncryptedContentBlock>(&b)) {
+            if (ec->data.empty()) {
+                return invalid_argument("responses: content[" + std::to_string(i) + "].data: encrypted_content data is required");
+            }
+            ciphers.push_back(ec->data);
         } else if (std::holds_alternative<ir::RedactedThinkingBlock>(b)) {
             losses.push_back(make_resp_loss(
                 "content[" + std::to_string(i) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC,
@@ -2525,7 +2560,7 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
                 losses.push_back(make_resp_loss(
                     "content[" + std::to_string(i) + "].signature", "signature",
                     ir::LOSS_UNMAPPED_FIELD,
-                    "Responses reasoning output items carry no provider signature"));
+                    "Responses reasoning items carry no provider signature"));
             }
         } else if (const auto* tu = std::get_if<ir::ToolUseBlock>(&b)) {
             json::Value fc = json::Value::object();
@@ -2609,14 +2644,28 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp,
     }
 
     json::Value output_arr = json::Value::array();
-    if (!reasoning_parts.as_array().empty()) {
+    if (!ciphers.empty()) {
+        for (std::size_t ci = 0; ci < ciphers.size(); ++ci) {
+            json::Value reasoning = json::Value::object();
+            reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
+            reasoning.set("id", json::Value::string("rs_abc" + std::to_string(123 + ci)));
+            if (ci == 0) {
+                reasoning.set("summary", std::move(reasoning_parts));
+                reasoning_parts = json::Value::array();
+            } else {
+                reasoning.set("summary", json::Value::array());
+            }
+            reasoning.set("encrypted_content", json::Value::string(ciphers[ci]));
+            output_arr.push_back(std::move(reasoning));
+        }
+    } else if (!reasoning_parts.as_array().empty()) {
         json::Value reasoning = json::Value::object();
         reasoning.set("type", json::Value::string(std::string(ITEM_TYPE_REASONING)));
         reasoning.set("id", json::Value::string("rs_abc123"));
         reasoning.set("summary", std::move(reasoning_parts));
         output_arr.push_back(std::move(reasoning));
     }
-    if (!text_parts.empty() || (resp.content.empty() && reasoning_parts.as_array().empty())) {
+    if (!text_parts.empty() || (resp.content.empty() && reasoning_parts.as_array().empty() && ciphers.empty())) {
         json::Value msg = json::Value::object();
         msg.set("type", json::Value::string("message"));
         msg.set("id", json::Value::string("msg_abc123"));
@@ -2843,7 +2892,7 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
         if (ikind == "message" && role == "assistant") {
             return events;
         }
-        if (ikind == ITEM_TYPE_REASONING) {
+        if (ikind == ITEM_TYPE_REASONING || ikind == "web_search_call") {
             return events;
         }
         if (ikind == "function_call") {
@@ -3321,6 +3370,19 @@ StatusOr<std::vector<ir::Event>> StreamDecoder::feed_unchecked(const json::Value
             apply_patch_result_ = std::nullopt;
         }
 
+        if (item_type_ == ITEM_TYPE_REASONING) {
+            if (const auto* enc = item->find("encrypted_content"); enc && enc->is_string() && !enc->as_string().empty()) {
+                std::int64_t b_idx = next_block_index_++;
+                events.push_back(ir::ContentBlockStart{b_idx, ir::EncryptedContentBlock{enc->as_string()}});
+                events.push_back(ir::ContentBlockStop{b_idx});
+            }
+        }
+        if (item_type_ == "web_search_call") {
+            OXA_ASSIGN_OR_RETURN(auto block, decode_web_search_item(*item, "output[" + std::to_string(output_index_) + "]", losses_));
+            std::int64_t b_idx = next_block_index_++;
+            events.push_back(ir::ContentBlockStart{b_idx, std::move(block)});
+            events.push_back(ir::ContentBlockStop{b_idx});
+        }
         item_open_ = false;
         item_type_.clear();
         item_id_.clear();
@@ -3579,6 +3641,9 @@ json::Value StreamEncoder::close_reasoning_item() {
     json::Value summary = json::Value::array();
     for (auto& part : item.content) summary.push_back(std::move(part));
     completed.set("summary", std::move(summary));
+    if (!item.encrypted_content.empty()) {
+        completed.set("encrypted_content", json::Value::string(item.encrypted_content));
+    }
 
     json::Value event = json::Value::object();
     event.set("type", json::Value::string("response.output_item.done"));
@@ -4170,9 +4235,16 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
             OXA_ASSIGN_OR_RETURN(auto res, start_text_block(cbs->index, *tb, ordinal));
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
-        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block) || std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) {
+        if (const auto* ws = std::get_if<ir::WebSearchCallBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_web_search_block(cbs->index, *ws));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (const auto* ec = std::get_if<ir::EncryptedContentBlock>(&cbs->block)) {
+            OXA_ASSIGN_OR_RETURN(auto res, start_encrypted_content_block(cbs->index, *ec));
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
+        }
+        if (std::holds_alternative<ir::RedactedThinkingBlock>(cbs->block)) {
             OXA_ASSIGN_OR_RETURN(auto res, start_redacted_block(cbs->index, ordinal));
-            if (std::holds_alternative<ir::WebSearchCallBlock>(cbs->block)) res.second[0].detail = "Responses streaming profile does not encode web_search_call";
             return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&cbs->block)) {
@@ -4205,8 +4277,8 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (active_block_->kind == OutputItemKind::ApplyPatchCall || active_block_->kind == OutputItemKind::ApplyPatchResult) {
             return invalid_argument("responses: apply patch item does not accept deltas");
         }
-        if (active_block_->kind == OutputItemKind::Redacted) {
-            return invalid_argument("responses: RedactedThinkingBlock received unexpected delta");
+        if (active_block_->kind == OutputItemKind::Redacted || active_block_->kind == OutputItemKind::EncryptedContent || active_block_->kind == OutputItemKind::WebSearchCall) {
+            return invalid_argument("responses: block received unexpected delta");
         }
         if (active_block_->kind == OutputItemKind::Message) {
             if (const auto* td = std::get_if<ir::TextDelta>(&cbd->delta)) {
@@ -4282,9 +4354,13 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
         if (!active_block_.has_value() || cbs->index != active_block_->index) {
             return invalid_argument("responses: ContentBlockStop out of grammar order");
         }
-        if (active_block_->kind == OutputItemKind::Redacted) {
+        if (active_block_->kind == OutputItemKind::Redacted || active_block_->kind == OutputItemKind::EncryptedContent) {
             active_block_ = std::nullopt;
             return Conversion<std::vector<json::Value>>{{}, {}};
+        }
+        if (active_block_->kind == OutputItemKind::WebSearchCall) {
+            OXA_ASSIGN_OR_RETURN(auto res, stop_web_search_block());
+            return Conversion<std::vector<json::Value>>{std::move(res.first), std::move(res.second)};
         }
         if (active_block_->kind == OutputItemKind::Message) {
             OXA_ASSIGN_OR_RETURN(auto res, stop_text_block());
@@ -4337,6 +4413,84 @@ StatusOr<Conversion<std::vector<json::Value>>> StreamEncoder::apply(const ir::Ev
     }
 
     return invalid_argument("responses: unknown event type");
+}
+
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_encrypted_content_block(std::int64_t index, const ir::EncryptedContentBlock& block) {
+    if (block.data.empty()) return invalid_argument("responses: encrypted_content data is required");
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) {
+            out.push_back(close_message_item());
+        } else if (active_item_->kind == OutputItemKind::Reasoning) {
+            if (!active_item_->encrypted_content.empty()) {
+                out.push_back(close_reasoning_item());
+            }
+        } else {
+            return invalid_argument("responses: encrypted_content cannot open before active item completes");
+        }
+    }
+    if (!active_item_.has_value()) {
+        auto [item, added] = open_reasoning_item();
+        active_item_ = std::move(item);
+        out.push_back(std::move(added));
+    }
+    active_item_->encrypted_content = block.data;
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::EncryptedContent;
+    active_block_ = std::move(eb);
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::start_web_search_block(std::int64_t index, const ir::WebSearchCallBlock& block) {
+    OXA_ASSIGN_OR_RETURN(auto losses, ir::inspect_web_search_call(block, "events[" + std::to_string(index) + "].block"));
+    std::vector<json::Value> out;
+    if (active_item_.has_value()) {
+        if (active_item_->kind == OutputItemKind::Message) out.push_back(close_message_item());
+        else if (active_item_->kind == OutputItemKind::Reasoning) out.push_back(close_reasoning_item());
+        else return invalid_argument("responses: web_search_call cannot open before active item completes");
+    }
+    const auto output_index = next_output_index_++;
+    OXA_ASSIGN_OR_RETURN(auto item_wire, encode_web_search_item(block, "events[" + std::to_string(index) + "].block"));
+    StreamOutputItem item;
+    item.kind = OutputItemKind::WebSearchCall;
+    item.id = block.id;
+    item.output_index = output_index;
+    item.web_search_item = item_wire;
+    active_item_ = std::move(item);
+
+    StreamEncodeBlock eb;
+    eb.index = index;
+    eb.kind = OutputItemKind::WebSearchCall;
+    active_block_ = std::move(eb);
+
+    json::Value added = json::Value::object();
+    added.set("type", json::Value::string("response.output_item.added"));
+    added.set("output_index", json::Value::integer(output_index));
+    added.set("item", item_wire);
+    out.push_back(std::move(added));
+    return std::make_pair(std::move(out), std::move(losses));
+}
+
+StatusOr<std::pair<std::vector<json::Value>, std::vector<ir::Loss>>> StreamEncoder::stop_web_search_block() {
+    if (!active_item_.has_value() || active_item_->kind != OutputItemKind::WebSearchCall || !active_item_->web_search_item.has_value()) {
+        return invalid_argument("responses: web_search_call stop without active item");
+    }
+    auto item = std::move(*active_item_);
+    active_item_ = std::nullopt;
+    active_block_ = std::nullopt;
+
+    json::Value completed = std::move(*item.web_search_item);
+    json::Value event = json::Value::object();
+    event.set("type", json::Value::string("response.output_item.done"));
+    event.set("output_index", json::Value::integer(item.output_index));
+    event.set("item", completed);
+    completed_.push_back(std::move(completed));
+
+    std::vector<json::Value> out;
+    out.push_back(std::move(event));
+    return std::make_pair(std::move(out), std::vector<ir::Loss>{});
 }
 
 }  // namespace oxa::openai::responses

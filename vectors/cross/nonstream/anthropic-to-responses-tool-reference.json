@@ -30,7 +30,7 @@
             "type": "tool_use",
             "id": "call_1",
             "name": "tool_search",
-            "input": { "query": "weather" }
+            "input": {"query":"weather"}
           }
         ]
       },

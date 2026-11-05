@@ -116,6 +116,7 @@ render 1:1 with their omitempty semantics.
 | `{type: "document", source: {type: "file", file_id}}` | `DocumentBlock{FileID}` | N-AN-16 |
 | `{type: "tool_use", id, name, input}` | `ToolUseBlock{ID, Name, Input}` | raw input, N-AN-4 |
 | `{type: "tool_result", tool_use_id, content, is_error}` | `ToolResultBlock{ToolUseID, Content, IsError}` | content is string or block array, decoded recursively by N-AN-5 |
+| `{type: "tool_reference", tool_name}` | `ToolReferenceBlock{ToolName}` | 1:1; N-AN-21 (since 2.5.3) |
 | other block types | — | one whole-block unsupported-semantic loss (N-AN-9) |
 | `source.type` ∉ {`base64`, `url`} | — | unsupported-semantic loss |
 | document `source.type` ∉ {`base64`, `url`, `file`} | — | one whole-block unsupported-semantic loss (N-AN-16) |
@@ -142,7 +143,7 @@ requires `media_type`, and a URL image MUST NOT carry `media_type`.
 Document blocks MUST carry exactly one of data, URL, or file_id; data
 requires `media_type`, and URL/file_id documents MUST NOT carry
 `media_type` (N-AN-16). Violations are unsupported-semantic losses.
-Tool-result content renders as an array of `text`/`image`/`document`
+Tool-result content renders as an array of `text`/`image`/`document`/`tool_reference`
 blocks; other IR block types inside a tool result are
 unsupported-semantic losses.
 
@@ -425,6 +426,11 @@ Each rule has a stable ID usable as a vector tag.
     A `RefusalBlock` in request messages records an `unsupported-semantic` loss at `messages[i].content[j]`
     (detail: `"Anthropic does not support refusal content blocks in request history"`).
 
+- **N-AN-21 (tool reference blocks, since 2.5.3).** Anthropic `tool_reference` content blocks in requests (typically inside `tool_result.content` or `messages[].content`) map 1:1 to `ToolReferenceBlock{ToolName}`.
+  - **Decode (Messages → IR).** An object with `type: "tool_reference"` decodes to `ToolReferenceBlock{ToolName: tool_name}`. `tool_name` is required and non-empty (the decoder tolerates `name` as an alias if `tool_name` is absent); a missing or empty tool name is a structural error. If `cache_control` is present, it is attached as a `NativeAnnotation` (`kind: "cache_control"`).
+  - **Encode (IR → Messages).** `ToolReferenceBlock` encodes as `{"type": "tool_reference", "tool_name": b.ToolName}`. If a `cache_control` native annotation is attached, it is emitted on the wire block.
+  - **Cross-face.** Target faces without tool search reference representation (OpenAI Chat Completions, OpenAI Responses) omit the block and emit an `unsupported-semantic` loss.
+
 ## 8. Loss Catalog
 
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
@@ -445,6 +451,7 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
 | `metadata.<key>` other than `user_id` | unmapped-field | request, both directions (one loss per key) | N-AN-8, since 2.5.0 || `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `redacted_thinking` block (cross-face) | unsupported-semantic | IR → target face | anthropic encrypted thinking replay state; the target face cannot preserve this block (N-AN-17) |
+| `tool_reference` block (cross-face) | unsupported-semantic | IR → target face | tool reference block; target face does not support tool search references (N-AN-21) |
 | `text.citations` (cross-face: anthropic) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
 | `text.citations` (cross-face: openai) | unsupported-semantic | IR → Anthropic | openai text annotations; the target face cannot preserve source locations and replay metadata (N-AN-18) |
 | `text.citations[k].file_id` (request encode replay) | unmapped-field | IR → request | response citation file_id has no request-side representation (N-AN-18) |

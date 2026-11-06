@@ -349,7 +349,7 @@ def decode_block(
     if kind == "compaction" and is_request:
         if path != "messages[0].content[0]": raise ValueError(f"anthropic: {path}: compaction must be the first conversation block")
         from oxa.anthropic.messages.tool_change import decode_compaction
-        return [decode_compaction(wire, path)], [], True
+        return [decode_compaction(wire, path, losses)], losses, True
 
     if kind == BLOCK_TYPE_TEXT:
         text_val = wire.get("text")

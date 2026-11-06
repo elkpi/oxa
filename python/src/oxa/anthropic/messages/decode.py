@@ -266,7 +266,14 @@ def decode_request(
                             if canon is not None: native = (NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_CACHE_CONTROL, value=canon, omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL)),)
                         parts.append(ToolChangePart(type="text", text=block["text"], native=native))
                     else:
-                        parts.append(ToolChangePart(type="tool_change", change=decode_change(block, path)))
+                        change = decode_change(block, path, losses)
+                        parts.append(ToolChangePart(type="tool_change", change=change))
+                        if change.tool is not None:
+                            declared_tools.add(change.tool.name)
+                            if change.tool.type == "custom":
+                                custom_tools.add(change.tool.name)
+                            else:
+                                custom_tools.discard(change.tool.name)
                 tool_change_groups.append(ToolChangeGroup(message_index=len(messages), content_index=-1, parts=parts))
                 continue
             if isinstance(content, str):

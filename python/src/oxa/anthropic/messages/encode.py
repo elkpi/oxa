@@ -330,7 +330,7 @@ def encode_request(
                     cc = get_block_cache_control(part.native)
                     if cc is not None: item["cache_control"] = cc
                     content.append(item)
-                elif part.type == "tool_change" and part.change is not None: content.append(encode_change(part.change))
+                elif part.type == "tool_change" and part.change is not None: content.append(encode_change(part.change, f"tool_change_groups[{i}].parts[{j}].change", losses))
                 else: raise ValueError("invalid tool change part")
             if content:
                 if group.extra:
@@ -456,7 +456,7 @@ def encode_request_block(
     if isinstance(block, CompactionBlock):
         if path != "messages[0].content[0]": raise ValueError(f"anthropic: {path}: compaction must be the first conversation block")
         from oxa.anthropic.messages.tool_change import encode_compaction
-        return encode_compaction(block), [], True
+        return encode_compaction(block, path, losses), losses, True
 
     if isinstance(block, TextBlock):
         encoded = {"type": BLOCK_TYPE_TEXT, "text": block.text}

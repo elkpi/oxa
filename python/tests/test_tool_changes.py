@@ -5,6 +5,14 @@ from oxa.ir.codec import dump_request, load_request
 
 
 class ToolChangeTests(unittest.TestCase):
+    def test_added_tool_definition_reports_decode_loss(self):
+        wire = {"model": "m", "max_tokens": 32, "messages": [
+            {"role": "user", "content": "go"},
+            {"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "f", "input_schema": {"type": "object"}, "cache_control": {"type": "bad"}}}}]},
+        ]}
+        _, losses = decode_request(wire)
+        self.assertEqual([(item.path, item.reason) for item in losses], [("messages[1].content[0].tool.definition.cache_control.type", "unmapped-value")])
+
     def test_anthropic_add_remove_and_compaction_roundtrip(self):
         compaction = {"type": "compaction", "content": None, "signature": "", "tool_changes": [
             {"type": "tool_removal", "tool": {"type": "tool_reference", "name": "old", "future": True}}

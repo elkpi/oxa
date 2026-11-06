@@ -63,7 +63,7 @@ The wire objects in scope are:
 | `model` | `Request.Model` | via model map (spec/03) |
 | `system` (string) | one `SystemBlock` | N-AN-1 |
 | `system[]` (block array, `type: "text"`) | `SystemBlock[]` in order | N-AN-1; `cache_control` lost |
-| `messages[role=system]` | `Request.System[]` | mid-conversation system message appended to `Request.System` with `degraded` loss; text-only (N-AN-15) |
+| `messages[role=system]` | `Request.System[]` or `ToolChangeGroups[]` | text-only messages fold with `degraded` loss; messages with tool changes retain position (N-AN-15, N-AN-22) |
 | `messages[].content` | `Message.Content` blocks (or one `TextBlock` for string content) | N-AN-5 |
 | `max_tokens` | `Params.MaxTokens` | required and MUST be positive on decode; defaulted on encode (N-AN-2) |
 | `temperature` | `Params.Temperature` | 1:1 |
@@ -299,12 +299,12 @@ Each rule has a stable ID usable as a vector tag.
     under N-AN-22 into `Request.ToolChangeGroups`. Text blocks in that message remain in the
     group's `parts` in original order and are NOT folded into `Request.System`.
     Other block types (e.g. `image`, `tool_use`, `tool_result`) are structural errors.
-  - **Destination.** Extracted text blocks are appended in encounter order to `Request.System[]`,
+  - **Destination for text-only messages.** Extracted text blocks are appended in encounter order to `Request.System[]`,
     following any top-level `system` blocks and preceding mid-conversation system messages.
     If a text block carries a valid `cache_control` annotation, it is preserved as a
     `NativeAnnotation` on that `SystemBlock` per spec/15.
-  - **Loss reporting.** Because IR `Request.System` is request-level and cannot represent
-    the mid-conversation position or activation point, each decoded mid-conversation
+  - **Loss reporting for text-only messages.** Because IR `Request.System` is request-level and cannot represent
+    the mid-conversation position or activation point, each decoded text-only mid-conversation
     system message records exactly one `degraded` loss:
     `{ "path": "messages[i].role", "field": "role", "reason": "degraded", "detail": "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved." }`.
     The `degraded` loss is recorded before any losses derived from that message's
@@ -445,10 +445,14 @@ Each rule has a stable ID usable as a vector tag.
   - **Tool change group encoding.**
     Groups in `Request.ToolChangeGroups` are emitted as `role: "system"` messages if they fall on valid system boundaries:
     `content_index == -1`, following a user turn, and either at conversation end or followed by assistant.
+    A tool addition carrying a native definition from another source has no Anthropic equivalent: omit that part and report one `unsupported-semantic` loss at the part, field `op`, with the fixed detail `positional tool availability change cannot be represented on the target face`. Do not emit an empty system message when all parts are omitted.
     Groups placed on invalid boundaries (e.g. within an assistant turn or following system) MUST NOT be shifted;
     each part in the group emits an `unsupported-semantic` loss (`positional tool availability change cannot be represented on the target face` or `positional system text has no equivalent on the target face`).
     If a group carries an `id`, an `unmapped-field` loss is emitted on Anthropic encode:
-    `additional_tools item id has no equivalent on the target face`.
+    `additional_tools item id has no equivalent on the target face`. If a group carries non-empty
+    `extra`, emit one `unmapped-field` loss at `tool_change_groups[i].extra`, field `extra`,
+    with fixed detail `additional_tools item extensions have no equivalent on the target face`;
+    do not send those properties to Anthropic or include their names or values in the loss.
 
 - **N-AN-21 (tool reference blocks, since 2.5.3).** Anthropic `tool_reference` content blocks in requests (typically inside `tool_result.content` or `messages[].content`) map 1:1 to `ToolReferenceBlock{ToolName}`.
   - **Decode (Messages → IR).** An object with `type: "tool_reference"` decodes to `ToolReferenceBlock{ToolName: tool_name}`. When the `tool_name` key is present it MUST be a non-empty string (an empty or null `tool_name` is a structural error, even when `name` is present); when `tool_name` is absent, `name` is tolerated as an alias under the same non-empty-string rule; a block carrying neither is a structural error. Unrecognized properties on the block are audited per [spec/02 §4](02-loss-policy.md): one `unmapped-field` loss per present property. If `cache_control` is present, it is attached as a `NativeAnnotation` (`kind: "cache_control"`; `ToolReferenceBlock` is a valid request-side `cache_control` host per [spec/15 §2](15-native-request-options.md)).

@@ -9,7 +9,7 @@ precedence between spec, vectors, and schemas is defined in
 
 - IR contract bumped to `0.3.0`.
 - Positional tool availability across Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions:
-  - Add `tool_change_groups` on `Request` to represent mid-conversation tool availability changes and system content associated with message/content boundaries (spec/01 §3.8).
+  - Add `tool_change_groups` on `Request` to represent mid-conversation tool availability changes and system content associated with message/content boundaries (spec/01 §3.9).
   - Add `CompactionBlock` (`compaction`) to request content blocks at `messages[0].content[0]`, carrying `content`, `encrypted_content`, `signature`, and `tool_changes` (spec/01 §3.4, spec/12 N-AN-22).
   - Add `ToolChangeGroup`, `ToolChangePart`, `ToolChange`, `ToolChangeRef` types.
   - Responses `additional_tools` is no longer hoisted to `Request.Tools`; it is decoded into `tool_change_groups` at its exact position in the conversation. Empty `tools: []` is preserved as an empty group without losses and does not split runs (spec/11 N-R-15).

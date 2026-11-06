@@ -725,9 +725,6 @@
         },
         {
           "$ref": "#/$defs/refusalBlock"
-        },
-        {
-          "$ref": "#/$defs/compactionBlock"
         }
       ]
     },
@@ -2201,40 +2198,6 @@
       ],
       "additionalProperties": false
     },
-    "compactionBlock": {
-      "type": "object",
-      "description": "Compaction summary block with tool changes and replay metadata (spec/01 s3.4, since 0.3.0).",
-      "properties": {
-        "type": {
-          "const": "compaction"
-        },
-        "content": {
-          "type": [
-            "string",
-            "null"
-          ]
-        },
-        "encrypted_content": {
-          "type": "string"
-        },
-        "signature": {
-          "type": "string"
-        },
-        "tool_changes": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/toolChange"
-          }
-        },
-        "extra": {
-          "type": "object"
-        }
-      },
-      "required": [
-        "type"
-      ],
-      "additionalProperties": false
-    },
     "requestCompactionBlock": {
       "type": "object",
       "description": "Compaction block in request history with optional native annotations (spec/01 s3.4, since 0.3.0).",
@@ -2298,6 +2261,12 @@
           }
         },
         "extra": {
+          "type": "object"
+        },
+        "tool_extra": {
+          "type": "object"
+        },
+        "definition_extra": {
           "type": "object"
         }
       },
@@ -2370,6 +2339,9 @@
         "server_name": {
           "type": "string",
           "minLength": 1
+        },
+        "extra": {
+          "type": "object"
         }
       },
       "required": [
@@ -2476,6 +2448,10 @@
         },
         "text": {
           "type": "string"
+        },
+        "native": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nativeAnnotation" }
         },
         "change": {
           "$ref": "#/$defs/toolChange"

@@ -279,6 +279,34 @@ When unspecified by caller, `response_format` is omitted from `Params`.
 
 Request, SystemBlock, Tool, and content blocks in Request may carry optional `native: NativeAnnotation[]` to preserve dialect-specific options across conversion (spec/15, since 2.4). Native annotations MUST NOT appear in Response or EventStream documents.
 
+### 3.9 Positional tool availability (since 3.0.0)
+
+`Request.tool_change_groups` contains ordered groups of text and tool changes.
+Each group has `message_index`, `content_index`, and `parts`, with optional
+`id` and `extra`. A `content_index` of -1 means before the indexed message;
+an index equal to the number of messages with -1 means after the conversation.
+Otherwise it identifies the boundary before that content index, including the
+boundary after the last block. Groups at the same boundary retain list order.
+
+A part is `{"type":"text","text":...}` or
+`{"type":"tool_change","change":...}`. A change has `op` equal to `add`
+or `remove`, and exactly one of `tool` (an IR tool definition) or `ref`.
+Removal requires a reference. References are `tool_reference` with nonempty
+`name`, `mcp_tool_reference` with nonempty `name` and `server_name`, or
+`mcp_toolset_reference` with nonempty `server_name`. Changes may carry
+request-side `native` annotations and `extra` properties. `Request.tools`
+remains the initial inventory and does not include positional additions.
+For an inline definition, `tool_extra` preserves unknown wrapper properties,
+and `definition_extra` preserves unknown definition properties for same-face
+replay. They must not override known properties on encoding.
+
+The request-only `compaction` block may occur only as the first block of the
+first message. It carries optional `content` (string or explicit null),
+`encrypted_content`, `signature`, `tool_changes`, `native`, and `extra`.
+An empty string `content` is invalid. The presence of optional fields and the
+ordered tool changes must survive Anthropic round trips; `tool_changes` are not
+duplicated in the group list.
+
 ## 4. Response-side types
 
 ### 4.1 Response

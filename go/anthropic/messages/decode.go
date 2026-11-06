@@ -165,39 +165,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	req.System = system
 
 	customCallIDs := make(map[string]bool)
-	for _, m := range wire.Messages {
-		if m.Role == RoleAssistant {
-			if blocks, ok := m.Content.([]BlockWire); ok {
-				for _, b := range blocks {
-					if b.Type == BlockTypeToolUse {
-						if customTools[b.Name] {
-							customCallIDs[b.ID] = true
-						} else if declaredTools[b.Name] {
-							// Declared as function tool; do not promote to custom
-						} else if _, ok := extractCustomInput(b.Input); ok {
-							customCallIDs[b.ID] = true
-						}
-					}
-				}
-			} else if rawList, ok := m.Content.([]any); ok {
-				for _, item := range rawList {
-					if mp, ok := item.(map[string]any); ok && mp["type"] == BlockTypeToolUse {
-						name, _ := mp["name"].(string)
-						id, _ := mp["id"].(string)
-						if customTools[name] {
-							customCallIDs[id] = true
-						} else if declaredTools[name] {
-							// Declared as function tool; do not promote to custom
-						} else if in, ok := mp["input"].(map[string]any); ok && len(in) == 1 {
-							if _, ok := in["input"].(string); ok {
-								customCallIDs[id] = true
-							}
-						}
-					}
-				}
-			}
-		}
-	}
 
 	if err := validateSystemMessagePlacement(wire.Messages); err != nil {
 		return nil, nil, err
@@ -212,6 +179,13 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			}
 			if handled {
 				req.ToolChangeGroups = append(req.ToolChangeGroups, ir.ToolChangeGroup{MessageIndex: len(req.Messages), ContentIndex: -1, Parts: parts})
+				for _, part := range parts {
+					if part.Change != nil && part.Change.Tool != nil {
+						tool := part.Change.Tool
+						declaredTools[tool.Name] = true
+						customTools[tool.Name] = tool.Type == ir.ToolTypeCustom
+					}
+				}
 				losses = append(losses, changeLosses...)
 				continue
 			}
@@ -460,7 +434,7 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 		if path != "messages[0].content[0]" {
 			return nil, nil, false, fmt.Errorf("anthropic: %s: compaction must be the first conversation block", path)
 		}
-		compaction, err := decodeCompaction(w, path)
+		compaction, err := decodeCompaction(w, path, &losses)
 		if err != nil {
 			return nil, nil, false, err
 		}
@@ -536,6 +510,9 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 				return nil, nil, false, fmt.Errorf("anthropic: %s.input: %w", path, err)
 			}
 			block = ir.ToolUseBlock{ID: w.ID, Name: w.Name, Input: input}
+		}
+		if _, ok := block.(ir.CustomToolUseBlock); ok && customCallIDs != nil {
+			customCallIDs[w.ID] = true
 		}
 	case BlockTypeToolResult:
 		if w.ToolUseID == "" {

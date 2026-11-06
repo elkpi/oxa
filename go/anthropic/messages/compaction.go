@@ -7,7 +7,7 @@ import (
 	"github.com/elkpi/oxa/go/v3/ir"
 )
 
-func decodeCompaction(w BlockWire, path string) (ir.CompactionBlock, error) {
+func decodeCompaction(w BlockWire, path string, losses *[]ir.Loss) (ir.CompactionBlock, error) {
 	var fields map[string]json.RawMessage
 	if len(w.rawChange) == 0 {
 		raw, err := json.Marshal(w)
@@ -57,13 +57,11 @@ func decodeCompaction(w BlockWire, path string) (ir.CompactionBlock, error) {
 			if change.Type != "tool_addition" && change.Type != "tool_removal" {
 				return b, fmt.Errorf("anthropic: %s.tool_changes[%d]: invalid change type", path, i)
 			}
-			decoded, losses, err := decodeToolChange(change, fmt.Sprintf("%s.tool_changes[%d]", path, i))
+			decoded, changeLosses, err := decodeToolChange(change, fmt.Sprintf("%s.tool_changes[%d]", path, i))
 			if err != nil {
 				return b, err
 			}
-			if len(losses) > 0 {
-				return b, fmt.Errorf("anthropic: %s.tool_changes[%d]: cannot preserve cache control", path, i)
-			}
+			*losses = append(*losses, changeLosses...)
 			b.ToolChanges = append(b.ToolChanges, *decoded)
 		}
 	}
@@ -80,7 +78,7 @@ func decodeCompaction(w BlockWire, path string) (ir.CompactionBlock, error) {
 	return b, nil
 }
 
-func encodeCompaction(b ir.CompactionBlock) (json.RawMessage, error) {
+func encodeCompaction(b ir.CompactionBlock, path string, losses *[]ir.Loss) (json.RawMessage, error) {
 	obj := make(map[string]any, len(b.Extra)+6)
 	for k, v := range b.Extra {
 		obj[k] = v
@@ -103,7 +101,7 @@ func encodeCompaction(b ir.CompactionBlock) (json.RawMessage, error) {
 	if b.ToolChanges != nil {
 		items := make([]json.RawMessage, 0, len(b.ToolChanges))
 		for i := range b.ToolChanges {
-			raw, err := encodeToolChange(&b.ToolChanges[i])
+			raw, err := encodeToolChange(&b.ToolChanges[i], fmt.Sprintf("%s.tool_changes[%d]", path, i), losses)
 			if err != nil {
 				return nil, fmt.Errorf("tool_changes[%d]: %w", i, err)
 			}

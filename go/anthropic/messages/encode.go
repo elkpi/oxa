@@ -417,11 +417,21 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
 	case ir.CompactionBlock:
-		raw, err := encodeCompaction(b)
+		var losses []ir.Loss
+		raw, err := encodeCompaction(b, path, &losses)
 		if err != nil {
 			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s: %w", path, err)
 		}
-		return BlockWire{Type: "compaction", rawChange: raw}, nil, true, nil
+		wire := BlockWire{Type: "compaction", rawChange: raw}
+		for i, change := range b.ToolChanges {
+			if change.Tool != nil && len(change.Tool.InputSchema) > 0 {
+				if wire.rawSchemas == nil {
+					wire.rawSchemas = make(map[int]json.RawMessage)
+				}
+				wire.rawSchemas[i] = change.Tool.InputSchema
+			}
+		}
+		return wire, losses, true, nil
 	case ir.TextBlock:
 		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
 		if len(b.Citations) > 0 {

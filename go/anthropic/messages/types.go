@@ -322,6 +322,7 @@ type BlockWire struct {
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
 	Tool         json.RawMessage `json:"tool,omitempty"`
 	rawChange    json.RawMessage
+	rawSchemas   map[int]json.RawMessage
 	// thinking
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`

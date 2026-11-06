@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/elkpi/oxa/go/v3/ir"
 )
@@ -79,6 +80,7 @@ func decodeToolChangeSystem(content any, index int) ([]ir.ToolChangePart, bool, 
 }
 
 func decodeToolChange(b BlockWire, path string) (*ir.ToolChange, []ir.Loss, error) {
+	var losses []ir.Loss
 	c := &ir.ToolChange{Op: ir.ToolChangeOpAdd}
 	if b.Type == "tool_removal" {
 		c.Op = ir.ToolChangeOpRemove
@@ -99,9 +101,13 @@ func decodeToolChange(b BlockWire, path string) (*ir.ToolChange, []ir.Loss, erro
 		if len(tool["definition"]) == 0 || json.Unmarshal(tool["definition"], &definition) != nil {
 			return nil, nil, fmt.Errorf("anthropic: %s.tool.definition is invalid", path)
 		}
-		tmp, _, err := DecodeRequest(&Request{Model: "m", MaxTokens: 1, Tools: []ToolWire{definition}, Messages: []Message{{Role: RoleUser, Content: "x"}}})
+		tmp, toolLosses, err := DecodeRequest(&Request{Model: "m", MaxTokens: 1, Tools: []ToolWire{definition}, Messages: []Message{{Role: RoleUser, Content: "x"}}})
 		if err != nil {
 			return nil, nil, fmt.Errorf("anthropic: %s.tool.definition: %w", path, err)
+		}
+		for _, l := range toolLosses {
+			l.Path = path + ".tool.definition" + strings.TrimPrefix(l.Path, "tools[0]")
+			losses = append(losses, l)
 		}
 		c.Tool = &tmp.Tools[0]
 		for k, v := range tool {
@@ -154,7 +160,6 @@ func decodeToolChange(b BlockWire, path string) (*ir.ToolChange, []ir.Loss, erro
 			}
 		}
 	}
-	var losses []ir.Loss
 	if len(b.CacheControl) > 0 {
 		canon, loss, ok := parseCacheControl(b.CacheControl, path+".cache_control")
 		if loss != nil {
@@ -209,11 +214,15 @@ func appendToolChangeGroups(out *Request, req *ir.Request, position int) ([]ir.L
 				losses = append(losses, ir.Loss{Path: fmt.Sprintf("tool_change_groups[%d].parts[%d]", i, j), Field: "op", Reason: ir.LossUnsupportedSemantic, Detail: "positional tool availability change cannot be represented on the target face"})
 				continue
 			}
-			raw, err := encodeToolChange(part.Change)
+			raw, err := encodeToolChange(part.Change, fmt.Sprintf("tool_change_groups[%d].parts[%d].change", i, j), &losses)
 			if err != nil {
 				return nil, fmt.Errorf("anthropic: tool_change_groups[%d].parts[%d]: %w", i, j, err)
 			}
-			blocks = append(blocks, BlockWire{Type: "tool_addition", rawChange: raw})
+			block := BlockWire{Type: "tool_addition", rawChange: raw}
+			if part.Change.Tool != nil && len(part.Change.Tool.InputSchema) > 0 {
+				block.rawSchemas = map[int]json.RawMessage{-1: part.Change.Tool.InputSchema}
+			}
+			blocks = append(blocks, block)
 		}
 		if len(blocks) > 0 {
 			if len(group.Extra) > 0 {
@@ -228,7 +237,7 @@ func appendToolChangeGroups(out *Request, req *ir.Request, position int) ([]ir.L
 	return losses, nil
 }
 
-func encodeToolChange(change *ir.ToolChange) (json.RawMessage, error) {
+func encodeToolChange(change *ir.ToolChange, path string, losses *[]ir.Loss) (json.RawMessage, error) {
 	if _, err := json.Marshal(change); err != nil {
 		return nil, err
 	}
@@ -254,9 +263,13 @@ func encodeToolChange(change *ir.ToolChange) (json.RawMessage, error) {
 		obj["tool"] = ref
 	} else {
 		max := int64(1)
-		wire, _, err := EncodeRequest(&ir.Request{Model: "m", Params: ir.Params{MaxTokens: &max}, Tools: []ir.Tool{*change.Tool}, Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "x"}}}}})
+		wire, toolLosses, err := EncodeRequest(&ir.Request{Model: "m", Params: ir.Params{MaxTokens: &max}, Tools: []ir.Tool{*change.Tool}, Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "x"}}}}})
 		if err != nil {
 			return nil, err
+		}
+		for _, l := range toolLosses {
+			l.Path = path + ".tool" + strings.TrimPrefix(l.Path, "tools[0]")
+			*losses = append(*losses, l)
 		}
 		if len(wire.Tools) != 1 {
 			return nil, fmt.Errorf("tool definition cannot be represented")

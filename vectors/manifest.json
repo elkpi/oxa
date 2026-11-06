@@ -5626,6 +5626,18 @@
       "sha256": "1eb184356466ba9a9aef40bcea4b2a409116b1e3cf00a0a68d2c02604f49c8e9"
     },
     {
+      "name": "responses.nonstream.tool-additional-tools-unknown-fields-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-unknown-fields-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "unmapped-field",
+        "N-R-15"
+      ],
+      "sha256": "d4fd150b5c17887a54e3630b56c042872982451e1690f4f7d912064a756d1b3b"
+    },
+    {
       "name": "responses.nonstream.tool-choice-auto-from-ir",
       "file": "responses/nonstream/tool-choice-auto-from-ir.json",
       "tags": [

@@ -1,0 +1,162 @@
+{
+  "name": "responses.nonstream.tool-additional-tools-unknown-fields-to-ir",
+  "description": "Unknown fields on tool and container declarations inside additional_tools record exact unmapped-field losses; the item's own unknown properties are retained in group extra loss-free.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "gpt-5.5",
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Use additional tool."
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "status": "queued",
+        "tools": [
+          {
+            "type": "function",
+            "name": "read",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "size": {
+                  "type": "integer",
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "future_execution": true
+          },
+          {
+            "type": "custom",
+            "name": "run",
+            "future_execution": true
+          },
+          {
+            "type": "toolbox",
+            "name": "repo",
+            "future_execution": true,
+            "tools": [
+              {
+                "type": "function",
+                "name": "read",
+                "parameters": {
+                  "type": "object"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "gpt-5.5",
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Use additional tool."
+          }
+        ]
+      }
+    ],
+    "tool_change_groups": [
+      {
+        "message_index": 1,
+        "content_index": -1,
+        "parts": [
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "read",
+                "input_schema": {
+                  "type": "object",
+                  "properties": {
+                    "size": {
+                      "type": "integer",
+                      "maximum": 9007199254740991
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "run",
+                "type": "custom"
+              }
+            }
+          },
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "repo.read",
+                "input_schema": {
+                  "type": "object"
+                },
+                "native": [
+                  {
+                    "source": "openai",
+                    "kind": "container",
+                    "value": "{\"path\":[{\"type\":\"toolbox\",\"name\":\"repo\"}]}",
+                    "omission": {
+                      "field": "type",
+                      "reason": "degraded",
+                      "detail": "tool container grouping was flattened into dotted tool names"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ],
+        "extra": {
+          "status": "queued"
+        }
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "input[1].tools[0].future_execution",
+      "field": "future_execution",
+      "reason": "unmapped-field"
+    },
+    {
+      "path": "input[1].tools[1].future_execution",
+      "field": "future_execution",
+      "reason": "unmapped-field"
+    },
+    {
+      "path": "input[1].tools[2].future_execution",
+      "field": "future_execution",
+      "reason": "unmapped-field"
+    }
+  ],
+  "tags": [
+    "tools",
+    "request",
+    "additional_tools",
+    "unmapped-field",
+    "N-R-15"
+  ]
+}

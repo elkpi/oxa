@@ -275,21 +275,6 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 	return req, losses, nil
 }
 
-func isEmptyAdditionalTools(items []InputItem, i int) bool {
-	item := items[i]
-	if item.Type != ItemTypeAdditionalTools || item.Tools == nil {
-		return false
-	}
-	return len(item.Tools) == 0
-}
-
-func emptyAdditionalToolsLoss(i int) ir.Loss {
-	return loss(
-		fmt.Sprintf("input[%d].tools", i), "tools", ir.LossUnmappedField,
-		"empty additional_tools inventory ignored",
-	)
-}
-
 type toolItemRef struct {
 	callID string
 	kind   string

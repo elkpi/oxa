@@ -52,8 +52,12 @@ func TestCompactionExtraIsContained(t *testing.T) {
 		t.Fatal(err)
 	}
 	var want, got any
-	json.Unmarshal(input, &want)
-	json.Unmarshal(out, &got)
+	if err := json.Unmarshal(input, &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("want %s, got %s", input, out)
 	}
@@ -90,8 +94,12 @@ func TestToolReferencePreservesExtensionFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	var want, got any
-	json.Unmarshal(input, &want)
-	json.Unmarshal(output, &got)
+	if err := json.Unmarshal(input, &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(output, &got); err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(want, got) {
 		t.Fatalf("want %s, got %s", input, output)
 	}

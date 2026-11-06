@@ -305,7 +305,7 @@ pub enum ToolChangePart {
     #[serde(rename = "tool_change")]
     Change {
         #[serde(rename = "change")]
-        change: ToolChange,
+        change: Box<ToolChange>,
     },
 }
 

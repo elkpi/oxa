@@ -1509,7 +1509,7 @@ fn decode_additional_tools(
             losses,
         )? {
             parts.push(oxa_ir::ToolChangePart::Change {
-                change: oxa_ir::ToolChange {
+                change: Box::new(oxa_ir::ToolChange {
                     op: oxa_ir::ToolChangeOp::Add,
                     tool: Some(decoded),
                     reference: None,
@@ -1517,7 +1517,7 @@ fn decode_additional_tools(
                     extra: None,
                     tool_extra: None,
                     definition_extra: None,
-                },
+                }),
             });
         }
     }

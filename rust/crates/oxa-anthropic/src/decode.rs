@@ -281,7 +281,9 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             let (change, change_losses) =
                                 crate::tool_change::decode_change(block, &path)?;
                             losses.extend(change_losses);
-                            parts.push(oxa_ir::ToolChangePart::Change { change });
+                            parts.push(oxa_ir::ToolChangePart::Change {
+                                change: Box::new(change),
+                            });
                         }
                         _ => {
                             return Err(Error::new(format!(

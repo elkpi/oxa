@@ -1,0 +1,42 @@
+{
+  "name": "responses.nonstream.tool-additional-unknown-native-from-ir",
+  "description": "Unknown native annotation sources on a positional tool addition report losses when encoded to Responses.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "responses" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "m",
+    "messages": [{ "role": "user", "content": [{ "type": "text", "text": "go" }] }],
+    "tool_change_groups": [{
+      "message_index": 1,
+      "content_index": -1,
+      "parts": [{
+        "type": "tool_change",
+        "change": {
+          "op": "add",
+          "native": [{ "source": "future_provider", "kind": "future_kind", "value": "{}" }],
+          "tool": {
+            "name": "read",
+            "input_schema": {},
+            "native": [{ "source": "future_provider", "kind": "future_kind", "value": "{}" }]
+          }
+        }
+      }]
+    }]
+  },
+  "expected_output": {
+    "model": "m",
+    "input": [
+      { "role": "user", "content": "go" },
+      { "type": "additional_tools", "role": "developer", "tools": [{ "type": "function", "name": "read", "parameters": {} }] }
+    ]
+  },
+  "expected_losses": [
+    { "path": "tool_change_groups[0].parts[0].change.native[0]", "field": "source", "reason": "unsupported-semantic" },
+    { "path": "tool_change_groups[0].parts[0].change.tool.native[0]", "field": "source", "reason": "unsupported-semantic" }
+  ],
+  "tags": ["tools", "request", "additional_tools", "native", "N-R-15"]
+}

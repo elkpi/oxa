@@ -297,10 +297,16 @@ func encodeToolChange(change *ir.ToolChange, path string, losses *[]ir.Loss) (js
 		}
 		obj["tool"] = wrapper
 	}
-	for _, ann := range change.Native {
+	for i, ann := range change.Native {
 		if ann.Source == ir.NativeSourceAnthropic && ann.Kind == ir.NativeKindCacheControl {
 			obj["cache_control"] = json.RawMessage(ann.Value)
+			continue
 		}
+		field := "kind"
+		if ann.Source != ir.NativeSourceAnthropic && ann.Source != ir.NativeSourceOpenAI {
+			field = "source"
+		}
+		*losses = append(*losses, ir.Loss{Path: fmt.Sprintf("%s.native[%d]", path, i), Field: field, Reason: ir.LossUnsupportedSemantic})
 	}
 	return json.Marshal(obj)
 }

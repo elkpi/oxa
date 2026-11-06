@@ -4,6 +4,7 @@ import type {
   Block,
   NativeAnnotation,
   Request,
+  Tool,
   ToolResultBlock,
   CustomToolResultBlock,
 } from "./types.js";
@@ -207,27 +208,70 @@ export function validateNativeRequest(request: Request): void {
   });
 
   request.tools?.forEach((t, tIdx) => {
-    if (t.native) {
-      validateAnnotations(t.native, "tool", `tools[${tIdx}]`);
-      let hasCacheControl = false;
-      let hasDeferLoading = false;
-      for (const n of t.native) {
-        if (n.source === NATIVE_SOURCE_ANTHROPIC) {
-          if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
-            hasCacheControl = true;
-          } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
-            hasDeferLoading = true;
-          }
+    validateToolNative(t, `tools[${tIdx}]`);
+  });
+
+  request.tool_change_groups?.forEach((group, gIdx) => {
+    group.parts.forEach((part, pIdx) => {
+      const partPath = `tool_change_groups[${gIdx}].parts[${pIdx}]`;
+      // Part-level native round-trips only on text parts; tool_change parts
+      // carry annotations on the change and its tool instead.
+      if (part.type === "text" && part.native) {
+        validateAnnotations(part.native, "content", partPath);
+      }
+      if (part.type === "tool_change") {
+        if (part.change.native) {
+          validateAnnotations(
+            part.change.native,
+            "tool",
+            `${partPath}.change`,
+          );
+        }
+        if (part.change.tool) {
+          validateToolNative(part.change.tool, `${partPath}.change.tool`);
         }
       }
-      if (hasCacheControl && hasDeferLoading) {
-        throw new OxaError(
-          "invalid-input",
-          `ir: tools[${tIdx}]: cannot specify both defer_loading and cache_control`,
-        );
+    });
+  });
+
+  request.messages.forEach((msg, mIdx) => {
+    msg.content.forEach((blk, cIdx) => {
+      if (blk.type !== "compaction") return;
+      const base = `messages[${mIdx}].content[${cIdx}]`;
+      blk.tool_changes?.forEach((change, k) => {
+        const changePath = `${base}.tool_changes[${k}]`;
+        if (change.native) {
+          validateAnnotations(change.native, "tool", changePath);
+        }
+        if (change.tool) {
+          validateToolNative(change.tool, `${changePath}.tool`);
+        }
+      });
+    });
+  });
+}
+
+function validateToolNative(tool: Tool, path: string): void {
+  if (tool.native) {
+    validateAnnotations(tool.native, "tool", path);
+    let hasCacheControl = false;
+    let hasDeferLoading = false;
+    for (const n of tool.native) {
+      if (n.source === NATIVE_SOURCE_ANTHROPIC) {
+        if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
+          hasCacheControl = true;
+        } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
+          hasDeferLoading = true;
+        }
       }
     }
-  });
+    if (hasCacheControl && hasDeferLoading) {
+      throw new OxaError(
+        "invalid-input",
+        `ir: ${path}: cannot specify both defer_loading and cache_control`,
+      );
+    }
+  }
 }
 
 function validateAnnotations(

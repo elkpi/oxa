@@ -1018,3 +1018,156 @@ test("chatcompletions request controls conflict and validation", () => {
   assert.equal((encForeign.value as any).context_management, undefined);
   assert.equal(encForeign.losses.length, 2);
 });
+
+test("validates native annotations in positional tool changes and compaction", () => {
+  const badTool = () => ({
+    name: "read",
+    input_schema: { type: "object" },
+    native: [
+      {
+        source: "anthropic",
+        kind: "cache_control",
+        value: '{"type":"bad"}',
+      },
+    ],
+  });
+  const base = (): Request => ({
+    model: "m",
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+  });
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              { type: "tool_change", change: { op: "add", tool: badTool() } },
+            ],
+          },
+        ],
+      }),
+    /cache_control/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "tool_change",
+                change: {
+                  op: "add",
+                  tool: {
+                    name: "read",
+                    input_schema: { type: "object" },
+                    native: [
+                      {
+                        source: "anthropic",
+                        kind: "cache_control",
+                        value: '{"type":"ephemeral"}',
+                      },
+                      {
+                        source: "anthropic",
+                        kind: "defer_loading",
+                        value: "true",
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "text",
+                text: "note",
+                native: [
+                  {
+                    source: "anthropic",
+                    kind: "cache_control",
+                    value: "{bad",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    /valid JSON/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "compaction",
+                tool_changes: [{ op: "add", tool: badTool() }],
+              },
+            ],
+          },
+        ],
+      }),
+    /cache_control/,
+  );
+
+  validateNativeRequest({
+    ...base(),
+    tool_change_groups: [
+      {
+        message_index: 1,
+        content_index: -1,
+        parts: [
+          {
+            type: "tool_change",
+            change: {
+              op: "add",
+              tool: {
+                name: "read",
+                input_schema: { type: "object" },
+                native: [
+                  {
+                    source: "anthropic",
+                    kind: "cache_control",
+                    value: '{"type":"ephemeral"}',
+                  },
+                  {
+                    source: "future_provider",
+                    kind: "future_kind",
+                    value: "{}",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ],
+  });
+});

@@ -471,8 +471,7 @@ function decodeRequestObject(
           path: `messages[${index}].output_config`,
           field: "output_config",
           reason: "unmapped-field",
-          detail:
-            "Anthropic per-message output_config has no IR equivalent",
+          detail: "Anthropic per-message output_config has no IR equivalent",
         });
       }
       if (msg.content === undefined || msg.content === null) {

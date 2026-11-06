@@ -681,9 +681,53 @@ void test_positional_native_validation() {
     CHECK(validate_native_request(req).ok());
 }
 
+void test_change_native_conflicts_and_indices() {
+    using namespace oxa::ir;
+    NativeAnnotation cache{"anthropic", "cache_control", R"({"type":"ephemeral"})", std::nullopt, std::nullopt};
+    NativeAnnotation defer{"anthropic", "defer_loading", "true", std::nullopt, std::nullopt};
+    NativeAnnotation future{"future", "future", "{}", std::nullopt, std::nullopt};
+    NativeAnnotation invalid{"anthropic", "cache_control", R"({"type":"secret-value"})", std::nullopt, std::nullopt};
+    for (bool compaction : {false, true}) {
+        Request req;
+        req.model = "m";
+        req.messages.push_back(Message{std::string(ROLE_USER), {TextBlock{"go"}}});
+        ToolChange change;
+        change.op = "add";
+        change.ref = ToolChangeRef{"tool_reference", "read", "", oxa::json::Value::object()};
+        change.native = {cache, defer};
+        ToolChangePart part;
+        part.type = "tool_change";
+        part.change = change;
+        ToolChangeGroup group;
+        group.message_index = 1;
+        group.parts = {part};
+        CompactionBlock block;
+        block.tool_changes = std::vector<ToolChange>{change};
+        if (compaction) req.messages[0].content = {block};
+        else req.tool_change_groups = {group};
+        const std::string path = compaction ? "messages[0].content[0].tool_changes[0]" : "tool_change_groups[0].parts[0].change";
+        auto conflict = validate_native_request(req);
+        CHECK(!conflict.ok());
+        CHECK(conflict.to_string().find(path) != std::string::npos);
+        change.native = {future, invalid};
+        if (compaction) {
+            block.tool_changes = std::vector<ToolChange>{change};
+            req.messages[0].content = {block};
+        } else {
+            group.parts[0].change = change;
+            req.tool_change_groups = {group};
+        }
+        auto error = validate_native_request(req);
+        CHECK(!error.ok());
+        CHECK(error.to_string().find(path + ".native[1]") != std::string::npos);
+        CHECK(error.to_string().find("secret-value") == std::string::npos);
+    }
+}
+
 }  // namespace
 
 int main() {
+    test_change_native_conflicts_and_indices();
     test_positional_native_validation();
     test_native_portable_round_trip();
     test_validate_native_request();

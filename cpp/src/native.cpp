@@ -891,12 +891,22 @@ Status validate_native_request(const Request& req) {
         }
     }
 
-    const auto validate_tool = [](const Tool& tool, const std::string& path) -> Status {
-        auto tool_st = validate_annotations(tool.native, HostType::Tool, path);
-        if (!tool_st.ok()) return invalid_argument("ir: " + path + ".native: invalid native annotation");
+    const auto validate_at_path = [](const std::vector<NativeAnnotation>& native, HostType host, const std::string& path) -> Status {
+        if (validate_annotations(native, host, path).ok()) return ok_status();
+        for (std::size_t i = 0; i < native.size(); ++i) {
+            const std::vector<NativeAnnotation> prefix(native.begin(), native.begin() + i + 1);
+            if (!validate_annotations(prefix, host, path).ok()) {
+                return invalid_argument("ir: " + path + ".native[" + std::to_string(i) + "]: invalid native annotation");
+            }
+        }
+        return invalid_argument("ir: " + path + ".native: invalid native annotation");
+    };
+    const auto validate_tool_annotations = [&](const std::vector<NativeAnnotation>& native, const std::string& path) -> Status {
+        auto tool_st = validate_at_path(native, HostType::Tool, path);
+        if (!tool_st.ok()) return tool_st;
         bool has_cache_control = false;
         bool has_defer_loading = false;
-        for (const auto& n : tool.native) {
+        for (const auto& n : native) {
             if (n.source == NATIVE_SOURCE_ANTHROPIC) {
                 if (n.kind == NATIVE_KIND_CACHE_CONTROL) has_cache_control = true;
                 if (n.kind == NATIVE_KIND_DEFER_LOADING) has_defer_loading = true;
@@ -907,9 +917,12 @@ Status validate_native_request(const Request& req) {
         }
         return ok_status();
     };
+    const auto validate_tool = [&](const Tool& tool, const std::string& path) -> Status {
+        return validate_tool_annotations(tool.native, path);
+    };
     const auto validate_change = [&](const ToolChange& change, const std::string& path) -> Status {
-        auto change_st = validate_annotations(change.native, HostType::Tool, path);
-        if (!change_st.ok()) return invalid_argument("ir: " + path + ".native: invalid native annotation");
+        auto change_st = validate_tool_annotations(change.native, path);
+        if (!change_st.ok()) return change_st;
         return change.tool ? validate_tool(*change.tool, path + ".tool") : ok_status();
     };
     if (req.tools.has_value()) {
@@ -924,8 +937,8 @@ Status validate_native_request(const Request& req) {
             const auto& part = group.parts[j];
             const auto path = "tool_change_groups[" + std::to_string(i) + "].parts[" + std::to_string(j) + "]";
             if (part.type == "text") {
-                auto part_st = validate_annotations(part.native, HostType::Content, path);
-                if (!part_st.ok()) return invalid_argument("ir: " + path + ".native: invalid native annotation");
+                auto part_st = validate_at_path(part.native, HostType::Content, path);
+                if (!part_st.ok()) return part_st;
             }
             if (part.change) {
                 auto change_st = validate_change(*part.change, path + ".change");

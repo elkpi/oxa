@@ -62,6 +62,8 @@ fn compare_json_accepts_transitional_spec_versions() {
         ("0.2.0", "0.1.0"),
         ("0.1.0", "0.1.0"),
         ("0.2.0", "0.2.0"),
+        ("0.3.0", "0.2.0"),
+        ("0.3.0", "0.1.0"),
     ];
     for (expected_version, actual_version) in cases {
         let expected = value(&format!(r#"{{"specVersion":"{expected_version}"}}"#));
@@ -70,8 +72,8 @@ fn compare_json_accepts_transitional_spec_versions() {
     }
     assert!(
         compare_json(
-            &value(r#"{"specVersion":"0.2.0"}"#),
-            &value(r#"{"specVersion":"0.3.0"}"#)
+            &value(r#"{"specVersion":"0.3.0"}"#),
+            &value(r#"{"specVersion":"9.9.9"}"#)
         )
         .is_err()
     );

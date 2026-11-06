@@ -14,14 +14,15 @@ const (
 // s3.1). specVersion is a document-layer field and is stamped by the
 // canonical codec, not stored here.
 type Request struct {
-	Model      string
-	System     []SystemBlock
-	Messages   []Message
-	Tools      []Tool
-	ToolChoice *ToolChoice
-	Params     Params
-	Metadata   map[string]string
-	Native     []NativeAnnotation
+	Model            string
+	System           []SystemBlock
+	Messages         []Message
+	Tools            []Tool
+	ToolChoice       *ToolChoice
+	Params           Params
+	Metadata         map[string]string
+	Native           []NativeAnnotation
+	ToolChangeGroups []ToolChangeGroup
 }
 
 // Message is one conversational turn.
@@ -109,3 +110,56 @@ const (
 func (p Params) set() bool {
 	return p.Temperature != nil || p.TopP != nil || p.MaxTokens != nil || len(p.StopSequences) > 0 || p.ReasoningEffort != "" || p.Verbosity != "" || p.ResponseFormat != nil
 }
+
+// ToolChangeGroup represents positional tool availability changes and system content
+// associated with a message/content boundary (spec/01 s3.8, since 0.3.0).
+type ToolChangeGroup struct {
+	MessageIndex int                        `json:"message_index"`
+	ContentIndex int                        `json:"content_index"`
+	ID           string                     `json:"id,omitempty"`
+	Parts        []ToolChangePart           `json:"parts"`
+	Extra        map[string]json.RawMessage `json:"extra,omitempty"`
+}
+
+// ToolChangePart represents either text or a tool change in a ToolChangeGroup.
+type ToolChangePart struct {
+	Type   string             `json:"type"` // "text" | "tool_change"
+	Text   string             `json:"text,omitempty"`
+	Change *ToolChange        `json:"change,omitempty"`
+	Native []NativeAnnotation `json:"native,omitempty"`
+}
+
+const (
+	ToolChangePartTypeText       = "text"
+	ToolChangePartTypeToolChange = "tool_change"
+)
+
+// ToolChange represents a tool addition or removal operation.
+type ToolChange struct {
+	Op              string // "add" | "remove"
+	Tool            *Tool
+	Ref             *ToolChangeRef
+	Native          []NativeAnnotation
+	Extra           map[string]json.RawMessage
+	ToolExtra       map[string]json.RawMessage
+	DefinitionExtra map[string]json.RawMessage
+}
+
+const (
+	ToolChangeOpAdd    = "add"
+	ToolChangeOpRemove = "remove"
+)
+
+// ToolChangeRef represents a reference to a tool in a ToolChange.
+type ToolChangeRef struct {
+	Type       string                     `json:"type"` // "tool_reference" | "mcp_tool_reference" | "mcp_toolset_reference"
+	Name       string                     `json:"name,omitempty"`
+	ServerName string                     `json:"server_name,omitempty"`
+	Extra      map[string]json.RawMessage `json:"extra,omitempty"`
+}
+
+const (
+	ToolChangeRefTypeToolReference       = "tool_reference"
+	ToolChangeRefTypeMCPToolReference    = "mcp_tool_reference"
+	ToolChangeRefTypeMCPToolsetReference = "mcp_toolset_reference"
+)

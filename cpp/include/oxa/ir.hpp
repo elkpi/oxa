@@ -23,7 +23,7 @@ namespace oxa::ir {
 
 // ---- constants (spec/01, spec/02) ----------------------------------------
 
-inline constexpr std::string_view SPEC_VERSION = "0.2.0";
+inline constexpr std::string_view SPEC_VERSION = "0.3.0";
 inline constexpr std::string_view LEGACY_SPEC_VERSION = "0.1.0";
 
 inline constexpr std::string_view REASONING_EFFORT_MINIMAL = "minimal";
@@ -168,6 +168,59 @@ struct NativeAnnotation {
     std::string value;  // opaque JSON text
     std::optional<NativeOmission> omission;
     std::optional<NativeProjection> projection;
+};
+
+struct Tool {
+    std::string name;
+    std::string description;  // empty means absent
+    bool has_description = false;
+    json::Value input_schema;
+    std::string type = "function";
+    std::optional<json::Value> format;
+    std::vector<NativeAnnotation> native;
+    std::optional<std::string> source;
+    std::optional<std::string> definition;
+    std::optional<bool> strict;
+};
+
+
+// Ordered changes in the tool inventory (spec/01 §3.9).
+struct ToolChangeRef {
+    std::string type;
+    std::string name;
+    std::string server_name;
+    json::Value extra = json::Value::object();
+};
+struct ToolChange {
+    std::string op;
+    std::optional<Tool> tool;
+    std::optional<ToolChangeRef> ref;
+    std::vector<NativeAnnotation> native;
+    json::Value extra = json::Value::object();
+    json::Value tool_extra = json::Value::object();
+    json::Value definition_extra = json::Value::object();
+};
+struct ToolChangePart {
+    std::string type;
+    std::string text;
+    std::optional<ToolChange> change;
+    std::vector<NativeAnnotation> native;
+};
+struct ToolChangeGroup {
+    std::size_t message_index = 0;
+    std::int64_t content_index = -1;
+    std::vector<ToolChangePart> parts;
+    std::optional<std::string> id;
+    json::Value extra = json::Value::object();
+};
+struct CompactionBlock {
+    // nullopt = missing; Value::null() = explicit failed compaction.
+    std::optional<json::Value> content;
+    std::optional<std::string> encrypted_content;
+    std::optional<std::string> signature;
+    std::optional<std::vector<ToolChange>> tool_changes;
+    std::vector<NativeAnnotation> native;
+    json::Value extra = json::Value::object();
 };
 
 // ---- blocks (spec/01 §3.4) ------------------------------------------------
@@ -355,7 +408,7 @@ struct ToolReferenceBlock {
 using Block = std::variant<TextBlock, ThinkingBlock, RedactedThinkingBlock, EncryptedContentBlock, ImageBlock, DocumentBlock,
                            ToolUseBlock, ToolResultBlock,
                            CustomToolUseBlock, CustomToolResultBlock,
-                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock, RefusalBlock, ToolReferenceBlock>;
+                           ApplyPatchToolUseBlock, ApplyPatchToolResultBlock, WebSearchCallBlock, RefusalBlock, ToolReferenceBlock, CompactionBlock>;
 
 struct BlockHolder {
     Block block;
@@ -378,18 +431,6 @@ struct Message {
     std::vector<Block> content;
 };
 
-struct Tool {
-    std::string name;
-    std::string description;  // empty means absent
-    bool has_description = false;
-    json::Value input_schema;
-    std::string type = "function";
-    std::optional<json::Value> format;
-    std::vector<NativeAnnotation> native;
-    std::optional<std::string> source;
-    std::optional<std::string> definition;
-    std::optional<bool> strict;
-};
 
 struct ToolChoice {
     std::string mode;
@@ -430,6 +471,7 @@ struct Request {
     std::optional<Params> params;
     std::optional<std::map<std::string, std::string>> metadata;
     std::vector<NativeAnnotation> native;
+    std::vector<ToolChangeGroup> tool_change_groups;
 };
 
 // ---- response (spec/01 §4) -------------------------------------------------
@@ -538,6 +580,10 @@ StatusOr<Block> load_block(const json::Value& v);
 
 json::Value dump_request_block(const Block& b);
 StatusOr<Block> load_request_block(const json::Value& v);
+
+Status validate_tool_availability(const Request& request);
+json::Value dump_tool_change(const ToolChange& change);
+StatusOr<ToolChange> load_tool_change(const json::Value& value);
 
 json::Value dump_native_annotation(const NativeAnnotation& ann);
 StatusOr<NativeAnnotation> load_native_annotation(const json::Value& v);

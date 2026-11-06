@@ -59,6 +59,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         params: None,
         metadata,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let mut declared_tools: BTreeSet<String> = BTreeSet::new();
     let mut custom_tools: BTreeSet<String> = BTreeSet::new();
@@ -249,7 +250,82 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
 
     let mut custom_call_ids = BTreeSet::new();
     for (index, message) in wire.messages.iter().enumerate() {
+        if let Some(crate::types::ContentValue::Blocks(blocks)) = &message.content {
+            for (j, block) in blocks.iter().enumerate() {
+                if block.kind == "compaction" && (index != 0 || j != 0) {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content[{j}]: compaction must be the first block of the first message"
+                    )));
+                }
+            }
+        }
         if message.role.as_str() == ROLE_SYSTEM {
+            if message.clear_at.is_some() {
+                losses.push(loss(
+                    format!("messages[{index}].clear_at"),
+                    "clear_at",
+                    LossReason::UnmappedField,
+                    "Anthropic system message clear_at has no IR equivalent",
+                ));
+            }
+            if message.output_config.is_some() {
+                losses.push(loss(
+                    format!("messages[{index}].output_config"),
+                    "output_config",
+                    LossReason::UnmappedField,
+                    "Anthropic per-message output_config has no IR equivalent",
+                ));
+            }
+            if let Some(crate::types::ContentValue::Blocks(blocks)) = &message.content
+                && blocks
+                    .iter()
+                    .any(|b| matches!(b.kind.as_str(), "tool_addition" | "tool_removal"))
+            {
+                let mut parts = Vec::with_capacity(blocks.len());
+                for (j, block) in blocks.iter().enumerate() {
+                    let path = format!("messages[{index}].content[{j}]");
+                    match block.kind.as_str() {
+                        "text" => parts.push(oxa_ir::ToolChangePart::Text {
+                            text: block.text.clone(),
+                            native: crate::tool_change::cache_annotation(
+                                block.cache_control.as_ref(),
+                                &format!("{path}.cache_control"),
+                                &mut losses,
+                            ),
+                        }),
+                        "tool_addition" | "tool_removal" => {
+                            let (change, change_losses) =
+                                crate::tool_change::decode_change(block, &path)?;
+                            losses.extend(change_losses);
+                            if let Some(tool) = &change.tool {
+                                declared_tools.insert(tool.name.clone());
+                                if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
+                                    custom_tools.insert(tool.name.clone());
+                                } else {
+                                    custom_tools.remove(&tool.name);
+                                }
+                            }
+                            parts.push(oxa_ir::ToolChangePart::Change {
+                                change: Box::new(change),
+                            });
+                        }
+                        _ => {
+                            return Err(Error::new(format!(
+                                "anthropic: {path}: unsupported system content type {:?}",
+                                block.kind
+                            )));
+                        }
+                    }
+                }
+                req.tool_change_groups.push(oxa_ir::ToolChangeGroup {
+                    message_index: req.messages.len(),
+                    content_index: -1,
+                    parts,
+                    id: None,
+                    extra: None,
+                });
+                continue;
+            }
             losses.push(loss(
                 format!("messages[{index}].role"),
                 "role",
@@ -262,6 +338,11 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                 )));
             };
             match content {
+                crate::types::ContentValue::Null => {
+                    return Err(Error::new(format!(
+                        "anthropic: messages[{index}].content must not be null"
+                    )));
+                }
                 crate::types::ContentValue::Text(text) => {
                     req.system.push(oxa_ir::SystemBlock::Text {
                         text: text.clone(),

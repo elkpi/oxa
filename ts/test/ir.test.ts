@@ -10,6 +10,17 @@ import {
   encodeRequest,
   type Event,
 } from "../src/ir/index.js";
+import { parseJson } from "../src/json/index.js";
+
+test("IR preserves compaction replay state and tool changes", () => {
+  const source = parseJson(
+    '{"specVersion":"0.3.0","model":"m","messages":[{"role":"user","content":[{"type":"compaction","content":null,"signature":"","tool_changes":[{"op":"remove","ref":{"type":"tool_reference","name":"old"}}]}]}]}',
+  );
+  const request = decodeRequest(source);
+  assert.deepEqual(decodeRequest(encodeRequest(request)), request);
+  const block = request.messages[0]!.content[0]!;
+  assert.equal(block.type, "compaction");
+});
 
 test("IR request decoding rejects empty message content", () => {
   assert.throws(
@@ -24,7 +35,7 @@ test("IR request decoding rejects empty message content", () => {
   );
 });
 
-test("emits 0.2.0 while accepting 0.1.0 IR requests", () => {
+test("emits 0.3.0 while accepting older IR requests", () => {
   const request = {
     model: "m",
     messages: [
@@ -42,7 +53,7 @@ test("emits 0.2.0 while accepting 0.1.0 IR requests", () => {
     decodeRequest({ specVersion: "0.2.0", ...request }),
     request,
   );
-  assert.equal(encodeRequest(request).specVersion, "0.2.0");
+  assert.equal(encodeRequest(request).specVersion, "0.3.0");
 });
 
 test("round-trips a signed thinking stream and usage details", () => {
@@ -203,7 +214,7 @@ test("encodes and decodes an event stream with integer usage tokens", () => {
   const document = encodeEventStream(stream);
   assert.equal(
     stringifyJson(document),
-    '{"specVersion":"0.2.0","events":[{"type":"message_start","id":"m","model":"model"},{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":0}},{"type":"message_done"}]}',
+    '{"specVersion":"0.3.0","events":[{"type":"message_start","id":"m","model":"model"},{"type":"message_delta","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":0}},{"type":"message_done"}]}',
   );
   assert.deepEqual(decodeEventStream(document), stream);
 });

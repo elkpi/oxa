@@ -1,11 +1,15 @@
 {
   "name": "cross.nonstream.responses-to-anthropic-additional-tools-request",
-  "description": "Cross-protocol: Responses input additional_tools items are hoisted and convert to Anthropic request tools (N-R-15).",
-  "spec_version": "0.2.0",
+  "description": "Cross-protocol: Responses input additional_tools items convert to Anthropic mid-conversation system tool_addition (N-AN-22).",
+  "spec_version": "0.3.0",
   "mode": "nonstream",
   "conversion": "protocol-to-protocol",
-  "source": { "protocol": "responses" },
-  "target": { "protocol": "anthropic" },
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
   "input": {
     "model": "gpt-5.5",
     "max_output_tokens": 1024,
@@ -28,7 +32,10 @@
             },
             "strict": true
           }
-        ]
+        ],
+        "future": {
+          "sensitive": "do-not-report"
+        }
       }
     ]
   },
@@ -39,19 +46,41 @@
       {
         "role": "user",
         "content": "Use additional tool."
-      }
-    ],
-    "tools": [
+      },
       {
-        "name": "calc",
-        "description": "Calculator",
-        "input_schema": {
-          "type": "object"
-        },
-        "strict": true
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_definition",
+              "definition": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                },
+                "strict": true
+              }
+            }
+          }
+        ]
       }
     ]
   },
-  "expected_losses": [],
-  "tags": ["cross", "tools", "request", "additional_tools", "N-R-15"]
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].extra",
+      "field": "extra",
+      "reason": "unmapped-field",
+      "detail": "additional_tools item extensions have no equivalent on the target face"
+    }
+  ],
+  "tags": [
+    "cross",
+    "tools",
+    "request",
+    "additional_tools",
+    "N-R-15"
+  ]
 }

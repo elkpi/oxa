@@ -105,7 +105,12 @@ fn is_compatible_spec_version(expected: &Value, actual: &Value) -> bool {
     expected == actual
         || matches!(
             (expected.as_str(), actual.as_str()),
-            ("0.1.0", "0.2.0") | ("0.2.0", "0.1.0")
+            ("0.1.0", "0.2.0")
+                | ("0.2.0", "0.1.0")
+                | ("0.1.0", "0.3.0")
+                | ("0.3.0", "0.1.0")
+                | ("0.2.0", "0.3.0")
+                | ("0.3.0", "0.2.0")
         )
 }
 

@@ -30,6 +30,17 @@ import {
 } from "../src/json/index.js";
 import { runNonstreamVectors } from "./nonstream-vector-runner.js";
 
+test("reports losses from positional tool definitions", () => {
+  const raw = `{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"go"},{"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"name":"f","input_schema":{"type":"object"},"cache_control":{"type":"bad"}}}}]}]}`;
+  const decoded = decodeRequestJSON(raw);
+  assert.equal(decoded.losses.length, 1);
+  assert.equal(
+    decoded.losses[0]?.path,
+    "messages[1].content[0].tool.definition.cache_control.type",
+  );
+  assert.equal(decoded.losses[0]?.reason, "unmapped-value");
+});
+
 test("runs every Anthropic non-stream vector", () => {
   assert.ok(
     runNonstreamVectors("anthropic", {

@@ -104,8 +104,8 @@ function compareSpecVersion(
   path: string,
 ): string | undefined {
   if (
-    ["0.1.0", "0.2.0"].includes(expected as string) &&
-    ["0.1.0", "0.2.0"].includes(actual as string)
+    ["0.1.0", "0.2.0", "0.3.0"].includes(expected as string) &&
+    ["0.1.0", "0.2.0", "0.3.0"].includes(actual as string)
   )
     return undefined;
   return compareValue(expected, actual, path);

@@ -1,0 +1,243 @@
+{
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "expected_losses": [],
+  "tags": [
+    "anthropic",
+    "request",
+    "tool_changes",
+    "compaction",
+    "N-AN-22"
+  ],
+  "name": "anthropic.nonstream.tool-change-unions-from-ir",
+  "description": "Ordered tool change unions and compaction extensions survive the Anthropic conversion.",
+  "conversion": "from-ir",
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "messages": [
+      {
+        "content": [
+          {
+            "content": null,
+            "encrypted_content": "",
+            "extra": {
+              "future_block": true
+            },
+            "signature": "sig",
+            "tool_changes": [
+              {
+                "op": "remove",
+                "ref": {
+                  "extra": {
+                    "future_ref": true
+                  },
+                  "name": "old",
+                  "type": "tool_reference"
+                }
+              },
+              {
+                "definition_extra": {
+                  "future_def": true
+                },
+                "op": "add",
+                "tool": {
+                  "input_schema": {
+                    "type": "object"
+                  },
+                  "name": "new",
+                  "native": [
+                    {
+                      "kind": "cache_control",
+                      "omission": {
+                        "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation",
+                        "field": "cache_control",
+                        "reason": "unmapped-field"
+                      },
+                      "source": "anthropic",
+                      "value": "{\"type\":\"ephemeral\"}"
+                    }
+                  ]
+                },
+                "tool_extra": {
+                  "future_wrapper": true
+                }
+              }
+            ],
+            "type": "compaction"
+          },
+          {
+            "text": "go",
+            "type": "text"
+          }
+        ],
+        "role": "user"
+      },
+      {
+        "content": [
+          {
+            "text": "ok",
+            "type": "text"
+          }
+        ],
+        "role": "assistant"
+      }
+    ],
+    "model": "m",
+    "params": {
+      "max_tokens": 32
+    },
+    "specVersion": "0.3.0",
+    "tool_change_groups": [
+      {
+        "content_index": -1,
+        "message_index": 1,
+        "parts": [
+          {
+            "text": "instruction",
+            "type": "text"
+          },
+          {
+            "change": {
+              "native": [
+                {
+                  "kind": "cache_control",
+                  "omission": {
+                    "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation",
+                    "field": "cache_control",
+                    "reason": "unmapped-field"
+                  },
+                  "source": "anthropic",
+                  "value": "{\"type\":\"ephemeral\"}"
+                }
+              ],
+              "op": "add",
+              "ref": {
+                "name": "new",
+                "type": "tool_reference"
+              }
+            },
+            "type": "tool_change"
+          },
+          {
+            "change": {
+              "op": "remove",
+              "ref": {
+                "name": "retired",
+                "server_name": "srv",
+                "type": "mcp_tool_reference"
+              }
+            },
+            "type": "tool_change"
+          },
+          {
+            "change": {
+              "op": "remove",
+              "ref": {
+                "server_name": "srv",
+                "type": "mcp_toolset_reference"
+              }
+            },
+            "type": "tool_change"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 32,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "compaction",
+            "content": null,
+            "encrypted_content": "",
+            "signature": "sig",
+            "future_block": true,
+            "tool_changes": [
+              {
+                "type": "tool_removal",
+                "tool": {
+                  "type": "tool_reference",
+                  "name": "old",
+                  "future_ref": true
+                }
+              },
+              {
+                "type": "tool_addition",
+                "tool": {
+                  "type": "tool_definition",
+                  "definition": {
+                    "name": "new",
+                    "input_schema": {
+                      "type": "object"
+                    },
+                    "future_def": true,
+                    "cache_control": {
+                      "type": "ephemeral"
+                    }
+                  },
+                  "future_wrapper": true
+                }
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "go"
+          }
+        ]
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "text",
+            "text": "instruction"
+          },
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_reference",
+              "name": "new"
+            },
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          },
+          {
+            "type": "tool_removal",
+            "tool": {
+              "type": "mcp_tool_reference",
+              "server_name": "srv",
+              "name": "retired"
+            }
+          },
+          {
+            "type": "tool_removal",
+            "tool": {
+              "type": "mcp_toolset_reference",
+              "server_name": "srv"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "ok"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -83,25 +83,37 @@ SPEC_EVENT_STREAM = """{
 
 
 class CodecTest(unittest.TestCase):
+    def test_ir_020_documents_remain_readable(self) -> None:
+        for source, decode, encode in (
+            (SPEC_REQUEST, load_request, dump_request),
+            (SPEC_RESPONSE, load_response, dump_response),
+            (SPEC_EVENT_STREAM, load_event_stream, dump_event_stream),
+        ):
+            document = json.loads(source)
+            document["specVersion"] = "0.2.0"
+            encoded = encode(decode(document))
+            document["specVersion"] = "0.3.0"
+            self.assertEqual(encoded, document)
+
     def test_legacy_request_reads_and_emits_spec2(self) -> None:
         req = load_request(SPEC_REQUEST)
         out = dump_request(req)
         expected = json.loads(SPEC_REQUEST)
-        expected["specVersion"] = "0.2.0"
+        expected["specVersion"] = "0.3.0"
         self.assertEqual(out, expected)
 
     def test_legacy_response_reads_and_emits_spec2(self) -> None:
         resp = load_response(SPEC_RESPONSE)
         out = dump_response(resp)
         expected = json.loads(SPEC_RESPONSE)
-        expected["specVersion"] = "0.2.0"
+        expected["specVersion"] = "0.3.0"
         self.assertEqual(out, expected)
 
     def test_legacy_event_stream_reads_and_emits_spec2(self) -> None:
         stream = load_event_stream(SPEC_EVENT_STREAM)
         out = dump_event_stream(stream)
         expected = json.loads(SPEC_EVENT_STREAM)
-        expected["specVersion"] = "0.2.0"
+        expected["specVersion"] = "0.3.0"
         self.assertEqual(out, expected)
         self.assertEqual(len(stream.events), 7)
         self.assertIsInstance(stream.events[0], MessageStart)
@@ -137,13 +149,13 @@ class CodecTest(unittest.TestCase):
         request = load_request(legacy)
         encoded = dump_request(request)
 
-        self.assertEqual(encoded["specVersion"], "0.2.0")
+        self.assertEqual(encoded["specVersion"], "0.3.0")
         self.assertEqual(encoded["messages"][1]["content"][0]["type"], "thinking")
         self.assertEqual(encoded["params"]["reasoning_effort"], "high")
 
     def test_spec2_usage_details_preserve_absence_and_zero(self) -> None:
         raw = {
-            "specVersion": "0.2.0",
+            "specVersion": "0.3.0",
             "id": "r",
             "model": "m",
             "content": [],
@@ -158,7 +170,7 @@ class CodecTest(unittest.TestCase):
         }
         response = load_response(raw)
         encoded = dump_response(response)
-        self.assertEqual(encoded["specVersion"], "0.2.0")
+        self.assertEqual(encoded["specVersion"], "0.3.0")
         self.assertEqual(encoded["usage"]["cache_read_input_tokens"], 0)
         self.assertEqual(encoded["usage"]["input_tokens_details"], {"cached_tokens": 0})
         self.assertEqual(encoded["usage"]["output_tokens_details"], {"reasoning_tokens": 3})
@@ -170,7 +182,7 @@ class CodecTest(unittest.TestCase):
 
     def test_spec2_m9_event_stream_round_trips_signature_order(self) -> None:
         raw = {
-            "specVersion": "0.2.0",
+            "specVersion": "0.3.0",
             "events": [
                 {"type": "message_start", "id": "m", "model": "model"},
                 {
@@ -238,7 +250,7 @@ class CodecTest(unittest.TestCase):
 
     def test_response_format_rejects_non_boolean_strict(self) -> None:
         raw = {
-            "specVersion": "0.2.0",
+            "specVersion": "0.3.0",
             "model": "m",
             "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
             "params": {
@@ -255,7 +267,7 @@ class CodecTest(unittest.TestCase):
 
     def test_response_format_rejects_non_string_description(self) -> None:
         raw = {
-            "specVersion": "0.2.0",
+            "specVersion": "0.3.0",
             "model": "m",
             "messages": [{"role": "user", "content": [{"type": "text", "text": "hi"}]}],
             "params": {
@@ -274,7 +286,7 @@ class CodecTest(unittest.TestCase):
         from oxa.ir import CustomToolInputDelta, dump_delta, load_delta
 
         raw = {
-            "specVersion": "0.2.0",
+            "specVersion": "0.3.0",
             "model": "m",
             "messages": [
                 {"role": "assistant", "content": [

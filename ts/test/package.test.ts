@@ -12,5 +12,5 @@ test("re-exports the lossless JSON namespace", () => {
 });
 
 test("re-exports the IR namespace", () => {
-  assert.equal(ir.specVersion, "0.2.0");
+  assert.equal(ir.specVersion, "0.3.0");
 });

@@ -1,6 +1,6 @@
 package chatcompletions
 
-import "github.com/elkpi/oxa/go/v2/modelmap"
+import "github.com/elkpi/oxa/go/v3/modelmap"
 
 // options carries per-converter configuration. The package-level conversion
 // functions accept variadic Options; with none supplied the model table

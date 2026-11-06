@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func TestValidateEventStream(t *testing.T) {
@@ -396,4 +397,16 @@ func streamVectorJSON(conversion, name, irDoc string) []byte {
 		return []byte(fmt.Sprintf(`{"name":%q,"description":"test","spec_version":"0.1.0","mode":"stream","conversion":"to-ir","source":{"protocol":"anthropic"},"input":{},"expected_ir":%s,"expected_losses":[],"tags":["stream"]}`, name, irDoc))
 	}
 	return []byte(fmt.Sprintf(`{"name":%q,"description":"test","spec_version":"0.1.0","mode":"stream","conversion":"from-ir","source":{"protocol":"anthropic"},"target":{"protocol":"anthropic"},"input":%s,"expected_output":{},"expected_losses":[],"tags":["stream"]}`, name, irDoc))
+}
+
+func TestIRSchema030(t *testing.T) {
+	s := testSchemas(t)
+	doc := `{"specVersion":"0.3.0","model":"m","messages":[{"role":"user","content":[{"type":"compaction","content":"summary","tool_changes":[{"op":"remove","ref":{"type":"tool_reference","name":"calc"}}]}]},{"role":"assistant","content":[{"type":"text","text":"ok"}]}],"tool_change_groups":[{"message_index":1,"content_index":-1,"parts":[{"type":"tool_change","change":{"op":"add","tool":{"name":"calc","input_schema":{"type":"object"}}}}]}]}`
+	var val any
+	if err := json.Unmarshal([]byte(doc), &val); err != nil {
+		t.Fatalf("json unmarshal: %v", err)
+	}
+	if err := s.ir.Validate(val); err != nil {
+		t.Fatalf("IR 0.3.0 validate error: %v", err)
+	}
 }

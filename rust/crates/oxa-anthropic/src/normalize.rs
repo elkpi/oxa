@@ -606,6 +606,7 @@ pub(crate) fn decode_content(
         return Err(Error::new(format!("anthropic: {path} is missing")));
     };
     match content {
+        ContentValue::Null => Err(Error::new(format!("anthropic: {path} must not be null"))),
         ContentValue::Text(text) => Ok((
             vec![Block::Text {
                 text: text.clone(),
@@ -984,6 +985,55 @@ pub(crate) fn decode_block(
                 });
             }
         }
+        "compaction" if is_request => {
+            if in_tool_result {
+                return Err(Error::new(format!(
+                    "anthropic: {path}: compaction cannot be nested in a tool result"
+                )));
+            }
+            let content = match wire.content.as_ref() {
+                Some(ContentValue::Text(text)) if text.is_empty() => {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.content cannot be an empty string"
+                    )));
+                }
+                Some(ContentValue::Text(text)) => Some(Some(text.clone())),
+                Some(ContentValue::Null) => Some(None),
+                Some(_) => {
+                    return Err(Error::new(format!(
+                        "anthropic: {path}.content must be a string or null"
+                    )));
+                }
+                None => None,
+            };
+            let mut changes = Vec::new();
+            if let Some(changes_wire) = &wire.tool_changes {
+                for (i, raw) in changes_wire.iter().enumerate() {
+                    let change_path = format!("{path}.tool_changes[{i}]");
+                    if !raw.is_object() {
+                        return Err(Error::new(format!(
+                            "anthropic: {change_path} must be an object"
+                        )));
+                    }
+                    let change_wire: BlockWire = serde_json::from_value(raw.clone())
+                        .map_err(|e| Error::new(format!("anthropic: {change_path}: {e}")))?;
+                    let (change, change_losses) =
+                        crate::tool_change::decode_change(&change_wire, &change_path)?;
+                    losses.extend(change_losses);
+                    changes.push(change);
+                }
+            }
+            let native = Vec::new();
+            let encrypted_content = wire.encrypted_content.clone();
+            block = Some(Block::Compaction {
+                content,
+                encrypted_content,
+                signature: wire.signature.clone(),
+                tool_changes: wire.tool_changes.as_ref().map(|_| changes),
+                native,
+                extra: wire.extra.clone(),
+            });
+        }
         "tool_reference" => {
             // N-AN-21: a present tool_name key must carry a non-empty string
             // (null/empty is a structural error even when name is present);
@@ -1055,7 +1105,8 @@ pub(crate) fn decode_block(
                     | Block::ApplyPatchToolResult { native, .. }
                     | Block::Refusal { native, .. }
                     | Block::ToolResult { native, .. }
-                    | Block::CustomToolResult { native, .. } => {
+                    | Block::CustomToolResult { native, .. }
+                    | Block::Compaction { native, .. } => {
                         native.push(ann);
                     }
                 }

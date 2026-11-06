@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from typing import Any
+from oxa.ir.types import ToolChange, ToolChangeRef, ToolChangeGroup, ToolChangePart, CompactionBlock
 
 from oxa.ir.constants import (
     BLOCK_TYPE_CUSTOM_TOOL_RESULT,
@@ -485,7 +486,15 @@ def dump_system_block(block: TextBlock) -> dict[str, Any]:
 
 
 def dump_request_block(block: Block) -> dict[str, Any]:
-    if isinstance(block, TextBlock):
+    if isinstance(block, CompactionBlock):
+        if block.content == "": raise CodecError("compaction content must be nonempty or null")
+        out: dict[str, Any] = {"type": "compaction"}
+        if block.content_present or block.content is not None: out["content"] = block.content
+        if block.encrypted_content is not None: out["encrypted_content"] = block.encrypted_content
+        if block.signature is not None: out["signature"] = block.signature
+        if block.tool_changes is not None: out["tool_changes"] = [_dump_tool_change(c) for c in block.tool_changes]
+        if block.extra is not None: out["extra"] = block.extra
+    elif isinstance(block, TextBlock):
         out: dict[str, Any] = {"type": BLOCK_TYPE_TEXT, "text": block.text}
         if block.citations:
             for c in block.citations:
@@ -786,6 +795,14 @@ def load_request_block(data: dict[str, Any]) -> Block:
         raise CodecError("role is only permitted on system blocks")
     native = tuple(load_native_annotation(a) for a in data.get("native", []))
     kind = data.get("type")
+    if kind == "compaction":
+        if "content" in data and data["content"] is not None and (not isinstance(data["content"], str) or not data["content"]):
+            raise CodecError("compaction content must be nonempty or null")
+        for key in ("encrypted_content", "signature"):
+            if key in data and not isinstance(data[key], str): raise CodecError(f"compaction {key} must be a string")
+        changes = data.get("tool_changes")
+        if "tool_changes" in data and not isinstance(changes, list): raise CodecError("compaction tool_changes must be an array")
+        return CompactionBlock(content=data.get("content"), content_present="content" in data, encrypted_content=data.get("encrypted_content"), signature=data.get("signature"), tool_changes=[_load_tool_change(c) for c in changes] if changes is not None else None, native=native, extra=data.get("extra"))
     if kind == BLOCK_TYPE_TEXT:
         cites = None
         if "citations" in data:
@@ -1018,7 +1035,78 @@ def load_event(data: dict[str, Any]) -> Event:
 # ---- Request ---------------------------------------------------------------
 
 
+def _validate_tool_change(change: ToolChange) -> None:
+    if change.op not in ("add", "remove") or (change.tool is None) == (change.ref is None) or (change.op == "remove" and change.tool is not None):
+        raise CodecError("invalid tool change")
+    if change.ref is not None:
+        ref = change.ref
+        valid = ((ref.type == "tool_reference" and isinstance(ref.name, str) and bool(ref.name) and ref.server_name is None)
+                 or (ref.type == "mcp_tool_reference" and isinstance(ref.name, str) and bool(ref.name) and isinstance(ref.server_name, str) and bool(ref.server_name))
+                 or (ref.type == "mcp_toolset_reference" and ref.name is None and isinstance(ref.server_name, str) and bool(ref.server_name)))
+        if not valid: raise CodecError("invalid tool change reference")
+        if ref.extra is not None and not isinstance(ref.extra, dict): raise CodecError("tool reference extra must be an object")
+    for key in ("extra", "tool_extra", "definition_extra"):
+        value = getattr(change, key)
+        if value is not None and not isinstance(value, dict): raise CodecError(f"tool change {key} must be an object")
+
+
+def validate_tool_availability(req: Request) -> None:
+    for i, message in enumerate(req.messages):
+        for j, block in enumerate(message.content):
+            if isinstance(block, CompactionBlock):
+                if i != 0 or j != 0: raise CodecError("compaction must be the first block of the first message")
+                if block.content is not None and (not isinstance(block.content, str) or not block.content): raise CodecError("invalid compaction content")
+                for change in block.tool_changes or (): _validate_tool_change(change)
+    for i, group in enumerate(req.tool_change_groups):
+        if (type(group.message_index) is not int or type(group.content_index) is not int or group.message_index < 0
+                or group.message_index > len(req.messages) or group.content_index < -1
+                or (group.content_index >= 0 and (group.message_index >= len(req.messages)
+                    or group.content_index > len(req.messages[group.message_index].content)))):
+            raise CodecError(f"invalid tool_change_groups[{i}] position")
+        if not isinstance(group.parts, list): raise CodecError("tool change parts must be an array")
+        if group.id is not None and not isinstance(group.id, str): raise CodecError("tool change group id must be a string")
+        if group.extra is not None and not isinstance(group.extra, dict): raise CodecError("tool change group extra must be an object")
+        for part in group.parts:
+            if part.type == "tool_change" and part.change is not None and part.text is None: _validate_tool_change(part.change)
+            elif part.type != "text" or not isinstance(part.text, str) or part.change is not None: raise CodecError("invalid tool change part")
+
+
+def _dump_tool_change(change: ToolChange) -> dict[str, Any]:
+    _validate_tool_change(change)
+    if change.op not in ("add", "remove") or (change.tool is None) == (change.ref is None) or (change.op == "remove" and change.tool is not None):
+        raise CodecError("invalid tool change")
+    result: dict[str, Any] = {"op": change.op}
+    if change.tool is not None:
+        result["tool"] = dump_request(Request(model="m", messages=[Message(role="user", content=[TextBlock(text="")])], tools=[change.tool]))["tools"][0]
+    if change.ref is not None:
+        ref = change.ref
+        result["ref"] = {"type": ref.type, **({"name": ref.name} if ref.name is not None else {}), **({"server_name": ref.server_name} if ref.server_name is not None else {}), **({"extra": ref.extra} if ref.extra is not None else {})}
+    if change.native:
+        result["native"] = [dump_native_annotation(a) for a in change.native]
+    for key in ("extra", "tool_extra", "definition_extra"):
+        value = getattr(change, key)
+        if value is not None: result[key] = value
+    return result
+
+
+def _load_tool_change(data: dict[str, Any]) -> ToolChange:
+    op = data.get("op")
+    if op not in ("add", "remove") or ("tool" in data) == ("ref" in data) or (op == "remove" and "tool" in data):
+        raise CodecError("invalid tool change")
+    tool = None
+    if "tool" in data:
+        tool = load_request({"specVersion": SPEC_VERSION, "model": "m", "messages": [{"role": "user", "content": [{"type": "text", "text": ""}]}], "tools": [data["tool"]]}).tools[0]
+    try:
+        ref = ToolChangeRef(**data["ref"]) if "ref" in data else None
+        change = ToolChange(op=op, tool=tool, ref=ref, native=tuple(load_native_annotation(a) for a in data.get("native", [])), extra=data.get("extra"), tool_extra=data.get("tool_extra"), definition_extra=data.get("definition_extra"))
+    except (TypeError, KeyError) as exc:
+        raise CodecError("invalid tool change") from exc
+    _validate_tool_change(change)
+    return change
+
+
 def dump_request(req: Request) -> dict[str, Any]:
+    validate_tool_availability(req)
     out: dict[str, Any] = {
         "specVersion": SPEC_VERSION,
         "model": req.model,
@@ -1032,6 +1120,22 @@ def dump_request(req: Request) -> dict[str, Any]:
     }
     if req.native:
         out["native"] = [dump_native_annotation(a) for a in req.native]
+    if req.tool_change_groups:
+        out["tool_change_groups"] = []
+        for group in req.tool_change_groups:
+            parts = []
+            for part in group.parts:
+                if part.type == "text" and part.text is not None and part.change is None:
+                    item: dict[str, Any] = {"type": "text", "text": part.text}
+                    if part.native: item["native"] = [dump_native_annotation(a) for a in part.native]
+                elif part.type == "tool_change" and part.change is not None:
+                    item = {"type": "tool_change", "change": _dump_tool_change(part.change)}
+                else: raise CodecError("invalid tool change part")
+                parts.append(item)
+            value: dict[str, Any] = {"message_index": group.message_index, "content_index": group.content_index, "parts": parts}
+            if group.id is not None: value["id"] = group.id
+            if group.extra is not None: value["extra"] = group.extra
+            out["tool_change_groups"].append(value)
     if req.system:
         out["system"] = [dump_system_block(b) for b in req.system]
     if req.tools:
@@ -1342,7 +1446,24 @@ def load_request(data: dict[str, Any] | str) -> Request:
             if not isinstance(v, str):
                 raise CodecError(f"metadata.{k} must be a string")
 
-    return Request(
+    groups: list[ToolChangeGroup] = []
+    raw_groups = raw.get("tool_change_groups", [])
+    if not isinstance(raw_groups, list): raise CodecError("tool_change_groups must be an array")
+    for g in raw_groups:
+        if not isinstance(g, dict) or not all(key in g for key in ("message_index", "content_index", "parts")) or not isinstance(g["parts"], list):
+            raise CodecError("tool change group requires position and parts")
+        parts: list[ToolChangePart] = []
+        for p in g["parts"]:
+            if not isinstance(p, dict): raise CodecError("tool change part must be an object")
+            if p.get("type") == "text" and isinstance(p.get("text"), str) and "change" not in p:
+                native = p.get("native", [])
+                if not isinstance(native, list): raise CodecError("tool change part native must be an array")
+                parts.append(ToolChangePart(type="text", text=p["text"], native=tuple(load_native_annotation(a) for a in native)))
+            elif p.get("type") == "tool_change" and isinstance(p.get("change"), dict) and "text" not in p:
+                parts.append(ToolChangePart(type="tool_change", change=_load_tool_change(p["change"])))
+            else: raise CodecError("invalid tool change part")
+        groups.append(ToolChangeGroup(message_index=g["message_index"], content_index=g["content_index"], parts=parts, id=g.get("id"), extra=g.get("extra")))
+    request = Request(
         model=raw["model"],
         messages=messages,
         system=system,
@@ -1351,7 +1472,10 @@ def load_request(data: dict[str, Any] | str) -> Request:
         params=params,
         metadata=metadata,
         native=req_native,
+        tool_change_groups=groups,
     )
+    validate_tool_availability(request)
+    return request
 
 
 # ---- Response --------------------------------------------------------------

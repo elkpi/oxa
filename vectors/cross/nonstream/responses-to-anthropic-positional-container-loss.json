@@ -1,0 +1,27 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-positional-container-loss",
+  "description": "A positional namespace flattened into an Anthropic tool addition reports its lost grouping.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "responses"},
+  "target": {"protocol": "anthropic"},
+  "input": {
+    "model": "m",
+    "max_output_tokens": 32,
+    "input": [
+      {"role": "user", "content": "go"},
+      {"type": "additional_tools", "role": "developer", "tools": [{"type": "namespace", "name": "ns", "tools": [{"type": "function", "name": "f", "parameters": {"type": "object"}}]}]}
+    ]
+  },
+  "expected_output": {
+    "model": "m",
+    "max_tokens": 32,
+    "messages": [
+      {"role": "user", "content": "go"},
+      {"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "ns.f", "input_schema": {"type": "object"}}}}]}
+    ]
+  },
+  "expected_losses": [{"path": "tool_change_groups[0].parts[0].change.tool.native[0]", "field": "type", "reason": "degraded", "detail": "tool container grouping was flattened into dotted tool names"}],
+  "tags": ["cross", "responses", "anthropic", "additional_tools", "N-R-15"]
+}

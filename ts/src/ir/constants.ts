@@ -1,6 +1,6 @@
 /** Intermediate Representation (IR) constants (spec/01, spec/02). */
 
-export const SPEC_VERSION = "0.2.0" as const;
+export const SPEC_VERSION = "0.3.0" as const;
 
 // Roles (spec/01 §3.3)
 export const ROLE_USER = "user" as const;

@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/ir"
-	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
 )
 
 func TestEncryptedContentRoundTrip(t *testing.T) {

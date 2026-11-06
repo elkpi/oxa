@@ -76,6 +76,7 @@ fn encodes_tool_results_before_normal_user_content_and_reports_reordering() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&request, &Config::default()).expect("encode request");

@@ -151,7 +151,7 @@ def _audit(wire: dict[str, Any], face: str, kind: str, document: RawDocument | N
                 positions[child_path] = len(positions)
             if key in fields:
                 visit(child, fields[key], child_path)
-            else:
+            elif shape != "additional_tools_item":
                 losses.append(Loss(path=format_path(child_path), field=key, reason="unmapped-field"))
 
     visit(wire, kind, ())

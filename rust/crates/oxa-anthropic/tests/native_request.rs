@@ -353,6 +353,7 @@ fn test_defer_loading_tool_native_option() {
         }),
         metadata: None,
         native: vec![],
+        tool_change_groups: Vec::new(),
     };
     oxa_ir::validate_native_request(&req_whitespace).expect("validate whitespace");
     let (enc_whitespace, el_whitespace) = encode_request(&req_whitespace, &config).expect("encode");
@@ -407,6 +408,7 @@ fn test_defer_loading_tool_native_option() {
         }),
         metadata: None,
         native: vec![],
+        tool_change_groups: Vec::new(),
     };
     assert!(oxa_ir::validate_native_request(&req_direct_conflict).is_err());
     assert!(encode_request(&req_direct_conflict, &config).is_err());
@@ -529,6 +531,7 @@ fn test_eager_input_streaming_32_tools_and_validation() {
                 projection: None,
             },
         ],
+        tool_change_groups: Vec::new(),
     };
     let (enc_foreign, losses_foreign) = encode_request(&req_foreign, &config).expect("encode");
     assert!(enc_foreign.thinking.is_none());

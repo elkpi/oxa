@@ -99,8 +99,8 @@ def compare_json(expected: Any, actual: Any, path: str = "") -> None:
                 k == "specVersion"
                 and isinstance(v, str)
                 and isinstance(actual[k], str)
-                and v in ("0.1.0", "0.2.0")
-                and actual[k] in ("0.1.0", "0.2.0")
+                and v in ("0.1.0", "0.2.0", "0.3.0")
+                and actual[k] in ("0.1.0", "0.2.0", "0.3.0")
             ):
                 continue
             compare_json(v, actual[k], subpath)

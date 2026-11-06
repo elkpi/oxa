@@ -416,6 +416,11 @@ function requestDocument(request: Request): JsonObject {
 
 function blockDocument(block: Block): JsonObject {
   switch (block.type) {
+    case "compaction":
+      return {
+        type: block.type,
+        ...(block.content === undefined ? {} : { content: block.content }),
+      };
     case "web_search_call":
       return {
         type: block.type,

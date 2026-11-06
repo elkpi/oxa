@@ -540,7 +540,7 @@ pub(crate) fn precheck_apply_patch_pairs(
         let mut a_start = i;
         while a_start < items.len() {
             let it = &items[a_start];
-            if is_empty_additional_tools(it) {
+            if it.kind == "additional_tools" {
                 a_start += 1;
                 continue;
             }
@@ -574,7 +574,7 @@ pub(crate) fn precheck_apply_patch_pairs(
         let mut o_start = a_start;
         while o_start < items.len() {
             let it = &items[o_start];
-            if is_empty_additional_tools(it) {
+            if it.kind == "additional_tools" {
                 o_start += 1;
                 continue;
             }
@@ -713,19 +713,30 @@ pub(crate) fn decode_assistant_run(
     start: usize,
     decoded_calls: &BTreeMap<usize, Block>,
     dropped: &BTreeSet<usize>,
+    markers: &mut Vec<(usize, Option<usize>)>,
 ) -> Result<(Option<IrMessage>, usize, Vec<Loss>), Error> {
     let mut thinkings = Vec::new();
     let mut text = Vec::new();
     let mut calls = Vec::new();
+    let mut origins = [Vec::new(), Vec::new(), Vec::new()];
+    let mut previous = start;
+    let mut marker_indices = Vec::new();
     let mut losses = Vec::new();
     let mut index = start;
     while index < items.len() {
+        for (origins, len) in origins
+            .iter_mut()
+            .zip([thinkings.len(), text.len(), calls.len()])
+        {
+            origins.resize(len, previous);
+        }
         let item = &items[index];
-        if is_empty_additional_tools(item) {
-            losses.push(empty_additional_tools_loss(index));
+        if item.kind == "additional_tools" {
+            marker_indices.push(index);
             index += 1;
             continue;
         }
+        previous = index;
         if item.kind == "apply_patch_call" {
             if dropped.contains(&index) {
                 index += 1;
@@ -854,6 +865,22 @@ pub(crate) fn decode_assistant_run(
         losses.extend(block_losses);
         index += 1;
     }
+    for (origins, len) in origins
+        .iter_mut()
+        .zip([thinkings.len(), text.len(), calls.len()])
+    {
+        origins.resize(len, previous);
+    }
+    let origins: Vec<usize> = origins.into_iter().flatten().collect();
+    for marker in marker_indices {
+        let position = origins
+            .iter()
+            .enumerate()
+            .filter(|(_, origin)| **origin > marker)
+            .min_by_key(|(_, origin)| **origin)
+            .map(|(i, _)| i);
+        markers.push((marker, position));
+    }
     let mut content = thinkings;
     content.extend(text);
     content.extend(calls);
@@ -876,17 +903,23 @@ pub(crate) fn decode_output_run(
     start: usize,
     decoded_results: &BTreeMap<usize, Block>,
     dropped: &BTreeSet<usize>,
+    markers: &mut Vec<(usize, Option<usize>)>,
 ) -> Result<(Option<IrMessage>, usize, Vec<Loss>), Error> {
     let mut content = Vec::new();
+    let mut origins = Vec::new();
+    let mut previous = start;
+    let mut marker_indices = Vec::new();
     let mut losses = Vec::new();
     let mut index = start;
     while index < items.len() {
+        origins.resize(content.len(), previous);
         let item = &items[index];
-        if is_empty_additional_tools(item) {
-            losses.push(empty_additional_tools_loss(index));
+        if item.kind == "additional_tools" {
+            marker_indices.push(index);
             index += 1;
             continue;
         }
+        previous = index;
         if item.kind != ITEM_TYPE_FUNCTION_CALL_OUTPUT
             && item.kind != ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT
             && item.kind != "apply_patch_call_output"
@@ -989,6 +1022,16 @@ pub(crate) fn decode_output_run(
         }
         index += 1;
     }
+    origins.resize(content.len(), previous);
+    for marker in marker_indices {
+        let position = origins
+            .iter()
+            .enumerate()
+            .filter(|(_, origin)| **origin > marker)
+            .min_by_key(|(_, origin)| **origin)
+            .map(|(i, _)| i);
+        markers.push((marker, position));
+    }
     if content.is_empty() {
         return Ok((None, index, losses));
     }
@@ -1000,19 +1043,6 @@ pub(crate) fn decode_output_run(
         index,
         losses,
     ))
-}
-
-pub(crate) fn is_empty_additional_tools(item: &InputItem) -> bool {
-    item.kind == "additional_tools" && matches!(&item.tools, Some(tools) if tools.is_empty())
-}
-
-pub(crate) fn empty_additional_tools_loss(index: usize) -> Loss {
-    loss(
-        format!("input[{index}].tools"),
-        "tools",
-        LossReason::UnmappedField,
-        "empty additional_tools inventory ignored",
-    )
 }
 
 /// N-R-9 maps Responses tool choice forms to the IR modes.
@@ -1314,6 +1344,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                 LossReason::UnsupportedSemantic,
                 oxa_ir::ENCRYPTED_CONTENT_LOSS_DETAIL,
             )),
+            Block::Compaction { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic compaction block cannot be represented on the target face",
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -1595,6 +1631,12 @@ pub(crate) fn encode_assistant_message(
                     }
                 }
             }
+            Block::Compaction { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic compaction block cannot be represented on the target face",
+            )),
             Block::RedactedThinking { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",

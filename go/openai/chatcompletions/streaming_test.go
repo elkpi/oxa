@@ -7,8 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/elkpi/oxa/go/v2/ir"
-	"github.com/elkpi/oxa/go/v2/modelmap"
+	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa/go/v3/modelmap"
 )
 
 func chunkRole(id, model string) *Chunk {

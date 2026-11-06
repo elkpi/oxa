@@ -2,7 +2,10 @@
 
 use serde_json::value::RawValue;
 
-use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
+use oxa_ir::{
+    Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason,
+    ToolChangeOp, ToolChangePart,
+};
 
 use crate::config::Config;
 use crate::error::Error;
@@ -36,7 +39,292 @@ const DEFAULT_MAX_TOKENS: i64 = 4096;
 /// for a request whose entire conversation is a single message of a single
 /// text block and that carries no system prompt; every other request renders
 /// block arrays.
+fn encode_tool_change(
+    change: &oxa_ir::ToolChange,
+    path: &str,
+) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
+    if let Some(reference) = &change.reference {
+        if !matches!(
+            reference.ref_type.as_str(),
+            "tool_reference" | "mcp_tool_reference" | "mcp_toolset_reference"
+        ) {
+            return Ok((
+                BlockWire::default(),
+                vec![loss(
+                    "tool",
+                    "type",
+                    LossReason::UnsupportedSemantic,
+                    format!(
+                        "tool change reference type {:?} is not supported",
+                        reference.ref_type
+                    ),
+                )],
+                false,
+            ));
+        }
+        let mut raw: serde_json::Map<String, serde_json::Value> = reference
+            .extra
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .collect();
+        raw.insert("type".into(), reference.ref_type.clone().into());
+        if !reference.name.is_empty() {
+            raw.insert("name".into(), reference.name.clone().into());
+        }
+        if let Some(server) = &reference.server_name {
+            raw.insert("server_name".into(), server.clone().into());
+        }
+        let mut wire = BlockWire {
+            kind: tool_change_op_wire(change.op).to_string(),
+            tool: Some(serde_json::Value::Object(raw)),
+            extra: change.extra.clone().unwrap_or_default(),
+            ..BlockWire::default()
+        };
+        if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
+            wire.cache_control = Some(cache_control);
+        }
+        return Ok((wire, Vec::new(), true));
+    }
+    let Some(tool) = &change.tool else {
+        return Ok((
+            BlockWire::default(),
+            vec![loss(
+                "tool",
+                "tool",
+                LossReason::UnsupportedSemantic,
+                "tool change has no tool payload",
+            )],
+            false,
+        ));
+    };
+    let mut definition_object: serde_json::Map<String, serde_json::Value> =
+        if tool.tool_type == Some(oxa_ir::ToolType::Native) {
+            if tool.source.as_deref() != Some("anthropic") {
+                return Err(Error::new(
+                    "anthropic: native tool definition has foreign source",
+                ));
+            }
+            serde_json::from_str(
+                tool.definition
+                    .as_deref()
+                    .ok_or_else(|| Error::new("anthropic: native tool definition is required"))?,
+            )
+            .map_err(|e| Error::new(format!("anthropic: invalid native tool definition: {e}")))?
+        } else {
+            let mut object = serde_json::Map::new();
+            object.insert("name".into(), tool.name.clone().into());
+            if let Some(description) = &tool.description {
+                object.insert("description".into(), description.clone().into());
+            }
+            if let Some(schema) = &tool.input_schema {
+                object.insert("input_schema".into(), schema.clone());
+            }
+            if let Some(strict) = tool.strict {
+                object.insert("strict".into(), strict.into());
+            }
+            object
+        };
+    if tool.tool_type != Some(oxa_ir::ToolType::Native) {
+        if let Some(cache_control) = crate::native::get_block_cache_control(&tool.native) {
+            definition_object.insert("cache_control".into(), cache_control);
+        }
+        for annotation in &tool.native {
+            if annotation.source == "anthropic"
+                && matches!(
+                    annotation.kind.as_str(),
+                    "defer_loading" | "eager_input_streaming"
+                )
+            {
+                let value: bool = serde_json::from_str(&annotation.value)
+                    .map_err(|e| Error::new(e.to_string()))?;
+                definition_object.insert(annotation.kind.clone(), value.into());
+            }
+        }
+    }
+    if let Some(extra) = &change.definition_extra {
+        for (key, value) in extra {
+            if definition_object.contains_key(key) {
+                return Err(Error::new(
+                    "anthropic: tool definition extra conflicts with a known field",
+                ));
+            }
+            definition_object.insert(key.clone(), value.clone());
+        }
+    }
+    let mut raw: serde_json::Map<String, serde_json::Value> = change
+        .tool_extra
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
+    raw.insert("type".into(), "tool_definition".into());
+    raw.insert(
+        "definition".into(),
+        serde_json::Value::Object(definition_object),
+    );
+    let mut wire = BlockWire {
+        kind: tool_change_op_wire(change.op).to_string(),
+        tool: Some(serde_json::Value::Object(raw)),
+        extra: change.extra.clone().unwrap_or_default(),
+        ..BlockWire::default()
+    };
+    if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
+        wire.cache_control = Some(cache_control);
+    }
+    let mut losses = Vec::new();
+    for (index, ann) in tool.native.iter().enumerate() {
+        if ann.source != oxa_ir::NATIVE_SOURCE_ANTHROPIC
+            && ann.kind != oxa_ir::NATIVE_KIND_DEFER_LOADING
+        {
+            let native_path = format!("{path}.tool.native[{index}]");
+            if let Some(omission) = &ann.omission {
+                losses.push(loss(
+                    native_path,
+                    &omission.field,
+                    omission.reason,
+                    omission.detail.clone().unwrap_or_default(),
+                ));
+            } else {
+                losses.push(loss(
+                    native_path,
+                    "source",
+                    LossReason::UnsupportedSemantic,
+                    format!("unsupported native option source {:?}", ann.source),
+                ));
+            }
+        }
+    }
+    Ok((wire, losses, true))
+}
+
+fn tool_change_group_content(
+    group: &oxa_ir::ToolChangeGroup,
+    group_index: usize,
+    losses: &mut Vec<Loss>,
+) -> Result<Vec<BlockWire>, Error> {
+    let mut content = Vec::new();
+    for (part_index, part) in group.parts.iter().enumerate() {
+        match part {
+            ToolChangePart::Text { text, native } => {
+                let mut wire = BlockWire {
+                    kind: BLOCK_TYPE_TEXT.to_string(),
+                    text: text.clone(),
+                    ..BlockWire::default()
+                };
+                if let Some(cache_control) = crate::native::get_block_cache_control(native) {
+                    wire.cache_control = Some(cache_control);
+                }
+                content.push(wire);
+            }
+            ToolChangePart::Change { change } => {
+                if change.tool.as_ref().is_some_and(|tool| {
+                    tool.tool_type == Some(oxa_ir::ToolType::Native)
+                        && tool.source.as_deref() != Some("anthropic")
+                }) {
+                    losses.push(loss(format!("tool_change_groups[{group_index}].parts[{part_index}]"), "op", LossReason::UnsupportedSemantic, "positional tool availability change cannot be represented on the target face"));
+                    continue;
+                }
+                let (wire, mut part_losses, mapped) = encode_tool_change(
+                    change,
+                    &format!("tool_change_groups[{group_index}].parts[{part_index}].change"),
+                )?;
+                if mapped {
+                    content.push(wire);
+                }
+                losses.append(&mut part_losses);
+            }
+        }
+    }
+    Ok(content)
+}
+
+fn group_is_valid(req: &IrRequest, group: &oxa_ir::ToolChangeGroup) -> bool {
+    group.content_index < 0
+        && group.message_index > 0
+        && group.message_index <= req.messages.len()
+        && req
+            .messages
+            .get(group.message_index - 1)
+            .is_some_and(|message| message.role == oxa_ir::Role::User)
+        && (group.message_index == req.messages.len()
+            || req
+                .messages
+                .get(group.message_index)
+                .is_some_and(|message| message.role == oxa_ir::Role::Assistant))
+}
+
+fn emit_groups_at(
+    req: &IrRequest,
+    position: usize,
+    out: &mut Request,
+    losses: &mut Vec<Loss>,
+) -> Result<(), Error> {
+    for (group_index, group) in req.tool_change_groups.iter().enumerate() {
+        if group.message_index != position {
+            continue;
+        }
+        if !group_is_valid(req, group) || group.parts.is_empty() {
+            if group.parts.is_empty() {
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}]"),
+                    "tools",
+                    LossReason::UnsupportedSemantic,
+                    "empty positional tool group cannot be represented on the target face",
+                ));
+            }
+            for (part_index, part) in group.parts.iter().enumerate() {
+                let is_text = matches!(part, ToolChangePart::Text { .. });
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}].parts[{part_index}]"),
+                    if is_text { "type" } else { "op" },
+                    LossReason::UnsupportedSemantic,
+                    if is_text {
+                        "positional system text has no equivalent on the target face"
+                    } else {
+                        "positional tool availability change cannot be represented on the target face"
+                    },
+                ));
+            }
+            continue;
+        }
+        let content = tool_change_group_content(group, group_index, losses)?;
+        if !content.is_empty() {
+            if group.extra.as_ref().is_some_and(|extra| !extra.is_empty()) {
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}].extra"),
+                    "extra",
+                    LossReason::UnmappedField,
+                    "additional_tools item extensions have no equivalent on the target face",
+                ));
+            }
+            if group.id.is_some() {
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}].id"),
+                    "id",
+                    LossReason::UnmappedField,
+                    "additional_tools item id has no equivalent on the target face",
+                ));
+            }
+            out.messages.push(Message {
+                role: "system".into(),
+                content: Some(ContentValue::Blocks(content)),
+                ..Message::default()
+            });
+        }
+    }
+    Ok(())
+}
+
+fn tool_change_op_wire(op: ToolChangeOp) -> &'static str {
+    match op {
+        ToolChangeOp::Add => "tool_addition",
+        ToolChangeOp::Remove => "tool_removal",
+    }
+}
+
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    oxa_ir::validate_tool_availability(req).map_err(|e| Error::new(e.to_string()))?;
     for tool in req.tools.iter().flatten() {
         tool.validate_strict().map_err(Error::new)?;
     }
@@ -306,6 +594,14 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         && req.messages[0].content.len() == 1
         && matches!(&req.messages[0].content[0], Block::Text { native, citations, .. } if native.is_empty() && citations.as_ref().is_none_or(|c| c.is_empty()));
     for (index, message) in req.messages.iter().enumerate() {
+        for (j, block) in message.content.iter().enumerate() {
+            if matches!(block, Block::Compaction { .. }) && (index != 0 || j != 0) {
+                return Err(Error::new(format!(
+                    "anthropic: messages[{index}].content[{j}]: compaction must be the first block of the first message"
+                )));
+            }
+        }
+        emit_groups_at(req, index, &mut out, &mut losses)?;
         if message.role == oxa_ir::Role::User {
             for (j, b) in message.content.iter().enumerate() {
                 if matches!(b, Block::RedactedThinking { .. }) {
@@ -353,8 +649,10 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.messages.push(Message {
             role: role.to_string(),
             content: Some(content),
+            ..Message::default()
         });
     }
+    emit_groups_at(req, req.messages.len(), &mut out, &mut losses)?;
 
     let max_tokens = match req.params.as_ref().and_then(|params| params.max_tokens) {
         Some(max_tokens) => max_tokens,
@@ -779,6 +1077,52 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
             )],
             false,
         )),
+        Block::Compaction {
+            content,
+            encrypted_content,
+            signature,
+            tool_changes,
+            extra,
+            ..
+        } => {
+            if matches!(content, Some(Some(text)) if text.is_empty()) {
+                return Err(Error::new(format!(
+                    "anthropic: {path}.content cannot be empty"
+                )));
+            }
+            let mut changes = Vec::new();
+            let mut change_losses = Vec::new();
+            if let Some(items) = tool_changes {
+                for (i, change) in items.iter().enumerate() {
+                    let (item, item_losses, mapped) =
+                        encode_tool_change(change, &format!("{path}.tool_changes[{i}]"))?;
+                    change_losses.extend(item_losses);
+                    if !mapped {
+                        return Err(Error::new(format!(
+                            "anthropic: {path}.tool_changes[{i}] cannot be preserved"
+                        )));
+                    }
+                    changes
+                        .push(serde_json::to_value(item).map_err(|e| Error::new(e.to_string()))?);
+                }
+            }
+            Ok((
+                BlockWire {
+                    kind: "compaction".into(),
+                    content: content.as_ref().map(|value| match value {
+                        Some(text) => ContentValue::Text(text.clone()),
+                        None => ContentValue::Null,
+                    }),
+                    encrypted_content: encrypted_content.clone(),
+                    signature: signature.clone(),
+                    tool_changes: tool_changes.as_ref().map(|_| changes),
+                    extra: extra.clone(),
+                    ..BlockWire::default()
+                },
+                change_losses,
+                true,
+            ))
+        }
         Block::ToolReference { tool_name, native } => {
             if tool_name.is_empty() {
                 return Err(Error::new(format!(

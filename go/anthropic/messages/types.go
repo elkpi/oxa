@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 const (
@@ -307,8 +307,10 @@ type SystemBlockWire struct {
 // Message is a wire message. Content is either a string or an array of
 // blocks. A decoded tool_use input is kept in BlockWire.Input as raw JSON.
 type Message struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role         string          `json:"role"`
+	Content      any             `json:"content"`
+	ClearAt      json.RawMessage `json:"clear_at,omitempty"`
+	OutputConfig json.RawMessage `json:"output_config,omitempty"`
 }
 
 // BlockWire is one content block: text, image, tool_use, or tool_result.
@@ -318,6 +320,9 @@ type BlockWire struct {
 	Type         string          `json:"type"`
 	Text         string          `json:"text,omitempty"`
 	CacheControl json.RawMessage `json:"cache_control,omitempty"`
+	Tool         json.RawMessage `json:"tool,omitempty"`
+	rawChange    json.RawMessage
+	rawSchemas   map[int]json.RawMessage
 	// thinking
 	Thinking  string `json:"thinking,omitempty"`
 	Signature string `json:"signature,omitempty"`
@@ -381,6 +386,9 @@ func (w *BlockWire) UnmarshalJSON(data []byte) error {
 		}
 	}
 	*w = BlockWire(decoded)
+	if decoded.Type == "tool_addition" || decoded.Type == "tool_removal" || decoded.Type == "compaction" {
+		w.rawChange = append(json.RawMessage(nil), data...)
+	}
 	_, w.hasTitle = fields["title"]
 	_, w.hasContext = fields["context"]
 	_, w.hasData = fields["data"]
@@ -390,6 +398,9 @@ func (w *BlockWire) UnmarshalJSON(data []byte) error {
 }
 
 func (w BlockWire) MarshalJSON() ([]byte, error) {
+	if (w.Type == "tool_addition" || w.Type == "tool_removal" || w.Type == "compaction") && len(w.rawChange) != 0 {
+		return w.rawChange, nil
+	}
 	type blockAlias BlockWire
 	data, err := json.Marshal(blockAlias(w))
 	if err != nil {

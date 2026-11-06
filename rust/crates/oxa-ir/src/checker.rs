@@ -317,6 +317,7 @@ fn block_kind(block: &Block) -> &'static str {
         Block::ToolResult { .. } => "tool_result",
         Block::WebSearchCall { .. } => "web_search_call",
         Block::Refusal { .. } => "refusal",
+        Block::Compaction { .. } => "compaction",
     }
 }
 

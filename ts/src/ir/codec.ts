@@ -520,8 +520,10 @@ function nonEmptyString(value: JsonValue | undefined, name: string): string {
   if (result.length === 0) fail(`${name} must not be empty`);
   return result;
 }
-function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
-  return value === "0.1.0" || value === "0.2.0";
+function supportedSpecVersion(
+  value: unknown,
+): value is "0.1.0" | "0.2.0" | "0.3.0" {
+  return value === "0.1.0" || value === "0.2.0" || value === "0.3.0";
 }
 function fail(message: string): never {
   throw new OxaError("type-violation", message);

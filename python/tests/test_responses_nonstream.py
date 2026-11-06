@@ -41,6 +41,31 @@ from oxa.openai.responses import (
 
 
 class ResponsesNonstreamTest(unittest.TestCase):
+    def test_additional_tools_are_not_promoted_to_initial_tools(self) -> None:
+        request, losses = decode_request({"model": "m", "input": [
+            {"role": "user", "content": "go"},
+            {"type": "additional_tools", "role": "developer", "tools": [
+                {"type": "function", "name": "later", "parameters": {"type": "object"}}
+            ]},
+        ]})
+        self.assertFalse(request.tools)
+        self.assertEqual(losses, [])
+        self.assertEqual(len(request.tool_change_groups), 1)
+        group = request.tool_change_groups[0]
+        self.assertEqual((group.message_index, group.content_index), (1, -1))
+        self.assertEqual(group.parts[0].change.tool.name, "later")
+        from oxa.ir.codec import dump_request, load_request
+        self.assertEqual(load_request(dump_request(request)), request)
+
+    def test_compaction_ir_preserves_null_and_tool_changes(self) -> None:
+        from oxa.ir.codec import dump_request, load_request
+        document = {"specVersion": "0.3.0", "model": "m", "messages": [{"role": "user", "content": [
+            {"type": "compaction", "content": None, "signature": "", "tool_changes": [
+                {"op": "remove", "ref": {"type": "tool_reference", "name": "old"}}
+            ]}
+        ]}]}
+        self.assertEqual(dump_request(load_request(document)), document)
+
     def test_empty_additional_tools_is_no_op(self) -> None:
         with_empty = {
             "model": "m",
@@ -62,11 +87,9 @@ class ResponsesNonstreamTest(unittest.TestCase):
 
         req, losses = decode_request(with_empty)
         expected, _ = decode_request(without_empty)
-        self.assertEqual(req, expected)
-        self.assertEqual(
-            [(loss.path, loss.field, loss.reason) for loss in losses],
-            [("input[0].tools", "tools", LOSS_UNMAPPED_FIELD)],
-        )
+        self.assertEqual(len(req.tool_change_groups), 1)
+        self.assertEqual(req.tool_change_groups[0].parts, [])
+        self.assertEqual(losses, [])
 
     def test_empty_additional_tools_requires_explicit_array(self) -> None:
         cases = (
@@ -101,8 +124,8 @@ class ResponsesNonstreamTest(unittest.TestCase):
             "model": "m",
             "input": [{"role": "user", "content": "hi"}, call_a, call_b, result_a, result_b],
         })
-        self.assertEqual(with_empty, without_empty)
-        self.assertEqual(len(losses), 1)
+        self.assertEqual([(g.message_index, g.content_index, g.parts) for g in with_empty.tool_change_groups], [(1, 1, [])])
+        self.assertEqual(losses, [])
 
         with_split_results, losses = decode_request({
             "model": "m",
@@ -112,8 +135,42 @@ class ResponsesNonstreamTest(unittest.TestCase):
             "model": "m",
             "input": [{"role": "user", "content": "hi"}, call_a, call_b, result_a, result_b],
         })
-        self.assertEqual(with_split_results, results_baseline)
-        self.assertEqual(len(losses), 1)
+        self.assertEqual([(g.message_index, g.content_index, g.parts) for g in with_split_results.tool_change_groups], [(2, 1, [])])
+        self.assertEqual(losses, [])
+
+    def test_additional_tools_survives_between_tool_results(self) -> None:
+        change = {"type": "additional_tools", "role": "developer", "tools": []}
+        wire = {"model": "m", "input": [
+            {"role": "user", "content": "go"},
+            {"type": "function_call", "call_id": "a", "name": "a", "arguments": "{}"},
+            {"type": "function_call", "call_id": "b", "name": "b", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "a", "output": "a"},
+            change,
+            {"type": "function_call_output", "call_id": "b", "output": "b"},
+        ]}
+        req, losses = decode_request(wire)
+        self.assertEqual(losses, [])
+        encoded, losses = encode_request(req)
+        self.assertEqual(losses, [])
+        self.assertEqual([item.get("type") for item in encoded["input"]][3:], ["function_call_output", "additional_tools", "function_call_output"])
+        self.assertEqual(encoded["input"][4], change)
+
+    def test_additional_tools_after_a_merged_run_uses_message_position(self) -> None:
+        change = {"type": "additional_tools", "role": "developer", "tools": []}
+        wire = {"model": "m", "input": [
+            {"role": "user", "content": "go"},
+            {"type": "function_call", "call_id": "a", "name": "a", "arguments": "{}"},
+            {"type": "function_call", "call_id": "b", "name": "b", "arguments": "{}"},
+            {"type": "function_call_output", "call_id": "a", "output": "a"},
+            {"type": "function_call_output", "call_id": "b", "output": "b"},
+            {"role": "user", "content": "continue"}, change,
+        ]}
+        req, losses = decode_request(wire)
+        self.assertEqual(losses, [])
+        self.assertEqual((req.tool_change_groups[0].message_index, req.tool_change_groups[0].content_index), (len(req.messages), -1))
+        encoded, losses = encode_request(req)
+        self.assertEqual(losses, [])
+        self.assertEqual(encoded["input"][-1], change)
 
     def test_text_format_rejects_non_boolean_strict(self) -> None:
         wire = {

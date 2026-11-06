@@ -86,6 +86,9 @@ import {
   type Response,
   type ResponseFormat,
   type Tool,
+  type ToolChangeGroup,
+  type ToolChangePart,
+  type ToolChange,
   type ToolChoice,
   type ToolResultBlock,
   type Usage,
@@ -115,6 +118,13 @@ export function encodeRequest(request: Request): JsonObject {
       role: message.role,
       content: message.content.map(encodeRequestBlock),
     })),
+    ...(request.tool_change_groups === undefined
+      ? {}
+      : {
+          tool_change_groups: request.tool_change_groups.map(
+            encodeToolChangeGroup,
+          ),
+        }),
     ...(request.tools === undefined || request.tools.length === 0
       ? {}
       : {
@@ -179,6 +189,143 @@ export function encodeRequest(request: Request): JsonObject {
   };
 }
 
+function encodeToolChangeGroup(group: ToolChangeGroup): JsonObject {
+  return {
+    message_index: integer(BigInt(group.message_index)),
+    content_index: integer(BigInt(group.content_index)),
+    ...(group.id === undefined ? {} : { id: group.id }),
+    parts: group.parts.map((part): JsonObject => {
+      if (part.type === "text")
+        return {
+          type: "text",
+          text: part.text,
+          ...(part.native === undefined
+            ? {}
+            : { native: part.native.map(encodeNativeAnnotation) }),
+        };
+      const c = part.change;
+      const tool =
+        c.tool === undefined
+          ? undefined
+          : array(
+              encodeRequest({
+                model: "m",
+                messages: [
+                  { role: "user", content: [{ type: "text", text: "" }] },
+                ],
+                tools: [c.tool],
+              }).tools,
+              "tool",
+            )[0];
+      return {
+        type: "tool_change",
+        change: {
+          op: c.op,
+          ...(tool === undefined ? {} : { tool }),
+          ...(c.ref === undefined ? {} : { ref: { ...c.ref } }),
+          ...(c.native === undefined
+            ? {}
+            : { native: c.native.map(encodeNativeAnnotation) }),
+          ...(c.extra === undefined ? {} : { extra: c.extra }),
+          ...(c.tool_extra === undefined ? {} : { tool_extra: c.tool_extra }),
+          ...(c.definition_extra === undefined
+            ? {}
+            : { definition_extra: c.definition_extra }),
+        },
+      };
+    }),
+    ...(group.extra === undefined ? {} : { extra: group.extra }),
+  };
+}
+
+function decodeToolChangeGroup(value: JsonValue): ToolChangeGroup {
+  const group = object(value, "tool_change_group");
+  const index = (v: JsonValue | undefined, name: string): number => {
+    if (!isJsonNumber(v) || !v.isInteger) fail(`${name} must be an integer`);
+    const result = Number(v.token);
+    if (!Number.isSafeInteger(result)) fail(`${name} out of range`);
+    return result;
+  };
+  const parts: ToolChangePart[] = array(
+    group.parts,
+    "tool_change_group.parts",
+  ).map((value) => {
+    const part = object(value, "tool_change_group.part");
+    if (part.type === "text")
+      return {
+        type: "text",
+        text: string(part.text, "part.text"),
+        ...(part.native === undefined
+          ? {}
+          : {
+              native: array(part.native, "part.native").map(
+                decodeNativeAnnotation,
+              ),
+            }),
+      };
+    if (part.type !== "tool_change") fail("invalid tool change part type");
+    const c = object(part.change, "part.change");
+    if (c.op !== "add" && c.op !== "remove")
+      fail("invalid tool change operation");
+    const tool =
+      c.tool === undefined
+        ? undefined
+        : decodeRequest({
+            specVersion,
+            model: "m",
+            messages: [{ role: "user", content: [{ type: "text", text: "" }] }],
+            tools: [c.tool],
+          }).tools?.[0];
+    const ref =
+      c.ref === undefined
+        ? undefined
+        : (object(c.ref, "change.ref") as unknown as ToolChange["ref"]);
+    if (
+      (tool === undefined) === (ref === undefined) ||
+      (c.op === "remove" && tool !== undefined)
+    )
+      fail("invalid tool change target");
+    return {
+      type: "tool_change",
+      change: {
+        op: c.op,
+        ...(tool === undefined ? {} : { tool }),
+        ...(ref === undefined ? {} : { ref }),
+        ...(c.native === undefined
+          ? {}
+          : {
+              native: array(c.native, "change.native").map(
+                decodeNativeAnnotation,
+              ),
+            }),
+        ...(c.extra === undefined
+          ? {}
+          : { extra: object(c.extra, "change.extra") }),
+        ...(c.tool_extra === undefined
+          ? {}
+          : { tool_extra: object(c.tool_extra, "change.tool_extra") }),
+        ...(c.definition_extra === undefined
+          ? {}
+          : {
+              definition_extra: object(
+                c.definition_extra,
+                "change.definition_extra",
+              ),
+            }),
+      },
+    };
+  });
+  return {
+    message_index: index(group.message_index, "message_index"),
+    content_index: index(group.content_index, "content_index"),
+    parts,
+    ...(group.id === undefined ? {} : { id: string(group.id, "group.id") }),
+    ...(group.extra === undefined
+      ? {}
+      : { extra: object(group.extra, "group.extra") }),
+  };
+}
+
 export function decodeRequest(document: JsonValue): Request {
   const root = documentRoot(document);
   const params =
@@ -224,6 +371,14 @@ export function decodeRequest(document: JsonValue): Request {
         ),
       };
     }),
+    ...(root.tool_change_groups === undefined
+      ? {}
+      : {
+          tool_change_groups: array(
+            root.tool_change_groups,
+            "request.tool_change_groups",
+          ).map(decodeToolChangeGroup),
+        }),
     ...(root.tools === undefined
       ? {}
       : {
@@ -577,6 +732,36 @@ function encodeBlock(block: Block): JsonObject {
 }
 
 function encodeRequestBlock(block: Block): JsonObject {
+  if (block.type === "compaction") {
+    const changeParts = block.tool_changes?.map(
+      (change): ToolChangePart => ({ type: "tool_change", change }),
+    );
+    const group =
+      changeParts === undefined
+        ? undefined
+        : encodeToolChangeGroup({
+            message_index: 0,
+            content_index: -1,
+            parts: changeParts,
+          });
+    const changes =
+      group === undefined
+        ? undefined
+        : array(group.parts, "parts").map((p) => object(p, "part").change!);
+    return {
+      type: "compaction",
+      ...(block.content === undefined ? {} : { content: block.content }),
+      ...(block.encrypted_content === undefined
+        ? {}
+        : { encrypted_content: block.encrypted_content }),
+      ...(block.signature === undefined ? {} : { signature: block.signature }),
+      ...(changes === undefined ? {} : { tool_changes: changes }),
+      ...(block.native === undefined
+        ? {}
+        : { native: block.native.map(encodeNativeAnnotation) }),
+      ...(block.extra === undefined ? {} : { extra: block.extra }),
+    };
+  }
   const enc = encodeBlockBase(block, encodeRequestBlock);
   return {
     ...enc,
@@ -591,6 +776,8 @@ function encodeBlockBase(
   childEncoder: (b: Block) => JsonObject = encodeBlock,
 ): JsonObject {
   switch (block.type) {
+    case "compaction":
+      fail("compaction is only permitted in requests");
     case "text":
       return {
         type: "text",
@@ -734,6 +921,56 @@ function decodeBlock(value: JsonValue): Block {
 
 function decodeRequestBlock(value: JsonValue): Block {
   const block = object(value, "block");
+  if (block.type === "compaction") {
+    if (
+      block.content !== undefined &&
+      block.content !== null &&
+      (typeof block.content !== "string" || block.content === "")
+    )
+      fail("compaction content must be nonempty string or null");
+    const changes =
+      block.tool_changes === undefined
+        ? undefined
+        : decodeToolChangeGroup({
+            message_index: integer(0n),
+            content_index: integer(-1n),
+            parts: array(block.tool_changes, "compaction.tool_changes").map(
+              (change) => ({ type: "tool_change", change }),
+            ),
+          }).parts.map((part) => {
+            if (part.type !== "tool_change")
+              fail("invalid compaction tool change");
+            return part.change;
+          });
+    return {
+      type: "compaction",
+      ...(block.content === undefined
+        ? {}
+        : { content: block.content as string | null }),
+      ...(block.encrypted_content === undefined
+        ? {}
+        : {
+            encrypted_content: string(
+              block.encrypted_content,
+              "compaction.encrypted_content",
+            ),
+          }),
+      ...(block.signature === undefined
+        ? {}
+        : { signature: string(block.signature, "compaction.signature") }),
+      ...(changes === undefined ? {} : { tool_changes: changes }),
+      ...(block.native === undefined
+        ? {}
+        : {
+            native: array(block.native, "compaction.native").map(
+              decodeNativeAnnotation,
+            ),
+          }),
+      ...(block.extra === undefined
+        ? {}
+        : { extra: object(block.extra, "compaction.extra") }),
+    };
+  }
   const base = decodeBlockBase(value, decodeRequestBlock);
   let native: readonly NativeAnnotation[] | undefined;
   if (block.native !== undefined) {
@@ -1410,8 +1647,10 @@ function reasoningEffort(
   return str;
 }
 
-function supportedSpecVersion(value: unknown): value is "0.1.0" | "0.2.0" {
-  return value === "0.1.0" || value === "0.2.0";
+function supportedSpecVersion(
+  value: unknown,
+): value is "0.1.0" | "0.2.0" | "0.3.0" {
+  return value === "0.1.0" || value === "0.2.0" || value === "0.3.0";
 }
 
 function fail(message: string): never {

@@ -1,0 +1,105 @@
+{
+  "name": "anthropic.nonstream.tool-removal-to-ir",
+  "description": "Anthropic mid-conversation system message containing tool_removal decodes into tool_change_groups (N-AN-22).",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "tools": [
+      {
+        "name": "old_tool",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": "Retire tool"
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_removal",
+            "tool": {
+              "type": "tool_reference",
+              "name": "old_tool"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Retired"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "claude-3-5-sonnet-20241022",
+    "params": {
+      "max_tokens": 1024
+    },
+    "tools": [
+      {
+        "name": "old_tool",
+        "input_schema": {
+          "type": "object"
+        }
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Retire tool"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Retired"
+          }
+        ]
+      }
+    ],
+    "tool_change_groups": [
+      {
+        "message_index": 1,
+        "content_index": -1,
+        "parts": [
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "remove",
+              "ref": {
+                "type": "tool_reference",
+                "name": "old_tool"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "anthropic",
+    "request",
+    "tool_removal",
+    "mid-conversation-system",
+    "N-AN-22"
+  ]
+}

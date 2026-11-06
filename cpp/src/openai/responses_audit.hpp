@@ -10,7 +10,7 @@ inline const detail::AuditProfile& wire_profile() {
          {"prompt_cache_breakpoint_def", {{"mode", ""}, {"ttl", ""}}},
          {"response", {{"id", ""}, {"object", ""}, {"status", ""}, {"model", ""}, {"output", "output_item[]"}, {"usage", "usage"}, {"incomplete_details", "incomplete"}, {"error", ""}}},
          {"input_message", {{"type", ""}, {"id", ""}, {"status", ""}, {"role", ""}, {"content", "input_part[]"}}},
-         {"additional_tools_item", {{"type", ""}, {"role", ""}, {"tools", "tool[]"}}},
+         {"additional_tools_item", {{"type", ""}, {"role", ""}, {"id", ""}, {"status", ""}, {"tools", "tool[]"}}},
          {"function_call", {{"type", ""}, {"id", ""}, {"status", ""}, {"call_id", ""}, {"name", ""}, {"namespace", ""}, {"arguments", ""}}},
          {"custom_call", {{"type", ""}, {"id", ""}, {"call_id", ""}, {"name", ""}, {"namespace", ""}, {"input", ""}}},
          {"custom_output", {{"type", ""}, {"id", ""}, {"call_id", ""}, {"output", "custom_output_part[]"}}},

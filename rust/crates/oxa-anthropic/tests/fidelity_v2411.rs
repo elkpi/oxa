@@ -267,6 +267,7 @@ fn test_disable_parallel_tool_use_null_rejected_and_conflict() {
             omission: None,
             projection: None,
         }],
+        tool_change_groups: Vec::new(),
     };
     assert!(encode_request(&req_conflict, &config).is_err());
 }
@@ -305,6 +306,7 @@ fn test_between_tools_encode_conflict() {
                 projection: None,
             },
         ],
+        tool_change_groups: Vec::new(),
     };
     assert!(encode_request(&req_conflict, &config).is_err());
 }
@@ -347,6 +349,7 @@ fn test_omitted_native_losses_default_fallback() {
                 projection: None,
             },
         ],
+        tool_change_groups: Vec::new(),
     };
     let losses = oxa_ir::omitted_native_request_losses(&req, "chatcompletions").expect("losses");
     assert!(

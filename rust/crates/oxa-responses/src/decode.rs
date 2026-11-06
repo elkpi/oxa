@@ -13,7 +13,7 @@ use crate::config::Config;
 use crate::error::Error;
 use crate::normalize::{
     content_system, decode_assistant_run, decode_content, decode_output_run, decode_tool_choice,
-    empty_additional_tools_loss, loss,
+    loss,
 };
 use crate::types::{
     INCOMPLETE_REASON_MAX_OUTPUT_TOKENS, ITEM_TYPE_CUSTOM_TOOL_CALL,
@@ -52,6 +52,7 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
         params: None,
         metadata,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     if let Some(instructions) = &wire.instructions {
         request.system.push(oxa_ir::SystemBlock::Text {
@@ -232,8 +233,21 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             index += 1;
                         }
                         ROLE_ASSISTANT => {
-                            let (message, next, run_losses) =
-                                decode_assistant_run(items, index, &decoded_calls, &dropped)?;
+                            let mut markers = Vec::new();
+                            let (message, next, run_losses) = decode_assistant_run(
+                                items,
+                                index,
+                                &decoded_calls,
+                                &dropped,
+                                &mut markers,
+                            )?;
+                            append_markers(
+                                &mut request,
+                                items,
+                                &markers,
+                                message.is_some(),
+                                &mut losses,
+                            )?;
                             if let Some(message) = message {
                                 request.messages.push(message);
                             }
@@ -251,8 +265,21 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     | crate::types::ITEM_TYPE_APPLY_PATCH_CALL
                     | ITEM_TYPE_REASONING
                     | crate::types::ITEM_TYPE_WEB_SEARCH_CALL => {
-                        let (message, next, run_losses) =
-                            decode_assistant_run(items, index, &decoded_calls, &dropped)?;
+                        let mut markers = Vec::new();
+                        let (message, next, run_losses) = decode_assistant_run(
+                            items,
+                            index,
+                            &decoded_calls,
+                            &dropped,
+                            &mut markers,
+                        )?;
+                        append_markers(
+                            &mut request,
+                            items,
+                            &markers,
+                            message.is_some(),
+                            &mut losses,
+                        )?;
                         if let Some(message) = message {
                             request.messages.push(message);
                         }
@@ -262,8 +289,21 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                     ITEM_TYPE_FUNCTION_CALL_OUTPUT
                     | ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT
                     | crate::types::ITEM_TYPE_APPLY_PATCH_CALL_OUTPUT => {
-                        let (message, next, output_losses) =
-                            decode_output_run(items, index, &decoded_results, &dropped)?;
+                        let mut markers = Vec::new();
+                        let (message, next, output_losses) = decode_output_run(
+                            items,
+                            index,
+                            &decoded_results,
+                            &dropped,
+                            &mut markers,
+                        )?;
+                        append_markers(
+                            &mut request,
+                            items,
+                            &markers,
+                            message.is_some(),
+                            &mut losses,
+                        )?;
                         if let Some(message) = message {
                             request.messages.push(message);
                         }
@@ -271,30 +311,14 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                         index = next;
                     }
                     "additional_tools" => {
-                        let Some(ref item_tools) = item.tools else {
-                            return Err(Error::new(format!(
-                                "responses: input[{index}]: additional_tools requires tools array"
-                            )));
-                        };
-                        if item_tools.is_empty() {
-                            losses.push(empty_additional_tools_loss(index));
-                            index += 1;
-                            continue;
-                        }
-                        let mut req_tools = request.tools.take().unwrap_or_default();
-                        for (t_idx, t_entry) in item_tools.iter().enumerate() {
-                            req_tools.extend(decode_responses_tool_item(
-                                t_entry,
-                                None,
-                                &[],
-                                &format!("input[{index}].tools[{t_idx}]"),
-                                &mut seen_names,
-                                &mut losses,
-                            )?);
-                        }
-                        if !req_tools.is_empty() {
-                            request.tools = Some(req_tools);
-                        }
+                        let group = decode_additional_tools(
+                            item,
+                            index,
+                            request.messages.len(),
+                            -1,
+                            &mut losses,
+                        )?;
+                        request.tool_change_groups.push(group);
                         index += 1;
                     }
                     other => {
@@ -1454,4 +1478,82 @@ pub(crate) fn decode_status(
             "responses: status {other:?} has no IR equivalent"
         ))),
     }
+}
+
+fn decode_additional_tools(
+    item: &crate::types::InputItem,
+    index: usize,
+    message_index: usize,
+    content_index: isize,
+    losses: &mut Vec<Loss>,
+) -> Result<oxa_ir::ToolChangeGroup, Error> {
+    if item.role != ROLE_DEVELOPER {
+        return Err(Error::new(format!(
+            "responses: input[{index}].role must be developer"
+        )));
+    }
+    let tools = item.tools.as_ref().ok_or_else(|| {
+        Error::new(format!(
+            "responses: input[{index}]: additional_tools requires tools array"
+        ))
+    })?;
+    let mut seen = std::collections::HashSet::new();
+    let mut parts = Vec::new();
+    for (i, tool) in tools.iter().enumerate() {
+        for decoded in decode_responses_tool_item(
+            tool,
+            None,
+            &[],
+            &format!("input[{index}].tools[{i}]"),
+            &mut seen,
+            losses,
+        )? {
+            parts.push(oxa_ir::ToolChangePart::Change {
+                change: Box::new(oxa_ir::ToolChange {
+                    op: oxa_ir::ToolChangeOp::Add,
+                    tool: Some(decoded),
+                    reference: None,
+                    native: Vec::new(),
+                    extra: None,
+                    tool_extra: None,
+                    definition_extra: None,
+                }),
+            });
+        }
+    }
+    let mut extra = item.extra.clone();
+    if !item.status.is_empty() {
+        extra.insert("status".into(), item.status.clone().into());
+    }
+    Ok(oxa_ir::ToolChangeGroup {
+        message_index,
+        content_index,
+        parts,
+        id: (!item.id.is_empty()).then(|| item.id.clone()),
+        extra: (!extra.is_empty()).then_some(extra),
+    })
+}
+
+fn append_markers(
+    request: &mut IrRequest,
+    items: &[crate::types::InputItem],
+    markers: &[(usize, Option<usize>)],
+    has_message: bool,
+    losses: &mut Vec<Loss>,
+) -> Result<(), Error> {
+    for &(index, position) in markers {
+        let (message, content) = match position {
+            Some(p) => (request.messages.len(), p as isize),
+            None if has_message => (request.messages.len() + 1, -1),
+            None => (request.messages.len(), -1),
+        };
+        request.tool_change_groups.push(decode_additional_tools(
+            &items[index],
+            index,
+            message,
+            content,
+            losses,
+        )?);
+    }
+    Ok(())
 }

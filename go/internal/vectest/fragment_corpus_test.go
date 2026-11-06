@@ -8,10 +8,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/anthropic/messages"
-	"github.com/elkpi/oxa/go/v2/ir"
-	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
-	"github.com/elkpi/oxa/go/v2/openai/responses"
+	"github.com/elkpi/oxa/go/v3/anthropic/messages"
+	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v3/openai/responses"
 )
 
 type fragmentCorpus struct {

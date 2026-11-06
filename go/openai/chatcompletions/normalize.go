@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func loss(path, field string, reason ir.LossReason, detail string) ir.Loss {
@@ -567,6 +567,8 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	var losses []ir.Loss
 	for i, block := range blocks {
 		switch value := block.(type) {
+		case ir.CompactionBlock:
+			losses = append(losses, loss(fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic, "Anthropic compaction block cannot be represented on the target face"))
 		case ir.TextBlock:
 			part := ContentPart{Type: ContentPartTypeText, Text: value.Text}
 			for _, ann := range value.Native {

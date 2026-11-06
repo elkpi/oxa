@@ -80,6 +80,12 @@ the failure downstream. Unrecognized fields are dropped and recorded with
 reason `unmapped-field`. The type-violation rule above applies only to
 known fields; the value of an unrecognized field is ignored entirely.
 
+Exception: where a face mapping explicitly requires replay fidelity for a
+recognized positional tool-change or compaction object, its unrecognized
+properties are retained in `extra` and restored only to the originating face.
+On another face, report losses as specified by that mapping; never leak the
+retained properties into the other protocol.
+
 This rule applies to every non-exempt property on each recognized object
 whose structure is defined by the face mapping, including nested properties
 inside known message, content-block, tool, parameter, and native event
@@ -135,7 +141,10 @@ When an inbound request option (e.g. Anthropic `cache_control`, `thinking` mode,
 `top_k`, `disable_parallel_tool_use`, or `context_management`) is preserved in the IR as a `NativeAnnotation` (spec/15,
 since 2.4), no loss is emitted on Decode because the information is retained.
 When the IR request is encoded to a target face that lacks an equivalent, the
-loss is emitted during Encode, rooted at the corresponding IR construct.
+loss is emitted during Encode, rooted at the corresponding IR construct. For a
+mapped positional tool addition, this includes native annotations on the change;
+when the entire change is omitted, its annotations are covered by that change's
+loss and are not reported a second time.
 
 ## 7. Rules
 

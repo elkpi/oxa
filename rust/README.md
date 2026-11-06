@@ -1,11 +1,11 @@
 # oxa Rust implementation
 
-The Rust workspace targets **2.5.3**; the latest published version is **2.5.3**. Rust emits IR documents
-with `specVersion: 0.2.0` and accepts both `0.1.0` and `0.2.0`; implementation
+The Rust workspace targets **3.0.0**. Rust emits IR documents
+with `specVersion: 0.3.0` and accepts `0.1.0`, `0.2.0`, and `0.3.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 543
+oxa implementation — Rust gets no vector set of its own, and CI runs all 564
 shared vectors against it, including structured outputs, Custom Tools, Apply Patch,
 native request options, Responses reasoning-summary fidelity, and Anthropic native tool declarations.
 
@@ -46,8 +46,8 @@ can still build and test outside the monorepo.
 
 ## Status
 
-- [x] `oxa-ir` — Spec 2.0 IR types, `specVersion` 0.2.0 emission with 0.1.0
-      dual-read, INV-5/INV-6 event-stream checker, and loss records (spec/02)
+- [x] `oxa-ir` — IR 0.3.0 types and emission, 0.1.0/0.2.0 compatibility,
+      INV-5/INV-6 event-stream checker, and loss records (spec/02)
 - [x] Spec 2.0 reasoning blocks/signatures, request reasoning effort, and
       granular usage across all three protocol faces
 - [x] vector harness (`oxa-vectest`) and the walk-up repo-root discovery

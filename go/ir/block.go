@@ -26,6 +26,7 @@ const (
 	BlockTypeWebSearchCall    = "web_search_call"
 	BlockTypeRefusal          = "refusal"
 	BlockTypeToolReference    = "tool_reference"
+	BlockTypeCompaction       = "compaction"
 )
 
 // Citation sources.
@@ -108,6 +109,22 @@ type ToolReferenceBlock struct {
 }
 
 func (ToolReferenceBlock) isBlock() {}
+
+// CompactionBlock represents a server compaction summary block placed as the first
+// block of Messages[0] (spec/01 s3.4, since 0.3.0).
+type CompactionBlock struct {
+	Content             *string
+	NullContent         bool
+	EncryptedContent    string
+	HasEncryptedContent bool
+	Signature           string
+	HasSignature        bool
+	ToolChanges         []ToolChange
+	Native              []NativeAnnotation
+	Extra               map[string]json.RawMessage
+}
+
+func (CompactionBlock) isBlock() {}
 
 // ImageBlock is an image input. Unused in this milestone (M4 wires it);
 // exactly one of Data / URL must be present.

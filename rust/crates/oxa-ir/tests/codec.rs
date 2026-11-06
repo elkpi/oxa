@@ -13,9 +13,9 @@ fn value(s: &str) -> Value {
     serde_json::from_str(s).expect("test JSON must parse")
 }
 
-fn assert_020_encoding_matches(input: &str, encoded: &str) {
+fn assert_current_encoding_matches(input: &str, encoded: &str) {
     let mut expected = value(input);
-    expected["specVersion"] = Value::String("0.2.0".to_string());
+    expected["specVersion"] = Value::String("0.3.0".to_string());
     assert_eq!(expected, value(encoded), "IR encoding differs from input");
 }
 
@@ -78,31 +78,31 @@ const SPEC_EVENT_STREAM: &str = r#"{
 
 #[test]
 fn tool_reference_validation_does_not_inspect_tool_input_schema() {
-    let input = r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"search","input_schema":{"type":"object","properties":{"mode":{"const":{"type":"tool_reference"}}}}}]}"#;
+    let input = r#"{"specVersion":"0.3.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"name":"search","input_schema":{"type":"object","properties":{"mode":{"const":{"type":"tool_reference"}}}}}]}"#;
     let request: Request = from_json(input).expect("opaque input schema must decode");
     let encoded = to_json(&request).expect("opaque input schema must encode");
-    assert_020_encoding_matches(input, &encoded);
+    assert_current_encoding_matches(input, &encoded);
 }
 
 #[test]
 fn legacy_request_round_trips_as_spec20() {
     let req: Request = from_json(SPEC_REQUEST).expect("decode");
     let out = to_json(&req).expect("encode");
-    assert_020_encoding_matches(SPEC_REQUEST, &out);
+    assert_current_encoding_matches(SPEC_REQUEST, &out);
 }
 
 #[test]
 fn legacy_response_round_trips_as_spec20() {
     let resp: Response = from_json(SPEC_RESPONSE).expect("decode");
     let out = to_json(&resp).expect("encode");
-    assert_020_encoding_matches(SPEC_RESPONSE, &out);
+    assert_current_encoding_matches(SPEC_RESPONSE, &out);
 }
 
 #[test]
 fn legacy_event_stream_round_trips_as_spec20() {
     let stream: EventStream = from_json(SPEC_EVENT_STREAM).expect("decode");
     let out = to_json(&stream).expect("encode");
-    assert_020_encoding_matches(SPEC_EVENT_STREAM, &out);
+    assert_current_encoding_matches(SPEC_EVENT_STREAM, &out);
     assert_eq!(stream.events.len(), 7);
     assert!(matches!(stream.events[0], Event::MessageStart { .. }));
     assert!(matches!(stream.events[6], Event::MessageDone {}));
@@ -111,7 +111,7 @@ fn legacy_event_stream_round_trips_as_spec20() {
 #[test]
 fn rejects_non_object_response_format_schema() {
     let document = r#"{
-        "specVersion":"0.2.0",
+        "specVersion":"0.3.0",
         "model":"gpt-4o",
         "messages":[{"role":"user","content":[{"type":"text","text":"json"}]}],
         "params":{"response_format":{"type":"json_schema","name":"result","schema":17}}
@@ -123,15 +123,15 @@ fn rejects_non_object_response_format_schema() {
 fn rejects_present_empty_or_null_schema_name() {
     for name in ["\"\"", "null"] {
         let document = format!(
-            r#"{{"specVersion":"0.2.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"params":{{"response_format":{{"type":"json_schema","name":{name},"schema":{{}}}}}}}}"#
+            r#"{{"specVersion":"0.3.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"params":{{"response_format":{{"type":"json_schema","name":{name},"schema":{{}}}}}}}}"#
         );
         assert!(from_json::<Request>(&document).is_err(), "{document}");
     }
 }
 
 #[test]
-fn workspace_crate_version_is_2_5_3() {
-    assert_eq!(env!("CARGO_PKG_VERSION"), "2.5.3");
+fn workspace_crate_version_is_3_0_0() {
+    assert_eq!(env!("CARGO_PKG_VERSION"), "3.0.0");
 }
 
 #[test]
@@ -148,7 +148,7 @@ fn rejects_invalid_native_tool_documents() {
     ];
     for tool in invalid_tools {
         let document = format!(
-            r#"{{"specVersion":"0.2.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"tools":[{tool}]}}"#
+            r#"{{"specVersion":"0.3.0","model":"m","messages":[{{"role":"user","content":[{{"type":"text","text":"hi"}}]}}],"tools":[{tool}]}}"#
         );
         assert!(
             from_json::<Request>(&document).is_err(),
@@ -159,7 +159,7 @@ fn rejects_invalid_native_tool_documents() {
 
 #[test]
 fn accepts_wellformed_native_tool_documents() {
-    let document = r#"{"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}],"params":{"max_tokens":32}}"#;
+    let document = r#"{"specVersion":"0.3.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"tools":[{"type":"native","name":"advisor","source":"anthropic","definition":"{\"type\":\"advisor_20260301\",\"name\":\"advisor\"}"}],"params":{"max_tokens":32}}"#;
     let request: Request = from_json(document).expect("valid native tool");
     let round_tripped = to_json(&request).expect("re-encode");
     assert!(round_tripped.contains(r#"\"type\":\"advisor_20260301\""#));
@@ -241,11 +241,11 @@ fn absent_and_zero_are_distinct_in_params() {
 }
 
 #[test]
-fn emits_spec_020_and_dual_reads_010() {
+fn emits_spec_030_and_dual_reads_legacy() {
     let legacy: Request = from_json(SPEC_REQUEST).expect("read legacy 0.1.0 request");
-    let encoded = to_json(&legacy).expect("encode as 0.2.0");
+    let encoded = to_json(&legacy).expect("encode as 0.3.0");
     let encoded_value = value(&encoded);
-    assert_eq!(encoded_value["specVersion"].as_str(), Some("0.2.0"));
+    assert_eq!(encoded_value["specVersion"].as_str(), Some("0.3.0"));
 
     let v020 = SPEC_REQUEST.replace("\"0.1.0\"", "\"0.2.0\"");
     let decoded020: Request = from_json(&v020).expect("read 0.2.0 request");

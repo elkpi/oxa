@@ -1,0 +1,58 @@
+{
+  "name": "cross.nonstream.responses-to-anthropic-native-tool-change-request",
+  "description": "An OpenAI native tool addition has no Anthropic definition and produces one explicit loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "responses"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "gpt-5.5",
+    "max_output_tokens": 1024,
+    "input": [
+      {
+        "type": "message",
+        "role": "user",
+        "content": "Use additional tool."
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "tools": [
+          {
+            "type": "web_search"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "gpt-5.5",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Use additional tool."
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].parts[0]",
+      "field": "op",
+      "reason": "unsupported-semantic",
+      "detail": "positional tool availability change cannot be represented on the target face"
+    }
+  ],
+  "tags": [
+    "cross",
+    "tools",
+    "request",
+    "additional_tools",
+    "N-R-15"
+  ]
+}

@@ -6,7 +6,7 @@ export const IrSchemaTitle = "oxa IR document" as const;
 export type IrSchemaDocument = IrSchemaRequest | IrSchemaResponse | IrSchemaEventStream;
 
 export interface IrSchemaRequest {
-  readonly specVersion: "0.1.0" | "0.2.0";
+  readonly specVersion: "0.1.0" | "0.2.0" | "0.3.0";
   readonly model: string;
   readonly system?: readonly (IrSchemaSystemBlock)[];
   readonly messages: readonly (IrSchemaMessage)[];
@@ -15,6 +15,7 @@ export interface IrSchemaRequest {
   readonly params?: IrSchemaParams;
   readonly metadata?: { readonly [key: string]: string; };
   readonly native?: readonly (IrSchemaNativeAnnotation)[];
+  readonly tool_change_groups?: readonly (IrSchemaToolChangeGroup)[];
 }
 
 export interface IrSchemaSystemBlock {
@@ -29,7 +30,7 @@ export interface IrSchemaMessage {
   readonly content: readonly (IrSchemaRequestBlock)[];
 }
 
-export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestEncryptedContentBlock | IrSchemaRequestToolReferenceBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRequestRefusalBlock;
+export type IrSchemaRequestBlock = IrSchemaRequestTextBlock | IrSchemaRequestImageBlock | IrSchemaRequestDocumentBlock | IrSchemaRequestToolUseBlock | IrSchemaRequestToolResultBlock | IrSchemaRequestThinkingBlock | IrSchemaRequestRedactedThinkingBlock | IrSchemaRequestEncryptedContentBlock | IrSchemaRequestToolReferenceBlock | IrSchemaRequestCustomToolUseBlock | IrSchemaRequestCustomToolResultBlock | IrSchemaRequestApplyPatchToolUseBlock | IrSchemaRequestApplyPatchToolResultBlock | IrSchemaWebSearchCallBlock | IrSchemaRequestRefusalBlock | IrSchemaRequestCompactionBlock;
 
 export interface IrSchemaRequestTextBlock {
   readonly type: "text";
@@ -260,7 +261,7 @@ export interface IrSchemaParams {
 }
 
 export interface IrSchemaResponse {
-  readonly specVersion: "0.1.0" | "0.2.0";
+  readonly specVersion: "0.1.0" | "0.2.0" | "0.3.0";
   readonly id: string;
   readonly model: string;
   readonly content: readonly (IrSchemaBlock)[];
@@ -352,7 +353,7 @@ export interface IrSchemaSignatureDelta {
 }
 
 export interface IrSchemaEventStream {
-  readonly specVersion: "0.1.0" | "0.2.0";
+  readonly specVersion: "0.1.0" | "0.2.0" | "0.3.0";
   readonly events: readonly (IrSchemaEvent)[];
 }
 
@@ -364,5 +365,47 @@ export interface IrSchemaNativeAnnotation {
   readonly value: string;
   readonly omission?: { readonly field: string; readonly reason: "unmapped-field" | "unmapped-value" | "unsupported-semantic" | "degraded"; readonly detail?: string; };
   readonly projection?: { readonly origin: "budget" | "explicit"; readonly effort: IrSchemaReasoningEffort; };
+}
+
+export interface IrSchemaRequestCompactionBlock {
+  readonly type: "compaction";
+  readonly content?: string | unknown;
+  readonly encrypted_content?: string;
+  readonly signature?: string;
+  readonly tool_changes?: readonly (IrSchemaToolChange)[];
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+  readonly extra?: {  };
+}
+
+export interface IrSchemaToolChange {
+  readonly op: "add" | "remove";
+  readonly tool?: IrSchemaTool;
+  readonly ref?: IrSchemaToolChangeRef;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+  readonly extra?: {  };
+  readonly tool_extra?: {  };
+  readonly definition_extra?: {  };
+}
+
+export interface IrSchemaToolChangeRef {
+  readonly type: "tool_reference" | "mcp_tool_reference" | "mcp_toolset_reference";
+  readonly name?: string;
+  readonly server_name?: string;
+  readonly extra?: {  };
+}
+
+export interface IrSchemaToolChangeGroup {
+  readonly message_index: number;
+  readonly content_index: number;
+  readonly id?: string;
+  readonly parts: readonly (IrSchemaToolChangePart)[];
+  readonly extra?: {  };
+}
+
+export interface IrSchemaToolChangePart {
+  readonly type: "text" | "tool_change";
+  readonly text?: string;
+  readonly native?: readonly (IrSchemaNativeAnnotation)[];
+  readonly change?: IrSchemaToolChange;
 }
 

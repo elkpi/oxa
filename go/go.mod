@@ -1,4 +1,4 @@
-module github.com/elkpi/oxa/go/v2
+module github.com/elkpi/oxa/go/v3
 
 go 1.23
 

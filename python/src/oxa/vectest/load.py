@@ -84,7 +84,7 @@ def load_vectors(root: Path | str, face: str, mode: str) -> list[Vector]:
         with open(path, encoding="utf-8") as f:
             text = f.read()
         data = json.loads(text)
-        if data.get("spec_version") not in (None, "", "0.1.0", "0.2.0"):
+        if data.get("spec_version") not in (None, "", "0.1.0", "0.2.0", "0.3.0"):
             raise ValueError(
                 f"unsupported vector spec_version {data.get('spec_version')!r}: {path}"
             )

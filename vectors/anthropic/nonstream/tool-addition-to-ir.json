@@ -1,0 +1,98 @@
+{
+  "name": "anthropic.nonstream.tool-addition-to-ir",
+  "description": "Anthropic mid-conversation system message containing tool_addition decodes into tool_change_groups (N-AN-22).",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_definition",
+              "definition": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "claude-3-5-sonnet-20241022",
+    "params": {
+      "max_tokens": 1024
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Ready"
+          }
+        ]
+      }
+    ],
+    "tool_change_groups": [
+      {
+        "message_index": 1,
+        "content_index": -1,
+        "parts": [
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "tool": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "anthropic",
+    "request",
+    "tool_addition",
+    "mid-conversation-system",
+    "N-AN-22"
+  ]
+}

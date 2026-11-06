@@ -1,6 +1,6 @@
 import type { JsonObject, JsonText } from "../json/index.js";
 
-export const specVersion = "0.2.0";
+export const specVersion = "0.3.0";
 
 export type ReasoningEffort =
   | "minimal"
@@ -184,12 +184,23 @@ export interface ToolReferenceBlock {
   readonly native?: readonly NativeAnnotation[];
 }
 
+export interface CompactionBlock {
+  readonly type: "compaction";
+  readonly content?: string | null;
+  readonly encrypted_content?: string;
+  readonly signature?: string;
+  readonly tool_changes?: readonly ToolChange[];
+  readonly native?: readonly NativeAnnotation[];
+  readonly extra?: JsonObject;
+}
+
 export type Block =
   | TextBlock
   | ThinkingBlock
   | RedactedThinkingBlock
   | EncryptedContentBlock
   | ToolReferenceBlock
+  | CompactionBlock
   | ImageBlock
   | DocumentBlock
   | ToolUseBlock
@@ -368,6 +379,37 @@ export interface Params {
   readonly verbosity?: "low" | "medium" | "high";
   readonly response_format?: ResponseFormat;
 }
+export interface ToolChangeGroup {
+  readonly message_index: number;
+  readonly content_index: number;
+  readonly id?: string;
+  readonly parts: readonly ToolChangePart[];
+  readonly extra?: JsonObject;
+}
+export type ToolChangePart =
+  | {
+      readonly type: "text";
+      readonly text: string;
+      readonly native?: readonly NativeAnnotation[];
+    }
+  | { readonly type: "tool_change"; readonly change: ToolChange };
+export interface ToolChange {
+  readonly op: "add" | "remove";
+  readonly tool?: Tool;
+  readonly ref?: {
+    readonly type:
+      | "tool_reference"
+      | "mcp_tool_reference"
+      | "mcp_toolset_reference";
+    readonly name?: string;
+    readonly server_name?: string;
+    readonly extra?: JsonObject;
+  };
+  readonly native?: readonly NativeAnnotation[];
+  readonly extra?: JsonObject;
+  readonly tool_extra?: JsonObject;
+  readonly definition_extra?: JsonObject;
+}
 export interface Request {
   readonly model: string;
   readonly system?: readonly TextBlock[];
@@ -377,6 +419,7 @@ export interface Request {
   readonly params?: Params;
   readonly metadata?: Readonly<Record<string, string>>;
   readonly native?: readonly NativeAnnotation[];
+  readonly tool_change_groups?: readonly ToolChangeGroup[];
 }
 export interface Response {
   readonly id: string;

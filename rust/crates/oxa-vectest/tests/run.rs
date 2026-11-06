@@ -122,6 +122,7 @@ fn bare_request(model: &str) -> Request {
         params: None,
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     }
 }
 

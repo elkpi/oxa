@@ -62,7 +62,7 @@ StatusOr<std::reference_wrapper<const json::Value>> require_array(
 Status check_spec_version(const json::Value& v) {
     const json::Value* sv = v.find("specVersion");
     if (sv == nullptr || !sv->is_string() ||
-        (sv->as_string() != SPEC_VERSION && sv->as_string() != LEGACY_SPEC_VERSION)) {
+        (sv->as_string() != SPEC_VERSION && sv->as_string() != LEGACY_SPEC_VERSION && sv->as_string() != "0.2.0")) {
         return invalid_argument(
             "unsupported specVersion, want \"0.1.0\" or \"" + std::string(SPEC_VERSION) + "\"");
     }
@@ -244,6 +244,19 @@ bool block_has_native(const Block& b) {
 template <typename F>
 json::Value dump_block_impl(const Block& b, F&& recurse) {
     json::Value out = json::Value::object();
+    if (const auto* c = std::get_if<CompactionBlock>(&b)) {
+        out.set("type", json::Value::string("compaction"));
+        if (c->content) out.set("content", *c->content);
+        if (c->encrypted_content) out.set("encrypted_content", json::Value::string(*c->encrypted_content));
+        if (c->signature) out.set("signature", json::Value::string(*c->signature));
+        if (c->tool_changes) {
+            json::Value changes = json::Value::array();
+            for (const auto& change : *c->tool_changes) changes.push_back(dump_tool_change(change));
+            out.set("tool_changes", std::move(changes));
+        }
+        if (!c->extra.as_object().empty()) out.set("extra", c->extra);
+        return out;
+    }
     if (const auto* t = std::get_if<TextBlock>(&b)) {
         out.set("type", json::Value::string(std::string(BLOCK_TYPE_TEXT)));
         out.set("text", json::Value::string(t->text));
@@ -721,6 +734,35 @@ StatusOr<Block> load_request_block(const json::Value& v) {
             native.push_back(std::move(ann));
         }
     }
+    if (const auto* type = v.find("type"); type && type->is_string() && type->as_string() == "compaction") {
+        CompactionBlock block;
+        block.native = std::move(native);
+        if (const auto* content = v.find("content")) {
+            if ((!content->is_string() && !content->is_null()) || (content->is_string() && content->as_string().empty())) return invalid_argument("compaction content must be nonempty string or null");
+            block.content = *content;
+        }
+        if (const auto* enc = v.find("encrypted_content")) {
+            if (!enc->is_string()) return invalid_argument("compaction encrypted_content must be a string");
+            block.encrypted_content = enc->as_string();
+        }
+        if (const auto* signature = v.find("signature")) {
+            if (!signature->is_string()) return invalid_argument("compaction signature must be a string");
+            block.signature = signature->as_string();
+        }
+        if (const auto* changes = v.find("tool_changes")) {
+            if (!changes->is_array()) return invalid_argument("compaction tool_changes must be an array");
+            block.tool_changes.emplace();
+            for (const auto& item : changes->as_array()) {
+                OXA_ASSIGN_OR_RETURN(auto change, load_tool_change(item));
+                block.tool_changes->push_back(std::move(change));
+            }
+        }
+        if (const auto* extra = v.find("extra")) {
+            if (!extra->is_object()) return invalid_argument("compaction extra must be an object");
+            block.extra = *extra;
+        }
+        return Block(std::move(block));
+    }
     return load_block_impl(v, [](const json::Value& inner) { return load_request_block(inner); }, std::move(native));
 }
 
@@ -766,6 +808,34 @@ json::Value dump_request(const Request& r) {
         messages.push_back(std::move(mv));
     }
     out.set("messages", std::move(messages));
+
+    if (!r.tool_change_groups.empty()) {
+        json::Value groups = json::Value::array();
+        for (const auto& group : r.tool_change_groups) {
+            json::Value value = json::Value::object();
+            value.set("message_index", json::Value::integer(static_cast<std::int64_t>(group.message_index)));
+            value.set("content_index", json::Value::integer(group.content_index));
+            json::Value parts = json::Value::array();
+            for (const auto& part : group.parts) {
+                json::Value item = json::Value::object();
+                item.set("type", json::Value::string(part.type));
+                if (part.type == "text") {
+                    item.set("text", json::Value::string(part.text));
+                    if (!part.native.empty()) {
+                        json::Value native = json::Value::array();
+                        for (const auto& ann : part.native) native.push_back(dump_native_annotation(ann));
+                        item.set("native", std::move(native));
+                    }
+                } else if (part.change) item.set("change", dump_tool_change(*part.change));
+                parts.push_back(std::move(item));
+            }
+            value.set("parts", std::move(parts));
+            if (group.id) value.set("id", json::Value::string(*group.id));
+            if (!group.extra.as_object().empty()) value.set("extra", group.extra);
+            groups.push_back(std::move(value));
+        }
+        out.set("tool_change_groups", std::move(groups));
+    }
 
     if (!r.native.empty()) {
         json::Value native_arr = json::Value::array();
@@ -968,6 +1038,58 @@ StatusOr<Request> load_request(const json::Value& v) {
             m.content.push_back(std::move(b));
         }
         r.messages.push_back(std::move(m));
+    }
+
+    for (std::size_t i = 0; i < r.messages.size(); ++i) {
+        for (std::size_t j = 0; j < r.messages[i].content.size(); ++j) {
+            if (std::holds_alternative<CompactionBlock>(r.messages[i].content[j]) && (i != 0 || j != 0)) return invalid_argument("compaction must be first block of first message");
+        }
+    }
+    if (const auto* groups = v.find("tool_change_groups")) {
+        if (!groups->is_array()) return invalid_argument("tool_change_groups must be an array");
+        for (const auto& value : groups->as_array()) {
+            if (!value.is_object()) return invalid_argument("tool change group must be an object");
+            OXA_ASSIGN_OR_RETURN(auto mi, require_int(value, "message_index", "tool change group"));
+            OXA_ASSIGN_OR_RETURN(auto ci, require_int(value, "content_index", "tool change group"));
+            if (mi < 0 || static_cast<std::size_t>(mi) > r.messages.size() || ci < -1 ||
+                (ci >= 0 && (static_cast<std::size_t>(mi) >= r.messages.size() || static_cast<std::size_t>(ci) > r.messages[static_cast<std::size_t>(mi)].content.size()))) return invalid_argument("invalid tool change group position");
+            ToolChangeGroup group;
+            group.message_index = static_cast<std::size_t>(mi);
+            group.content_index = ci;
+            OXA_ASSIGN_OR_RETURN(auto parts, require_array(value, "parts", "tool change group"));
+            for (const auto& item : parts.get().as_array()) {
+                if (!item.is_object()) return invalid_argument("tool change part must be an object");
+                ToolChangePart part;
+                OXA_ASSIGN_OR_RETURN(part.type, require_string(item, "type", "tool change part"));
+                if (part.type == "text") {
+                    OXA_ASSIGN_OR_RETURN(part.text, require_string(item, "text", "tool change part"));
+                    if (item.find("change")) return invalid_argument("text part cannot carry change");
+                    if (const auto* anns = item.find("native")) {
+                        if (!anns->is_array()) return invalid_argument("part native must be an array");
+                        for (const auto& ann : anns->as_array()) {
+                            OXA_ASSIGN_OR_RETURN(auto decoded, load_native_annotation(ann));
+                            part.native.push_back(std::move(decoded));
+                        }
+                    }
+                } else if (part.type == "tool_change") {
+                    if (item.find("text")) return invalid_argument("tool change part cannot carry text");
+                    const auto* change = item.find("change");
+                    if (!change) return invalid_argument("tool change part requires change");
+                    OXA_ASSIGN_OR_RETURN(auto decoded, load_tool_change(*change));
+                    part.change = std::move(decoded);
+                } else return invalid_argument("unknown tool change part type");
+                group.parts.push_back(std::move(part));
+            }
+            if (const auto* id = value.find("id")) {
+                if (!id->is_string()) return invalid_argument("tool change group id must be a string");
+                group.id = id->as_string();
+            }
+            if (const auto* extra = value.find("extra")) {
+                if (!extra->is_object()) return invalid_argument("tool change group extra must be an object");
+                group.extra = *extra;
+            }
+            r.tool_change_groups.push_back(std::move(group));
+        }
     }
 
     const json::Value* tools = v.find("tools");

@@ -44,6 +44,7 @@ fn test_cross_face_redacted_losses() {
         params: None,
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
 
     let cc_config = oxa_chatcompletions::Config::default();

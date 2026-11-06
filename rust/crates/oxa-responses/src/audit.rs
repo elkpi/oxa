@@ -88,7 +88,9 @@ fn walk(
         audit.positions.insert(field_path.clone(), position);
         if let Some((_, child)) = fields.iter().find(|(field, _)| *field == key) {
             walk(value, child, &field_path, base, audit)?;
-        } else {
+        } else if !(name == "input_item"
+            && tag(&object, "type").as_deref() == Some("additional_tools"))
+        {
             audit.losses.push((
                 Loss {
                     path: field_path,
@@ -224,6 +226,18 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
             out.push_str(&key_json);
             out.push(':');
             out.push_str(&clean_json(value, child_kind)?);
+        } else if name == "input_item"
+            && tag(&object, "type").as_deref() == Some("additional_tools")
+        {
+            if !first {
+                out.push(',');
+            }
+            first = false;
+            out.push_str(
+                &serde_json::to_string(key).map_err(|error| Error::new(error.to_string()))?,
+            );
+            out.push(':');
+            out.push_str(value.get());
         }
     }
     out.push('}');
@@ -322,7 +336,13 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             },
             None => shape("input_message", object),
         },
-        "additional_tools_item" => Some(&[("type", ""), ("role", ""), ("tools", "tool[]")]),
+        "additional_tools_item" => Some(&[
+            ("type", ""),
+            ("role", ""),
+            ("id", ""),
+            ("status", ""),
+            ("tools", "tool[]"),
+        ]),
         "web_search_call" => Some(&[("type", ""), ("id", ""), ("status", ""), ("action", "")]),
         "input_message" => Some(&[
             ("type", ""),

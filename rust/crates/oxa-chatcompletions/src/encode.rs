@@ -21,10 +21,34 @@ use crate::types::{
 /// System content renders as one leading system message; text content remains
 /// a string while image input renders as content parts.
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    oxa_ir::validate_tool_availability(req).map_err(|e| Error::new(e.to_string()))?;
     for tool in req.tools.iter().flatten() {
         tool.validate_strict().map_err(Error::new)?;
     }
     let mut losses = Vec::new();
+    for (i, group) in req.tool_change_groups.iter().enumerate() {
+        if group.parts.is_empty() {
+            losses.push(loss(
+                format!("tool_change_groups[{i}]"),
+                "tools",
+                LossReason::UnsupportedSemantic,
+                "empty positional tool group cannot be represented on the target face",
+            ));
+        }
+        for (j, part) in group.parts.iter().enumerate() {
+            let is_text = matches!(part, oxa_ir::ToolChangePart::Text { .. });
+            losses.push(loss(
+                format!("tool_change_groups[{i}].parts[{j}]"),
+                if is_text { "type" } else { "op" },
+                LossReason::UnsupportedSemantic,
+                if is_text {
+                    "positional system text has no equivalent on the target face"
+                } else {
+                    "positional tool availability change cannot be represented on the target face"
+                },
+            ));
+        }
+    }
     if let Some(metadata) = &req.metadata
         && metadata.keys().any(String::is_empty)
     {

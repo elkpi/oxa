@@ -17,6 +17,7 @@ import {
   type JsonValue,
 } from "../../json/index.js";
 import type { ConversionResult, Loss, LossReason } from "../../loss.js";
+import type { ToolChangeGroup, ToolChangePart } from "../../ir/types.js";
 import { mapModel, type ModelMapper } from "../../modelmap.js";
 import {
   parseUsageInteger,
@@ -51,7 +52,7 @@ import type {
   WebSearchCallBlock,
 } from "../../ir/index.js";
 
-function isEmptyAdditionalTools(value: unknown): boolean {
+function isAdditionalTools(value: unknown): boolean {
   if (
     typeof value !== "object" ||
     value === null ||
@@ -60,20 +61,7 @@ function isEmptyAdditionalTools(value: unknown): boolean {
   )
     return false;
   const item = value as JsonObject;
-  return (
-    item.type === "additional_tools" &&
-    Array.isArray(item.tools) &&
-    item.tools.length === 0
-  );
-}
-
-function emptyAdditionalToolsLoss(index: number): Loss {
-  return {
-    path: `input[${index}].tools`,
-    field: "tools",
-    reason: "unmapped-field",
-    detail: "empty additional_tools inventory ignored",
-  };
+  return item.type === "additional_tools";
 }
 
 export function decodeWebSearchCall(
@@ -177,6 +165,7 @@ function decodeRequestObject(
     });
   const seenNames = new Set<string>();
   const tools: Tool[] = [];
+  const toolChangeGroups: ToolChangeGroup[] = [];
   for (const [index, entry] of optionalArray(wire.tools, "tools").entries()) {
     const decoded = decodeResponsesToolItem(
       entry,
@@ -200,6 +189,48 @@ function decodeRequestObject(
     }
   }
   const messages: Message[] = [];
+  const addToolGroup = (
+    item: JsonObject,
+    index: number,
+    contentIndex: number,
+  ): void => {
+    if (item.role !== "developer")
+      fail(`input[${index}].role must be developer`);
+    const entries = array(item.tools, `input[${index}].tools`);
+    const names = new Set<string>();
+    const parts: ToolChangePart[] = [];
+    for (const [toolIndex, entry] of entries.entries()) {
+      const decoded = decodeResponsesToolItem(
+        entry,
+        [],
+        `input[${index}].tools[${toolIndex}]`,
+        names,
+        losses,
+      );
+      parts.push(
+        ...decoded.map(
+          (tool): ToolChangePart => ({
+            type: "tool_change",
+            change: { op: "add", tool },
+          }),
+        ),
+      );
+    }
+    const extra = Object.fromEntries(
+      Object.entries(item).filter(
+        ([key]) => !["type", "role", "id", "tools"].includes(key),
+      ),
+    ) as JsonObject;
+    toolChangeGroups.push({
+      message_index: messages.length,
+      content_index: contentIndex,
+      parts,
+      ...(item.id === undefined
+        ? {}
+        : { id: string(item.id, `input[${index}].id`) }),
+      ...(Object.keys(extra).length ? { extra } : {}),
+    });
+  };
   if (typeof wire.input === "string") {
     messages.push({
       role: "user",
@@ -232,14 +263,19 @@ function decodeRequestObject(
         const thinking: Block[] = [];
         const texts: Block[] = [];
         const calls: Block[] = [];
+        const markers: { group: number; calls: number }[] = [];
         while (index < items.length) {
           const current = object(items[index], `input[${index}]`);
           const currentType =
             current.type === undefined
               ? "message"
               : string(current.type, `input[${index}].type`);
-          if (isEmptyAdditionalTools(current)) {
-            losses.push(emptyAdditionalToolsLoss(index));
+          if (isAdditionalTools(current)) {
+            addToolGroup(current, index, 0);
+            markers.push({
+              group: toolChangeGroups.length - 1,
+              calls: calls.length,
+            });
             index += 1;
             continue;
           }
@@ -361,6 +397,13 @@ function decodeRequestObject(
           index += 1;
         }
         const content = [...thinking, ...texts, ...calls];
+        for (const marker of markers) {
+          const group = toolChangeGroups[marker.group]!;
+          toolChangeGroups[marker.group] = {
+            ...group,
+            content_index: thinking.length + texts.length + marker.calls,
+          };
+        }
         if (content.length > 0) {
           messages.push({
             role: "assistant",
@@ -377,8 +420,8 @@ function decodeRequestObject(
         const content: Block[] = [];
         while (index < items.length) {
           const current = object(items[index], `input[${index}]`);
-          if (isEmptyAdditionalTools(current)) {
-            losses.push(emptyAdditionalToolsLoss(index));
+          if (isAdditionalTools(current)) {
+            addToolGroup(current, index, content.length);
             index += 1;
             continue;
           }
@@ -470,22 +513,7 @@ function decodeRequestObject(
         continue;
       }
       if (type === "additional_tools") {
-        const itemTools = array(item.tools, `input[${index}].tools`);
-        if (itemTools.length === 0) {
-          losses.push(emptyAdditionalToolsLoss(index));
-          index += 1;
-          continue;
-        }
-        for (const [tIdx, tEntry] of itemTools.entries()) {
-          const decoded = decodeResponsesToolItem(
-            tEntry,
-            [],
-            `input[${index}].tools[${tIdx}]`,
-            seenNames,
-            losses,
-          );
-          tools.push(...decoded);
-        }
+        addToolGroup(item, index, -1);
         index += 1;
         continue;
       }
@@ -565,6 +593,9 @@ function decodeRequestObject(
     ...(system.length === 0 ? {} : { system }),
     messages,
     ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChangeGroups.length === 0
+      ? {}
+      : { tool_change_groups: toolChangeGroups }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
     ...stringMetadata(wire.metadata, "responses"),
@@ -621,7 +652,7 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
     let aStart = i;
     while (aStart < items.length) {
       const it = items[aStart];
-      if (isEmptyAdditionalTools(it)) {
+      if (isAdditionalTools(it)) {
         aStart++;
         continue;
       }
@@ -671,7 +702,7 @@ function precheckApplyPatchPairs(items: readonly JsonValue[]): {
     let oStart = aStart;
     while (oStart < items.length) {
       const it = items[oStart];
-      if (isEmptyAdditionalTools(it)) {
+      if (isAdditionalTools(it)) {
         oStart++;
         continue;
       }
@@ -1222,167 +1253,306 @@ export function encodeRequest(
   validateRequest(request);
   const losses: Loss[] = [];
   const items: JsonValue[] = [];
-  let requestOrdinal = 0;
-  for (let index = 0; index < request.messages.length; index += 1) {
-    const message = request.messages[index]!;
-    if (message.role === "assistant") {
-      let text = "";
-      let hasText = false;
-      let hasRefusal = false;
-      const parts: JsonValue[] = [];
-      const reasoning = new ReasoningBuilder();
-      const calls: JsonValue[] = [];
-      for (let child = 0; child < message.content.length; child += 1) {
-        const block = message.content[child]!;
-        if (block.type === "refusal") {
-          hasRefusal = true;
-          if (block.category) {
-            losses.push({
-              path: `messages[${index}].content[${child}].category`,
-              field: "category",
-              reason: "unsupported-semantic",
-              detail: "Anthropic refusal category has no Responses equivalent",
-            });
-          }
-          parts.push({
-            type: "refusal",
-            refusal: block.refusal,
-          });
-        } else if (block.type === "text") {
-          text += block.text;
-          hasText = true;
-          parts.push({
-            type: "output_text",
-            text: block.text,
-          });
-          if (block.citations && block.citations.length > 0) {
-            let hasAnthropic = false;
-            let hasOpenAI = false;
-            for (const c of block.citations) {
-              validateCitation(c.source, c.value);
-              if (c.source === "openai") hasOpenAI = true;
-              else hasAnthropic = true;
-            }
-            if (hasAnthropic) {
+  const emitGroups = (
+    messageIndex: number,
+    contentIndex: number,
+    target: JsonValue[],
+  ): void => {
+    (request.tool_change_groups ?? []).forEach((group, i) => {
+      if (
+        group.message_index !== messageIndex ||
+        group.content_index !== contentIndex
+      )
+        return;
+      const tools: Tool[] = [];
+      group.parts.forEach((part, j) => {
+        if (
+          part.type === "tool_change" &&
+          part.change.op === "add" &&
+          part.change.tool !== undefined &&
+          (part.change.tool.type !== "native" ||
+            part.change.tool.source === "openai")
+        ) {
+          const base = `tool_change_groups[${i}].parts[${j}].change`;
+          (part.change.native ?? []).forEach((annotation, k) => {
+            if (
+              annotation.source === "anthropic" &&
+              annotation.kind === "cache_control"
+            )
               losses.push({
-                path: `messages[${index}].content[${child}].citations`,
-                field: "citations",
-                reason: "unsupported-semantic",
+                path: `${base}.native[${k}]`,
+                field: "cache_control",
+                reason: "unmapped-field",
                 detail:
-                  "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                  "anthropic-native cache breakpoint; the target face has no cache_control representation",
               });
-            }
-            if (hasOpenAI) {
+          });
+          (part.change.tool.native ?? []).forEach((annotation, k) => {
+            if (
+              annotation.source === "anthropic" &&
+              annotation.kind === "cache_control"
+            )
               losses.push({
-                path: `messages[${index}].content[${child}].citations`,
-                field: "citations",
-                reason: "unsupported-semantic",
+                path: `${base}.tool.native[${k}]`,
+                field: "cache_control",
+                reason: "unmapped-field",
                 detail:
-                  "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                  "anthropic-native cache breakpoint; the target face has no cache_control representation",
               });
-            }
+          });
+          for (const key of [
+            "extra",
+            "tool_extra",
+            "definition_extra",
+          ] as const) {
+            const extra = part.change[key];
+            if (extra && Object.keys(extra).length)
+              losses.push({
+                path: `${base}.${key}`,
+                field: key,
+                reason: "unmapped-field",
+                detail:
+                  "source-native tool change extension cannot be represented on the target face",
+              });
           }
-        } else if (block.type === "redacted_thinking") {
+          tools.push(part.change.tool);
+        } else
           losses.push({
-            path: `messages[${index}].content[${child}]`,
-            field: "type",
+            path: `tool_change_groups[${i}].parts[${j}]`,
+            field: part.type === "text" ? "type" : "op",
             reason: "unsupported-semantic",
             detail:
-              "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+              part.type === "text"
+                ? "positional system text has no equivalent on the target face"
+                : "positional tool availability change cannot be represented on the target face",
           });
-        } else if (block.type === "encrypted_content") {
-          if (block.data === "") fail("encrypted_content data is required");
-          reasoning.addCipher(block.data);
-        } else if (block.type === "tool_reference") {
-          losses.push(
-            loss(
-              `messages[${index}].content[${child}]`,
-              "type",
-              "unsupported-semantic",
-            ),
-          );
-        } else if (block.type === "thinking") {
-          reasoning.addThinking(block.thinking);
-          if (block.signature !== undefined)
-            losses.push({
-              path: `messages[${index}].content[${child}].signature`,
-              field: "signature",
-              reason: "unmapped-field",
-              detail:
-                "Responses request reasoning items carry no provider signature",
+      });
+      if (group.parts.length && !tools.length) return;
+      target.push({
+        ...group.extra,
+        type: "additional_tools",
+        role: "developer",
+        ...(group.id === undefined ? {} : { id: group.id }),
+        tools: encodeResponsesGroupedTools(tools, losses),
+      });
+    });
+  };
+  let requestOrdinal = 0;
+  for (let index = 0; index < request.messages.length; index += 1) {
+    emitGroups(index, -1, items);
+    const message = request.messages[index]!;
+    if (message.role === "assistant") {
+      const emitAssistantSegment = (start: number, end: number): void => {
+        let text = "";
+        let hasText = false;
+        let hasRefusal = false;
+        const parts: JsonValue[] = [];
+        const reasoning = new ReasoningBuilder();
+        const calls: JsonValue[] = [];
+        for (let child = start; child < end; child += 1) {
+          const block = message.content[child]!;
+          if (block.type === "refusal") {
+            hasRefusal = true;
+            if (block.category) {
+              losses.push({
+                path: `messages[${index}].content[${child}].category`,
+                field: "category",
+                reason: "unsupported-semantic",
+                detail:
+                  "Anthropic refusal category has no Responses equivalent",
+              });
+            }
+            parts.push({
+              type: "refusal",
+              refusal: block.refusal,
             });
-        } else if (block.type === "apply_patch_tool_use") {
-          calls.push({
-            type: "apply_patch_call",
-            call_id: block.id,
-            status: block.status,
-            operation: encodeApplyPatchOperation(block.operation),
+          } else if (block.type === "text") {
+            text += block.text;
+            hasText = true;
+            parts.push({
+              type: "output_text",
+              text: block.text,
+            });
+            if (block.citations && block.citations.length > 0) {
+              let hasAnthropic = false;
+              let hasOpenAI = false;
+              for (const c of block.citations) {
+                validateCitation(c.source, c.value);
+                if (c.source === "openai") hasOpenAI = true;
+                else hasAnthropic = true;
+              }
+              if (hasAnthropic) {
+                losses.push({
+                  path: `messages[${index}].content[${child}].citations`,
+                  field: "citations",
+                  reason: "unsupported-semantic",
+                  detail:
+                    "anthropic text citations; the target face cannot preserve source locations and replay metadata",
+                });
+              }
+              if (hasOpenAI) {
+                losses.push({
+                  path: `messages[${index}].content[${child}].citations`,
+                  field: "citations",
+                  reason: "unsupported-semantic",
+                  detail:
+                    "openai text annotations; the target face cannot preserve source locations and replay metadata",
+                });
+              }
+            }
+          } else if (block.type === "redacted_thinking") {
+            losses.push({
+              path: `messages[${index}].content[${child}]`,
+              field: "type",
+              reason: "unsupported-semantic",
+              detail:
+                "anthropic encrypted thinking replay state; the target face cannot preserve this block",
+            });
+          } else if (block.type === "encrypted_content") {
+            if (block.data === "") fail("encrypted_content data is required");
+            reasoning.addCipher(block.data);
+          } else if (block.type === "tool_reference") {
+            losses.push(
+              loss(
+                `messages[${index}].content[${child}]`,
+                "type",
+                "unsupported-semantic",
+              ),
+            );
+          } else if (block.type === "thinking") {
+            reasoning.addThinking(block.thinking);
+            if (block.signature !== undefined)
+              losses.push({
+                path: `messages[${index}].content[${child}].signature`,
+                field: "signature",
+                reason: "unmapped-field",
+                detail:
+                  "Responses request reasoning items carry no provider signature",
+              });
+          } else if (block.type === "apply_patch_tool_use") {
+            calls.push({
+              type: "apply_patch_call",
+              call_id: block.id,
+              status: block.status,
+              operation: encodeApplyPatchOperation(block.operation),
+            });
+          } else if (block.type === "web_search_call") {
+            inspectWebSearchCall(block.id, block.status, block.action);
+            validateWebSearchExtra(block.extra);
+            calls.push({
+              ...block.extra,
+              type: "web_search_call",
+              id: block.id,
+              status: block.status,
+              action: block.action,
+            });
+          } else if (block.type === "tool_use") {
+            const dotIdx = block.name.indexOf(".");
+            calls.push({
+              type: "function_call",
+              call_id: block.id,
+              name: dotIdx > 0 ? block.name.slice(dotIdx + 1) : block.name,
+              ...(dotIdx > 0 ? { namespace: block.name.slice(0, dotIdx) } : {}),
+              arguments: block.input,
+            });
+          } else if (block.type === "custom_tool_use") {
+            const dotIdx = block.name.indexOf(".");
+            calls.push({
+              type: "custom_tool_call",
+              call_id: block.id,
+              name: dotIdx > 0 ? block.name.slice(dotIdx + 1) : block.name,
+              ...(dotIdx > 0 ? { namespace: block.name.slice(0, dotIdx) } : {}),
+              input: block.input,
+            });
+          } else
+            losses.push(
+              loss(
+                `messages[${index}].content[${child}]`,
+                "content",
+                "unsupported-semantic",
+              ),
+            );
+        }
+        for (const item of reasoning.items) {
+          requestOrdinal += 1;
+          items.push({
+            type: "reasoning",
+            id: `rs_abc${String(123 + 333 * (requestOrdinal - 1)).padStart(3, "0")}`,
+            summary: item.summary.map((entry) => ({
+              type: "output_text",
+              text: entry,
+              annotations: [],
+            })),
+            ...(item.cipher !== undefined
+              ? { encrypted_content: item.cipher }
+              : {}),
           });
-        } else if (block.type === "web_search_call") {
-          inspectWebSearchCall(block.id, block.status, block.action);
-          validateWebSearchExtra(block.extra);
-          calls.push({
-            ...block.extra,
-            type: "web_search_call",
-            id: block.id,
-            status: block.status,
-            action: block.action,
-          });
-        } else if (block.type === "tool_use") {
-          const dotIdx = block.name.indexOf(".");
-          calls.push({
-            type: "function_call",
-            call_id: block.id,
-            name: dotIdx > 0 ? block.name.slice(dotIdx + 1) : block.name,
-            ...(dotIdx > 0 ? { namespace: block.name.slice(0, dotIdx) } : {}),
-            arguments: block.input,
-          });
-        } else if (block.type === "custom_tool_use") {
-          const dotIdx = block.name.indexOf(".");
-          calls.push({
-            type: "custom_tool_call",
-            call_id: block.id,
-            name: dotIdx > 0 ? block.name.slice(dotIdx + 1) : block.name,
-            ...(dotIdx > 0 ? { namespace: block.name.slice(0, dotIdx) } : {}),
-            input: block.input,
-          });
-        } else
-          losses.push(
-            loss(
-              `messages[${index}].content[${child}]`,
-              "content",
-              "unsupported-semantic",
-            ),
-          );
+        }
+        if (hasRefusal) {
+          items.push({ role: "assistant", content: parts });
+        } else if (hasText || (start === end && reasoning.items.length === 0)) {
+          items.push({ role: "assistant", content: text });
+        }
+        items.push(...calls);
+      };
+      const boundaries = [
+        ...new Set(
+          (request.tool_change_groups ?? [])
+            .filter(
+              (group) =>
+                group.message_index === index && group.content_index >= 0,
+            )
+            .map((group) => group.content_index),
+        ),
+      ].sort((a, b) => a - b);
+      let start = 0;
+      for (const boundary of boundaries) {
+        if (boundary < start || boundary > message.content.length)
+          fail(`tool_change_groups content_index out of range`);
+        if (boundary > start) emitAssistantSegment(start, boundary);
+        emitGroups(index, boundary, items);
+        start = boundary;
       }
-      for (const item of reasoning.items) {
-        requestOrdinal += 1;
-        items.push({
-          type: "reasoning",
-          id: `rs_abc${String(123 + 333 * (requestOrdinal - 1)).padStart(3, "0")}`,
-          summary: item.summary.map((entry) => ({
-            type: "output_text",
-            text: entry,
-            annotations: [],
-          })),
-          ...(item.cipher !== undefined
-            ? { encrypted_content: item.cipher }
-            : {}),
-        });
-      }
-      if (hasRefusal) {
-        items.push({ role: "assistant", content: parts });
-      } else if (
-        hasText ||
-        (message.content.length === 0 && reasoning.items.length === 0)
-      ) {
-        items.push({ role: "assistant", content: text });
-      }
-      items.push(...calls);
+      if (start < message.content.length || message.content.length === 0)
+        emitAssistantSegment(start, message.content.length);
       continue;
     }
-    encodeUserMessage(items, message, index, losses);
+    const boundaries = [
+      ...new Set(
+        (request.tool_change_groups ?? [])
+          .filter((g) => g.message_index === index && g.content_index >= 0)
+          .map((g) => g.content_index),
+      ),
+    ].sort((a, b) => a - b);
+    if (boundaries.length === 0)
+      encodeUserMessage(items, message, index, losses);
+    else {
+      let start = 0;
+      for (const boundary of boundaries) {
+        if (boundary < start || boundary > message.content.length)
+          fail(`tool_change_groups content_index out of range`);
+        if (boundary > start)
+          encodeUserMessage(
+            items,
+            { ...message, content: message.content.slice(start, boundary) },
+            index,
+            losses,
+            start,
+          );
+        emitGroups(index, boundary, items);
+        start = boundary;
+      }
+      if (start < message.content.length)
+        encodeUserMessage(
+          items,
+          { ...message, content: message.content.slice(start) },
+          index,
+          losses,
+          start,
+        );
+    }
   }
+  emitGroups(request.messages.length, -1, items);
   const systemPlan = encodeSystemPlan(request.system);
   if (systemPlan.items.length > 0) items.unshift(...systemPlan.items);
   const shorthand =
@@ -1781,6 +1951,7 @@ function encodeUserMessage(
   message: Message,
   messageIndex: number,
   losses: Loss[],
+  offset = 0,
 ): void {
   const normal: Block[] = [];
   const results: {
@@ -1799,7 +1970,7 @@ function encodeUserMessage(
       block.type === "custom_tool_result" ||
       block.type === "apply_patch_tool_result"
     ) {
-      results.push({ block, index });
+      results.push({ block, index: index + offset });
       lastResult = index;
     } else {
       if (firstNormal < 0) firstNormal = index;
@@ -2198,6 +2369,15 @@ function encodeUserContent(
           });
         }
       }
+    } else if (block.type === "compaction") {
+      otherBlocks += 1;
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "Anthropic compaction block cannot be represented on the target face",
+      });
     } else if (block.type === "encrypted_content") {
       otherBlocks += 1;
       losses.push({

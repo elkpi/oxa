@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	ant "github.com/elkpi/oxa/go/v2/anthropic/messages"
-	"github.com/elkpi/oxa/go/v2/ir"
-	cc "github.com/elkpi/oxa/go/v2/openai/chatcompletions"
+	ant "github.com/elkpi/oxa/go/v3/anthropic/messages"
+	"github.com/elkpi/oxa/go/v3/ir"
+	cc "github.com/elkpi/oxa/go/v3/openai/chatcompletions"
 )
 
 func TestApplyPatchNonstreamValidation(t *testing.T) {

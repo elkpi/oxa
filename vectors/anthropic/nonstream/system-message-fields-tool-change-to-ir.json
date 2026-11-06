@@ -1,0 +1,108 @@
+{
+  "name": "anthropic.nonstream.system-message-fields-tool-change-to-ir",
+  "description": "clear_at and per-message output_config on a tool-change system message are explicit losses and are not stored.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "clear_at": {
+          "type": "input_tokens",
+          "value": 1000
+        },
+        "output_config": {
+          "effort": "low"
+        },
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_reference",
+              "name": "calc"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "claude-3-5-sonnet-20241022",
+    "params": {
+      "max_tokens": 1024
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Ready"
+          }
+        ]
+      }
+    ],
+    "tool_change_groups": [
+      {
+        "message_index": 1,
+        "content_index": -1,
+        "parts": [
+          {
+            "type": "tool_change",
+            "change": {
+              "op": "add",
+              "ref": {
+                "type": "tool_reference",
+                "name": "calc"
+              }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[1].clear_at",
+      "field": "clear_at",
+      "reason": "unmapped-field",
+      "detail": "Anthropic system message clear_at has no IR equivalent"
+    },
+    {
+      "path": "messages[1].output_config",
+      "field": "output_config",
+      "reason": "unmapped-field",
+      "detail": "Anthropic per-message output_config has no IR equivalent"
+    }
+  ],
+  "tags": [
+    "anthropic",
+    "request",
+    "tool_addition",
+    "N-AN-22"
+  ]
+}

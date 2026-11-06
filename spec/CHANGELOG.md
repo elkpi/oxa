@@ -5,6 +5,18 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 3.0.0 - 2026-11-06
+
+- IR contract bumped to `0.3.0`.
+- Positional tool availability across Anthropic Messages, OpenAI Responses, and OpenAI Chat Completions:
+  - Add `tool_change_groups` on `Request` to represent mid-conversation tool availability changes and system content associated with message/content boundaries (spec/01 §3.9).
+  - Add `CompactionBlock` (`compaction`) to request content blocks at `messages[0].content[0]`, carrying `content`, `encrypted_content`, `signature`, and `tool_changes` (spec/01 §3.4, spec/12 N-AN-22).
+  - Add `ToolChangeGroup`, `ToolChangePart`, `ToolChange`, `ToolChangeRef` types.
+  - Responses `additional_tools` is no longer hoisted to `Request.Tools`; it is decoded into `tool_change_groups` at its exact position in the conversation. Empty `tools: []` is preserved as an empty group without losses and does not split runs (spec/11 N-R-15).
+  - Anthropic mid-conversation system messages containing `tool_addition` or `tool_removal` are decoded into `tool_change_groups` with parts in original order; text is not folded into `Request.System` (spec/12 N-AN-15, N-AN-22).
+  - Chat Completions records bounded `unsupported-semantic` losses per change/part and does not mutate request `tools` (spec/10 N-CC-17).
+  - Cross-face encoding to Anthropic records `unsupported-semantic` losses for groups placed on invalid boundaries without shifting positions.
+
 ## 2.5.3 - 2026-11-05
 
 - Add `ToolReferenceBlock` (`tool_reference`) for Anthropic Messages tool search (N-AN-21). Represents a reference to a declared tool inside `tool_result.content` (and request history). Round-trips 1:1 on Anthropic with native `cache_control` preservation. Omitted on Chat Completions and Responses with one `unsupported-semantic` loss; annotations attached to the dropped block are part of the whole-block loss and are not reported a second time. Exhaustive block matches must handle the new variant. IR contract remains `0.2.0`.

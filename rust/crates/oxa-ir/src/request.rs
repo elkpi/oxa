@@ -28,6 +28,12 @@ pub struct Request {
     pub metadata: Option<BTreeMap<String, String>>,
     #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
     pub native: Vec<NativeAnnotation>,
+    #[serde(
+        rename = "tool_change_groups",
+        default,
+        skip_serializing_if = "Vec::is_empty"
+    )]
+    pub tool_change_groups: Vec<ToolChangeGroup>,
 }
 
 /// System prompt content (spec/01 §3.2). Sealed; exactly one variant in v1.
@@ -233,6 +239,123 @@ pub enum Block {
         #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
         native: Vec<NativeAnnotation>,
     },
+    #[serde(rename = "compaction")]
+    Compaction {
+        #[serde(
+            rename = "content",
+            default,
+            deserialize_with = "deserialize_present_nullable",
+            skip_serializing_if = "Option::is_none"
+        )]
+        content: Option<Option<String>>,
+        #[serde(
+            rename = "encrypted_content",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        encrypted_content: Option<String>,
+        #[serde(rename = "signature", default, skip_serializing_if = "Option::is_none")]
+        signature: Option<String>,
+        #[serde(
+            rename = "tool_changes",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
+        tool_changes: Option<Vec<ToolChange>>,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+        #[serde(rename = "extra", default, skip_serializing_if = "BTreeMap::is_empty")]
+        extra: BTreeMap<String, Value>,
+    },
+}
+
+fn deserialize_present_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    Option::<T>::deserialize(deserializer).map(Some)
+}
+
+/// Positional tool availability group (spec/01 §3.9).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolChangeGroup {
+    #[serde(rename = "message_index")]
+    pub message_index: usize,
+    #[serde(rename = "content_index")]
+    pub content_index: isize,
+    #[serde(rename = "parts")]
+    pub parts: Vec<ToolChangePart>,
+    #[serde(rename = "id", default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(rename = "extra", default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum ToolChangePart {
+    #[serde(rename = "text")]
+    Text {
+        #[serde(rename = "text")]
+        text: String,
+        #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+        native: Vec<NativeAnnotation>,
+    },
+    #[serde(rename = "tool_change")]
+    Change {
+        #[serde(rename = "change")]
+        change: Box<ToolChange>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolChange {
+    #[serde(rename = "op")]
+    pub op: ToolChangeOp,
+    #[serde(rename = "tool", default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Tool>,
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub reference: Option<ToolChangeRef>,
+    #[serde(rename = "native", default, skip_serializing_if = "Vec::is_empty")]
+    pub native: Vec<NativeAnnotation>,
+    #[serde(rename = "extra", default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<BTreeMap<String, Value>>,
+    #[serde(
+        rename = "tool_extra",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_extra: Option<BTreeMap<String, Value>>,
+    #[serde(
+        rename = "definition_extra",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub definition_extra: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ToolChangeOp {
+    Add,
+    Remove,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ToolChangeRef {
+    #[serde(rename = "type")]
+    pub ref_type: String,
+    #[serde(rename = "name", default, skip_serializing_if = "String::is_empty")]
+    pub name: String,
+    #[serde(
+        rename = "server_name",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub server_name: Option<String>,
+    #[serde(rename = "extra", default, skip_serializing_if = "Option::is_none")]
+    pub extra: Option<BTreeMap<String, Value>>,
 }
 
 impl Block {
@@ -251,7 +374,8 @@ impl Block {
             | Block::ApplyPatchToolUse { native, .. }
             | Block::ApplyPatchToolResult { native, .. }
             | Block::Refusal { native, .. }
-            | Block::ToolResult { native, .. } => native,
+            | Block::ToolResult { native, .. }
+            | Block::Compaction { native, .. } => native,
             Block::WebSearchCall { .. } => &[],
         }
     }
@@ -412,6 +536,22 @@ impl std::fmt::Debug for Block {
                 .field("refusal", refusal)
                 .field("category", category)
                 .field("native", native)
+                .finish(),
+            Block::Compaction {
+                content,
+                encrypted_content,
+                signature,
+                tool_changes,
+                native,
+                extra,
+            } => f
+                .debug_struct("Compaction")
+                .field("content", content)
+                .field("encrypted_content", encrypted_content)
+                .field("signature", signature)
+                .field("tool_changes", tool_changes)
+                .field("native", native)
+                .field("extra", extra)
                 .finish(),
         }
     }

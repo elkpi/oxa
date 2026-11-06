@@ -217,6 +217,7 @@ fn encodes_reasoning_content_and_reports_signature_losses() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let (wire, request_losses) =
         encode_request(&request, &Config::default()).expect("encode request");
@@ -706,6 +707,7 @@ fn test_custom_tool_result_array_preserved() {
         params: None,
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
     assert!(losses.is_empty());

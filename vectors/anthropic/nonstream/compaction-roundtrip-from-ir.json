@@ -1,0 +1,102 @@
+{
+  "name": "anthropic.nonstream.compaction-roundtrip-from-ir",
+  "description": "IR CompactionBlock encodes to Anthropic compaction wire block verbatim with tool_changes (N-AN-22).",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "claude-3-5-sonnet-20241022",
+    "params": {
+      "max_tokens": 1024
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "compaction",
+            "content": "Conversation summary",
+            "encrypted_content": "enc_token_123",
+            "signature": "sig_xyz",
+            "tool_changes": [
+              {
+                "op": "remove",
+                "ref": {
+                  "type": "tool_reference",
+                  "name": "retired_tool"
+                }
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Continue task"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Understood"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "compaction",
+            "content": "Conversation summary",
+            "encrypted_content": "enc_token_123",
+            "signature": "sig_xyz",
+            "tool_changes": [
+              {
+                "type": "tool_removal",
+                "tool": {
+                  "type": "tool_reference",
+                  "name": "retired_tool"
+                }
+              }
+            ]
+          },
+          {
+            "type": "text",
+            "text": "Continue task"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Understood"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [],
+  "tags": [
+    "anthropic",
+    "request",
+    "compaction",
+    "tool_changes",
+    "N-AN-22"
+  ]
+}

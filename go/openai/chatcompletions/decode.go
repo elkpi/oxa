@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // DecodeRequest converts a Chat Completions wire request to the IR (face ->

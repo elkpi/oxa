@@ -101,6 +101,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             omission: None,
             projection: None,
         }],
+        tool_change_groups: Vec::new(),
     };
     oxa::ir::validate_native_request(&ir_req)?;
 

@@ -286,6 +286,11 @@ struct BlockValidator {
         if (!st.ok()) return st;
         return check_no_prompt_cache_breakpoint(b.native, path);
     }
+    Status operator()(const CompactionBlock& b) const {
+        auto st = validate_annotations(b.native, host, path);
+        if (!st.ok()) return st;
+        return check_no_prompt_cache_breakpoint(b.native, path);
+    }
     Status operator()(const RefusalBlock& b) const {
         auto st = validate_annotations(b.native, host, path);
         if (!st.ok()) return st;
@@ -681,6 +686,11 @@ struct BlockOmissionCollector {
         }
     }
     void operator()(const ApplyPatchToolResultBlock& b) const {
+        for (std::size_t i = 0; i < b.native.size(); ++i) {
+            append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
+        }
+    }
+    void operator()(const CompactionBlock& b) const {
         for (std::size_t i = 0; i < b.native.size(); ++i) {
             append_omission_loss(losses, b.native[i], std::string(path) + ".native[" + std::to_string(i) + "]", false, std::nullopt, target);
         }

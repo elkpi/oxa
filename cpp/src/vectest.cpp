@@ -145,8 +145,8 @@ Status compare_json_impl(const json::Value& exp, const json::Value& act, const s
             if (k == "specVersion" && v.is_string() && it->second.is_string()) {
                 const auto& expected_version = v.as_string();
                 const auto& actual_version = it->second.as_string();
-                const bool expected_supported = expected_version == "0.1.0" || expected_version == "0.2.0";
-                const bool actual_supported = actual_version == "0.1.0" || actual_version == "0.2.0";
+                const bool expected_supported = expected_version == "0.1.0" || expected_version == "0.2.0" || expected_version == "0.3.0";
+                const bool actual_supported = actual_version == "0.1.0" || actual_version == "0.2.0" || actual_version == "0.3.0";
                 if (expected_supported && actual_supported) continue;
             }
             OXA_RETURN_IF_ERROR(compare_json_impl(v, it->second, path + "." + k));

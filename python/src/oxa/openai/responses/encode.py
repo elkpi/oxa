@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any
 
 from oxa.ir import (
+    Tool,
     EncryptedContentBlock,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
@@ -248,6 +250,8 @@ def encode_request(
     table: Table | None = None,
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR request to a Responses wire request (IR → face)."""
+    from oxa.ir.codec import validate_tool_availability
+    validate_tool_availability(req)
     losses: list[Loss] = []
 
     model = req.model
@@ -312,18 +316,44 @@ def encode_request(
                     pass
 
     items: list[dict[str, Any]] = list(leading)
-    for index, message in enumerate(req.messages):
-        if message.role == IR_ROLE_USER:
-            msg_items, m_losses = encode_user_message(message, f"messages[{index}]")
-            items.extend(msg_items)
-            losses.extend(m_losses)
-        elif message.role == IR_ROLE_ASSISTANT:
-            msg_items, m_losses = encode_assistant_message(
-                message.content, f"messages[{index}].content"
-            )
-            items.extend(msg_items)
-            losses.extend(m_losses)
+    for group in req.tool_change_groups:
+        if (group.message_index < 0 or group.message_index > len(req.messages)
+                or group.content_index < -1
+                or (group.content_index >= 0 and (
+                    group.message_index == len(req.messages)
+                    or group.content_index > len(req.messages[group.message_index].content)))):
+            raise ValueError("responses: invalid tool change group position")
 
+    def emit_groups(message_index: int, content_index: int) -> None:
+        for group_index, group in enumerate(req.tool_change_groups):
+            if group.message_index == message_index and group.content_index == content_index:
+                group_item, group_losses = encode_tool_change_group(group, group_index)
+                if group_item is not None:
+                    items.append(group_item)
+                losses.extend(group_losses)
+
+    def emit_segment(message: Any, index: int, start: int, end: int) -> None:
+        if message.role == IR_ROLE_USER:
+            msg_items, msg_losses = encode_user_message(replace(message, content=message.content[start:end]), f"messages[{index}]")
+        elif message.role == IR_ROLE_ASSISTANT:
+            msg_items, msg_losses = encode_assistant_message(message.content[start:end], f"messages[{index}].content")
+        else:
+            raise ValueError(f"responses: messages[{index}] has invalid role")
+        items.extend(msg_items)
+        losses.extend(msg_losses)
+
+    for index, message in enumerate(req.messages):
+        emit_groups(index, -1)
+        boundaries = sorted({g.content_index for g in req.tool_change_groups if g.message_index == index and g.content_index >= 0})
+        start = 0
+        for boundary in boundaries:
+            if boundary > start:
+                emit_segment(message, index, start, boundary)
+            emit_groups(index, boundary)
+            start = boundary
+        if start < len(message.content) or not message.content:
+            emit_segment(message, index, start, len(message.content))
+    emit_groups(len(req.messages), -1)
     if (
         len(req.system) == 0
         and len(items) == 1
@@ -391,6 +421,51 @@ def encode_request(
         losses.append(l)
 
     return out, losses
+
+
+def encode_tool_change_group(group: Any, group_index: int) -> tuple[dict[str, Any] | None, list[Loss]]:
+    from oxa.ir import ToolChangeGroup
+
+    assert isinstance(group, ToolChangeGroup)
+    losses: list[Loss] = []
+    tools: list[Tool] = []
+    for part_index, part in enumerate(group.parts):
+        change = part.change
+        if part.type == "tool_change" and change is not None and change.op == "add" and change.tool is not None and (
+            change.tool.type != "native" or change.tool.source == "openai"
+        ):
+            base = f"tool_change_groups[{group_index}].parts[{part_index}].change"
+            for annotation_index, annotation in enumerate(change.native):
+                if annotation.source == "anthropic" and annotation.kind == "cache_control":
+                    losses.append(loss(f"{base}.native[{annotation_index}]", "cache_control", LOSS_UNMAPPED_FIELD,
+                                       "anthropic-native cache breakpoint; the target face has no cache_control representation"))
+            for annotation_index, annotation in enumerate(change.tool.native):
+                if annotation.source == "anthropic" and annotation.kind == "cache_control":
+                    losses.append(loss(f"{base}.tool.native[{annotation_index}]", "cache_control", LOSS_UNMAPPED_FIELD,
+                                       "anthropic-native cache breakpoint; the target face has no cache_control representation"))
+            for name in ("extra", "tool_extra", "definition_extra"):
+                if getattr(change, name):
+                    losses.append(loss(f"{base}.{name}", name, LOSS_UNMAPPED_FIELD,
+                                       "source-native tool change extension cannot be represented on the target face"))
+            tools.append(change.tool)
+            continue
+        losses.append(loss(
+            f"tool_change_groups[{group_index}].parts[{part_index}]",
+            "type" if part.type == "text" else "op",
+            LOSS_UNSUPPORTED_SEMANTIC,
+            "positional system text has no equivalent on the target face" if part.type == "text" else "positional tool availability change cannot be represented on the target face",
+        ))
+    if group.parts and not tools:
+        return None, losses
+    item: dict[str, Any] = {
+        **(group.extra or {}),
+        "type": "additional_tools",
+        "role": "developer",
+    }
+    if group.id is not None:
+        item["id"] = group.id
+    item["tools"] = encode_responses_grouped_tools(tools, losses)
+    return item, losses
 
 
 def encode_custom_tool_format(fmt: Any) -> dict[str, Any]:

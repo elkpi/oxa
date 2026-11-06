@@ -14,6 +14,10 @@ import {
   type JsonObject,
 } from "../src/json/index.js";
 import { runNonstreamVectors } from "./nonstream-vector-runner.js";
+import {
+  encodeRequest as encodeIRRequest,
+  decodeRequest as decodeIRRequest,
+} from "../src/ir/index.js";
 
 test("runs every Responses non-stream vector", () => {
   assert.ok(
@@ -26,7 +30,83 @@ test("runs every Responses non-stream vector", () => {
   );
 });
 
-test("treats an empty additional_tools inventory as a no-op", () => {
+test("additional_tools remain at their conversation position", () => {
+  const decoded = decodeRequest({
+    model: "m",
+    input: [
+      { role: "user", content: "hello" },
+      {
+        type: "additional_tools",
+        role: "developer",
+        tools: [
+          { type: "function", name: "later", parameters: { type: "object" } },
+        ],
+      },
+    ],
+  } as JsonObject);
+  assert.equal(decoded.value.tools?.length ?? 0, 0);
+  assert.deepEqual(
+    (decoded.value as unknown as { tool_change_groups: unknown[] })
+      .tool_change_groups,
+    [
+      {
+        message_index: 1,
+        content_index: -1,
+        parts: [
+          {
+            type: "tool_change",
+            change: {
+              op: "add",
+              tool: { name: "later", input_schema: { type: "object" } },
+            },
+          },
+        ],
+      },
+    ],
+  );
+  assert.deepEqual(decoded.losses, []);
+  assert.deepEqual(
+    decodeIRRequest(encodeIRRequest(decoded.value)),
+    decoded.value,
+  );
+});
+
+test("additional_tools between tool results round-trips in order", () => {
+  const input = {
+    model: "m",
+    input: [
+      { role: "user", content: "go" },
+      { type: "function_call", name: "a", call_id: "a", arguments: "{}" },
+      { type: "function_call", name: "b", call_id: "b", arguments: "{}" },
+      { type: "function_call_output", call_id: "a", output: "a" },
+      {
+        type: "additional_tools",
+        role: "developer",
+        id: "extra",
+        tools: [
+          { type: "function", name: "c", parameters: { type: "object" } },
+        ],
+      },
+      { type: "function_call_output", call_id: "b", output: "b" },
+    ],
+  } as JsonObject;
+  const decoded = decodeRequest(input);
+  assert.deepEqual(
+    decoded.value.tool_change_groups?.map((g) => [
+      g.message_index,
+      g.content_index,
+    ]),
+    [[2, 1]],
+  );
+  const encoded = encodeRequest(decoded.value);
+  const items = encoded.value.input as readonly JsonObject[];
+  assert.equal(items[3]?.type, "function_call_output");
+  assert.equal(items[4]?.type, "additional_tools");
+  assert.equal(items[5]?.type, "function_call_output");
+  assert.deepEqual(encoded.losses, []);
+});
+
+test("preserves an empty additional_tools inventory at its position", () => {
   const existingTool = {
     type: "function",
     name: "existing",
@@ -48,11 +128,14 @@ test("treats an empty additional_tools inventory as a no-op", () => {
 
   const decoded = decodeRequest(withEmpty as JsonObject);
   const expected = decodeRequest(withoutEmpty as JsonObject);
-  assert.deepEqual(decoded.value, expected.value);
+  assert.deepEqual(decoded.value.tool_change_groups, [
+    { message_index: 0, content_index: -1, parts: [] },
+  ]);
   assert.deepEqual(
-    decoded.losses.map(({ path, field, reason }) => ({ path, field, reason })),
-    [{ path: "input[0].tools", field: "tools", reason: "unmapped-field" }],
+    { ...decoded.value, tool_change_groups: undefined },
+    { ...expected.value, tool_change_groups: undefined },
   );
+  assert.deepEqual(decoded.losses, []);
 });
 
 test("requires an explicit additional_tools array", () => {
@@ -95,8 +178,14 @@ test("does not let an empty inventory split tool runs", () => {
     model: "m",
     input: [user, callA, callB, resultA, resultB],
   } as JsonObject);
-  assert.deepEqual(callsWith.value, callsWithout.value);
-  assert.equal(callsWith.losses.length, 1);
+  assert.deepEqual(callsWith.value.tool_change_groups, [
+    { message_index: 1, content_index: 1, parts: [] },
+  ]);
+  assert.deepEqual(
+    { ...callsWith.value, tool_change_groups: undefined },
+    { ...callsWithout.value, tool_change_groups: undefined },
+  );
+  assert.equal(callsWith.losses.length, 0);
 
   const resultsWith = decodeRequest({
     model: "m",
@@ -106,8 +195,14 @@ test("does not let an empty inventory split tool runs", () => {
     model: "m",
     input: [user, callA, callB, resultA, resultB],
   } as JsonObject);
-  assert.deepEqual(resultsWith.value, resultsWithout.value);
-  assert.equal(resultsWith.losses.length, 1);
+  assert.deepEqual(resultsWith.value.tool_change_groups, [
+    { message_index: 2, content_index: 1, parts: [] },
+  ]);
+  assert.deepEqual(
+    { ...resultsWith.value, tool_change_groups: undefined },
+    { ...resultsWithout.value, tool_change_groups: undefined },
+  );
+  assert.equal(resultsWith.losses.length, 0);
 });
 
 test("reports a present-false unknown request field once", () => {
@@ -494,4 +589,28 @@ test("rejects non-array annotations and invalid typed citations", () => {
       /citation/,
     );
   }
+});
+
+test("additional_tools are emitted at boundaries between assistant text blocks", () => {
+  const result = encodeRequest({
+    model: "m",
+    messages: [
+      { role: "user", content: [{ type: "text", text: "go" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "before" },
+          { type: "text", text: "after" },
+        ],
+      },
+    ],
+    tool_change_groups: [{ message_index: 1, content_index: 1, parts: [] }],
+  });
+  assert.deepEqual(result.losses, []);
+  assert.deepEqual(result.value.input, [
+    { role: "user", content: "go" },
+    { role: "assistant", content: "before" },
+    { type: "additional_tools", role: "developer", tools: [] },
+    { role: "assistant", content: "after" },
+  ]);
 });

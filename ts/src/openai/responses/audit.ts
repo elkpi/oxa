@@ -192,8 +192,19 @@ const INPUT_ITEM: WireAuditSpec = {
           },
         };
       case "additional_tools":
-        // Additional tool items retain unknown fields for same-face replay.
-        return undefined;
+        // Item-level unknown fields are retained for same-face replay
+        // (spec/11 N-R-15); declarations inside tools[] are audited like
+        // top-level tools (spec/02 s4).
+        return {
+          retainExtra: true,
+          fields: {
+            type: undefined,
+            role: undefined,
+            id: undefined,
+            status: undefined,
+            tools: { items: TOOL },
+          },
+        };
       default:
         return undefined;
     }

@@ -25,6 +25,12 @@ export interface WireAuditSpec {
   readonly variant?:
     | ((node: JsonObject) => WireAuditSpec | undefined)
     | undefined;
+  /**
+   * When true, unknown properties on this object are loss-free: their values
+   * are retained by the decoder for same-face replay (spec/02 s4) instead of
+   * being dropped and lossed. Known properties are still audited.
+   */
+  readonly retainExtra?: boolean | undefined;
 }
 
 export interface WireAudit {
@@ -69,7 +75,9 @@ export function auditWire(root: unknown, spec: WireAuditSpec): WireAudit {
       recordKey(keyOrder, fieldPath);
       const child = effective.fields[key];
       if (!Object.prototype.hasOwnProperty.call(effective.fields, key)) {
-        losses.push({ path: fieldPath, field: key, reason: "unmapped-field" });
+        if (!effective.retainExtra) {
+          losses.push({ path: fieldPath, field: key, reason: "unmapped-field" });
+        }
         continue;
       }
       visit(object[key], child, fieldPath);

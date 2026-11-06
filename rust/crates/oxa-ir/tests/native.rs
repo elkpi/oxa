@@ -1,6 +1,7 @@
 use oxa_ir::{
     Block, LossReason, NativeAnnotation, NativeOmission, Params, ReasoningEffort, Request,
-    SystemBlock, from_json, to_json, validate_native_request,
+    SystemBlock, Tool, ToolChange, ToolChangeGroup, ToolChangeOp, ToolChangePart, from_json,
+    to_json, validate_native_request,
 };
 
 #[test]
@@ -397,4 +398,190 @@ fn test_prompt_cache_breakpoint_host_and_null_value() {
         native: vec![breakpoint_ann(r#"{"mode":"explicit"}"#)],
     });
     assert!(validate_native_request(&thinking_req).is_err());
+}
+
+#[test]
+fn test_validate_native_request_positional_and_compaction() {
+    fn bad_tool() -> Tool {
+        Tool {
+            tool_type: None,
+            name: "read".into(),
+            description: None,
+            input_schema: Some(serde_json::json!({"type": "object"})),
+            strict: None,
+            format: None,
+            native: vec![NativeAnnotation {
+                source: "anthropic".into(),
+                kind: "cache_control".into(),
+                value: r#"{"type":"bad"}"#.into(),
+                omission: None,
+                projection: None,
+            }],
+            source: None,
+            definition: None,
+        }
+    }
+
+    fn base() -> Request {
+        Request {
+            model: "m".into(),
+            system: vec![],
+            messages: vec![oxa_ir::Message {
+                role: oxa_ir::Role::User,
+                content: vec![Block::Text {
+                    text: "go".into(),
+                    citations: None,
+                    native: vec![],
+                }],
+            }],
+            tools: None,
+            tool_choice: None,
+            params: None,
+            metadata: None,
+            native: vec![],
+            tool_change_groups: Vec::new(),
+        }
+    }
+
+    // 1. Invalid cache_control on change.tool
+    let mut req = base();
+    req.tool_change_groups = vec![ToolChangeGroup {
+        message_index: 1,
+        content_index: -1,
+        id: None,
+        parts: vec![ToolChangePart::Change {
+            change: Box::new(ToolChange {
+                op: ToolChangeOp::Add,
+                tool: Some(bad_tool()),
+                reference: None,
+                native: vec![],
+                extra: None,
+                tool_extra: None,
+                definition_extra: None,
+            }),
+        }],
+        extra: None,
+    }];
+    let error = validate_native_request(&req).unwrap_err().to_string();
+    assert!(
+        error.contains("tool_change_groups[0].parts[0].change.tool.native"),
+        "{error}"
+    );
+    assert!(!error.contains("bad"), "{error}");
+
+    // 2. defer_loading + cache_control mutual exclusion on positional tool
+    let mut req = base();
+    let mut excl = bad_tool();
+    excl.native[0].value = r#"{"type":"ephemeral"}"#.into();
+    excl.native.push(NativeAnnotation {
+        source: "anthropic".into(),
+        kind: "defer_loading".into(),
+        value: "true".into(),
+        omission: None,
+        projection: None,
+    });
+    req.tool_change_groups = vec![ToolChangeGroup {
+        message_index: 1,
+        content_index: -1,
+        id: None,
+        parts: vec![ToolChangePart::Change {
+            change: Box::new(ToolChange {
+                op: ToolChangeOp::Add,
+                tool: Some(excl),
+                reference: None,
+                native: vec![],
+                extra: None,
+                tool_extra: None,
+                definition_extra: None,
+            }),
+        }],
+        extra: None,
+    }];
+    assert!(validate_native_request(&req).is_err());
+
+    // 3. Text part native with invalid JSON value
+    let mut req = base();
+    req.tool_change_groups = vec![ToolChangeGroup {
+        message_index: 1,
+        content_index: -1,
+        id: None,
+        parts: vec![ToolChangePart::Text {
+            text: "note".into(),
+            native: vec![NativeAnnotation {
+                source: "anthropic".into(),
+                kind: "cache_control".into(),
+                value: "{bad".into(),
+                omission: None,
+                projection: None,
+            }],
+        }],
+        extra: None,
+    }];
+    assert!(validate_native_request(&req).is_err());
+
+    // 4. Compaction tool_changes with invalid annotation
+    let mut req = base();
+    req.messages[0].content = vec![Block::Compaction {
+        content: None,
+        encrypted_content: None,
+        signature: None,
+        tool_changes: Some(vec![ToolChange {
+            op: ToolChangeOp::Add,
+            tool: Some(bad_tool()),
+            reference: None,
+            native: vec![],
+            extra: None,
+            tool_extra: None,
+            definition_extra: None,
+        }]),
+        native: vec![],
+        extra: Default::default(),
+    }];
+    assert!(validate_native_request(&req).is_err());
+
+    // 5. Valid positional native (valid cache_control + unknown source) passes
+    let mut req = base();
+    req.tool_change_groups = vec![ToolChangeGroup {
+        message_index: 1,
+        content_index: -1,
+        id: None,
+        parts: vec![ToolChangePart::Change {
+            change: Box::new(ToolChange {
+                op: ToolChangeOp::Add,
+                tool: Some(Tool {
+                    tool_type: None,
+                    name: "read".into(),
+                    description: None,
+                    input_schema: Some(serde_json::json!({"type": "object"})),
+                    strict: None,
+                    format: None,
+                    native: vec![
+                        NativeAnnotation {
+                            source: "anthropic".into(),
+                            kind: "cache_control".into(),
+                            value: r#"{"type":"ephemeral"}"#.into(),
+                            omission: None,
+                            projection: None,
+                        },
+                        NativeAnnotation {
+                            source: "future_provider".into(),
+                            kind: "future_kind".into(),
+                            value: "{}".into(),
+                            omission: None,
+                            projection: None,
+                        },
+                    ],
+                    source: None,
+                    definition: None,
+                }),
+                reference: None,
+                native: vec![],
+                extra: None,
+                tool_extra: None,
+                definition_extra: None,
+            }),
+        }],
+        extra: None,
+    }];
+    validate_native_request(&req).expect("valid positional native should pass");
 }

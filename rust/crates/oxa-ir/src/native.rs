@@ -2,7 +2,9 @@ use std::collections::HashSet;
 
 use crate::codec::Error;
 use crate::loss::{Loss, LossReason};
-use crate::request::{Block, NativeAnnotation, Request, Role, SystemBlock, ToolChoiceMode};
+use crate::request::{
+    Block, NativeAnnotation, Request, Role, SystemBlock, Tool, ToolChangePart, ToolChoiceMode,
+};
 
 pub const NATIVE_KIND_THINKING_MODE: &str = "thinking_mode";
 pub const NATIVE_KIND_THINKING_BUDGET: &str = "thinking_budget";
@@ -187,26 +189,87 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
 
     if let Some(ref tools) = request.tools {
         for (t_idx, tool) in tools.iter().enumerate() {
-            validate_annotations(&tool.native, HostType::Tool, &format!("tools[{t_idx}]"))?;
-            let mut has_cache_control = false;
-            let mut has_defer_loading = false;
-            for n in &tool.native {
-                if n.source == NATIVE_SOURCE_ANTHROPIC {
-                    if n.kind == NATIVE_KIND_CACHE_CONTROL {
-                        has_cache_control = true;
-                    } else if n.kind == NATIVE_KIND_DEFER_LOADING {
-                        has_defer_loading = true;
-                    }
-                }
+            validate_tool_native(tool, &format!("tools[{t_idx}]"))?;
+        }
+    }
+
+    for (g_idx, group) in request.tool_change_groups.iter().enumerate() {
+        for (p_idx, part) in group.parts.iter().enumerate() {
+            let part_path = format!("tool_change_groups[{g_idx}].parts[{p_idx}]");
+            // Part-level native round-trips only on text parts; tool_change
+            // parts carry annotations on the change and its tool instead.
+            if let ToolChangePart::Text { native, .. } = part {
+                validate_annotations(native, HostType::Content, &part_path).map_err(|_| {
+                    Error::Custom(format!("ir: {part_path}.native: invalid native annotation"))
+                })?;
+                continue;
             }
-            if has_cache_control && has_defer_loading {
-                return Err(Error::Custom(format!(
-                    "ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control"
-                )));
+            let ToolChangePart::Change { change } = part else {
+                continue;
+            };
+            let change_path = format!("{part_path}.change");
+            validate_annotations(&change.native, HostType::Tool, &change_path).map_err(|_| {
+                Error::Custom(format!(
+                    "ir: {change_path}.native: invalid native annotation"
+                ))
+            })?;
+            if let Some(tool) = &change.tool {
+                let path = format!("{change_path}.tool");
+                validate_tool_native(tool, &path).map_err(|_| {
+                    Error::Custom(format!("ir: {path}.native: invalid native annotation"))
+                })?;
             }
         }
     }
 
+    for (m_idx, msg) in request.messages.iter().enumerate() {
+        for (c_idx, blk) in msg.content.iter().enumerate() {
+            let Block::Compaction { tool_changes, .. } = blk else {
+                continue;
+            };
+            let base = format!("messages[{m_idx}].content[{c_idx}]");
+            for (k, change) in tool_changes.iter().flatten().enumerate() {
+                let change_path = format!("{base}.tool_changes[{k}]");
+                validate_annotations(&change.native, HostType::Tool, &change_path).map_err(
+                    |_| {
+                        Error::Custom(format!(
+                            "ir: {change_path}.native: invalid native annotation"
+                        ))
+                    },
+                )?;
+                if let Some(tool) = &change.tool {
+                    let path = format!("{change_path}.tool");
+                    validate_tool_native(tool, &path).map_err(|_| {
+                        Error::Custom(format!("ir: {path}.native: invalid native annotation"))
+                    })?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Applies tool-host annotation rules to one tool, including the
+/// defer_loading/cache_control mutual exclusion (spec/15 §3.4).
+fn validate_tool_native(tool: &Tool, path: &str) -> Result<(), Error> {
+    validate_annotations(&tool.native, HostType::Tool, path)?;
+    let mut has_cache_control = false;
+    let mut has_defer_loading = false;
+    for n in &tool.native {
+        if n.source == NATIVE_SOURCE_ANTHROPIC {
+            if n.kind == NATIVE_KIND_CACHE_CONTROL {
+                has_cache_control = true;
+            } else if n.kind == NATIVE_KIND_DEFER_LOADING {
+                has_defer_loading = true;
+            }
+        }
+    }
+    if has_cache_control && has_defer_loading {
+        return Err(Error::Custom(format!(
+            "ir: {path}: cannot specify both defer_loading and cache_control"
+        )));
+    }
     Ok(())
 }
 

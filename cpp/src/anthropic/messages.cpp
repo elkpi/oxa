@@ -252,7 +252,7 @@ StatusOr<ir::ToolChange> decode_tool_change(const json::Value& value, const std:
     return change;
 }
 
-StatusOr<json::Value> encode_tool_change(const ir::ToolChange& change) {
+StatusOr<json::Value> encode_tool_change(const ir::ToolChange& change, const std::string& path, std::vector<ir::Loss>& losses) {
     auto validated = ir::load_tool_change(ir::dump_tool_change(change));
     if (!validated.ok()) return validated.status();
     json::Value out = change.extra;
@@ -271,6 +271,10 @@ StatusOr<json::Value> encode_tool_change(const ir::ToolChange& change) {
         request.messages.push_back({"user", {ir::TextBlock{"x"}}});
         request.tools = std::vector<ir::Tool>{*change.tool};
         OXA_ASSIGN_OR_RETURN(auto encoded, encode_request(request));
+        for (auto item_loss : encoded.losses) {
+            if (item_loss.path.starts_with("tools[0]")) item_loss.path = path + ".tool" + item_loss.path.substr(8);
+            losses.push_back(std::move(item_loss));
+        }
         const auto* definitions = encoded.value.find("tools");
         if (!definitions || definitions->as_array().size() != 1) return invalid_argument("anthropic: tool change definition cannot be represented");
         json::Value definition = definitions->as_array()[0];
@@ -1010,6 +1014,11 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         } else {
                             part.type = "tool_change";
                             OXA_ASSIGN_OR_RETURN(auto change, decode_tool_change(item, path, losses));
+                            if (change.tool) {
+                                declared_tools.insert(change.tool->name);
+                                if (change.tool->type == "custom") custom_tools.insert(change.tool->name);
+                                else custom_tools.erase(change.tool->name);
+                            }
                             part.change = std::move(change);
                         }
                         group.parts.push_back(std::move(part));
@@ -1403,7 +1412,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (auto cc = get_block_cache_control(part.native)) block.set("cache_control", std::move(*cc));
                     content.push_back(std::move(block));
                 } else if (part.type == "tool_change" && part.change) {
-                    OXA_ASSIGN_OR_RETURN(auto block, encode_tool_change(*part.change));
+                    OXA_ASSIGN_OR_RETURN(auto block, encode_tool_change(*part.change, "tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "].change", losses));
                     content.push_back(std::move(block));
                 } else return invalid_argument("anthropic: invalid tool change part");
             }
@@ -1455,8 +1464,8 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     if (compaction->signature) bw.set("signature", json::Value::string(*compaction->signature));
                     if (compaction->tool_changes) {
                         json::Value changes = json::Value::array();
-                        for (const auto& change : *compaction->tool_changes) {
-                            OXA_ASSIGN_OR_RETURN(auto item, encode_tool_change(change));
+                        for (std::size_t ci = 0; ci < compaction->tool_changes->size(); ++ci) {
+                            OXA_ASSIGN_OR_RETURN(auto item, encode_tool_change((*compaction->tool_changes)[ci], "messages[" + std::to_string(i) + "].content[" + std::to_string(bi) + "].tool_changes[" + std::to_string(ci) + "]", losses));
                             changes.push_back(std::move(item));
                         }
                         bw.set("tool_changes", std::move(changes));

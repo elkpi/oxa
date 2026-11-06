@@ -214,26 +214,78 @@ func ValidateNativeRequest(req *Request) error {
 		}
 	}
 
-	for tIdx, tool := range req.Tools {
-		if err := validateAnnotations(tool.Native, hostTool); err != nil {
-			return fmt.Errorf("ir: tools[%d] native invalid: %w", tIdx, err)
-		}
-		var hasCacheControl, hasDeferLoading bool
-		for _, n := range tool.Native {
-			if n.Source == NativeSourceAnthropic {
-				switch n.Kind {
-				case NativeKindCacheControl:
-					hasCacheControl = true
-				case NativeKindDeferLoading:
-					hasDeferLoading = true
-				}
-			}
-		}
-		if hasCacheControl && hasDeferLoading {
-			return fmt.Errorf("ir: tools[%d]: cannot specify both defer_loading and cache_control", tIdx)
+	for tIdx := range req.Tools {
+		if err := validateToolNative(&req.Tools[tIdx], fmt.Sprintf("tools[%d]", tIdx)); err != nil {
+			return err
 		}
 	}
 
+	for gIdx, group := range req.ToolChangeGroups {
+		for pIdx, part := range group.Parts {
+			partPath := fmt.Sprintf("tool_change_groups[%d].parts[%d]", gIdx, pIdx)
+			if err := validateAnnotations(part.Native, hostContentBlock); err != nil {
+				return fmt.Errorf("ir: %s native invalid: %w", partPath, err)
+			}
+			if part.Change == nil {
+				continue
+			}
+			if err := validateAnnotations(part.Change.Native, hostTool); err != nil {
+				return fmt.Errorf("ir: %s.change native invalid: %w", partPath, err)
+			}
+			if part.Change.Tool != nil {
+				if err := validateToolNative(part.Change.Tool, partPath+".change.tool"); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	for mIdx, msg := range req.Messages {
+		for cIdx, blk := range msg.Content {
+			compaction, ok := blk.(CompactionBlock)
+			if !ok {
+				continue
+			}
+			base := fmt.Sprintf("messages[%d].content[%d]", mIdx, cIdx)
+			for k := range compaction.ToolChanges {
+				change := &compaction.ToolChanges[k]
+				changePath := fmt.Sprintf("%s.tool_changes[%d]", base, k)
+				if err := validateAnnotations(change.Native, hostTool); err != nil {
+					return fmt.Errorf("ir: %s native invalid: %w", changePath, err)
+				}
+				if change.Tool != nil {
+					if err := validateToolNative(change.Tool, changePath+".tool"); err != nil {
+						return err
+					}
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// validateToolNative applies tool-host annotation rules to one tool, including
+// the defer_loading/cache_control mutual exclusion (spec/15 s3.4). path is the
+// IR path of the tool host for error messages.
+func validateToolNative(tool *Tool, path string) error {
+	if err := validateAnnotations(tool.Native, hostTool); err != nil {
+		return fmt.Errorf("ir: %s native invalid: %w", path, err)
+	}
+	var hasCacheControl, hasDeferLoading bool
+	for _, n := range tool.Native {
+		if n.Source == NativeSourceAnthropic {
+			switch n.Kind {
+			case NativeKindCacheControl:
+				hasCacheControl = true
+			case NativeKindDeferLoading:
+				hasDeferLoading = true
+			}
+		}
+	}
+	if hasCacheControl && hasDeferLoading {
+		return fmt.Errorf("ir: %s: cannot specify both defer_loading and cache_control", path)
+	}
 	return nil
 }
 

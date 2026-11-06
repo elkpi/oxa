@@ -486,3 +486,81 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 		t.Fatalf("expected error for prompt_cache_breakpoint on ThinkingBlock")
 	}
 }
+
+func TestValidateNativeRequestPositionalAndCompaction(t *testing.T) {
+	badTool := func() *Tool {
+		return &Tool{
+			Name:        "read",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Native: []NativeAnnotation{{
+				Source: NativeSourceAnthropic, Kind: NativeKindCacheControl,
+				Value: `{"type":"bad"}`,
+			}},
+		}
+	}
+	base := func() *Request {
+		return &Request{
+			Model:    "m",
+			Messages: []Message{{Role: RoleUser, Content: []Block{TextBlock{Text: "go"}}}},
+		}
+	}
+
+	// 1. Invalid cache_control on change.tool
+	req := base()
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: badTool()}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid cache_control on positional change tool")
+	}
+
+	// 2. defer_loading + cache_control mutual exclusion on positional tool
+	req = base()
+	excl := badTool()
+	excl.Native = append(excl.Native, NativeAnnotation{Source: NativeSourceAnthropic, Kind: NativeKindDeferLoading, Value: "true"})
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: excl}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected defer_loading+cache_control exclusion error on positional tool")
+	}
+
+	// 3. Text part native with invalid annotation (bad JSON value)
+	req = base()
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeText, Text: "note",
+			Native: []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{bad`}}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid JSON on text part native")
+	}
+
+	// 4. Compaction tool_changes with invalid annotation
+	req = base()
+	compaction := CompactionBlock{ToolChanges: []ToolChange{{Op: ToolChangeOpAdd, Tool: badTool()}}}
+	req.Messages[0].Content = []Block{compaction}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid cache_control in compaction tool_changes")
+	}
+
+	// 5. Valid case passes: valid cache_control + unknown non-empty source stay accepted
+	req = base()
+	okTool := &Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Native: []NativeAnnotation{
+			{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`},
+			{Source: "future_provider", Kind: "future_kind", Value: `{}`},
+		}}
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: okTool}}},
+	}}
+	if err := ValidateNativeRequest(req); err != nil {
+		t.Fatalf("expected valid positional native to pass, got %v", err)
+	}
+}

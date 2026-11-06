@@ -86,6 +86,12 @@ properties are retained in `extra` and restored only to the originating face.
 On another face, report losses as specified by that mapping; never leak the
 retained properties into the other protocol.
 
+Auditing applies to recognized tool and container declarations nested inside a
+positional tool-change item (`additional_tools.tools[]` in Responses): each
+unknown property on a recognized declaration inside that item records one
+`unmapped-field` loss at its exact source path, while unknown properties on the
+positional item itself remain covered by the item's `extra` retention rule.
+
 This rule applies to every non-exempt property on each recognized object
 whose structure is defined by the face mapping, including nested properties
 inside known message, content-block, tool, parameter, and native event

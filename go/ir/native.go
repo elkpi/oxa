@@ -223,8 +223,13 @@ func ValidateNativeRequest(req *Request) error {
 	for gIdx, group := range req.ToolChangeGroups {
 		for pIdx, part := range group.Parts {
 			partPath := fmt.Sprintf("tool_change_groups[%d].parts[%d]", gIdx, pIdx)
-			if err := validateAnnotations(part.Native, hostContentBlock); err != nil {
-				return fmt.Errorf("ir: %s native invalid: %w", partPath, err)
+			// Part-level native round-trips only on text parts; tool_change
+			// parts carry annotations on the change and its tool instead.
+			if part.Type == ToolChangePartTypeText {
+				if err := validateAnnotations(part.Native, hostContentBlock); err != nil {
+					return fmt.Errorf("ir: %s native invalid: %w", partPath, err)
+				}
+				continue
 			}
 			if part.Change == nil {
 				continue

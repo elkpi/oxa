@@ -627,9 +627,25 @@ test("audits unknown fields inside additional_tools declarations", () => {
           status: "queued",
           future_execution: true,
           tools: [
-            { type: "function", name: "read", parameters: { type: "object" }, future_execution: true },
+            {
+              type: "function",
+              name: "read",
+              parameters: { type: "object" },
+              future_execution: true,
+            },
             { type: "custom", name: "run", future_execution: true },
-            { type: "toolbox", name: "repo", future_execution: true, tools: [{ type: "function", name: "read", parameters: { type: "object" } }] },
+            {
+              type: "toolbox",
+              name: "repo",
+              future_execution: true,
+              tools: [
+                {
+                  type: "function",
+                  name: "read",
+                  parameters: { type: "object" },
+                },
+              ],
+            },
           ],
         },
         { role: "user", content: "go" },

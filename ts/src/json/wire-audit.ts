@@ -76,7 +76,11 @@ export function auditWire(root: unknown, spec: WireAuditSpec): WireAudit {
       const child = effective.fields[key];
       if (!Object.prototype.hasOwnProperty.call(effective.fields, key)) {
         if (!effective.retainExtra) {
-          losses.push({ path: fieldPath, field: key, reason: "unmapped-field" });
+          losses.push({
+            path: fieldPath,
+            field: key,
+            reason: "unmapped-field",
+          });
         }
         continue;
       }

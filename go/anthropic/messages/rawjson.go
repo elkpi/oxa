@@ -47,8 +47,10 @@ var rawMessageType = reflect.TypeOf(json.RawMessage{})
 // rawMessageShadow mirrors the wire Request while keeping message and system
 // content as raw JSON so tool_use.input source bytes survive (INV-1, N-AN-4).
 type rawMessageShadow struct {
-	Role    string          `json:"role"`
-	Content json.RawMessage `json:"content"`
+	Role         string          `json:"role"`
+	Content      json.RawMessage `json:"content"`
+	ClearAt      json.RawMessage `json:"clear_at"`
+	OutputConfig json.RawMessage `json:"output_config"`
 }
 
 type rawRequestShadow struct {
@@ -107,7 +109,7 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 		if err != nil {
 			return nil, nil, fmt.Errorf("anthropic: request JSON: %w", err)
 		}
-		wire.Messages = append(wire.Messages, Message{Role: message.Role, Content: content})
+		wire.Messages = append(wire.Messages, Message{Role: message.Role, Content: content, ClearAt: message.ClearAt, OutputConfig: message.OutputConfig})
 	}
 	req, losses, err := DecodeRequest(&wire, opts...)
 	if err != nil {
@@ -534,7 +536,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		schema := &rawJSONSchema{}
 		seen[t] = schema
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
-			return rawObjectSchema(t, []string{"role", "content"},
+			return rawObjectSchema(t, []string{"role", "content", "clear_at", "output_config"},
 				map[string]*rawJSONSchema{
 					"content": {variant: func(content *rawJSONNode) *rawJSONSchema {
 						if content != nil && content.kind == '[' {

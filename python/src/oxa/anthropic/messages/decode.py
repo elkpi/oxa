@@ -245,6 +245,10 @@ def decode_request(
     for index, msg in enumerate(raw_messages):
         role_str = msg.get("role", "")
         if role_str == AN_ROLE_SYSTEM:
+            if "clear_at" in msg:
+                losses.append(loss(f"messages[{index}].clear_at", "clear_at", LOSS_UNMAPPED_FIELD, "Anthropic system message clear_at has no IR equivalent"))
+            if "output_config" in msg:
+                losses.append(loss(f"messages[{index}].output_config", "output_config", LOSS_UNMAPPED_FIELD, "Anthropic per-message output_config has no IR equivalent"))
             content = msg.get("content")
             if content is None:
                 raise ValueError(f"anthropic: messages[{index}]: content is missing")

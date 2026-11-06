@@ -350,6 +350,14 @@ pub struct Message {
     pub role: String,
     #[serde(rename = "content")]
     pub content: Option<ContentValue>,
+    #[serde(rename = "clear_at", default, skip_serializing_if = "Option::is_none")]
+    pub clear_at: Option<Value>,
+    #[serde(
+        rename = "output_config",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub output_config: Option<Value>,
 }
 
 #[derive(Default, Deserialize)]
@@ -359,6 +367,10 @@ struct GenericMessage {
     role: String,
     #[serde(rename = "content")]
     content: Option<Value>,
+    #[serde(rename = "clear_at", default)]
+    clear_at: Option<Value>,
+    #[serde(rename = "output_config", default)]
+    output_config: Option<Value>,
 }
 
 fn canonicalize_generic_numbers(value: Value) -> Value {
@@ -395,14 +407,24 @@ impl<'de> Deserialize<'de> for Message {
     where
         D: Deserializer<'de>,
     {
-        let GenericMessage { role, content } = GenericMessage::deserialize(deserializer)?;
+        let GenericMessage {
+            role,
+            content,
+            clear_at,
+            output_config,
+        } = GenericMessage::deserialize(deserializer)?;
         let content = content
             .map(|content| {
                 serde_json::from_value(canonicalize_generic_numbers(content))
                     .map_err(D::Error::custom)
             })
             .transpose()?;
-        Ok(Message { role, content })
+        Ok(Message {
+            role,
+            content,
+            clear_at,
+            output_config,
+        })
     }
 }
 

@@ -31,6 +31,10 @@ struct RawMessage<'a> {
     role: String,
     #[serde(borrow)]
     content: Option<&'a RawValue>,
+    #[serde(default)]
+    clear_at: Option<Value>,
+    #[serde(default)]
+    output_config: Option<Value>,
 }
 
 pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec<Loss>), Error> {
@@ -62,6 +66,8 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
             Ok(Message {
                 role: message.role,
                 content,
+                clear_at: message.clear_at,
+                output_config: message.output_config,
             })
         })
         .collect::<Result<Vec<_>, Error>>()?;

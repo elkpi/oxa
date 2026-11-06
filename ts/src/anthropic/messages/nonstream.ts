@@ -458,6 +458,23 @@ function decodeRequestObject(
   const toolChangeGroups: ToolChangeGroup[] = [];
   for (const { msg, role, index } of rawMessages) {
     if (role === "system") {
+      if (msg.clear_at !== undefined) {
+        losses.push({
+          path: `messages[${index}].clear_at`,
+          field: "clear_at",
+          reason: "unmapped-field",
+          detail: "Anthropic system message clear_at has no IR equivalent",
+        });
+      }
+      if (msg.output_config !== undefined) {
+        losses.push({
+          path: `messages[${index}].output_config`,
+          field: "output_config",
+          reason: "unmapped-field",
+          detail:
+            "Anthropic per-message output_config has no IR equivalent",
+        });
+      }
       if (msg.content === undefined || msg.content === null) {
         fail(`messages[${index}]: content is missing`);
       }
@@ -812,14 +829,6 @@ export function encodeRequest(
       request.tool_change_groups ?? []
     ).entries()) {
       if (group.message_index !== index) continue;
-      if (group.extra && Object.keys(group.extra).length)
-        losses.push({
-          path: `tool_change_groups[${groupIndex}].extra`,
-          field: "extra",
-          reason: "unmapped-field",
-          detail:
-            "additional_tools item extensions have no equivalent on the target face",
-        });
       const valid =
         group.content_index === -1 &&
         index > 0 &&
@@ -880,15 +889,27 @@ export function encodeRequest(
           },
         ];
       });
-      if (group.id !== undefined)
-        losses.push({
-          path: `tool_change_groups[${groupIndex}].id`,
-          field: "id",
-          reason: "unmapped-field",
-          detail:
-            "additional_tools item id has no equivalent on the target face",
-        });
-      if (content.length) messages.push({ role: "system", content });
+      if (content.length) {
+        if (group.extra && Object.keys(group.extra).length) {
+          losses.push({
+            path: `tool_change_groups[${groupIndex}].extra`,
+            field: "extra",
+            reason: "unmapped-field",
+            detail:
+              "additional_tools item extensions have no equivalent on the target face",
+          });
+        }
+        if (group.id !== undefined) {
+          losses.push({
+            path: `tool_change_groups[${groupIndex}].id`,
+            field: "id",
+            reason: "unmapped-field",
+            detail:
+              "additional_tools item id has no equivalent on the target face",
+          });
+        }
+        messages.push({ role: "system", content });
+      }
     }
     if (index < encodedMessages.length) messages.push(encodedMessages[index]!);
   }

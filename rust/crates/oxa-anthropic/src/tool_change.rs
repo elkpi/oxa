@@ -96,6 +96,7 @@ pub(crate) fn decode_change(
             messages: vec![Message {
                 role: "user".into(),
                 content: Some(ContentValue::Text("x".into())),
+                ..Message::default()
             }],
             ..Request::default()
         };

@@ -448,11 +448,14 @@ Each rule has a stable ID usable as a vector tag.
     A tool addition carrying a native definition from another source has no Anthropic equivalent: omit that part and report one `unsupported-semantic` loss at the part, field `op`, with the fixed detail `positional tool availability change cannot be represented on the target face`. Do not emit an empty system message when all parts are omitted.
     Groups placed on invalid boundaries (e.g. within an assistant turn or following system) MUST NOT be shifted;
     each part in the group emits an `unsupported-semantic` loss (`positional tool availability change cannot be represented on the target face` or `positional system text has no equivalent on the target face`).
-    If a group carries an `id`, an `unmapped-field` loss is emitted on Anthropic encode:
-    `additional_tools item id has no equivalent on the target face`. If a group carries non-empty
-    `extra`, emit one `unmapped-field` loss at `tool_change_groups[i].extra`, field `extra`,
-    with fixed detail `additional_tools item extensions have no equivalent on the target face`;
-    do not send those properties to Anthropic or include their names or values in the loss.
+    `id` and non-empty `extra` record one `unmapped-field` loss each only when the group is emitted
+    as a system message. A group omitted because its boundary is invalid, it has no parts, or every
+    part is omitted does not record separate losses for `id` or `extra`. The `id` detail is
+    `additional_tools item id has no equivalent on the target face`. The `extra` detail is
+    `additional_tools item extensions have no equivalent on the target face`. Do not send those
+    properties to Anthropic or include their names or values in the loss.
+    A present `clear_at` or message-level `output_config` on any `role: "system"` message records
+    one `unmapped-field` loss each and is not stored. Tool changes in that message are still decoded.
 
 - **N-AN-21 (tool reference blocks, since 2.5.3).** Anthropic `tool_reference` content blocks in requests (typically inside `tool_result.content` or `messages[].content`) map 1:1 to `ToolReferenceBlock{ToolName}`.
   - **Decode (Messages → IR).** An object with `type: "tool_reference"` decodes to `ToolReferenceBlock{ToolName: tool_name}`. When the `tool_name` key is present it MUST be a non-empty string (an empty or null `tool_name` is a structural error, even when `name` is present); when `tool_name` is absent, `name` is tolerated as an alias under the same non-empty-string rule; a block carrying neither is a structural error. Unrecognized properties on the block are audited per [spec/02 §4](02-loss-policy.md): one `unmapped-field` loss per present property. If `cache_control` is present, it is attached as a `NativeAnnotation` (`kind: "cache_control"`; `ToolReferenceBlock` is a valid request-side `cache_control` host per [spec/15 §2](15-native-request-options.md)).
@@ -461,18 +464,18 @@ Each rule has a stable ID usable as a vector tag.
 
 ## 8. Loss Catalog
 
-| `tool_change_groups[i].parts[j]` (invalid boundary) | unsupported-semantic | IR → request | positional tool availability change cannot be represented on the target face |
-| `tool_change_groups[i].parts[j]` (invalid text) | unsupported-semantic | IR → request | positional system text has no equivalent on the target face |
-| `tool_change_groups[i]` (empty group) | unsupported-semantic | IR → request | empty positional tool group cannot be represented on the target face |
-| `tool_change_groups[i].id` | unmapped-field | IR → request | additional_tools item id has no equivalent on the target face |
-| `messages[i].clear_at` | unmapped-field | request → IR | Anthropic system message clear_at has no IR equivalent |
-| `messages[i].output_config` | unmapped-field | request → IR | Anthropic per-message output_config has no IR equivalent |
-
 Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-envelope-fields): DERIVED and
 ENVELOPE fields are exempt; everything else MUST record a loss.
 
 | Field (path context) | Bucket / reason | Direction | Detail |
 |---|---|---|---|
+| `tool_change_groups[i].parts[j]` (invalid boundary) | unsupported-semantic | IR → request | positional tool availability change cannot be represented on the target face |
+| `tool_change_groups[i].parts[j]` (invalid text) | unsupported-semantic | IR → request | positional system text has no equivalent on the target face |
+| `tool_change_groups[i]` (empty group) | unsupported-semantic | IR → request | empty positional tool group cannot be represented on the target face |
+| `tool_change_groups[i].id` (emitted group) | unmapped-field | IR → request | additional_tools item id has no equivalent on the target face |
+| `tool_change_groups[i].extra` (emitted group) | unmapped-field | IR → request | additional_tools item extensions have no equivalent on the target face |
+| `messages[i].clear_at` | unmapped-field | request → IR | Anthropic system message clear_at has no IR equivalent |
+| `messages[i].output_config` | unmapped-field | request → IR | Anthropic per-message output_config has no IR equivalent |
 | response `type`, `role` | exempt (envelope) | both | N-AN-10 |
 | `cache_control` on an unsupported/dropped block | unsupported-semantic | request/response → IR | part of the whole dropped block (N-AN-9) |
 | `params.response_format` | unmapped-field | IR → request | unsupported format variant (N-AN-12) |
@@ -484,7 +487,8 @@ ENVELOPE fields are exempt; everything else MUST record a loss.
 | unknown block type or unknown image/document source type (with any annotations it carries) | unsupported-semantic | both | one whole-block loss, N-AN-9/N-AN-16 |
 | unknown document `source.type` | unsupported-semantic | request → IR | one whole-block loss, N-AN-16 |
 | IR document with none/multiple of data/url/file_id, data without `media_type`, url or file_id with `media_type` | unsupported-semantic | IR → request | §4, N-AN-16 |
-| `metadata.<key>` other than `user_id` | unmapped-field | request, both directions (one loss per key) | N-AN-8, since 2.5.0 || `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
+| `metadata.<key>` other than `user_id` | unmapped-field | request, both directions (one loss per key) | N-AN-8, since 2.5.0 |
+| `messages[i].role` (mid-conversation system message) | degraded | request → IR | Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved. (N-AN-15) |
 | `redacted_thinking` block (cross-face) | unsupported-semantic | IR → target face | anthropic encrypted thinking replay state; the target face cannot preserve this block (N-AN-17) |
 | `tool_reference` block (cross-face) | unsupported-semantic | IR → target face | tool reference block; target face does not support tool search references (N-AN-21) |
 | `text.citations` (cross-face: anthropic) | unsupported-semantic | IR → target face | anthropic text citations; the target face cannot preserve source locations and replay metadata (N-AN-18) |

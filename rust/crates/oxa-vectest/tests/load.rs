@@ -113,7 +113,7 @@ fn repository_loader_includes_all_spec_2_vectors() {
     ] {
         vectors.extend(load_vectors(&root, face, mode).expect("load vectors"));
     }
-    assert_eq!(vectors.len(), 560);
+    assert_eq!(vectors.len(), 562);
     assert_eq!(
         vectors
             .iter()

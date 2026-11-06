@@ -338,7 +338,12 @@ fn shape(name: &str, object: &RawObject<'_>) -> Option<&'static [(&'static str, 
             ("usage", "usage"),
         ]),
         "stop_details" => Some(&[("type", ""), ("category", ""), ("explanation", "")]),
-        "message" => Some(&[("role", ""), ("content", "block[]")]),
+        "message" => Some(&[
+            ("role", ""),
+            ("content", "block[]"),
+            ("clear_at", ""),
+            ("output_config", ""),
+        ]),
         "system_block" => Some(&[("type", ""), ("text", ""), ("cache_control", "")]),
         "tool" => Some(&[
             ("type", ""),

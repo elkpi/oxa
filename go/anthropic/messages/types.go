@@ -307,8 +307,10 @@ type SystemBlockWire struct {
 // Message is a wire message. Content is either a string or an array of
 // blocks. A decoded tool_use input is kept in BlockWire.Input as raw JSON.
 type Message struct {
-	Role    string `json:"role"`
-	Content any    `json:"content"`
+	Role         string          `json:"role"`
+	Content      any             `json:"content"`
+	ClearAt      json.RawMessage `json:"clear_at,omitempty"`
+	OutputConfig json.RawMessage `json:"output_config,omitempty"`
 }
 
 // BlockWire is one content block: text, image, tool_use, or tool_result.

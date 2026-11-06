@@ -207,14 +207,6 @@ fn tool_change_group_content(
             }
         }
     }
-    if group.id.is_some() {
-        losses.push(loss(
-            format!("tool_change_groups[{group_index}].id"),
-            "id",
-            LossReason::UnmappedField,
-            "additional_tools item id has no equivalent on the target face",
-        ));
-    }
     Ok(content)
 }
 
@@ -243,14 +235,6 @@ fn emit_groups_at(
         if group.message_index != position {
             continue;
         }
-        if group.extra.as_ref().is_some_and(|extra| !extra.is_empty()) {
-            losses.push(loss(
-                format!("tool_change_groups[{group_index}].extra"),
-                "extra",
-                LossReason::UnmappedField,
-                "additional_tools item extensions have no equivalent on the target face",
-            ));
-        }
         if !group_is_valid(req, group) || group.parts.is_empty() {
             if group.parts.is_empty() {
                 losses.push(loss(
@@ -277,9 +261,26 @@ fn emit_groups_at(
         }
         let content = tool_change_group_content(group, group_index, losses)?;
         if !content.is_empty() {
+            if group.extra.as_ref().is_some_and(|extra| !extra.is_empty()) {
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}].extra"),
+                    "extra",
+                    LossReason::UnmappedField,
+                    "additional_tools item extensions have no equivalent on the target face",
+                ));
+            }
+            if group.id.is_some() {
+                losses.push(loss(
+                    format!("tool_change_groups[{group_index}].id"),
+                    "id",
+                    LossReason::UnmappedField,
+                    "additional_tools item id has no equivalent on the target face",
+                ));
+            }
             out.messages.push(Message {
                 role: "system".into(),
                 content: Some(ContentValue::Blocks(content)),
+                ..Message::default()
             });
         }
     }
@@ -619,6 +620,7 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
         out.messages.push(Message {
             role: role.to_string(),
             content: Some(content),
+            ..Message::default()
         });
     }
     emit_groups_at(req, req.messages.len(), &mut out, &mut losses)?;

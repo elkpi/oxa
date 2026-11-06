@@ -260,6 +260,22 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
             }
         }
         if message.role.as_str() == ROLE_SYSTEM {
+            if message.clear_at.is_some() {
+                losses.push(loss(
+                    format!("messages[{index}].clear_at"),
+                    "clear_at",
+                    LossReason::UnmappedField,
+                    "Anthropic system message clear_at has no IR equivalent",
+                ));
+            }
+            if message.output_config.is_some() {
+                losses.push(loss(
+                    format!("messages[{index}].output_config"),
+                    "output_config",
+                    LossReason::UnmappedField,
+                    "Anthropic per-message output_config has no IR equivalent",
+                ));
+            }
             if let Some(crate::types::ContentValue::Blocks(blocks)) = &message.content
                 && blocks
                     .iter()

@@ -311,8 +311,6 @@ def encode_request(
         from oxa.anthropic.messages.native import get_block_cache_control
         for i, group in enumerate(req.tool_change_groups):
             if group.message_index != position: continue
-            if group.extra:
-                losses.append(loss(f"tool_change_groups[{i}].extra", "extra", LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"))
             valid = group.content_index == -1 and position > 0 and req.messages[position - 1].role == IR_ROLE_USER and (position == len(req.messages) or req.messages[position].role == IR_ROLE_ASSISTANT)
             if not valid or not group.parts:
                 if not group.parts: losses.append(loss(f"tool_change_groups[{i}]", "tools", LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"))
@@ -334,8 +332,12 @@ def encode_request(
                     content.append(item)
                 elif part.type == "tool_change" and part.change is not None: content.append(encode_change(part.change))
                 else: raise ValueError("invalid tool change part")
-            if group.id is not None: losses.append(loss(f"tool_change_groups[{i}].id", "id", LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"))
-            if content: out["messages"].append({"role": "system", "content": content})
+            if content:
+                if group.extra:
+                    losses.append(loss(f"tool_change_groups[{i}].extra", "extra", LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"))
+                if group.id is not None:
+                    losses.append(loss(f"tool_change_groups[{i}].id", "id", LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"))
+                out["messages"].append({"role": "system", "content": content})
 
     for index, message in enumerate(req.messages):
         emit_groups(index)

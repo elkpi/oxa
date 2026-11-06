@@ -973,6 +973,12 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         const auto* role_val = m.find("role");
         std::string role = role_val && role_val->is_string() ? role_val->as_string() : "";
         if (role == "system") {
+            if (m.find("clear_at") != nullptr) {
+                losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].clear_at", "clear_at", ir::LOSS_UNMAPPED_FIELD, "Anthropic system message clear_at has no IR equivalent"));
+            }
+            if (m.find("output_config") != nullptr) {
+                losses.push_back(make_ant_loss("messages[" + std::to_string(i) + "].output_config", "output_config", ir::LOSS_UNMAPPED_FIELD, "Anthropic per-message output_config has no IR equivalent"));
+            }
             const auto* content_val = m.find("content");
             if (!content_val) {
                 return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: content is missing");
@@ -1374,7 +1380,6 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         for (std::size_t gi = 0; gi < req.tool_change_groups.size(); ++gi) {
             const auto& group = req.tool_change_groups[gi];
             if (group.message_index != position) continue;
-            if (!group.extra.as_object().empty()) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].extra", "extra", ir::LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"));
             bool valid = group.content_index == -1 && position > 0 && position <= req.messages.size() && req.messages[position - 1].role == "user" && (position == req.messages.size() || req.messages[position].role == "assistant");
             if (!valid || group.parts.empty()) {
                 if (group.parts.empty()) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "]", "tools", ir::LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"));
@@ -1402,8 +1407,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     content.push_back(std::move(block));
                 } else return invalid_argument("anthropic: invalid tool change part");
             }
-            if (group.id) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].id", "id", ir::LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"));
             if (content.as_array().empty()) continue;
+            if (!group.extra.as_object().empty()) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].extra", "extra", ir::LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"));
+            if (group.id) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].id", "id", ir::LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"));
             json::Value message = json::Value::object();
             message.set("role", json::Value::string("system"));
             message.set("content", std::move(content));

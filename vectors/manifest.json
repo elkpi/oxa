@@ -1052,6 +1052,29 @@
       "sha256": "b29a813301def8c4bd63f040314eaf25d305a9668f101a36c03245af4b2282d8"
     },
     {
+      "name": "anthropic.nonstream.system-message-fields-text-to-ir",
+      "file": "anthropic/nonstream/system-message-fields-text-to-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "system",
+        "N-AN-15",
+        "N-AN-22"
+      ],
+      "sha256": "a5ed5ce6a4db9f155c0c5baa6b86d341f788bfe334ab5c7a67b9c566d986026c"
+    },
+    {
+      "name": "anthropic.nonstream.system-message-fields-tool-change-to-ir",
+      "file": "anthropic/nonstream/system-message-fields-tool-change-to-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "tool_addition",
+        "N-AN-22"
+      ],
+      "sha256": "3f75f2806e050fd7cd5042ff267391ff071671baae51682dfc60e3a7c2156099"
+    },
+    {
       "name": "anthropic.nonstream.system-prompt-request-from-ir",
       "file": "anthropic/nonstream/system-prompt-request-from-ir.json",
       "tags": [

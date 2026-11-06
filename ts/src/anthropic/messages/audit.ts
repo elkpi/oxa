@@ -240,6 +240,8 @@ const MESSAGE: WireAuditSpec = {
   fields: {
     role: undefined,
     content: { items: BLOCK },
+    clear_at: undefined,
+    output_config: undefined,
   },
 };
 

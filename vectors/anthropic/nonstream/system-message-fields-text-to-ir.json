@@ -1,0 +1,95 @@
+{
+  "name": "anthropic.nonstream.system-message-fields-text-to-ir",
+  "description": "clear_at and per-message output_config on a text system message are explicit losses and are not stored.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "input": {
+    "model": "m",
+    "max_tokens": 32,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "content": "Be brief.",
+        "clear_at": {
+          "type": "input_tokens",
+          "value": 10
+        },
+        "output_config": {
+          "effort": "low"
+        }
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "m",
+    "system": [
+      {
+        "type": "text",
+        "text": "Be brief."
+      }
+    ],
+    "params": {
+      "max_tokens": 32
+    },
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          {
+            "type": "text",
+            "text": "Ready"
+          }
+        ]
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "messages[1].clear_at",
+      "field": "clear_at",
+      "reason": "unmapped-field",
+      "detail": "Anthropic system message clear_at has no IR equivalent"
+    },
+    {
+      "path": "messages[1].output_config",
+      "field": "output_config",
+      "reason": "unmapped-field",
+      "detail": "Anthropic per-message output_config has no IR equivalent"
+    },
+    {
+      "path": "messages[1].role",
+      "field": "role",
+      "reason": "degraded",
+      "detail": "Anthropic mid-conversation system message is carried as request-level system content; mid-conversation position is not preserved."
+    }
+  ],
+  "tags": [
+    "anthropic",
+    "request",
+    "system",
+    "N-AN-15",
+    "N-AN-22"
+  ]
+}

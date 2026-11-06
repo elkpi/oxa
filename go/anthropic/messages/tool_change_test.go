@@ -51,3 +51,26 @@ func TestMixedSystemChangePreservesTextCache(t *testing.T) {
 		t.Fatalf("cache control: %s", blocks[0].CacheControl)
 	}
 }
+
+func TestSystemMessageFieldLossDetails(t *testing.T) {
+	input := []byte(`{"model":"m","max_tokens":32,"messages":[{"role":"user","content":"go"},{"role":"system","clear_at":{"type":"input_tokens","value":1},"output_config":{"effort":"low"},"content":[{"type":"tool_addition","tool":{"type":"tool_reference","name":"x"}}]},{"role":"assistant","content":"ok"}]}`)
+	req, losses, err := DecodeRequestJSON(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(req.ToolChangeGroups) != 1 || len(req.System) != 0 {
+		t.Fatalf("stored system fields: %+v", req)
+	}
+	want := map[string]string{
+		"messages[1].clear_at":      "Anthropic system message clear_at has no IR equivalent",
+		"messages[1].output_config": "Anthropic per-message output_config has no IR equivalent",
+	}
+	if len(losses) != len(want) {
+		t.Fatalf("losses=%+v", losses)
+	}
+	for _, loss := range losses {
+		if want[loss.Path] != loss.Detail || loss.Field == "" || loss.Reason != ir.LossUnmappedField {
+			t.Fatalf("loss=%+v", loss)
+		}
+	}
+}

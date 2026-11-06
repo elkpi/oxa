@@ -8,6 +8,16 @@ import (
 )
 
 // decodeToolChangeSystem preserves the ordering within a mixed system message.
+func appendSystemMessageFieldLosses(losses []ir.Loss, index int, m Message) []ir.Loss {
+	if len(m.ClearAt) > 0 {
+		losses = append(losses, ir.Loss{Path: fmt.Sprintf("messages[%d].clear_at", index), Field: "clear_at", Reason: ir.LossUnmappedField, Detail: "Anthropic system message clear_at has no IR equivalent"})
+	}
+	if len(m.OutputConfig) > 0 {
+		losses = append(losses, ir.Loss{Path: fmt.Sprintf("messages[%d].output_config", index), Field: "output_config", Reason: ir.LossUnmappedField, Detail: "Anthropic per-message output_config has no IR equivalent"})
+	}
+	return losses
+}
+
 func decodeToolChangeSystem(content any, index int) ([]ir.ToolChangePart, bool, []ir.Loss, error) {
 	var blocks []BlockWire
 	switch v := content.(type) {
@@ -166,9 +176,6 @@ func appendToolChangeGroups(out *Request, req *ir.Request, position int) ([]ir.L
 		if group.MessageIndex != position {
 			continue
 		}
-		if len(group.Extra) > 0 {
-			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tool_change_groups[%d].extra", i), Field: "extra", Reason: ir.LossUnmappedField, Detail: "additional_tools item extensions have no equivalent on the target face"})
-		}
 		valid := group.ContentIndex == -1 && position > 0 && req.Messages[position-1].Role == ir.RoleUser && (position == len(req.Messages) || req.Messages[position].Role == ir.RoleAssistant)
 		if !valid || len(group.Parts) == 0 {
 			if len(group.Parts) == 0 {
@@ -208,10 +215,13 @@ func appendToolChangeGroups(out *Request, req *ir.Request, position int) ([]ir.L
 			}
 			blocks = append(blocks, BlockWire{Type: "tool_addition", rawChange: raw})
 		}
-		if group.ID != "" {
-			losses = append(losses, ir.Loss{Path: fmt.Sprintf("tool_change_groups[%d].id", i), Field: "id", Reason: ir.LossUnmappedField, Detail: "additional_tools item id has no equivalent on the target face"})
-		}
 		if len(blocks) > 0 {
+			if len(group.Extra) > 0 {
+				losses = append(losses, ir.Loss{Path: fmt.Sprintf("tool_change_groups[%d].extra", i), Field: "extra", Reason: ir.LossUnmappedField, Detail: "additional_tools item extensions have no equivalent on the target face"})
+			}
+			if group.ID != "" {
+				losses = append(losses, ir.Loss{Path: fmt.Sprintf("tool_change_groups[%d].id", i), Field: "id", Reason: ir.LossUnmappedField, Detail: "additional_tools item id has no equivalent on the target face"})
+			}
 			out.Messages = append(out.Messages, Message{Role: RoleSystem, Content: blocks})
 		}
 	}

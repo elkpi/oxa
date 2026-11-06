@@ -205,6 +205,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	for i, m := range wire.Messages {
 		if m.Role == RoleSystem {
+			losses = appendSystemMessageFieldLosses(losses, i, m)
 			parts, handled, changeLosses, err := decodeToolChangeSystem(m.Content, i)
 			if err != nil {
 				return nil, nil, err

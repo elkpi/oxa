@@ -23,7 +23,7 @@ Status: normative. 扩展 spec/01、spec/02、spec/10、spec/11、spec/12；IR c
 1. `native` 仅属于请求侧，MUST NOT 出现在 `Response`、`Response.Content`、`Event` 或 `EventStream` 中。
 2. 同一宿主对象上，相同 `(source, kind)` 的已知配置在数组中只能出现一次（singleton）；出现多次属于结构错误（structural error）。
 3. 来源解码器在解析来源请求时，必须通过该协议的字段审计，仅将已知且结构合法的配置存入 `NativeAnnotation`。未知字段仍按 `spec/02` 作为 `unmapped-field` 报损并丢弃，不得通过 `native` 借道透传。
-4. 位置相关的工具可用性结构（`ToolChangeGroup.parts[].native`、`ToolChange.native`、`ToolChange.tool.native`，以及 `CompactionBlock.tool_changes[].native` 与其 `tool.native`）上的 `native` 附加项，按其对应宿主规则验证：文本 part 的 native 按内容块宿主规则，change 与 tool 的 native 按 Tool 宿主规则。`ValidateNativeRequest` 等价的请求校验例程 MUST 遍历上述结构，在每一个新宿主上以精确的 IR 路径拒绝非法注解、重复 `(source, kind)` 与宿主违规；非空未知 `source` 仍按规则 2 的 singleton 语义保持合法。
+4. 位置相关的工具可用性结构（`ToolChangeGroup.parts[].native`、`ToolChange.native`、`ToolChange.tool.native`，以及 `CompactionBlock.tool_changes[].native` 与其 `tool.native`）上的 `native` 附加项，按其对应宿主规则验证：文本 part 的 native 按内容块宿主规则，change 与 tool 的 native 按 Tool 宿主规则，包括 §6 的 `cache_control` / `defer_loading` 互斥约束。`ValidateNativeRequest` 等价的请求校验例程 MUST 遍历上述结构，在每一个新宿主上以包含对应注解数组下标的精确 IR 路径拒绝非法注解、重复 `(source, kind)` 与宿主违规；互斥错误定位到宿主路径。错误 MUST NOT 包含注解值、schema、密文或签名。非空未知 `source` 仍按规则 2 的 singleton 语义保持合法。
 
 ## 2. 宿主与已知种类 — N-NAT-2
 

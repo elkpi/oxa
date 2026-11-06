@@ -435,6 +435,7 @@ Each rule has a stable ID usable as a vector tag.
     and `mcp_toolset_reference`. Decodes to `ToolChange{Op: "add"}`. `cache_control` attaches as `NativeAnnotation`.
   - **Tool removal.** `tool` is a union of `tool_reference`, `mcp_tool_reference`, and `mcp_toolset_reference`.
     `tool_definition` is forbidden (structural error). Decodes to `ToolChange{Op: "remove"}`. `cache_control` attaches as `NativeAnnotation`.
+  - **Tool change native annotations.** On encoding a retained tool change, unknown native sources and unknown kinds produce one `unsupported-semantic` loss each at the corresponding change's `native[k]` path, with field `source` or `kind` respectively. The same rule applies to changes inside a compaction block. Opaque annotation values MUST NOT appear in the wire output or loss. If the entire change is omitted, its annotations are covered by that change's loss and MUST NOT produce duplicate losses.
   - **Compaction block.** A content block with `type: "compaction"`. Permitted ONLY as the first block of `messages[0]`.
     Appearing anywhere else or in a system message is a structural error.
     `content` is an optional string or null (`null` indicates failed compaction). Empty string `""` is a structural error.

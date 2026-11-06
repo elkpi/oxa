@@ -187,7 +187,7 @@ def validate_native_request(req: Any) -> None:
             change = part.change
             if change is None:
                 continue
-            validate_positional_annotations(change.native, HostType.TOOL, f"{part_path}.change")
+            validate_tool_annotations(change.native, f"{part_path}.change", positional=True)
             if change.tool is not None:
                 validate_tool_native(change.tool, f"{part_path}.change.tool", positional=True)
 
@@ -198,20 +198,23 @@ def validate_native_request(req: Any) -> None:
             base = f"messages[{m_idx}].content[{c_idx}]"
             for k, change in enumerate(blk.tool_changes or ()):
                 change_path = f"{base}.tool_changes[{k}]"
-                validate_positional_annotations(change.native, HostType.TOOL, change_path)
+                validate_tool_annotations(change.native, change_path, positional=True)
                 if change.tool is not None:
                     validate_tool_native(change.tool, f"{change_path}.tool", positional=True)
 
 
 def validate_tool_native(tool: Any, path: str, *, positional: bool = False) -> None:
-    """Validate tool annotations and mutual exclusions."""
+    validate_tool_annotations(getattr(tool, "native", ()) or (), path, positional=positional)
+
+
+def validate_tool_annotations(native: Sequence[NativeAnnotation], path: str, *, positional: bool = False) -> None:
     if positional:
-        validate_positional_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
+        validate_positional_annotations(native, HostType.TOOL, path)
     else:
-        validate_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
+        validate_annotations(native, HostType.TOOL, path)
     has_cache_control = False
     has_defer_loading = False
-    for n in getattr(tool, "native", ()) or ():
+    for n in native:
         if n.source == NATIVE_SOURCE_ANTHROPIC:
             if n.kind == NATIVE_KIND_CACHE_CONTROL:
                 has_cache_control = True
@@ -227,6 +230,11 @@ def validate_positional_annotations(
     try:
         validate_annotations(annotations, host, path)
     except CodecError:
+        for index in range(len(annotations)):
+            try:
+                validate_annotations(annotations[:index + 1], host, path)
+            except CodecError:
+                raise CodecError(f"ir: {path}.native[{index}]: invalid native annotation") from None
         raise CodecError(f"ir: {path}.native: invalid native annotation") from None
 
 

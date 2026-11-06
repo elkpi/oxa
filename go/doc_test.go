@@ -3,6 +3,9 @@ package oxa_test
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/elkpi/oxa/go/v3"
@@ -11,8 +14,26 @@ import (
 )
 
 func TestVersion(t *testing.T) {
-	if oxa.Version != "2.5.3" {
-		t.Errorf("oxa.Version = %q, want 2.5.3", oxa.Version)
+	if oxa.Version != "3.0.0" {
+		t.Errorf("oxa.Version = %q, want 3.0.0", oxa.Version)
+	}
+}
+
+func TestReleaseVersionAgreement(t *testing.T) {
+	mod, err := os.ReadFile("go.mod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	major := strings.Split(oxa.Version, ".")[0]
+	if !regexp.MustCompile(`(?m)^module github\.com/elkpi/oxa/go/v` + regexp.QuoteMeta(major) + `$`).Match(mod) {
+		t.Fatalf("module path does not match exported major version %q", major)
+	}
+	tag := os.Getenv("OXA_RELEASE_TAG")
+	if tag == "" {
+		return
+	}
+	if tag != "v"+oxa.Version && tag != "go/v"+oxa.Version {
+		t.Fatalf("release tag %q does not match exported Go version %q", tag, oxa.Version)
 	}
 }
 

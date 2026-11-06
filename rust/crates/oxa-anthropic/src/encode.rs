@@ -39,7 +39,10 @@ const DEFAULT_MAX_TOKENS: i64 = 4096;
 /// for a request whose entire conversation is a single message of a single
 /// text block and that carries no system prompt; every other request renders
 /// block arrays.
-fn encode_tool_change(change: &oxa_ir::ToolChange) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
+fn encode_tool_change(
+    change: &oxa_ir::ToolChange,
+    path: &str,
+) -> Result<(BlockWire, Vec<Loss>, bool), Error> {
     if let Some(reference) = &change.reference {
         if !matches!(
             reference.ref_type.as_str(),
@@ -169,7 +172,30 @@ fn encode_tool_change(change: &oxa_ir::ToolChange) -> Result<(BlockWire, Vec<Los
     if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
         wire.cache_control = Some(cache_control);
     }
-    Ok((wire, Vec::new(), true))
+    let mut losses = Vec::new();
+    for (index, ann) in tool.native.iter().enumerate() {
+        if ann.source != oxa_ir::NATIVE_SOURCE_ANTHROPIC
+            && ann.kind != oxa_ir::NATIVE_KIND_DEFER_LOADING
+        {
+            let native_path = format!("{path}.tool.native[{index}]");
+            if let Some(omission) = &ann.omission {
+                losses.push(loss(
+                    native_path,
+                    &omission.field,
+                    omission.reason,
+                    omission.detail.clone().unwrap_or_default(),
+                ));
+            } else {
+                losses.push(loss(
+                    native_path,
+                    "source",
+                    LossReason::UnsupportedSemantic,
+                    format!("unsupported native option source {:?}", ann.source),
+                ));
+            }
+        }
+    }
+    Ok((wire, losses, true))
 }
 
 fn tool_change_group_content(
@@ -199,7 +225,10 @@ fn tool_change_group_content(
                     losses.push(loss(format!("tool_change_groups[{group_index}].parts[{part_index}]"), "op", LossReason::UnsupportedSemantic, "positional tool availability change cannot be represented on the target face"));
                     continue;
                 }
-                let (wire, mut part_losses, mapped) = encode_tool_change(change)?;
+                let (wire, mut part_losses, mapped) = encode_tool_change(
+                    change,
+                    &format!("tool_change_groups[{group_index}].parts[{part_index}].change"),
+                )?;
                 if mapped {
                     content.push(wire);
                 }
@@ -1062,10 +1091,13 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                 )));
             }
             let mut changes = Vec::new();
+            let mut change_losses = Vec::new();
             if let Some(items) = tool_changes {
                 for (i, change) in items.iter().enumerate() {
-                    let (item, item_losses, mapped) = encode_tool_change(change)?;
-                    if !mapped || !item_losses.is_empty() {
+                    let (item, item_losses, mapped) =
+                        encode_tool_change(change, &format!("{path}.tool_changes[{i}]"))?;
+                    change_losses.extend(item_losses);
+                    if !mapped {
                         return Err(Error::new(format!(
                             "anthropic: {path}.tool_changes[{i}] cannot be preserved"
                         )));
@@ -1087,7 +1119,7 @@ fn encode_request_block(block: &Block, path: &str) -> Result<(BlockWire, Vec<Los
                     extra: extra.clone(),
                     ..BlockWire::default()
                 },
-                Vec::new(),
+                change_losses,
                 true,
             ))
         }

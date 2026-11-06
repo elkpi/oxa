@@ -102,7 +102,12 @@ pub(crate) fn decode_change(
         };
         let (decoded, nested_losses) = crate::decode_request(&synthetic, &Config::default())
             .map_err(|e| Error::new(format!("anthropic: {path}.tool.definition: {e}")))?;
-        losses.extend(nested_losses);
+        losses.extend(nested_losses.into_iter().map(|mut item| {
+            if let Some(suffix) = item.path.strip_prefix("tools[0]") {
+                item.path = format!("{path}.tool.definition{suffix}");
+            }
+            item
+        }));
         result.tool = decoded.tools.and_then(|mut tools| tools.pop());
         let tool_extra: BTreeMap<_, _> = target
             .iter()

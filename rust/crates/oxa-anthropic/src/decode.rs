@@ -297,6 +297,14 @@ pub fn decode_request(wire: &Request, config: &Config) -> Result<(IrRequest, Vec
                             let (change, change_losses) =
                                 crate::tool_change::decode_change(block, &path)?;
                             losses.extend(change_losses);
+                            if let Some(tool) = &change.tool {
+                                declared_tools.insert(tool.name.clone());
+                                if tool.tool_type == Some(oxa_ir::ToolType::Custom) {
+                                    custom_tools.insert(tool.name.clone());
+                                } else {
+                                    custom_tools.remove(&tool.name);
+                                }
+                            }
                             parts.push(oxa_ir::ToolChangePart::Change {
                                 change: Box::new(change),
                             });

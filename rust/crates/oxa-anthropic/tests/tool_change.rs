@@ -2,6 +2,20 @@ use oxa_anthropic::{Config, decode_request_json, encode_request_json};
 use serde_json::{Value, json};
 
 #[test]
+fn positional_tool_definition_reports_decode_loss_at_source_path() {
+    let request = json!({"model":"m","max_tokens":32,"messages":[
+        {"role":"user","content":"go"},
+        {"role":"system","content":[{"type":"tool_addition","tool":{"type":"tool_definition","definition":{"name":"f","input_schema":{"type":"object"},"cache_control":{"type":"bad"}}}}]}
+    ]});
+    let (_, losses) = decode_request_json(&request.to_string(), &Config::default()).unwrap();
+    assert_eq!(losses.len(), 1, "{losses:?}");
+    assert_eq!(
+        losses[0].path,
+        "messages[1].content[0].tool.definition.cache_control.type"
+    );
+}
+
+#[test]
 fn tool_change_and_compaction_roundtrip_preserves_payload() {
     let change = json!({"type":"tool_addition", "cache_control":{"type":"ephemeral"},
         "tool":{"type":"mcp_toolset_reference","server_name":"svc","future":true}});

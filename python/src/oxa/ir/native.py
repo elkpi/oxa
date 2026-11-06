@@ -174,17 +174,49 @@ def validate_native_request(req: Any) -> None:
             validate_block_native(blk, HostType.CONTENT, f"messages[{m_idx}].content[{c_idx}]")
 
     for t_idx, tool in enumerate(getattr(req, "tools", ()) or ()):
-        validate_annotations(getattr(tool, "native", ()), HostType.TOOL, f"tools[{t_idx}]")
-        has_cache_control = False
-        has_defer_loading = False
-        for n in getattr(tool, "native", ()) or ():
-            if n.source == NATIVE_SOURCE_ANTHROPIC:
-                if n.kind == NATIVE_KIND_CACHE_CONTROL:
-                    has_cache_control = True
-                elif n.kind == NATIVE_KIND_DEFER_LOADING:
-                    has_defer_loading = True
-        if has_cache_control and has_defer_loading:
-            raise CodecError(f"ir: tools[{t_idx}]: cannot specify both defer_loading and cache_control")
+        validate_tool_native(tool, f"tools[{t_idx}]")
+
+    for g_idx, group in enumerate(getattr(req, "tool_change_groups", ()) or ()):
+        for p_idx, part in enumerate(group.parts):
+            part_path = f"tool_change_groups[{g_idx}].parts[{p_idx}]"
+            # Part-level native round-trips only on text parts; tool_change
+            # parts carry annotations on the change and its tool instead.
+            if part.type == "text":
+                validate_annotations(part.native, HostType.CONTENT, part_path)
+                continue
+            change = part.change
+            if change is None:
+                continue
+            validate_annotations(change.native, HostType.TOOL, f"{part_path}.change")
+            if change.tool is not None:
+                validate_tool_native(change.tool, f"{part_path}.change.tool")
+
+    for m_idx, msg in enumerate(getattr(req, "messages", ()) or ()):
+        for c_idx, blk in enumerate(getattr(msg, "content", ()) or ()):
+            if getattr(blk, "type", None) != "compaction":
+                continue
+            base = f"messages[{m_idx}].content[{c_idx}]"
+            for k, change in enumerate(blk.tool_changes or ()):
+                change_path = f"{base}.tool_changes[{k}]"
+                validate_annotations(change.native, HostType.TOOL, change_path)
+                if change.tool is not None:
+                    validate_tool_native(change.tool, f"{change_path}.tool")
+
+
+def validate_tool_native(tool: Any, path: str) -> None:
+    """Applies tool-host annotation rules to one tool, including the
+    defer_loading/cache_control mutual exclusion (spec/15 §3.4)."""
+    validate_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
+    has_cache_control = False
+    has_defer_loading = False
+    for n in getattr(tool, "native", ()) or ():
+        if n.source == NATIVE_SOURCE_ANTHROPIC:
+            if n.kind == NATIVE_KIND_CACHE_CONTROL:
+                has_cache_control = True
+            elif n.kind == NATIVE_KIND_DEFER_LOADING:
+                has_defer_loading = True
+    if has_cache_control and has_defer_loading:
+        raise CodecError(f"ir: {path}: cannot specify both defer_loading and cache_control")
 
 
 def validate_annotations(

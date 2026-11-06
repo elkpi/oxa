@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/ir"
-	"github.com/elkpi/oxa/go/v2/openai/responses"
+	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa/go/v3/openai/responses"
 )
 
 func TestDecodeToolContainers(t *testing.T) {
@@ -14,7 +14,7 @@ func TestDecodeToolContainers(t *testing.T) {
 		"model": "gpt-5.5",
 		"input": [
 			{"role": "user", "content": "use tools"},
-			{"type": "additional_tools", "tools": [
+			{"type": "additional_tools", "role": "developer", "tools": [
 				{"type": "namespace", "name": "editor", "tools": [
 					{"type": "custom", "name": "submit_patch", "description": "submit opaque patch"}
 				]}
@@ -34,8 +34,8 @@ func TestDecodeToolContainers(t *testing.T) {
 	if len(losses) != 0 {
 		t.Fatalf("expected 0 losses, got %d: %+v", len(losses), losses)
 	}
-	if len(req.Tools) != 2 {
-		t.Fatalf("expected 2 tools, got %d", len(req.Tools))
+	if len(req.Tools) != 1 || len(req.ToolChangeGroups) != 1 || len(req.ToolChangeGroups[0].Parts) != 1 {
+		t.Fatalf("expected one initial tool and one positional change, got %+v", req)
 	}
 
 	// 1. repo.read
@@ -45,7 +45,7 @@ func TestDecodeToolContainers(t *testing.T) {
 	}
 
 	// 2. editor.submit_patch
-	t2 := req.Tools[1]
+	t2 := *req.ToolChangeGroups[0].Parts[0].Change.Tool
 	if t2.Name != "editor.submit_patch" || t2.Type != ir.ToolTypeCustom {
 		t.Errorf("expected editor.submit_patch custom tool, got %+v", t2)
 	}
@@ -97,7 +97,7 @@ func TestDecodeToolContainerStructuralErrors(t *testing.T) {
 	}
 }
 
-func TestDecodeEmptyAdditionalToolsIsNoOp(t *testing.T) {
+func TestDecodeEmptyAdditionalToolsIsPreserved(t *testing.T) {
 	withEmpty := []byte(`{
 		"model": "m",
 		"input": [
@@ -124,13 +124,13 @@ func TestDecodeEmptyAdditionalToolsIsNoOp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected baseline error: %v", err)
 	}
-	if len(losses) != 1 || losses[0].Path != "input[0].tools" ||
-		losses[0].Field != "tools" || losses[0].Reason != ir.LossUnmappedField {
-		t.Fatalf("expected one input[0].tools unmapped-field loss, got %+v", losses)
+	if len(losses) != 0 || len(req.ToolChangeGroups) != 1 || req.ToolChangeGroups[0].MessageIndex != 0 || len(req.ToolChangeGroups[0].Parts) != 0 {
+		t.Fatalf("expected preserved empty group without loss, got %+v %+v", req.ToolChangeGroups, losses)
 	}
 	if len(req.Tools) != 1 || req.Tools[0].Name != "existing" {
 		t.Fatalf("expected existing tool to remain unchanged, got %+v", req.Tools)
 	}
+	req.ToolChangeGroups = nil
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
 		t.Fatalf("marshal decoded request: %v", err)
@@ -150,8 +150,8 @@ func TestDecodeAdditionalToolsRequiresExplicitArray(t *testing.T) {
 		json        string
 		errorString string
 	}{
-		{name: "missing tools", json: `{"model":"m","input":[{"type":"additional_tools"},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
-		{name: "null tools", json: `{"model":"m","input":[{"type":"additional_tools","tools":null},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
+		{name: "missing tools", json: `{"model":"m","input":[{"type":"additional_tools","role":"developer"},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
+		{name: "null tools", json: `{"model":"m","input":[{"type":"additional_tools","role":"developer","tools":null},{"role":"user","content":"hi"}]}`, errorString: "additional_tools requires tools array"},
 		{name: "non-array tools", json: `{"model":"m","input":[{"type":"additional_tools","tools":"not-an-array"},{"role":"user","content":"hi"}]}`},
 	}
 	for _, tc := range cases {
@@ -180,9 +180,10 @@ func TestDecodeEmptyAdditionalToolsDoesNotSplitRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected baseline error: %v", err)
 	}
-	if len(losses) != 1 {
-		t.Fatalf("expected one loss, got %+v", losses)
+	if len(losses) != 0 || len(with.ToolChangeGroups) != 1 || with.ToolChangeGroups[0].MessageIndex != 1 || with.ToolChangeGroups[0].ContentIndex != 1 {
+		t.Fatalf("expected positioned empty group and no loss, got %+v %+v", with.ToolChangeGroups, losses)
 	}
+	with.ToolChangeGroups = nil
 	withJSON, _ := json.Marshal(with)
 	withoutJSON, _ := json.Marshal(without)
 	if string(withJSON) != string(withoutJSON) {
@@ -197,9 +198,10 @@ func TestDecodeEmptyAdditionalToolsDoesNotSplitRuns(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected results baseline error: %v", err)
 	}
-	if len(losses) != 1 {
-		t.Fatalf("expected one results loss, got %+v", losses)
+	if len(losses) != 0 || len(results.ToolChangeGroups) != 1 || results.ToolChangeGroups[0].MessageIndex != 2 || results.ToolChangeGroups[0].ContentIndex != 1 {
+		t.Fatalf("expected positioned empty group and no loss, got %+v %+v", results.ToolChangeGroups, losses)
 	}
+	results.ToolChangeGroups = nil
 	resultsJSON, _ := json.Marshal(results)
 	resultsBaselineJSON, _ := json.Marshal(resultsBaseline)
 	if string(resultsJSON) != string(resultsBaselineJSON) {

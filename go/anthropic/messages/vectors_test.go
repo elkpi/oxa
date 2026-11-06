@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/internal/vectest"
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/internal/vectest"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // vectorConverter adapts the package-level conversion functions to the

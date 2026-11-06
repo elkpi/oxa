@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 type rawJSONField struct {
@@ -451,6 +451,9 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 		schema.variant = func(node *rawJSONNode) *rawJSONSchema {
 			kind, _ := rawJSONStringField(node, "type")
 			switch kind {
+			case "tool_addition", "tool_removal", "compaction":
+				// The signed replay unit and extension fields must survive intact.
+				return &rawJSONSchema{opaque: true}
 			case BlockTypeText:
 				return rawObjectSchema(t, []string{"type", "text", "citations", "cache_control"},
 					map[string]*rawJSONSchema{

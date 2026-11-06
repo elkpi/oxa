@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // DecodeRequest converts an Anthropic Messages wire request to the IR (face
@@ -205,6 +205,15 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 
 	for i, m := range wire.Messages {
 		if m.Role == RoleSystem {
+			parts, handled, changeLosses, err := decodeToolChangeSystem(m.Content, i)
+			if err != nil {
+				return nil, nil, err
+			}
+			if handled {
+				req.ToolChangeGroups = append(req.ToolChangeGroups, ir.ToolChangeGroup{MessageIndex: len(req.Messages), ContentIndex: -1, Parts: parts})
+				losses = append(losses, changeLosses...)
+				continue
+			}
 			losses = append(losses, ir.Loss{
 				Path:   fmt.Sprintf("messages[%d].role", i),
 				Field:  "role",
@@ -443,6 +452,18 @@ func decodeBlock(w BlockWire, path string, customCallIDs map[string]bool, declar
 	var block ir.Block
 	var losses []ir.Loss
 	switch w.Type {
+	case "compaction":
+		if !isRequest {
+			return nil, []ir.Loss{{Path: path, Field: "type", Reason: ir.LossUnsupportedSemantic, Detail: `Anthropic block type "compaction" has no IR equivalent`}}, false, nil
+		}
+		if path != "messages[0].content[0]" {
+			return nil, nil, false, fmt.Errorf("anthropic: %s: compaction must be the first conversation block", path)
+		}
+		compaction, err := decodeCompaction(w, path)
+		if err != nil {
+			return nil, nil, false, err
+		}
+		block = compaction
 	case BlockTypeText:
 		cites, citeLosses, err := decodeTextCitations(w.Citations, path+".citations", isRequest)
 		if err != nil {

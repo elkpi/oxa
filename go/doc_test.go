@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2"
-	"github.com/elkpi/oxa/go/v2/anthropic/messages"
-	"github.com/elkpi/oxa/go/v2/openai/chatcompletions"
+	"github.com/elkpi/oxa/go/v3"
+	"github.com/elkpi/oxa/go/v3/anthropic/messages"
+	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
 )
 
 func TestVersion(t *testing.T) {

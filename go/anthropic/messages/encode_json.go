@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // EncodeRequestJSON 将 IR 请求编码为 Anthropic JSON，并保留响应格式 schema 的原始字节。

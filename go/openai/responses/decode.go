@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func isValidReasoningEffort(effort string) bool {
@@ -200,7 +200,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				req.Messages = append(req.Messages, ir.Message{Role: ir.RoleUser, Content: content})
 				i++
 			case RoleAssistant:
-				merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i, decodedCalls, droppedItems)
+				merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i, decodedCalls, droppedItems, req)
 				if err != nil {
 					return nil, nil, err
 				}
@@ -213,7 +213,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 				return nil, nil, fmt.Errorf("responses: input[%d]: unknown role %q", i, item.Role)
 			}
 		case ItemTypeFunctionCall, ItemTypeCustomToolCall, ItemTypeApplyPatchCall, ItemTypeReasoning, ItemTypeWebSearchCall:
-			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i, decodedCalls, droppedItems)
+			merged, next, runLosses, err := decodeAssistantRun(wire.Input.Items, i, decodedCalls, droppedItems, req)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -223,7 +223,7 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			losses = append(losses, runLosses...)
 			i = next
 		case ItemTypeFunctionCallOutput, ItemTypeCustomToolCallOutput, ItemTypeApplyPatchCallOutput:
-			merged, next, runLosses, err := decodeOutputRun(wire.Input.Items, i, decodedResults, droppedItems)
+			merged, next, runLosses, err := decodeOutputRun(wire.Input.Items, i, decodedResults, droppedItems, req)
 			if err != nil {
 				return nil, nil, err
 			}
@@ -233,23 +233,12 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 			losses = append(losses, runLosses...)
 			i = next
 		case ItemTypeAdditionalTools:
-			if item.Tools == nil {
-				return nil, nil, fmt.Errorf("responses: input[%d]: additional_tools requires tools array", i)
+			group, groupLosses, err := decodeAdditionalTools(item, i, len(req.Messages), -1)
+			if err != nil {
+				return nil, nil, err
 			}
-			if isEmptyAdditionalTools(wire.Input.Items, i) {
-				losses = append(losses, emptyAdditionalToolsLoss(i))
-				i++
-				continue
-			}
-			for idx, rawTool := range item.Tools {
-				toolPath := fmt.Sprintf("input[%d].tools[%d]", i, idx)
-				decodedTools, toolLosses, err := decodeToolItem(rawTool, nil, toolPath, seenNames)
-				if err != nil {
-					return nil, nil, err
-				}
-				losses = append(losses, toolLosses...)
-				req.Tools = append(req.Tools, decodedTools...)
-			}
+			req.ToolChangeGroups = append(req.ToolChangeGroups, group)
+			losses = append(losses, groupLosses...)
 			i++
 		default:
 			losses = append(losses, loss(
@@ -333,7 +322,7 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		seenCallIDs := make(map[string]bool)
 		aStart := i
 		for aStart < len(items) {
-			if isEmptyAdditionalTools(items, aStart) {
+			if items[aStart].Type == ItemTypeAdditionalTools {
 				aStart++
 				continue
 			}
@@ -374,7 +363,7 @@ func precheckApplyPatchPairs(items []InputItem) (map[int]ir.Block, map[int]ir.Bl
 		var results []toolItemRef
 		oStart := aStart
 		for oStart < len(items) {
-			if isEmptyAdditionalTools(items, oStart) {
+			if items[oStart].Type == ItemTypeAdditionalTools {
 				oStart++
 				continue
 			}
@@ -573,16 +562,23 @@ func decodeReasoningSummary(parts []OutputContent, path string) ([]ir.Block, []i
 // function_call items into one IR assistant message (N-R-5): the text blocks
 // first (in document order), then the ToolUseBlocks, regardless of how the
 // wire interleaved message items and function_call items.
-func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Block, dropped map[int]bool) (*ir.Message, int, []ir.Loss, error) {
+func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Block, dropped map[int]bool, req *ir.Request) (*ir.Message, int, []ir.Loss, error) {
 	var thinkings []ir.Block
 	var texts []ir.Block
 	var calls []ir.Block
 	var losses []ir.Loss
+	var thinkingOrigins, textOrigins, callOrigins []int
+	var markers []additionalToolsMarker
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
-		if isEmptyAdditionalTools(items, i) {
-			losses = append(losses, emptyAdditionalToolsLoss(i))
+		if item.Type == ItemTypeAdditionalTools {
+			group, groupLosses, err := decodeAdditionalTools(item, i, len(req.Messages), -1)
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			losses = append(losses, groupLosses...)
+			markers = append(markers, additionalToolsMarker{index: i, group: group})
 			continue
 		}
 		if item.Type == ItemTypeApplyPatchCall {
@@ -591,6 +587,7 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			}
 			if block, ok := decodedCalls[i]; ok {
 				calls = append(calls, block)
+				callOrigins = append(callOrigins, i)
 				continue
 			}
 			return nil, 0, nil, fmt.Errorf("responses: input[%d]: unpaired apply_patch_call (INV-3)", i)
@@ -605,6 +602,7 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 				return nil, 0, nil, err
 			}
 			calls = append(calls, call)
+			callOrigins = append(callOrigins, i)
 			continue
 		}
 		if item.Type == ItemTypeFunctionCall {
@@ -617,6 +615,7 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 				finalName = item.Namespace + "." + finalName
 			}
 			calls = append(calls, ir.ToolUseBlock{ID: item.CallID, Name: finalName, Input: input})
+			callOrigins = append(callOrigins, i)
 			continue
 		}
 		if item.Type == ItemTypeWebSearchCall {
@@ -626,14 +625,19 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 			}
 			losses = append(losses, callLosses...)
 			calls = append(calls, block)
+			callOrigins = append(callOrigins, i)
 			continue
 		}
 		if item.Type == ItemTypeReasoning {
 			blocks, summaryLosses := decodeReasoningSummary(item.Summary, fmt.Sprintf("input[%d].summary", i))
 			thinkings = append(thinkings, blocks...)
+			for range blocks {
+				thinkingOrigins = append(thinkingOrigins, i)
+			}
 			losses = append(losses, summaryLosses...)
 			if item.EncryptedContent != "" {
 				thinkings = append(thinkings, ir.EncryptedContentBlock{Data: item.EncryptedContent})
+				thinkingOrigins = append(thinkingOrigins, i)
 			}
 			continue
 		}
@@ -649,11 +653,16 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 		}
 		losses = append(losses, contentLosses...)
 		texts = append(texts, content...)
+		for range content {
+			textOrigins = append(textOrigins, i)
+		}
 	}
 	blocks := make([]ir.Block, 0, len(thinkings)+len(texts)+len(calls))
 	blocks = append(blocks, thinkings...)
 	blocks = append(blocks, texts...)
 	blocks = append(blocks, calls...)
+	origins := append(append(thinkingOrigins, textOrigins...), callOrigins...)
+	appendAdditionalMarkers(req, markers, origins)
 	if len(blocks) == 0 {
 		return nil, i, losses, nil
 	}
@@ -662,14 +671,21 @@ func decodeAssistantRun(items []InputItem, start int, decodedCalls map[int]ir.Bl
 
 // decodeOutputRun converts a maximal run of consecutive function_call_output
 // items into one IR user message of ToolResultBlocks (N-R-6, INV-4).
-func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Block, dropped map[int]bool) (*ir.Message, int, []ir.Loss, error) {
+func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Block, dropped map[int]bool, req *ir.Request) (*ir.Message, int, []ir.Loss, error) {
 	content := make([]ir.Block, 0)
 	var losses []ir.Loss
+	var origins []int
+	var markers []additionalToolsMarker
 	i := start
 	for ; i < len(items); i++ {
 		item := items[i]
-		if isEmptyAdditionalTools(items, i) {
-			losses = append(losses, emptyAdditionalToolsLoss(i))
+		if item.Type == ItemTypeAdditionalTools {
+			group, groupLosses, err := decodeAdditionalTools(item, i, len(req.Messages), -1)
+			if err != nil {
+				return nil, 0, nil, err
+			}
+			losses = append(losses, groupLosses...)
+			markers = append(markers, additionalToolsMarker{index: i, group: group})
 			continue
 		}
 		if item.Type == ItemTypeApplyPatchCallOutput {
@@ -678,6 +694,7 @@ func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Blo
 			}
 			if block, ok := decodedResults[i]; ok {
 				content = append(content, block)
+				origins = append(origins, i)
 				continue
 			}
 			return nil, 0, nil, fmt.Errorf("responses: input[%d]: unpaired apply_patch_call_output (INV-3)", i)
@@ -692,6 +709,7 @@ func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Blo
 			}
 			losses = append(losses, partLosses...)
 			content = append(content, ir.CustomToolResultBlock{ToolUseID: item.CallID, Output: output})
+			origins = append(origins, i)
 			continue
 		}
 		if item.Type != ItemTypeFunctionCallOutput {
@@ -702,7 +720,9 @@ func decodeOutputRun(items []InputItem, start int, decodedResults map[int]ir.Blo
 			return nil, 0, nil, fmt.Errorf("responses: function output must be a string")
 		}
 		content = append(content, ir.ToolResultBlock{ToolUseID: item.CallID, Content: []ir.Block{ir.TextBlock{Text: output}}})
+		origins = append(origins, i)
 	}
+	appendAdditionalMarkers(req, markers, origins)
 	if len(content) == 0 {
 		return nil, i, losses, nil
 	}

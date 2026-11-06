@@ -133,15 +133,15 @@ server/custom-tool 生命周期或 compaction 语义；`MessageDone` 只表示 I
 Requires Go 1.23+. See [`go/README.md`](go/README.md) for package details.
 
 ```bash
-go get github.com/elkpi/oxa/go/v2
+go get github.com/elkpi/oxa/go/v3
 ```
 
 Any face pair composes through the IR in two steps:
 
 ```go
 import (
-    messages "github.com/elkpi/oxa/go/v2/anthropic/messages"
-    "github.com/elkpi/oxa/go/v2/openai/chatcompletions"
+    messages "github.com/elkpi/oxa/go/v3/anthropic/messages"
+    "github.com/elkpi/oxa/go/v3/openai/chatcompletions"
 )
 
 irReq, losses, err := chatcompletions.DecodeRequest(ccRequest)

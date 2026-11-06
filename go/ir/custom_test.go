@@ -75,7 +75,7 @@ func TestCustomGrammarEmptyDefinitionAndChoiceConstraints(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.Contains(raw, []byte(`"specVersion":"0.2.0"`)) || bytes.Contains(raw, []byte(`input_schema`)) {
+	if !bytes.Contains(raw, []byte(`"specVersion":"`+SpecVersion+`"`)) || bytes.Contains(raw, []byte(`input_schema`)) {
 		t.Fatalf("custom declaration invalid: %s", raw)
 	}
 	req.ToolChoice.Mode = ToolChoiceAuto

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func TestMidConversationSystem_ValidStringAndBlocks(t *testing.T) {

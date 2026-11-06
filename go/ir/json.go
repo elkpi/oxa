@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // SpecVersion is the spec version stamped on every IR document on marshal and
 // const-checked on unmarshal. It mirrors the specVersion const pinned by
 // spec/schema/ir.schema.json; the schema-alignment test in json_test.go
 // verifies the agreement.
-const SpecVersion = "0.2.0"
+const SpecVersion = "0.3.0"
 
 // ---- blocks ---------------------------------------------------------------
 
@@ -103,6 +104,8 @@ func hasNative(b Block) bool {
 	case ApplyPatchToolUseBlock:
 		return len(v.Native) > 0
 	case ApplyPatchToolResultBlock:
+		return len(v.Native) > 0
+	case CompactionBlock:
 		return len(v.Native) > 0
 	}
 	return false
@@ -534,6 +537,8 @@ func marshalRequestBlock(b Block) (json.RawMessage, error) {
 			ToolName string             `json:"tool_name"`
 			Native   []NativeAnnotation `json:"native,omitempty"`
 		}{BlockTypeToolReference, v.ToolName, v.Native})
+	case CompactionBlock:
+		return marshalCompaction(v, true)
 	default:
 		return nil, fmt.Errorf("ir: unknown block type %T", b)
 	}
@@ -754,6 +759,8 @@ func unmarshalRequestBlock(data []byte) (Block, error) {
 			return nil, fmt.Errorf("ir: tool_reference tool_name is required")
 		}
 		return ToolReferenceBlock{ToolName: w.ToolName, Native: w.Native}, nil
+	case BlockTypeCompaction:
+		return unmarshalCompaction(data, true)
 	default:
 		if head.Type == BlockTypeWebSearchCall {
 			return unmarshalWebSearchCall(data)
@@ -777,15 +784,16 @@ func unmarshalRequestBlocks(raws []json.RawMessage) ([]Block, error) {
 // ---- request document ------------------------------------------------------
 
 type wireRequest struct {
-	SpecVersion string             `json:"specVersion"`
-	Model       string             `json:"model"`
-	System      []wireSystemBlock  `json:"system,omitempty"`
-	Messages    []wireMessage      `json:"messages"`
-	Tools       []wireTool         `json:"tools,omitempty"`
-	ToolChoice  *wireToolChoice    `json:"tool_choice,omitempty"`
-	Params      *wireParams        `json:"params,omitempty"`
-	Metadata    map[string]string  `json:"metadata,omitempty"`
-	Native      []NativeAnnotation `json:"native,omitempty"`
+	SpecVersion      string             `json:"specVersion"`
+	Model            string             `json:"model"`
+	System           []wireSystemBlock  `json:"system,omitempty"`
+	Messages         []wireMessage      `json:"messages"`
+	Tools            []wireTool         `json:"tools,omitempty"`
+	ToolChoice       *wireToolChoice    `json:"tool_choice,omitempty"`
+	Params           *wireParams        `json:"params,omitempty"`
+	Metadata         map[string]string  `json:"metadata,omitempty"`
+	Native           []NativeAnnotation `json:"native,omitempty"`
+	ToolChangeGroups []ToolChangeGroup  `json:"tool_change_groups,omitempty"`
 }
 
 type wireMessage struct {
@@ -903,6 +911,9 @@ func MarshalRequest(req *Request) ([]byte, error) {
 	if req == nil {
 		return nil, fmt.Errorf("ir: nil request")
 	}
+	if err := validateCompactionAndToolChangeGroups(req); err != nil {
+		return nil, err
+	}
 	if req.Params.Verbosity != "" && !validVerbosity(req.Params.Verbosity) {
 		return nil, fmt.Errorf("ir: invalid params.verbosity")
 	}
@@ -980,15 +991,16 @@ func MarshalRequest(req *Request) ([]byte, error) {
 		}
 	}
 	data, err := json.Marshal(wireRequest{
-		SpecVersion: SpecVersion,
-		Model:       req.Model,
-		System:      system,
-		Messages:    messages,
-		Tools:       tools,
-		ToolChoice:  tc,
-		Params:      params,
-		Metadata:    req.Metadata,
-		Native:      req.Native,
+		SpecVersion:      SpecVersion,
+		Model:            req.Model,
+		System:           system,
+		Messages:         messages,
+		Tools:            tools,
+		ToolChoice:       tc,
+		Params:           params,
+		Metadata:         req.Metadata,
+		Native:           req.Native,
+		ToolChangeGroups: req.ToolChangeGroups,
 	})
 	if err != nil {
 		return nil, err
@@ -1069,6 +1081,10 @@ func UnmarshalRequest(data []byte) (*Request, error) {
 				Strict:      w.Params.ResponseFormat.Strict,
 			}
 		}
+	}
+	req.ToolChangeGroups = w.ToolChangeGroups
+	if err := validateCompactionAndToolChangeGroups(req); err != nil {
+		return nil, err
 	}
 	if err := ValidateCustomConversation(req); err != nil {
 		return nil, err
@@ -1630,8 +1646,136 @@ func UnmarshalEventStream(data []byte) (*EventStream, error) {
 }
 
 func checkSpecVersion(v string) error {
-	if v != "0.1.0" && v != "0.2.0" {
-		return fmt.Errorf("ir: unsupported specVersion %q (want %q or %q)", v, "0.1.0", "0.2.0")
+	if v != "0.1.0" && v != "0.2.0" && v != "0.3.0" {
+		return fmt.Errorf("ir: unsupported specVersion %q (want %q, %q or %q)", v, "0.1.0", "0.2.0", "0.3.0")
 	}
 	return nil
+}
+
+func marshalCompaction(b CompactionBlock, withNative bool) ([]byte, error) {
+	m := make(map[string]any)
+	if len(b.Extra) > 0 {
+		m["extra"] = b.Extra
+	}
+	m["type"] = BlockTypeCompaction
+	if b.Content != nil {
+		if *b.Content == "" {
+			return nil, fmt.Errorf("ir: compaction content cannot be empty string")
+		}
+		m["content"] = *b.Content
+	} else if b.NullContent {
+		m["content"] = nil
+	}
+	if b.HasEncryptedContent || b.EncryptedContent != "" {
+		m["encrypted_content"] = b.EncryptedContent
+	}
+	if b.HasSignature || b.Signature != "" {
+		m["signature"] = b.Signature
+	}
+	if b.ToolChanges != nil {
+		m["tool_changes"] = b.ToolChanges
+	}
+	if withNative && len(b.Native) > 0 {
+		m["native"] = b.Native
+	}
+	return json.Marshal(m)
+}
+
+func unmarshalCompaction(data []byte, withNative bool) (CompactionBlock, error) {
+	var rawFields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &rawFields); err != nil {
+		return CompactionBlock{}, err
+	}
+	var b CompactionBlock
+	if raw, ok := rawFields["content"]; ok {
+		trimmed := strings.TrimSpace(string(raw))
+		if trimmed == "null" {
+			b.NullContent = true
+		} else {
+			var s string
+			if err := json.Unmarshal(raw, &s); err != nil {
+				return CompactionBlock{}, fmt.Errorf("ir: compaction content must be string or null")
+			}
+			if s == "" {
+				return CompactionBlock{}, fmt.Errorf("ir: compaction content cannot be empty string")
+			}
+			b.Content = &s
+		}
+	}
+	if raw, ok := rawFields["encrypted_content"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return CompactionBlock{}, fmt.Errorf("ir: compaction encrypted_content must be string")
+		}
+		b.EncryptedContent = s
+		b.HasEncryptedContent = true
+	}
+	if raw, ok := rawFields["signature"]; ok {
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return CompactionBlock{}, fmt.Errorf("ir: compaction signature must be string")
+		}
+		b.Signature = s
+		b.HasSignature = true
+	}
+	if raw, ok := rawFields["tool_changes"]; ok {
+		var changes []ToolChange
+		if err := json.Unmarshal(raw, &changes); err != nil {
+			return CompactionBlock{}, fmt.Errorf("ir: compaction tool_changes: %w", err)
+		}
+		b.ToolChanges = changes
+	}
+	if withNative {
+		if raw, ok := rawFields["native"]; ok {
+			var nat []NativeAnnotation
+			if err := json.Unmarshal(raw, &nat); err != nil {
+				return CompactionBlock{}, fmt.Errorf("ir: compaction native: %w", err)
+			}
+			b.Native = nat
+		}
+	}
+	if raw, ok := rawFields["extra"]; ok {
+		if err := json.Unmarshal(raw, &b.Extra); err != nil {
+			return CompactionBlock{}, fmt.Errorf("ir: compaction extra: %w", err)
+		}
+	}
+	return b, nil
+}
+
+func validateCompactionAndToolChangeGroups(req *Request) error {
+	for i, m := range req.Messages {
+		for j, blk := range m.Content {
+			if _, ok := blk.(CompactionBlock); ok {
+				if i != 0 || j != 0 {
+					return fmt.Errorf("ir: compaction block must be the first block of messages[0]")
+				}
+			}
+		}
+	}
+	for i, g := range req.ToolChangeGroups {
+		if g.MessageIndex < 0 || g.MessageIndex > len(req.Messages) {
+			return fmt.Errorf("ir: tool_change_groups[%d].message_index out of range", i)
+		}
+		if g.ContentIndex < -1 {
+			return fmt.Errorf("ir: tool_change_groups[%d].content_index out of range", i)
+		}
+		if g.ContentIndex >= 0 {
+			if g.MessageIndex >= len(req.Messages) {
+				return fmt.Errorf("ir: tool_change_groups[%d].message_index out of range for content_index >= 0", i)
+			}
+			if g.ContentIndex > len(req.Messages[g.MessageIndex].Content) {
+				return fmt.Errorf("ir: tool_change_groups[%d].content_index out of range", i)
+			}
+		}
+	}
+	return nil
+}
+
+// ValidateToolChangePositions rejects request-only compaction and group positions
+// that cannot refer to a boundary in the request's message sequence.
+func ValidateToolChangePositions(req *Request) error {
+	if req == nil {
+		return fmt.Errorf("ir: nil request")
+	}
+	return validateCompactionAndToolChangeGroups(req)
 }

@@ -3,7 +3,7 @@ package responses
 import (
 	"fmt"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 type streamApplyPatchCall struct {

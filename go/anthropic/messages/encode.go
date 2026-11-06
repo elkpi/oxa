@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // defaultMaxTokens is applied when an IR request carries no Params.MaxTokens
@@ -28,6 +28,9 @@ const defaultMaxTokens = 4096
 func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("anthropic: nil request")
+	}
+	if err := ir.ValidateToolChangePositions(req); err != nil {
+		return nil, nil, err
 	}
 	if err := ir.ValidateToolStrict(req); err != nil {
 		return nil, nil, err
@@ -207,7 +210,17 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 		}
 	}
 	for i, m := range req.Messages {
+		groupLosses, err := appendToolChangeGroups(out, req, i)
+		if err != nil {
+			return nil, nil, err
+		}
+		losses = append(losses, groupLosses...)
 		var role string
+		for j, block := range m.Content {
+			if _, ok := block.(ir.CompactionBlock); ok && (i != 0 || j != 0) {
+				return nil, nil, fmt.Errorf("anthropic: messages[%d].content[%d]: compaction must be the first conversation block", i, j)
+			}
+		}
 		switch m.Role {
 		case ir.RoleUser:
 			role = RoleUser
@@ -240,6 +253,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			out.Messages = append(out.Messages, Message{Role: role, Content: blocks})
 		}
 	}
+	groupLosses, err := appendToolChangeGroups(out, req, len(req.Messages))
+	if err != nil {
+		return nil, nil, err
+	}
+	losses = append(losses, groupLosses...)
 
 	if req.Params.MaxTokens != nil {
 		out.MaxTokens = *req.Params.MaxTokens
@@ -398,6 +416,12 @@ func encodeRequestBlocks(blocks []ir.Block, path string) ([]BlockWire, []ir.Loss
 
 func encodeRequestBlock(block ir.Block, path string) (BlockWire, []ir.Loss, bool, error) {
 	switch b := block.(type) {
+	case ir.CompactionBlock:
+		raw, err := encodeCompaction(b)
+		if err != nil {
+			return BlockWire{}, nil, false, fmt.Errorf("anthropic: %s: %w", path, err)
+		}
+		return BlockWire{Type: "compaction", rawChange: raw}, nil, true, nil
 	case ir.TextBlock:
 		bw := BlockWire{Type: BlockTypeText, Text: b.Text}
 		if len(b.Citations) > 0 {

@@ -217,5 +217,6 @@ func isCompatibleSpecVersion(a, b any) bool {
 	if as == bs {
 		return true
 	}
-	return (as == "0.1.0" && bs == "0.2.0") || (as == "0.2.0" && bs == "0.1.0")
+	known := func(v string) bool { return v == "0.1.0" || v == "0.2.0" || v == "0.3.0" }
+	return known(as) && known(bs)
 }

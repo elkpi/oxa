@@ -577,6 +577,9 @@ func validateBlockAnnotations(b Block, path string) error {
 	case ToolReferenceBlock:
 		nat = blk.Native
 		allowBreakpoint = false
+	case CompactionBlock:
+		nat = blk.Native
+		allowBreakpoint = false
 	case CustomToolUseBlock:
 		nat = blk.Native
 		allowBreakpoint = false
@@ -695,6 +698,11 @@ func collectBlockOmissionLosses(losses []Loss, b Block, path string, target stri
 		// N-AN-21: when the whole block is dropped crossing to a face
 		// without tool reference support, its annotations are part of the
 		// whole-block loss and are not reported a second time.
+		if target != "anthropic" {
+			return losses
+		}
+		nat = blk.Native
+	case CompactionBlock:
 		if target != "anthropic" {
 			return losses
 		}

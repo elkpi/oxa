@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 type rawJSONField struct {
@@ -318,9 +318,7 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeWebSearchCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			case ItemTypeAdditionalTools:
-				return rawObjectSchema(t, []string{"type", "role", "tools"}, map[string]*rawJSONSchema{
-					"tools": {items: schemaForRawTypeSeen(reflect.TypeOf(ToolDef{}), seen)},
-				}, seen)
+				return &rawJSONSchema{opaque: true}
 			default:
 				return nil
 			}

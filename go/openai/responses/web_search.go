@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func decodeWebSearchCall(id, status string, action json.RawMessage, extra map[string]json.RawMessage, path string) (ir.WebSearchCallBlock, []ir.Loss, error) {
@@ -73,12 +73,47 @@ func (item *InputItem) UnmarshalJSON(data []byte) error {
 		return err
 	}
 	*item = InputItem(decoded)
+	if header.Type == ItemTypeAdditionalTools {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(data, &fields); err != nil {
+			return err
+		}
+		for key, value := range fields {
+			switch key {
+			case "type", "role", "id", "tools":
+			default:
+				if item.Extra == nil {
+					item.Extra = map[string]json.RawMessage{}
+				}
+				item.Extra[key] = value
+			}
+		}
+	}
 	return nil
 }
 
 func (item InputItem) MarshalJSON() ([]byte, error) {
 	type alias InputItem
 	encoded, err := json.Marshal(alias(item))
+	if err == nil && item.Type == ItemTypeAdditionalTools {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &fields); err != nil {
+			return nil, err
+		}
+		tools, err := json.Marshal(item.Tools)
+		if err != nil {
+			return nil, err
+		}
+		fields["tools"] = tools
+		for key, value := range item.Extra {
+			switch key {
+			case "type", "role", "id", "tools":
+				return nil, fmt.Errorf("responses: additional_tools extra conflicts with %s", key)
+			}
+			fields[key] = value
+		}
+		return json.Marshal(fields)
+	}
 	if err != nil || item.Type != ItemTypeWebSearchCall {
 		return encoded, err
 	}

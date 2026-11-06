@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // EncodeRequest converts an IR request to a Responses wire request (IR ->
@@ -15,6 +15,9 @@ import (
 func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error) {
 	if req == nil {
 		return nil, nil, fmt.Errorf("responses: nil request")
+	}
+	if err := ir.ValidateToolChangePositions(req); err != nil {
+		return nil, nil, err
 	}
 	if err := ir.ValidateToolStrict(req); err != nil {
 		return nil, nil, err
@@ -90,6 +93,42 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 
 	items := append([]InputItem{}, leadingSystemItems...)
 	for i, message := range req.Messages {
+		groupLosses, err := appendAdditionalGroups(&items, req, i, -1)
+		if err != nil {
+			return nil, nil, err
+		}
+		losses = append(losses, groupLosses...)
+		if hasInternalAdditionalGroups(req, i) {
+			start := 0
+			for end := 0; end <= len(message.Content); end++ {
+				if !hasAdditionalGroupAt(req, i, end) {
+					continue
+				}
+				if end > start {
+					part := ir.Message{Role: message.Role, Content: message.Content[start:end]}
+					partLosses, err := encodeAdditionalSegment(&items, part, fmt.Sprintf("messages[%d]", i))
+					if err != nil {
+						return nil, nil, err
+					}
+					losses = append(losses, partLosses...)
+				}
+				groupLosses, err := appendAdditionalGroups(&items, req, i, end)
+				if err != nil {
+					return nil, nil, err
+				}
+				losses = append(losses, groupLosses...)
+				start = end
+			}
+			if start < len(message.Content) {
+				part := ir.Message{Role: message.Role, Content: message.Content[start:]}
+				partLosses, err := encodeAdditionalSegment(&items, part, fmt.Sprintf("messages[%d]", i))
+				if err != nil {
+					return nil, nil, err
+				}
+				losses = append(losses, partLosses...)
+			}
+			continue
+		}
 		switch message.Role {
 		case ir.RoleAssistant:
 			messageLosses, err := encodeAssistantMessage(&items, message.Content, fmt.Sprintf("messages[%d].content", i))
@@ -107,6 +146,11 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 			return nil, nil, fmt.Errorf("responses: messages[%d]: unknown role %q", i, message.Role)
 		}
 	}
+	groupLosses, err := appendAdditionalGroups(&items, req, len(req.Messages), -1)
+	if err != nil {
+		return nil, nil, err
+	}
+	losses = append(losses, groupLosses...)
 
 	// N-R-2: the input string shorthand renders exactly the case of no system
 	// content and one user message whose content is exactly one text block.
@@ -308,6 +352,9 @@ func encodeUserContent(blocks []ir.Block, path string) (any, []ir.Loss) {
 	var losses []ir.Loss
 	for i, block := range blocks {
 		switch value := block.(type) {
+		case ir.CompactionBlock:
+			otherBlocks++
+			losses = append(losses, loss(fmt.Sprintf("%s[%d]", path, i), "type", ir.LossUnsupportedSemantic, "Anthropic compaction block cannot be represented on the target face"))
 		case ir.TextBlock:
 			part := ContentPart{Type: PartTypeInputText, Text: value.Text}
 			for _, ann := range value.Native {

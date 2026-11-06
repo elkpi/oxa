@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 func (e *StreamEncoder) startCustomCallBlock(index int, block ir.CustomToolUseBlock) ([]*StreamEvent, []ir.Loss, error) {

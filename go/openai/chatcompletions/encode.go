@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v2/ir"
+	"github.com/elkpi/oxa/go/v3/ir"
 )
 
 // EncodeRequest converts an IR request to a Chat Completions wire request
@@ -28,10 +28,25 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	if req == nil {
 		return nil, nil, fmt.Errorf("chatcompletions: nil request")
 	}
+	if err := ir.ValidateToolChangePositions(req); err != nil {
+		return nil, nil, err
+	}
 	if err := ir.ValidateToolStrict(req); err != nil {
 		return nil, nil, err
 	}
 	var losses []ir.Loss
+	for i, group := range req.ToolChangeGroups {
+		if len(group.Parts) == 0 {
+			losses = append(losses, loss(fmt.Sprintf("tool_change_groups[%d]", i), "tools", ir.LossUnsupportedSemantic, "empty positional tool group cannot be represented on the target face"))
+		}
+		for j, part := range group.Parts {
+			field, detail := "op", "positional tool availability change cannot be represented on the target face"
+			if part.Type == ir.ToolChangePartTypeText {
+				field, detail = "type", "positional system text has no equivalent on the target face"
+			}
+			losses = append(losses, loss(fmt.Sprintf("tool_change_groups[%d].parts[%d]", i, j), field, ir.LossUnsupportedSemantic, detail))
+		}
+	}
 	o := newOptions(opts...)
 	out := &Request{Model: o.models.Map(req.Model)}
 	if len(req.Metadata) > 0 {

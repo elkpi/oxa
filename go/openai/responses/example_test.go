@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/elkpi/oxa/go/v2/ir"
-	"github.com/elkpi/oxa/go/v2/openai/responses"
+	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa/go/v3/openai/responses"
 )
 
 func ExampleDecodeRequest() {

@@ -74,7 +74,7 @@ test("IR 0.2.0 codecs preserve custom formats, raw strings, results, and empty d
     tool_choice: { mode: "tool", name: "run", tool_type: "custom" },
   });
   const encoded = encodeIrRequest(request);
-  assert.equal(encoded.specVersion, "0.2.0");
+  assert.equal(encoded.specVersion, "0.3.0");
   assert.deepEqual(decodeIrRequest(encoded), request);
   assert.deepEqual(request.messages[1]?.content[0], {
     type: "custom_tool_use",
@@ -110,7 +110,7 @@ test("IR 0.2.0 codecs preserve custom formats, raw strings, results, and empty d
       { type: "message_done" as const },
     ],
   };
-  assert.equal(encodeEventStream(stream).specVersion, "0.2.0");
+  assert.equal(encodeEventStream(stream).specVersion, "0.3.0");
   assert.deepEqual(decodeEventStream(encodeEventStream(stream)), stream);
 });
 

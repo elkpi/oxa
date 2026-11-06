@@ -192,13 +192,8 @@ const INPUT_ITEM: WireAuditSpec = {
           },
         };
       case "additional_tools":
-        return {
-          fields: {
-            type: undefined,
-            role: undefined,
-            tools: { items: TOOL },
-          },
-        };
+        // Additional tool items retain unknown fields for same-face replay.
+        return undefined;
       default:
         return undefined;
     }

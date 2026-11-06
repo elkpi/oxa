@@ -641,6 +641,27 @@ export function encodeRequest(
 ): ConversionResult<JsonObject> {
   validateRequest(request);
   const losses: Loss[] = [];
+  (request.tool_change_groups ?? []).forEach((group, i) => {
+    if (group.parts.length === 0)
+      losses.push({
+        path: `tool_change_groups[${i}]`,
+        field: "tools",
+        reason: "unsupported-semantic",
+        detail:
+          "empty positional tool group cannot be represented on the target face",
+      });
+    group.parts.forEach((part, j) =>
+      losses.push({
+        path: `tool_change_groups[${i}].parts[${j}]`,
+        field: part.type === "text" ? "type" : "op",
+        reason: "unsupported-semantic",
+        detail:
+          part.type === "text"
+            ? "positional system text has no equivalent on the target face"
+            : "positional tool availability change cannot be represented on the target face",
+      }),
+    );
+  });
   const messages: JsonValue[] = [];
   if (request.system !== undefined && request.system.length > 0) {
     const hasDeveloper = request.system.some(
@@ -1286,6 +1307,14 @@ function encodeUserContent(
           });
         }
       }
+    } else if (block.type === "compaction") {
+      losses.push({
+        path: `${path}[${index}]`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail:
+          "Anthropic compaction block cannot be represented on the target face",
+      });
     } else if (block.type === "encrypted_content") {
       losses.push({
         path: `${path}[${index}]`,

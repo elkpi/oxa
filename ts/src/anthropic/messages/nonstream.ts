@@ -63,7 +63,153 @@ import type {
   ToolReferenceBlock,
   Tool,
   ToolChoice,
+  ToolChange,
+  ToolChangeGroup,
+  ToolChangePart,
 } from "../../ir/index.js";
+
+function decodeToolChange(
+  block: JsonObject,
+  path: string,
+  losses: Loss[],
+): ToolChange {
+  const op =
+    block.type === "tool_addition"
+      ? "add"
+      : block.type === "tool_removal"
+        ? "remove"
+        : fail(`${path}: invalid tool change type`);
+  const target = object(block.tool, `${path}.tool`);
+  const kind = string(target.type, `${path}.tool.type`);
+  const native = attachBlockCacheControl(block, path, losses);
+  const extra = Object.fromEntries(
+    Object.entries(block).filter(
+      ([key]) => !["type", "tool", "cache_control"].includes(key),
+    ),
+  ) as JsonObject;
+  const common = {
+    ...(native ? { native } : {}),
+    ...(Object.keys(extra).length ? { extra } : {}),
+  };
+  if (kind === "tool_definition") {
+    if (op !== "add") fail(`${path}: removal cannot contain tool definition`);
+    const definition = object(target.definition, `${path}.tool.definition`);
+    const decoded = decodeRequestObject(
+      {
+        model: "m",
+        max_tokens: integer(1n),
+        messages: [{ role: "user", content: "x" }],
+        tools: [definition],
+      },
+      {},
+    );
+    const tool = decoded.value.tools?.[0];
+    if (tool === undefined) fail(`${path}: invalid tool definition`);
+    const toolExtra = Object.fromEntries(
+      Object.entries(target).filter(
+        ([key]) => !["type", "definition"].includes(key),
+      ),
+    ) as JsonObject;
+    const definitionExtra = Object.fromEntries(
+      Object.entries(definition).filter(
+        ([key]) =>
+          ![
+            "type",
+            "name",
+            "description",
+            "input_schema",
+            "strict",
+            "cache_control",
+            "defer_loading",
+            "eager_input_streaming",
+          ].includes(key),
+      ),
+    ) as JsonObject;
+    return {
+      op,
+      tool,
+      ...common,
+      ...(Object.keys(toolExtra).length ? { tool_extra: toolExtra } : {}),
+      ...(tool.type === "native" || !Object.keys(definitionExtra).length
+        ? {}
+        : { definition_extra: definitionExtra }),
+    };
+  }
+  if (
+    kind !== "tool_reference" &&
+    kind !== "mcp_tool_reference" &&
+    kind !== "mcp_toolset_reference"
+  )
+    fail(`${path}.tool.type is invalid`);
+  const name =
+    target.name === undefined
+      ? undefined
+      : string(target.name, `${path}.tool.name`);
+  const server =
+    target.server_name === undefined
+      ? undefined
+      : string(target.server_name, `${path}.tool.server_name`);
+  if (
+    (kind !== "mcp_toolset_reference" && !name) ||
+    (kind !== "tool_reference" && !server) ||
+    (kind === "tool_reference" && server !== undefined) ||
+    (kind === "mcp_toolset_reference" && name !== undefined)
+  )
+    fail(`${path}.tool reference is invalid`);
+  const refExtra = Object.fromEntries(
+    Object.entries(target).filter(
+      ([key]) => !["type", "name", "server_name"].includes(key),
+    ),
+  ) as JsonObject;
+  return {
+    op,
+    ref: {
+      type: kind,
+      ...(name === undefined ? {} : { name }),
+      ...(server === undefined ? {} : { server_name: server }),
+      ...(Object.keys(refExtra).length ? { extra: refExtra } : {}),
+    },
+    ...common,
+  };
+}
+
+function encodeToolChange(change: ToolChange): JsonObject {
+  let tool: JsonObject;
+  if (change.ref !== undefined) {
+    tool = {
+      ...change.ref.extra,
+      type: change.ref.type,
+      ...(change.ref.name === undefined ? {} : { name: change.ref.name }),
+      ...(change.ref.server_name === undefined
+        ? {}
+        : { server_name: change.ref.server_name }),
+    };
+  } else if (change.op === "add" && change.tool !== undefined) {
+    const encoded = encodeRequest({
+      model: "m",
+      params: { max_tokens: 1n },
+      messages: [{ role: "user", content: [{ type: "text", text: "x" }] }],
+      tools: [change.tool],
+    }).value;
+    const definition = object(array(encoded.tools, "tools")[0], "tool");
+    tool = {
+      ...change.tool_extra,
+      type: "tool_definition",
+      definition: { ...change.definition_extra, ...definition },
+    };
+  } else return fail("invalid tool change");
+  const cc = change.native?.find(
+    (ann) => ann.source === "anthropic" && ann.kind === "cache_control",
+  );
+  return {
+    ...change.extra,
+    type: change.op === "add" ? "tool_addition" : "tool_removal",
+    tool,
+    ...(cc === undefined
+      ? {}
+      : { cache_control: object(parseJson(cc.value), "cache_control") }),
+  };
+}
 
 function isCustomToolInputSchema(schema: JsonObject): boolean {
   if (schema.type !== "object") return false;
@@ -309,10 +455,45 @@ function decodeRequestObject(
   }
 
   const messages: Message[] = [];
+  const toolChangeGroups: ToolChangeGroup[] = [];
   for (const { msg, role, index } of rawMessages) {
     if (role === "system") {
       if (msg.content === undefined || msg.content === null) {
         fail(`messages[${index}]: content is missing`);
+      }
+      if (
+        Array.isArray(msg.content) &&
+        msg.content.some(
+          (v) =>
+            typeof v === "object" &&
+            v !== null &&
+            !Array.isArray(v) &&
+            !isJsonNumber(v) &&
+            (v.type === "tool_addition" || v.type === "tool_removal"),
+        )
+      ) {
+        const parts: ToolChangePart[] = msg.content.map((value, j) => {
+          const path = `messages[${index}].content[${j}]`;
+          const block = object(value, path);
+          if (block.type === "text") {
+            const native = attachBlockCacheControl(block, path, losses);
+            return {
+              type: "text",
+              text: string(block.text, `${path}.text`),
+              ...(native ? { native } : {}),
+            };
+          }
+          return {
+            type: "tool_change",
+            change: decodeToolChange(block, path, losses),
+          };
+        });
+        toolChangeGroups.push({
+          message_index: messages.length,
+          content_index: -1,
+          parts,
+        });
+        continue;
       }
       if (typeof msg.content === "string") {
         system.push({ type: "text", text: msg.content });
@@ -432,6 +613,9 @@ function decodeRequestObject(
     ...(system.length === 0 ? {} : { system }),
     messages,
     ...(tools.length === 0 ? {} : { tools }),
+    ...(toolChangeGroups.length === 0
+      ? {}
+      : { tool_change_groups: toolChangeGroups }),
     ...(toolChoice === undefined ? {} : { tool_choice: toolChoice }),
     params,
     ...(metadata === undefined ? {} : { metadata }),
@@ -585,7 +769,7 @@ export function encodeRequest(
     firstBlock?.type === "text" &&
     (firstBlock.citations === undefined || firstBlock.citations.length === 0) &&
     (firstBlock.native === undefined || firstBlock.native.length === 0);
-  const messages = request.messages.map((message, index) => {
+  const encodedMessages = request.messages.map((message, index) => {
     if (message.role === "user") {
       message.content.forEach((b, bIdx) => {
         if (b.type === "redacted_thinking") {
@@ -622,6 +806,92 @@ export function encodeRequest(
           : encoded,
     };
   });
+  const messages: JsonObject[] = [];
+  for (let index = 0; index <= request.messages.length; index++) {
+    for (const [groupIndex, group] of (
+      request.tool_change_groups ?? []
+    ).entries()) {
+      if (group.message_index !== index) continue;
+      if (group.extra && Object.keys(group.extra).length)
+        losses.push({
+          path: `tool_change_groups[${groupIndex}].extra`,
+          field: "extra",
+          reason: "unmapped-field",
+          detail:
+            "additional_tools item extensions have no equivalent on the target face",
+        });
+      const valid =
+        group.content_index === -1 &&
+        index > 0 &&
+        request.messages[index - 1]?.role === "user" &&
+        (index === request.messages.length ||
+          request.messages[index]?.role === "assistant");
+      if (!valid || group.parts.length === 0) {
+        if (!group.parts.length)
+          losses.push({
+            path: `tool_change_groups[${groupIndex}]`,
+            field: "tools",
+            reason: "unsupported-semantic",
+            detail:
+              "empty positional tool group cannot be represented on the target face",
+          });
+        group.parts.forEach((part, j) =>
+          losses.push({
+            path: `tool_change_groups[${groupIndex}].parts[${j}]`,
+            field: part.type === "text" ? "type" : "op",
+            reason: "unsupported-semantic",
+            detail:
+              part.type === "text"
+                ? "positional system text has no equivalent on the target face"
+                : "positional tool availability change cannot be represented on the target face",
+          }),
+        );
+        continue;
+      }
+      const content: JsonValue[] = group.parts.flatMap((part, partIndex) => {
+        if (part.type === "tool_change") {
+          if (
+            part.change.tool?.type === "native" &&
+            part.change.tool.source !== "anthropic"
+          ) {
+            losses.push({
+              path: `tool_change_groups[${groupIndex}].parts[${partIndex}]`,
+              field: "op",
+              reason: "unsupported-semantic",
+              detail:
+                "positional tool availability change cannot be represented on the target face",
+            });
+            return [];
+          }
+          return [encodeToolChange(part.change)];
+        }
+        const cc = part.native?.find(
+          (ann) => ann.source === "anthropic" && ann.kind === "cache_control",
+        );
+        return [
+          {
+            type: "text",
+            text: part.text,
+            ...(cc === undefined
+              ? {}
+              : {
+                  cache_control: object(parseJson(cc.value), "cache_control"),
+                }),
+          },
+        ];
+      });
+      if (group.id !== undefined)
+        losses.push({
+          path: `tool_change_groups[${groupIndex}].id`,
+          field: "id",
+          reason: "unmapped-field",
+          detail:
+            "additional_tools item id has no equivalent on the target face",
+        });
+      if (content.length) messages.push({ role: "system", content });
+    }
+    if (index < encodedMessages.length) messages.push(encodedMessages[index]!);
+  }
   request.tools?.forEach((tool, i) => {
     tool.native?.forEach((ann, tAnnIdx) => {
       if (ann.source !== "anthropic" && ann.kind !== "defer_loading") {
@@ -982,7 +1252,60 @@ function decodeContent(
     const native = isRequest
       ? attachBlockCacheControl(block, `${path}[${index}]`, losses)
       : undefined;
-    if (type === "text") {
+    if (type === "compaction" && isRequest) {
+      if (`${path}[${index}]` !== "messages[0].content[0]")
+        fail(`${path}[${index}]: compaction must be first conversation block`);
+      if (
+        block.content !== undefined &&
+        block.content !== null &&
+        (typeof block.content !== "string" || block.content === "")
+      )
+        fail(`${path}[${index}].content must be nonempty string or null`);
+      const extra = Object.fromEntries(
+        Object.entries(block).filter(
+          ([key]) =>
+            ![
+              "type",
+              "content",
+              "encrypted_content",
+              "signature",
+              "tool_changes",
+              "cache_control",
+            ].includes(key),
+        ),
+      ) as JsonObject;
+      blocks.push({
+        type: "compaction",
+        ...(block.content === undefined
+          ? {}
+          : { content: block.content as string | null }),
+        ...(block.encrypted_content === undefined
+          ? {}
+          : {
+              encrypted_content: string(
+                block.encrypted_content,
+                "encrypted_content",
+              ),
+            }),
+        ...(block.signature === undefined
+          ? {}
+          : { signature: string(block.signature, "signature") }),
+        ...(block.tool_changes === undefined
+          ? {}
+          : {
+              tool_changes: array(block.tool_changes, "tool_changes").map(
+                (value, i) =>
+                  decodeToolChange(
+                    object(value, "tool_change"),
+                    `${path}[${index}].tool_changes[${i}]`,
+                    losses,
+                  ),
+              ),
+            }),
+        ...(native ? { native } : {}),
+        ...(Object.keys(extra).length ? { extra } : {}),
+      });
+    } else if (type === "text") {
       let cites: TextCitation[] | undefined;
       if (block.citations !== undefined) {
         cites = decodeAnthropicTextCitations(
@@ -1349,7 +1672,25 @@ function encodeContent(
       });
     }
     const cc = getBlockCacheControl(block);
-    if (block.type === "text") {
+    if (block.type === "compaction" && isRequest) {
+      if (`${path}[${index}]` !== "messages[0].content[0]")
+        fail(`${path}[${index}]: compaction must be first conversation block`);
+      output.push({
+        ...block.extra,
+        type: "compaction",
+        ...(block.content === undefined ? {} : { content: block.content }),
+        ...(block.encrypted_content === undefined
+          ? {}
+          : { encrypted_content: block.encrypted_content }),
+        ...(block.signature === undefined
+          ? {}
+          : { signature: block.signature }),
+        ...(block.tool_changes === undefined
+          ? {}
+          : { tool_changes: block.tool_changes.map(encodeToolChange) }),
+        ...(cc ? { cache_control: cc } : {}),
+      });
+    } else if (block.type === "text") {
       let rawCitations: JsonValue[] | undefined;
       if (block.citations && block.citations.length > 0) {
         let hasOpenAI = false;

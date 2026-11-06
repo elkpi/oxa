@@ -72,10 +72,12 @@ fn encode_tool_change(change: &oxa_ir::ToolChange) -> Result<(BlockWire, Vec<Los
         if let Some(server) = &reference.server_name {
             raw.insert("server_name".into(), server.clone().into());
         }
-        let mut wire = BlockWire::default();
-        wire.kind = tool_change_op_wire(change.op).to_string();
-        wire.tool = Some(serde_json::Value::Object(raw));
-        wire.extra = change.extra.clone().unwrap_or_default();
+        let mut wire = BlockWire {
+            kind: tool_change_op_wire(change.op).to_string(),
+            tool: Some(serde_json::Value::Object(raw)),
+            extra: change.extra.clone().unwrap_or_default(),
+            ..BlockWire::default()
+        };
         if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
             wire.cache_control = Some(cache_control);
         }
@@ -158,10 +160,12 @@ fn encode_tool_change(change: &oxa_ir::ToolChange) -> Result<(BlockWire, Vec<Los
         "definition".into(),
         serde_json::Value::Object(definition_object),
     );
-    let mut wire = BlockWire::default();
-    wire.kind = tool_change_op_wire(change.op).to_string();
-    wire.tool = Some(serde_json::Value::Object(raw));
-    wire.extra = change.extra.clone().unwrap_or_default();
+    let mut wire = BlockWire {
+        kind: tool_change_op_wire(change.op).to_string(),
+        tool: Some(serde_json::Value::Object(raw)),
+        extra: change.extra.clone().unwrap_or_default(),
+        ..BlockWire::default()
+    };
     if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
         wire.cache_control = Some(cache_control);
     }

@@ -103,6 +103,12 @@ function decodeToolChange(
       },
       {},
     );
+    losses.push(
+      ...decoded.losses.map((item) => ({
+        ...item,
+        path: `${path}.tool.definition${item.path.replace(/^tools\[0\]/, "")}`,
+      })),
+    );
     const tool = decoded.value.tools?.[0];
     if (tool === undefined) fail(`${path}: invalid tool definition`);
     const toolExtra = Object.fromEntries(
@@ -173,7 +179,11 @@ function decodeToolChange(
   };
 }
 
-function encodeToolChange(change: ToolChange): JsonObject {
+function encodeToolChange(
+  change: ToolChange,
+  path: string,
+  losses: Loss[],
+): JsonObject {
   let tool: JsonObject;
   if (change.ref !== undefined) {
     tool = {
@@ -185,13 +195,19 @@ function encodeToolChange(change: ToolChange): JsonObject {
         : { server_name: change.ref.server_name }),
     };
   } else if (change.op === "add" && change.tool !== undefined) {
-    const encoded = encodeRequest({
+    const result = encodeRequest({
       model: "m",
       params: { max_tokens: 1n },
       messages: [{ role: "user", content: [{ type: "text", text: "x" }] }],
       tools: [change.tool],
-    }).value;
-    const definition = object(array(encoded.tools, "tools")[0], "tool");
+    });
+    losses.push(
+      ...result.losses.map((item) => ({
+        ...item,
+        path: `${path}.tool${item.path.replace(/^tools\[0\]/, "")}`,
+      })),
+    );
+    const definition = object(array(result.value.tools, "tools")[0], "tool");
     tool = {
       ...change.tool_extra,
       type: "tool_definition",
@@ -499,10 +515,16 @@ function decodeRequestObject(
               ...(native ? { native } : {}),
             };
           }
-          return {
-            type: "tool_change",
-            change: decodeToolChange(block, path, losses),
-          };
+          const change = decodeToolChange(block, path, losses);
+          if (change.tool?.name !== undefined) {
+            declaredTools.add(change.tool.name);
+            if (change.tool.type === "custom") {
+              customTools.add(change.tool.name);
+            } else {
+              customTools.delete(change.tool.name);
+            }
+          }
+          return { type: "tool_change", change };
         });
         toolChangeGroups.push({
           message_index: messages.length,
@@ -871,7 +893,13 @@ export function encodeRequest(
             });
             return [];
           }
-          return [encodeToolChange(part.change)];
+          return [
+            encodeToolChange(
+              part.change,
+              `tool_change_groups[${groupIndex}].parts[${partIndex}].change`,
+              losses,
+            ),
+          ];
         }
         const cc = part.native?.find(
           (ann) => ann.source === "anthropic" && ann.kind === "cache_control",
@@ -1707,7 +1735,15 @@ function encodeContent(
           : { signature: block.signature }),
         ...(block.tool_changes === undefined
           ? {}
-          : { tool_changes: block.tool_changes.map(encodeToolChange) }),
+          : {
+              tool_changes: block.tool_changes.map((change, i) =>
+                encodeToolChange(
+                  change,
+                  `${path}[${index}].tool_changes[${i}]`,
+                  losses,
+                ),
+              ),
+            }),
         ...(cc ? { cache_control: cc } : {}),
       });
     } else if (block.type === "text") {

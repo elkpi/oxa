@@ -221,10 +221,10 @@ export function validateNativeRequest(request: Request): void {
       }
       if (part.type === "tool_change") {
         if (part.change.native) {
-          validatePositionalAnnotations(
+          validateToolAnnotations(
             part.change.native,
-            "tool",
             `${partPath}.change`,
+            true,
           );
         }
         if (part.change.tool) {
@@ -241,7 +241,7 @@ export function validateNativeRequest(request: Request): void {
       blk.tool_changes?.forEach((change, k) => {
         const changePath = `${base}.tool_changes[${k}]`;
         if (change.native) {
-          validatePositionalAnnotations(change.native, "tool", changePath);
+          validateToolAnnotations(change.native, changePath, true);
         }
         if (change.tool) {
           validateToolNative(change.tool, `${changePath}.tool`, true);
@@ -256,26 +256,32 @@ function validateToolNative(
   path: string,
   positional = false,
 ): void {
-  if (tool.native) {
-    if (positional) validatePositionalAnnotations(tool.native, "tool", path);
-    else validateAnnotations(tool.native, "tool", path);
-    let hasCacheControl = false;
-    let hasDeferLoading = false;
-    for (const n of tool.native) {
-      if (n.source === NATIVE_SOURCE_ANTHROPIC) {
-        if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
-          hasCacheControl = true;
-        } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
-          hasDeferLoading = true;
-        }
+  if (tool.native) validateToolAnnotations(tool.native, path, positional);
+}
+
+function validateToolAnnotations(
+  native: readonly NativeAnnotation[],
+  path: string,
+  positional: boolean,
+): void {
+  if (positional) validatePositionalAnnotations(native, "tool", path);
+  else validateAnnotations(native, "tool", path);
+  let hasCacheControl = false;
+  let hasDeferLoading = false;
+  for (const n of native) {
+    if (n.source === NATIVE_SOURCE_ANTHROPIC) {
+      if (n.kind === NATIVE_KIND_CACHE_CONTROL) {
+        hasCacheControl = true;
+      } else if (n.kind === NATIVE_KIND_DEFER_LOADING) {
+        hasDeferLoading = true;
       }
     }
-    if (hasCacheControl && hasDeferLoading) {
-      throw new OxaError(
-        "invalid-input",
-        `ir: ${path}: cannot specify both defer_loading and cache_control`,
-      );
-    }
+  }
+  if (hasCacheControl && hasDeferLoading) {
+    throw new OxaError(
+      "invalid-input",
+      `ir: ${path}: cannot specify both defer_loading and cache_control`,
+    );
   }
 }
 
@@ -287,6 +293,16 @@ function validatePositionalAnnotations(
   try {
     validateAnnotations(annotations, host, path);
   } catch {
+    for (let index = 0; index < annotations.length; index++) {
+      try {
+        validateAnnotations(annotations.slice(0, index + 1), host, path);
+      } catch {
+        throw new OxaError(
+          "invalid-input",
+          `ir: ${path}.native[${index}]: invalid native annotation`,
+        );
+      }
+    }
     throw new OxaError(
       "invalid-input",
       `ir: ${path}.native: invalid native annotation`,

@@ -88,6 +88,7 @@ inline std::vector<ir::Loss> audit_wire(const json::Value& root, std::string_vie
             positions[child_path] = position(*value);
             auto found = fields->second.find(*key);
             if (found == fields->second.end()) {
+                if (name == "additional_tools_item") continue;
                 extra.push_back(ir::make_loss(child_path, *key, ir::LOSS_UNMAPPED_FIELD, ""));
             } else {
                 self(self, *value, found->second, child_path);

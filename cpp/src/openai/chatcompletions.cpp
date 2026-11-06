@@ -855,8 +855,20 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_availability(req));
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
+    for (std::size_t gi = 0; gi < req.tool_change_groups.size(); ++gi) {
+        const auto& group = req.tool_change_groups[gi];
+        if (group.parts.empty()) losses.push_back(make_cc_loss("tool_change_groups[" + std::to_string(gi) + "]", "tools", ir::LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"));
+        for (std::size_t pi = 0; pi < group.parts.size(); ++pi) {
+            const bool text = group.parts[pi].type == "text";
+            losses.push_back(make_cc_loss("tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "]", text ? "type" : "op", ir::LOSS_UNSUPPORTED_SEMANTIC, text ? "positional system text has no equivalent on the target face" : "positional tool availability change cannot be represented on the target face"));
+        }
+    }
+    for (std::size_t mi = 0; mi < req.messages.size(); ++mi) for (std::size_t bi = 0; bi < req.messages[mi].content.size(); ++bi) {
+        if (std::holds_alternative<ir::CompactionBlock>(req.messages[mi].content[bi])) losses.push_back(make_cc_loss("messages[" + std::to_string(mi) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic compaction block cannot be represented on the target face"));
+    }
     json::Value out = json::Value::object();
     out.set("model", json::Value::string(opts.model_map.map(req.model)));
     if (req.metadata.has_value() && !req.metadata->empty()) {
@@ -1072,6 +1084,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
             json::Value tc_arr = json::Value::array();
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
+                if (std::holds_alternative<ir::CompactionBlock>(b)) continue;
                 if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     text += tb->text;
                     if (tb->citations.has_value() && !tb->citations->empty()) {
@@ -1190,6 +1203,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
+                if (std::holds_alternative<ir::CompactionBlock>(b)) continue;
                 if (std::holds_alternative<ir::ToolResultBlock>(b) || std::holds_alternative<ir::CustomToolResultBlock>(b)) {
                     results.push_back(&b);
                     last_result = bi;

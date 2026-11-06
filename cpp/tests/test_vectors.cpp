@@ -62,7 +62,7 @@ int main() {
         auto actual = oxa::json::parse(R"({"specVersion":"0.2.0"})");
         CHECK(expected.ok() && actual.ok());
         CHECK(oxa::vectest::compare_json(*expected, *actual).ok());
-        auto unsupported = oxa::json::parse(R"({"specVersion":"0.3.0"})");
+        auto unsupported = oxa::json::parse(R"({"specVersion":"0.4.0"})");
         CHECK(unsupported.ok());
         CHECK(!oxa::vectest::compare_json(*actual, *unsupported).ok());
     }
@@ -109,7 +109,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 128);
+        CHECK(r->executed == 136);
     }
 
     // 3. Responses nonstream
@@ -136,7 +136,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 104);
+        CHECK(r->executed == 108);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

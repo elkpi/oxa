@@ -9,7 +9,7 @@
 
 int main() {
     // IR constants (spec/01, spec/02)
-    assert(oxa::ir::SPEC_VERSION == "0.2.0");
+    assert(oxa::ir::SPEC_VERSION == "0.3.0");
     assert(oxa::ir::LEGACY_SPEC_VERSION == "0.1.0");
 
     assert(oxa::ir::REASONING_EFFORT_MINIMAL == "minimal");

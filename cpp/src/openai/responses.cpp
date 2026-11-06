@@ -554,7 +554,7 @@ struct PrecheckApplyPatchResult {
     std::vector<ir::Loss> losses;
 };
 
-inline bool is_empty_additional_tools(const json::Value& item);
+inline bool is_additional_tools(const json::Value& item);
 
 StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<json::Value>& items) {
     PrecheckApplyPatchResult res;
@@ -588,7 +588,7 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
         std::size_t a_start = i;
         while (a_start < items.size()) {
             const auto& it = items[a_start];
-            if (is_empty_additional_tools(it)) {
+            if (is_additional_tools(it)) {
                 ++a_start;
                 continue;
             }
@@ -628,7 +628,7 @@ StatusOr<PrecheckApplyPatchResult> precheck_apply_patch_pairs(const std::vector<
         std::size_t o_start = a_start;
         while (o_start < items.size()) {
             const auto& it = items[o_start];
-            if (is_empty_additional_tools(it)) {
+            if (is_additional_tools(it)) {
                 ++o_start;
                 continue;
             }
@@ -763,17 +763,10 @@ inline std::string serialize_container_path(const std::vector<ContainerEntry>& p
     return payload;
 }
 
-inline bool is_empty_additional_tools(const json::Value& item) {
+inline bool is_additional_tools(const json::Value& item) {
     const auto* type_val = item.find("type");
     if (!type_val || !type_val->is_string() || type_val->as_string() != "additional_tools") return false;
-    const auto* tools = item.find("tools");
-    return tools && tools->is_array() && tools->as_array().empty();
-}
-
-inline ir::Loss empty_additional_tools_loss(std::size_t index) {
-    return make_resp_loss("input[" + std::to_string(index) + "].tools", "tools",
-                          ir::LOSS_UNMAPPED_FIELD,
-                          "empty additional_tools inventory ignored");
+    return true;
 }
 
 Status decode_responses_tool_item(
@@ -1080,6 +1073,42 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
         const auto& items = inp->as_array();
         OXA_ASSIGN_OR_RETURN(auto precheck, precheck_apply_patch_pairs(items));
         losses.insert(losses.end(), precheck.losses.begin(), precheck.losses.end());
+        auto decode_group = [&](std::size_t source, std::size_t message, std::int64_t content) -> Status {
+            const auto& entry = items[source];
+            const auto* role = entry.find("role");
+            if (!role || !role->is_string() || role->as_string() != "developer") return invalid_argument("responses: input[" + std::to_string(source) + "].role must be developer");
+            const auto* item_tools = entry.find("tools");
+            if (!item_tools || !item_tools->is_array()) return invalid_argument("responses: input[" + std::to_string(source) + "]: additional_tools requires tools array");
+            ir::ToolChangeGroup group;
+            group.message_index = message;
+            group.content_index = content;
+            if (const auto* id = entry.find("id")) {
+                if (!id->is_string()) return invalid_argument("responses: additional_tools id must be a string");
+                group.id = id->as_string();
+            }
+            for (const auto& [key, field] : entry.as_object()) if (key != "type" && key != "role" && key != "tools" && key != "id") group.extra.set(key, field);
+            std::unordered_set<std::string> names;
+            std::vector<ir::Tool> added;
+            for (std::size_t j = 0; j < item_tools->as_array().size(); ++j) {
+                OXA_RETURN_IF_ERROR(decode_responses_tool_item(item_tools->as_array()[j], {}, "input[" + std::to_string(source) + "].tools[" + std::to_string(j) + "]", names, added, losses));
+            }
+            for (auto& tool : added) {
+                ir::ToolChange change; change.op = "add"; change.tool = std::move(tool);
+                ir::ToolChangePart part; part.type = "tool_change"; part.change = std::move(change);
+                group.parts.push_back(std::move(part));
+            }
+            req.tool_change_groups.push_back(std::move(group));
+            return ok_status();
+        };
+        auto append_markers = [&](const std::vector<std::size_t>& markers, const std::vector<std::size_t>& origins) -> Status {
+            for (auto source : markers) {
+                std::size_t first = items.size(), position = 0;
+                bool found = false;
+                for (std::size_t k = 0; k < origins.size(); ++k) if (origins[k] > source && origins[k] < first) { first = origins[k]; position = k; found = true; }
+                OXA_RETURN_IF_ERROR(decode_group(source, req.messages.size() + (!found && !origins.empty() ? 1 : 0), found ? static_cast<std::int64_t>(position) : -1));
+            }
+            return ok_status();
+        };
         std::size_t index = 0;
         while (index < items.size()) {
             const auto& item = items[index];
@@ -1117,15 +1146,20 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     // Assistant run: collect assistant messages and function_call items
                     std::vector<ir::Block> text_blocks;
                     std::vector<ir::Block> call_blocks;
+                    std::vector<std::size_t> text_origins, call_origins, markers;
+                    std::size_t previous = index;
                     while (index < items.size()) {
+                        text_origins.resize(text_blocks.size(), previous);
+                        call_origins.resize(call_blocks.size(), previous);
                         const auto& cur = items[index];
                         const auto* ct = cur.find("type");
                         std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
-                        if (is_empty_additional_tools(cur)) {
-                            losses.push_back(empty_additional_tools_loss(index));
+                        if (is_additional_tools(cur)) {
+                            markers.push_back(index);
                             ++index;
                             continue;
                         }
+                        previous = index;
                         if (ckind == "reasoning") {
                             auto blocks = decode_reasoning_summary(cur, index, losses);
                             text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
@@ -1175,6 +1209,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                         }
                         break;
                     }
+                    text_origins.resize(text_blocks.size(), previous);
+                    call_origins.resize(call_blocks.size(), previous);
+                    text_origins.insert(text_origins.end(), call_origins.begin(), call_origins.end());
+                    OXA_RETURN_IF_ERROR(append_markers(markers, text_origins));
                     text_blocks.insert(text_blocks.end(), std::make_move_iterator(call_blocks.begin()),
                                        std::make_move_iterator(call_blocks.end()));
                     if (!text_blocks.empty()) {
@@ -1187,15 +1225,20 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                 // Standalone reasoning/function_call items start an assistant run
                 std::vector<ir::Block> text_blocks;
                 std::vector<ir::Block> call_blocks;
+                std::vector<std::size_t> text_origins, call_origins, markers;
+                std::size_t previous = index;
                 while (index < items.size()) {
+                    text_origins.resize(text_blocks.size(), previous);
+                    call_origins.resize(call_blocks.size(), previous);
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
-                    if (is_empty_additional_tools(cur)) {
-                        losses.push_back(empty_additional_tools_loss(index));
+                    if (is_additional_tools(cur)) {
+                        markers.push_back(index);
                         ++index;
                         continue;
                     }
+                    previous = index;
                     if (ckind == "reasoning") {
                         auto blocks = decode_reasoning_summary(cur, index, losses);
                         text_blocks.insert(text_blocks.end(), std::make_move_iterator(blocks.begin()),
@@ -1245,6 +1288,10 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     }
                     break;
                 }
+                text_origins.resize(text_blocks.size(), previous);
+                call_origins.resize(call_blocks.size(), previous);
+                text_origins.insert(text_origins.end(), call_origins.begin(), call_origins.end());
+                OXA_RETURN_IF_ERROR(append_markers(markers, text_origins));
                 text_blocks.insert(text_blocks.end(), std::make_move_iterator(call_blocks.begin()),
                                    std::make_move_iterator(call_blocks.end()));
                 if (!text_blocks.empty()) {
@@ -1253,15 +1300,19 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             } else if (kind == "function_call_output" || kind == "custom_tool_call_output" || kind == "apply_patch_call_output") {
                 // Mixed result runs retain the source order and the call category.
                 std::vector<ir::Block> tr_blocks;
+                std::vector<std::size_t> result_origins, markers;
+                std::size_t previous = index;
                 while (index < items.size()) {
+                    result_origins.resize(tr_blocks.size(), previous);
                     const auto& cur = items[index];
                     const auto* ct = cur.find("type");
                     std::string ckind = ct && ct->is_string() ? ct->as_string() : "";
-                    if (is_empty_additional_tools(cur)) {
-                        losses.push_back(empty_additional_tools_loss(index));
+                    if (is_additional_tools(cur)) {
+                        markers.push_back(index);
                         ++index;
                         continue;
                     }
+                    previous = index;
                     if (ckind != "function_call_output" && ckind != "custom_tool_call_output" && ckind != "apply_patch_call_output") break;
                     if (ckind == "apply_patch_call_output") {
                         if (precheck.dropped.count(index)) {
@@ -1291,28 +1342,13 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
                     }
                     ++index;
                 }
+                result_origins.resize(tr_blocks.size(), previous);
+                OXA_RETURN_IF_ERROR(append_markers(markers, result_origins));
                 if (!tr_blocks.empty()) {
                     req.messages.push_back(ir::Message{std::string(ir::ROLE_USER), std::move(tr_blocks)});
                 }
             } else if (kind == "additional_tools") {
-                const auto* item_tools = item.find("tools");
-                if (!item_tools || !item_tools->is_array()) {
-                    return invalid_argument("responses: input[" + std::to_string(index) + "]: additional_tools requires tools array");
-                }
-                if (item_tools->as_array().empty()) {
-                    losses.push_back(empty_additional_tools_loss(index));
-                    ++index;
-                    continue;
-                }
-                for (std::size_t t_idx = 0; t_idx < item_tools->as_array().size(); ++t_idx) {
-                    OXA_RETURN_IF_ERROR(decode_responses_tool_item(
-                        item_tools->as_array()[t_idx],
-                        {},
-                        "input[" + std::to_string(index) + "].tools[" + std::to_string(t_idx) + "]",
-                        seen_names,
-                        tools,
-                        losses));
-                }
+                OXA_RETURN_IF_ERROR(decode_group(index, req.messages.size(), -1));
                 ++index;
             } else {
                 losses.push_back(make_resp_loss(
@@ -1656,6 +1692,7 @@ struct ReasoningBuilder {
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_availability(req));
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     std::vector<ir::Loss> losses;
     json::Value out = json::Value::object();
@@ -1827,9 +1864,63 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         out.set("parallel_tool_calls", json::Value::boolean(*ptc));
     }
 
+    for (std::size_t mi = 0; mi < req.messages.size(); ++mi) for (std::size_t bi = 0; bi < req.messages[mi].content.size(); ++bi) {
+        if (std::holds_alternative<ir::CompactionBlock>(req.messages[mi].content[bi])) losses.push_back(make_resp_loss("messages[" + std::to_string(mi) + "].content[" + std::to_string(bi) + "]", "type", ir::LOSS_UNSUPPORTED_SEMANTIC, "Anthropic compaction block cannot be represented on the target face"));
+    }
     std::vector<json::Value> items = std::move(leading_system_items);
+    for (const auto& group : req.tool_change_groups) {
+        if (group.message_index > req.messages.size() || group.content_index < -1 ||
+            (group.content_index >= 0 && (group.message_index >= req.messages.size() || static_cast<std::size_t>(group.content_index) > req.messages[group.message_index].content.size()))) return invalid_argument("responses: invalid tool change group position");
+    }
+    auto emit_groups = [&](std::size_t message_index, std::int64_t content_index) -> Status {
+        for (std::size_t gi = 0; gi < req.tool_change_groups.size(); ++gi) {
+            const auto& group = req.tool_change_groups[gi];
+            if (group.message_index != message_index || group.content_index != content_index) continue;
+            std::vector<ir::Tool> tools;
+            for (std::size_t pi = 0; pi < group.parts.size(); ++pi) {
+                const auto& part = group.parts[pi];
+                if (part.type == "tool_change" && part.change && part.change->op == "add" && part.change->tool &&
+                    (part.change->tool->type != "native" || part.change->tool->source == "openai")) {
+                    const auto base = "tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "].change";
+                    for (std::size_t k = 0; k < part.change->native.size(); ++k) {
+                        const auto& annotation = part.change->native[k];
+                        if (annotation.source == "anthropic" && annotation.kind == "cache_control") losses.push_back(make_resp_loss(base + ".native[" + std::to_string(k) + "]", "cache_control", ir::LOSS_UNMAPPED_FIELD, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
+                    }
+                    for (std::size_t k = 0; k < part.change->tool->native.size(); ++k) {
+                        const auto& annotation = part.change->tool->native[k];
+                        if (annotation.source == "anthropic" && annotation.kind == "cache_control") losses.push_back(make_resp_loss(base + ".tool.native[" + std::to_string(k) + "]", "cache_control", ir::LOSS_UNMAPPED_FIELD, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
+                    }
+                    for (const auto& [name, fields] : std::vector<std::pair<std::string, const json::Value*>>{{"extra", &part.change->extra}, {"tool_extra", &part.change->tool_extra}, {"definition_extra", &part.change->definition_extra}}) {
+                        if (!fields->as_object().empty()) losses.push_back(make_resp_loss(base + "." + name, name, ir::LOSS_UNMAPPED_FIELD, "source-native tool change extension cannot be represented on the target face"));
+                    }
+                    tools.push_back(*part.change->tool);
+                } else {
+                    const bool text = part.type == "text";
+                    losses.push_back(make_resp_loss("tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "]", text ? "type" : "op", ir::LOSS_UNSUPPORTED_SEMANTIC, text ? "positional system text has no equivalent on the target face" : "positional tool availability change cannot be represented on the target face"));
+                }
+            }
+            if (!group.parts.empty() && tools.empty()) continue;
+            json::Value item = group.extra;
+            item.set("type", json::Value::string("additional_tools"));
+            item.set("role", json::Value::string("developer"));
+            if (group.id) item.set("id", json::Value::string(*group.id));
+            item.set("tools", encode_responses_grouped_tools(tools, losses));
+            items.push_back(std::move(item));
+        }
+        return ok_status();
+    };
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
-        const auto& m = req.messages[i];
+        OXA_RETURN_IF_ERROR(emit_groups(i, -1));
+        const auto& original = req.messages[i];
+        std::set<std::size_t> boundaries{0, original.content.size()};
+        for (const auto& group : req.tool_change_groups) if (group.message_index == i && group.content_index >= 0) boundaries.insert(static_cast<std::size_t>(group.content_index));
+        std::vector<std::size_t> positions(boundaries.begin(), boundaries.end());
+        for (std::size_t si = 0; si < positions.size(); ++si) {
+            const std::size_t start = positions[si];
+            OXA_RETURN_IF_ERROR(emit_groups(i, static_cast<std::int64_t>(start)));
+            if (si + 1 == positions.size()) break;
+            const std::size_t end = positions[si + 1];
+            ir::Message m{original.role, std::vector<ir::Block>(original.content.begin() + static_cast<std::ptrdiff_t>(start), original.content.begin() + static_cast<std::ptrdiff_t>(end))};
         if (m.role == ir::ROLE_USER) {
             std::vector<const ir::Block*> results;
             std::vector<const ir::Block*> normal;
@@ -1838,6 +1929,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
+                if (std::holds_alternative<ir::CompactionBlock>(b)) continue;
                 if (std::holds_alternative<ir::ToolResultBlock>(b) ||
                     std::holds_alternative<ir::CustomToolResultBlock>(b) ||
                     std::holds_alternative<ir::ApplyPatchToolResultBlock>(b)) {
@@ -2068,6 +2160,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
 
             for (std::size_t bi = 0; bi < m.content.size(); ++bi) {
                 const auto& b = m.content[bi];
+                if (std::holds_alternative<ir::CompactionBlock>(b)) continue;
                 if (const auto* thinking = std::get_if<ir::ThinkingBlock>(&b)) {
                     json::Value part = json::Value::object();
                     part.set("type", json::Value::string("output_text"));
@@ -2203,7 +2296,9 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                 items.push_back(std::move(fc));
             }
         }
+        }
     }
+    OXA_RETURN_IF_ERROR(emit_groups(req.messages.size(), -1));
 
     if (req.system.empty() && items.size() == 1 &&
         items[0].find("role") && items[0].find("role")->is_string() &&

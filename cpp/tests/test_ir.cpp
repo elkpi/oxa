@@ -72,7 +72,7 @@ void codec_tests() {
     auto req_res = load_request(*req_parsed);
     CHECK(req_res.ok());
     auto req_expected = *req_parsed;
-    req_expected.set("specVersion", Value::string("0.2.0"));
+    req_expected.set("specVersion", Value::string("0.3.0"));
     CHECK(oxa::json::structurally_equal(req_expected, dump_request(*req_res)));
 
     auto resp_parsed = oxa::json::parse(kSpecResponse);
@@ -80,7 +80,7 @@ void codec_tests() {
     auto resp_res = load_response(*resp_parsed);
     CHECK(resp_res.ok());
     auto response_expected = *resp_parsed;
-    response_expected.set("specVersion", Value::string("0.2.0"));
+    response_expected.set("specVersion", Value::string("0.3.0"));
     CHECK(oxa::json::structurally_equal(response_expected, dump_response(*resp_res)));
 
     auto events_parsed = oxa::json::parse(kSpecEventStream);
@@ -90,7 +90,7 @@ void codec_tests() {
     CHECK(events_res->size() == 7);
     CHECK(std::holds_alternative<MessageStart>((*events_res)[0]));
     auto events_expected = *events_parsed;
-    events_expected.set("specVersion", Value::string("0.2.0"));
+    events_expected.set("specVersion", Value::string("0.3.0"));
     CHECK(oxa::json::structurally_equal(events_expected, dump_event_stream(*events_res)));
 
     std::string bad = std::string(kSpecResponse);
@@ -114,8 +114,8 @@ void codec_tests() {
         CHECK_MSG(request.ok(), std::string(request.status().message()));
         if (request.ok()) {
             auto encoded = dump_request(*request);
-            CHECK(encoded.find("specVersion")->as_string() == "0.2.0");
-            auto expected = *request_v2; expected.set("specVersion", Value::string("0.2.0"));
+            CHECK(encoded.find("specVersion")->as_string() == "0.3.0");
+            auto expected = *request_v2; expected.set("specVersion", Value::string("0.3.0"));
             CHECK(oxa::json::structurally_equal(expected, encoded));
         }
 
@@ -134,7 +134,7 @@ void codec_tests() {
         CHECK_MSG(response.ok(), std::string(response.status().message()));
         if (response.ok()) {
             auto encoded = dump_response(*response);
-            auto expected = *response_v2; expected.set("specVersion", Value::string("0.2.0"));
+            auto expected = *response_v2; expected.set("specVersion", Value::string("0.3.0"));
             CHECK(oxa::json::structurally_equal(expected, encoded));
         }
 
@@ -154,7 +154,7 @@ void codec_tests() {
         auto events = load_event_stream(*stream_v2);
         CHECK_MSG(events.ok(), std::string(events.status().message()));
         if (events.ok()) {
-            auto expected = *stream_v2; expected.set("specVersion", Value::string("0.2.0"));
+            auto expected = *stream_v2; expected.set("specVersion", Value::string("0.3.0"));
             CHECK(oxa::json::structurally_equal(expected, dump_event_stream(*events)));
         }
     }
@@ -174,7 +174,7 @@ void codec_tests() {
         if (request.ok()) {
             auto encoded = dump_request(*request);
             auto expected = *request_with_format;
-            expected.set("specVersion", Value::string("0.2.0"));
+            expected.set("specVersion", Value::string("0.3.0"));
             CHECK(oxa::json::structurally_equal(expected, encoded));
         }
     }
@@ -233,7 +233,10 @@ void codec_tests() {
         CHECK(custom_request.ok());
         auto request = load_request(*custom_request);
         CHECK(request.ok());
-        if (request.ok()) CHECK(oxa::json::structurally_equal(*custom_request, dump_request(*request)));
+        if (request.ok()) {
+            custom_request->set("specVersion", Value::string("0.3.0"));
+            CHECK(oxa::json::structurally_equal(*custom_request, dump_request(*request)));
+        }
         auto invalid_tool = oxa::json::parse(R"({"specVersion":"0.2.0","model":"m","messages":[{"role":"user","content":[{"type":"text","text":"x"}]}],"tools":[{"type":"custom","name":"x","input_schema":{}}]})");
         CHECK(invalid_tool.ok() && !load_request(*invalid_tool).ok());
 
@@ -430,6 +433,7 @@ void tool_strict_tests() {
     CHECK(parsed.ok());
     auto request = load_request(*parsed);
     CHECK(request.ok());
+    parsed->set("specVersion", Value::string("0.3.0"));
     CHECK(oxa::json::structurally_equal(*parsed, dump_request(*request)));
     auto checked = dump_request_checked(*request);
     CHECK(checked.ok());

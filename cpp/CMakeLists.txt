@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(oxa VERSION 2.5.3 LANGUAGES CXX)
+project(oxa VERSION 3.0.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -18,6 +18,7 @@ endif()
 add_library(oxa
   src/json.cpp
   src/ir.cpp
+  src/tool_change.cpp
   src/native.cpp
   src/modelmap.cpp
   src/sse.cpp
@@ -74,8 +75,9 @@ install(FILES
 
 enable_testing()
 
-foreach(t test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools test_fidelity_v2411)
+foreach(t test_tool_change test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools test_fidelity_v2411)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE oxa oxa_vectest)
   add_test(NAME ${t} COMMAND ${t})
+  set_tests_properties(${t} PROPERTIES WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR})
 endforeach()

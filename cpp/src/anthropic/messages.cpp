@@ -194,6 +194,99 @@ StatusOr<std::optional<std::vector<ir::TextCitation>>> decode_text_citations(
     return std::optional<std::vector<ir::TextCitation>>(std::move(cites));
 }
 
+StatusOr<ir::ToolChange> decode_tool_change(const json::Value& value, const std::string& path, std::vector<ir::Loss>& losses) {
+    if (!value.is_object()) return invalid_argument("anthropic: " + path + " must be an object");
+    const auto* type = value.find("type");
+    if (!type || !type->is_string() || (type->as_string() != "tool_addition" && type->as_string() != "tool_removal")) return invalid_argument("anthropic: " + path + ".type must be tool_addition or tool_removal");
+    const auto* target = value.find("tool");
+    if (!target || !target->is_object()) return invalid_argument("anthropic: " + path + ".tool must be an object");
+    const auto* target_type = target->find("type");
+    if (!target_type || !target_type->is_string()) return invalid_argument("anthropic: " + path + ".tool.type is required");
+    ir::ToolChange change;
+    change.op = type->as_string() == "tool_addition" ? "add" : "remove";
+    if (target_type->as_string() == "tool_definition") {
+        if (change.op != "add") return invalid_argument("anthropic: " + path + " removal cannot contain definition");
+        const auto* definition = target->find("definition");
+        if (!definition || !definition->is_object()) return invalid_argument("anthropic: " + path + ".tool.definition must be an object");
+        auto skeleton = json::parse(R"({"model":"m","max_tokens":1,"messages":[{"role":"user","content":"x"}]})");
+        json::Value input = *skeleton;
+        json::Value tools = json::Value::array();
+        tools.push_back(*definition);
+        input.set("tools", std::move(tools));
+        auto decoded = decode_request(input);
+        if (!decoded.ok()) return decoded.status();
+        if (!decoded->value.tools || decoded->value.tools->empty()) return invalid_argument("anthropic: " + path + " invalid tool definition");
+        change.tool = decoded->value.tools->front();
+        for (const auto& [key, field] : target->as_object()) if (key != "type" && key != "definition") change.tool_extra.set(key, field);
+        if (change.tool->type != "native") {
+            for (const auto& [key, field] : definition->as_object()) {
+                if (key != "type" && key != "name" && key != "description" && key != "input_schema" && key != "strict" && key != "cache_control" && key != "defer_loading" && key != "eager_input_streaming") change.definition_extra.set(key, field);
+            }
+        }
+        for (auto item_loss : decoded->losses) {
+            if (change.definition_extra.find(item_loss.field) && item_loss.path == "tools[0]." + item_loss.field) continue;
+            if (item_loss.path.starts_with("tools[0]")) item_loss.path = path + ".tool.definition" + item_loss.path.substr(8);
+            losses.push_back(std::move(item_loss));
+        }
+    } else {
+        ir::ToolChangeRef ref;
+        ref.type = target_type->as_string();
+        if (const auto* name = target->find("name")) {
+            if (!name->is_string()) return invalid_argument("anthropic: " + path + ".tool.name must be a string");
+            ref.name = name->as_string();
+        }
+        if (const auto* server = target->find("server_name")) {
+            if (!server->is_string()) return invalid_argument("anthropic: " + path + ".tool.server_name must be a string");
+            ref.server_name = server->as_string();
+        }
+        for (const auto& [key, field] : target->as_object()) if (key != "type" && key != "name" && key != "server_name") ref.extra.set(key, field);
+        change.ref = std::move(ref);
+    }
+    for (const auto& [key, field] : value.as_object()) if (key != "type" && key != "tool" && key != "cache_control") change.extra.set(key, field);
+    if (const auto* cc = value.find("cache_control")) {
+        auto canon = parse_cache_control(*cc, path + ".cache_control", losses);
+        if (canon) change.native.push_back(ir::NativeAnnotation{std::string(ir::NATIVE_SOURCE_ANTHROPIC), std::string(ir::NATIVE_KIND_CACHE_CONTROL), *canon, ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)}, std::nullopt});
+    }
+    auto validated = ir::load_tool_change(ir::dump_tool_change(change));
+    if (!validated.ok()) return invalid_argument("anthropic: " + path + ": " + std::string(validated.status().message()));
+    return change;
+}
+
+StatusOr<json::Value> encode_tool_change(const ir::ToolChange& change) {
+    auto validated = ir::load_tool_change(ir::dump_tool_change(change));
+    if (!validated.ok()) return validated.status();
+    json::Value out = change.extra;
+    out.set("type", json::Value::string(change.op == "add" ? "tool_addition" : "tool_removal"));
+    json::Value tool = json::Value::object();
+    if (change.ref) {
+        tool = change.ref->extra;
+        tool.set("type", json::Value::string(change.ref->type));
+        if (!change.ref->name.empty()) tool.set("name", json::Value::string(change.ref->name));
+        if (!change.ref->server_name.empty()) tool.set("server_name", json::Value::string(change.ref->server_name));
+    } else {
+        ir::Request request;
+        request.model = "m";
+        request.params = ir::Params{};
+        request.params->max_tokens = 1;
+        request.messages.push_back({"user", {ir::TextBlock{"x"}}});
+        request.tools = std::vector<ir::Tool>{*change.tool};
+        OXA_ASSIGN_OR_RETURN(auto encoded, encode_request(request));
+        const auto* definitions = encoded.value.find("tools");
+        if (!definitions || definitions->as_array().size() != 1) return invalid_argument("anthropic: tool change definition cannot be represented");
+        json::Value definition = definitions->as_array()[0];
+        for (const auto& [key, field] : change.definition_extra.as_object()) {
+            if (definition.find(key)) return invalid_argument("anthropic: tool definition extra conflicts with a known field");
+            definition.set(key, field);
+        }
+        tool = change.tool_extra;
+        tool.set("type", json::Value::string("tool_definition"));
+        tool.set("definition", std::move(definition));
+    }
+    out.set("tool", std::move(tool));
+    if (auto cc = get_block_cache_control(change.native)) out.set("cache_control", std::move(*cc));
+    return out;
+}
+
 StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_content_blocks(
     const json::Value* content, const std::string& path, bool keep_raw_input = true,
     const std::set<std::string>& custom_tools = {}, std::set<std::string>* custom_call_ids = nullptr,
@@ -222,7 +315,32 @@ StatusOr<std::pair<std::vector<ir::Block>, std::vector<ir::Loss>>> decode_conten
 
         const auto* t = item.find("type");
         std::string kind = t && t->is_string() ? t->as_string() : "";
-        if (kind == BLOCK_TYPE_TEXT) {
+        if (kind == "compaction" && is_request) {
+            if (in_tool_result || block_path != "messages[0].content[0]") return invalid_argument("anthropic: " + block_path + ": compaction must be first block of first message");
+            ir::CompactionBlock block;
+            if (const auto* content = item.find("content")) {
+                if ((!content->is_string() && !content->is_null()) || (content->is_string() && content->as_string().empty())) return invalid_argument("anthropic: " + block_path + ".content must be nonempty string or null");
+                block.content = *content;
+            }
+            if (const auto* encrypted = item.find("encrypted_content")) {
+                if (!encrypted->is_string()) return invalid_argument("anthropic: " + block_path + ".encrypted_content must be a string");
+                block.encrypted_content = encrypted->as_string();
+            }
+            if (const auto* signature = item.find("signature")) {
+                if (!signature->is_string()) return invalid_argument("anthropic: " + block_path + ".signature must be a string");
+                block.signature = signature->as_string();
+            }
+            if (const auto* changes = item.find("tool_changes")) {
+                if (!changes->is_array()) return invalid_argument("anthropic: " + block_path + ".tool_changes must be an array");
+                block.tool_changes.emplace();
+                for (std::size_t j = 0; j < changes->as_array().size(); ++j) {
+                    OXA_ASSIGN_OR_RETURN(auto change, decode_tool_change(changes->as_array()[j], block_path + ".tool_changes[" + std::to_string(j) + "]", losses));
+                    block.tool_changes->push_back(std::move(change));
+                }
+            }
+            for (const auto& [key, field] : item.as_object()) if (key != "type" && key != "content" && key != "encrypted_content" && key != "signature" && key != "tool_changes" && key != "cache_control") block.extra.set(key, field);
+            blocks.push_back(std::move(block));
+        } else if (kind == BLOCK_TYPE_TEXT) {
             const auto* txt = item.find("text");
             if (!txt || !txt->is_string()) {
                 return invalid_argument(block_path + ".text must be a string");
@@ -859,6 +977,41 @@ static StatusOr<Conversion<ir::Request>> decode_request_unchecked(const json::Va
             if (!content_val) {
                 return invalid_argument("anthropic: messages[" + std::to_string(i) + "]: content is missing");
             }
+            if (content_val->is_array()) {
+                bool has_change = false;
+                for (const auto& item : content_val->as_array()) {
+                    const auto* t = item.find("type");
+                    if (t && t->is_string() && (t->as_string() == "tool_addition" || t->as_string() == "tool_removal")) has_change = true;
+                }
+                if (has_change) {
+                    ir::ToolChangeGroup group;
+                    group.message_index = req.messages.size();
+                    for (std::size_t j = 0; j < content_val->as_array().size(); ++j) {
+                        const auto& item = content_val->as_array()[j];
+                        const std::string path = "messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "]";
+                        const auto* t = item.find("type");
+                        if (!t || !t->is_string()) return invalid_argument("anthropic: " + path + ".type is required");
+                        ir::ToolChangePart part;
+                        if (t->as_string() == "text") {
+                            const auto* text = item.find("text");
+                            if (!text || !text->is_string()) return invalid_argument("anthropic: " + path + ".text must be a string");
+                            part.type = "text";
+                            part.text = text->as_string();
+                            if (const auto* cc = item.find("cache_control")) {
+                                auto canon = parse_cache_control(*cc, path + ".cache_control", losses);
+                                if (canon) part.native.push_back(ir::NativeAnnotation{std::string(ir::NATIVE_SOURCE_ANTHROPIC), std::string(ir::NATIVE_KIND_CACHE_CONTROL), *canon, ir::NativeOmission{"cache_control", std::string(ir::LOSS_UNMAPPED_FIELD), std::string(CACHE_CONTROL_LOSS_DETAIL)}, std::nullopt});
+                            }
+                        } else {
+                            part.type = "tool_change";
+                            OXA_ASSIGN_OR_RETURN(auto change, decode_tool_change(item, path, losses));
+                            part.change = std::move(change);
+                        }
+                        group.parts.push_back(std::move(part));
+                    }
+                    req.tool_change_groups.push_back(std::move(group));
+                    continue;
+                }
+            }
             if (content_val->is_string()) {
                 req.system.push_back(ir::TextBlock{content_val->as_string()});
             } else if (content_val->is_array()) {
@@ -958,6 +1111,7 @@ StatusOr<Conversion<ir::Request>> decode_request(std::string_view wire_json,
 
 StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                                                  const Options& opts) {
+    OXA_RETURN_IF_ERROR(ir::validate_tool_availability(req));
     OXA_RETURN_IF_ERROR(ir::validate_tool_strict(req));
     OXA_RETURN_IF_ERROR(ir::validate_native_request(req));
     std::vector<ir::Loss> losses;
@@ -1216,7 +1370,49 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                      !(std::get<ir::TextBlock>(req.messages[0].content[0]).citations.has_value());
 
     json::Value messages_arr = json::Value::array();
+    auto emit_groups = [&](std::size_t position) -> Status {
+        for (std::size_t gi = 0; gi < req.tool_change_groups.size(); ++gi) {
+            const auto& group = req.tool_change_groups[gi];
+            if (group.message_index != position) continue;
+            if (!group.extra.as_object().empty()) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].extra", "extra", ir::LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"));
+            bool valid = group.content_index == -1 && position > 0 && position <= req.messages.size() && req.messages[position - 1].role == "user" && (position == req.messages.size() || req.messages[position].role == "assistant");
+            if (!valid || group.parts.empty()) {
+                if (group.parts.empty()) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "]", "tools", ir::LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"));
+                for (std::size_t pi = 0; pi < group.parts.size(); ++pi) {
+                    const bool text = group.parts[pi].type == "text";
+                    losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "]", text ? "type" : "op", ir::LOSS_UNSUPPORTED_SEMANTIC, text ? "positional system text has no equivalent on the target face" : "positional tool availability change cannot be represented on the target face"));
+                }
+                continue;
+            }
+            json::Value content = json::Value::array();
+            for (std::size_t pi = 0; pi < group.parts.size(); ++pi) {
+                const auto& part = group.parts[pi];
+                if (part.type == "tool_change" && part.change && part.change->tool && part.change->tool->type == "native" && part.change->tool->source != "anthropic") {
+                    losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "]", "op", ir::LOSS_UNSUPPORTED_SEMANTIC, "positional tool availability change cannot be represented on the target face"));
+                    continue;
+                }
+                if (part.type == "text") {
+                    json::Value block = json::Value::object();
+                    block.set("type", json::Value::string("text"));
+                    block.set("text", json::Value::string(part.text));
+                    if (auto cc = get_block_cache_control(part.native)) block.set("cache_control", std::move(*cc));
+                    content.push_back(std::move(block));
+                } else if (part.type == "tool_change" && part.change) {
+                    OXA_ASSIGN_OR_RETURN(auto block, encode_tool_change(*part.change));
+                    content.push_back(std::move(block));
+                } else return invalid_argument("anthropic: invalid tool change part");
+            }
+            if (group.id) losses.push_back(make_ant_loss("tool_change_groups[" + std::to_string(gi) + "].id", "id", ir::LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"));
+            if (content.as_array().empty()) continue;
+            json::Value message = json::Value::object();
+            message.set("role", json::Value::string("system"));
+            message.set("content", std::move(content));
+            messages_arr.push_back(std::move(message));
+        }
+        return ok_status();
+    };
     for (std::size_t i = 0; i < req.messages.size(); ++i) {
+        OXA_RETURN_IF_ERROR(emit_groups(i));
         const auto& m = req.messages[i];
         json::Value mw = json::Value::object();
         mw.set("role", json::Value::string(m.role));
@@ -1244,7 +1440,24 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                         }
                     }
                 }
-                if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
+                if (const auto* compaction = std::get_if<ir::CompactionBlock>(&b)) {
+                    if (i != 0 || bi != 0) return invalid_argument("anthropic: compaction must be first block of first message");
+                    json::Value bw = compaction->extra;
+                    bw.set("type", json::Value::string("compaction"));
+                    if (compaction->content) bw.set("content", *compaction->content);
+                    if (compaction->encrypted_content) bw.set("encrypted_content", json::Value::string(*compaction->encrypted_content));
+                    if (compaction->signature) bw.set("signature", json::Value::string(*compaction->signature));
+                    if (compaction->tool_changes) {
+                        json::Value changes = json::Value::array();
+                        for (const auto& change : *compaction->tool_changes) {
+                            OXA_ASSIGN_OR_RETURN(auto item, encode_tool_change(change));
+                            changes.push_back(std::move(item));
+                        }
+                        bw.set("tool_changes", std::move(changes));
+                    }
+                    if (auto cc = get_block_cache_control(compaction->native)) bw.set("cache_control", std::move(*cc));
+                    content_arr.push_back(std::move(bw));
+                } else if (const auto* tb = std::get_if<ir::TextBlock>(&b)) {
                     json::Value bw = json::Value::object();
                     bw.set("type", json::Value::string("text"));
                     bw.set("text", json::Value::string(tb->text));
@@ -1559,6 +1772,7 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
         }
         messages_arr.push_back(std::move(mw));
     }
+    OXA_RETURN_IF_ERROR(emit_groups(req.messages.size()));
     out.set("messages", std::move(messages_arr));
 
     std::int64_t max_tokens = 4096;

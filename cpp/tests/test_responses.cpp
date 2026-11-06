@@ -50,14 +50,10 @@ int main() {
         CHECK(with_dec.ok());
         CHECK(without_dec.ok());
         if (with_dec.ok() && without_dec.ok()) {
-            CHECK(with_dec->losses.size() == 1);
-            if (with_dec->losses.size() == 1) {
-                CHECK(with_dec->losses[0].path == "input[0].tools");
-                CHECK(with_dec->losses[0].field == "tools");
-                CHECK(with_dec->losses[0].reason == "unmapped-field");
-            }
-            CHECK(oxa::json::serialize(oxa::ir::dump_request(with_dec->value)) ==
-                  oxa::json::serialize(oxa::ir::dump_request(without_dec->value)));
+            CHECK(with_dec->losses.empty());
+            CHECK(with_dec->value.messages.size() == without_dec->value.messages.size());
+            CHECK(with_dec->value.tool_change_groups.size() == 1);
+            CHECK(with_dec->value.tool_change_groups[0].parts.empty());
         }
     }
 

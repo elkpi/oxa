@@ -412,6 +412,7 @@ impl<'de> Deserialize<'de> for Message {
 pub enum ContentValue {
     Text(String),
     Blocks(Vec<BlockWire>),
+    Null,
 }
 
 impl<'de> Deserialize<'de> for ContentValue {
@@ -426,6 +427,13 @@ impl<'de> Deserialize<'de> for ContentValue {
 
             fn expecting(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
                 formatter.write_str("a string or an array of Anthropic content blocks")
+            }
+
+            fn visit_unit<E>(self) -> Result<Self::Value, E>
+            where
+                E: serde::de::Error,
+            {
+                Ok(ContentValue::Null)
             }
 
             fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
@@ -474,6 +482,20 @@ where
     Value::deserialize(deserializer).map(Some)
 }
 
+fn deserialize_present_content<'de, D>(deserializer: D) -> Result<Option<ContentValue>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    ContentValue::deserialize(deserializer).map(Some)
+}
+
+fn deserialize_present_changes<'de, D>(deserializer: D) -> Result<Option<Vec<Value>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Vec::<Value>::deserialize(deserializer).map(Some)
+}
+
 /// One content block: text, image, tool_use, or tool_result. `input` is a raw
 /// JSON object captured byte-exactly; decoders and encoders MUST copy it
 /// without parsing or re-serializing it (INV-1).
@@ -486,7 +508,12 @@ pub struct BlockWire {
     pub text: String,
     #[serde(rename = "thinking", skip_serializing_if = "Option::is_none")]
     pub thinking: Option<String>,
-    #[serde(rename = "signature", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "signature",
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub signature: Option<String>,
     // redacted_thinking
     #[serde(rename = "data", skip_serializing_if = "Option::is_none")]
@@ -503,7 +530,12 @@ pub struct BlockWire {
     // tool_result
     #[serde(rename = "tool_use_id", skip_serializing_if = "String::is_empty")]
     pub tool_use_id: String,
-    #[serde(rename = "content", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "content",
+        default,
+        deserialize_with = "deserialize_present_content",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub content: Option<ContentValue>,
     #[serde(rename = "is_error", skip_serializing_if = "std::ops::Not::not")]
     pub is_error: bool,
@@ -540,6 +572,24 @@ pub struct BlockWire {
         skip_serializing_if = "Option::is_none"
     )]
     pub tool_name: Option<String>,
+    #[serde(rename = "tool", skip_serializing_if = "Option::is_none")]
+    pub tool: Option<Value>,
+    #[serde(
+        rename = "encrypted_content",
+        default,
+        deserialize_with = "deserialize_optional_string",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub encrypted_content: Option<String>,
+    #[serde(
+        rename = "tool_changes",
+        default,
+        deserialize_with = "deserialize_present_changes",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub tool_changes: Option<Vec<Value>>,
+    #[serde(flatten)]
+    pub extra: std::collections::BTreeMap<String, Value>,
 }
 
 impl PartialEq for BlockWire {
@@ -561,6 +611,10 @@ impl PartialEq for BlockWire {
             && self.context == other.context
             && self.citations == other.citations
             && self.tool_name == other.tool_name
+            && self.tool == other.tool
+            && self.encrypted_content == other.encrypted_content
+            && self.tool_changes == other.tool_changes
+            && self.extra == other.extra
     }
 }
 

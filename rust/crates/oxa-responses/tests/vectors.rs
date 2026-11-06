@@ -75,7 +75,7 @@ fn vectors() {
 }
 
 #[test]
-fn empty_additional_tools_is_a_no_op() {
+fn empty_additional_tools_is_preserved() {
     let existing = r#"{"type":"function","name":"existing","parameters":{"type":"object"}}"#;
     let with_empty = format!(
         r#"{{"model":"m","input":[{{"type":"additional_tools","role":"developer","tools":[]}},{{"type":"message","role":"user","content":"hello"}}],"tools":[{existing}]}}"#
@@ -89,11 +89,18 @@ fn empty_additional_tools_is_a_no_op() {
     let (expected, _) = decode_request_json(&without_empty, &Config::default())
         .expect("decode without empty inventory");
 
-    assert_eq!(request, expected);
-    assert_eq!(losses.len(), 1);
-    assert_eq!(losses[0].path, "input[0].tools");
-    assert_eq!(losses[0].field, "tools");
-    assert_eq!(losses[0].reason, oxa_ir::LossReason::UnmappedField);
+    assert_eq!(request.messages, expected.messages);
+    assert_eq!(request.tools, expected.tools);
+    assert!(losses.is_empty());
+    assert_eq!(request.tool_change_groups.len(), 1);
+    assert_eq!(
+        (
+            request.tool_change_groups[0].message_index,
+            request.tool_change_groups[0].content_index
+        ),
+        (0, -1)
+    );
+    assert!(request.tool_change_groups[0].parts.is_empty());
 }
 
 #[test]
@@ -114,8 +121,15 @@ fn empty_additional_tools_does_not_split_runs() {
         decode_request_json(&with_empty, &Config::default()).expect("decode with split");
     let (without, _) =
         decode_request_json(&without_empty, &Config::default()).expect("decode baseline");
-    assert_eq!(with, without);
-    assert_eq!(losses.len(), 1);
+    assert_eq!(with.messages, without.messages);
+    assert!(losses.is_empty());
+    assert_eq!(
+        (
+            with.tool_change_groups[0].message_index,
+            with.tool_change_groups[0].content_index
+        ),
+        (1, 1)
+    );
 
     let with_split_results = format!(
         r#"{{"model":"m","input":[{user},{call_a},{call_b},{result_a},{empty},{result_b}]}}"#
@@ -126,8 +140,15 @@ fn empty_additional_tools_does_not_split_runs() {
         decode_request_json(&with_split_results, &Config::default()).expect("decode split results");
     let (baseline_results, _) =
         decode_request_json(&results_baseline, &Config::default()).expect("decode result baseline");
-    assert_eq!(with_results, baseline_results);
-    assert_eq!(losses.len(), 1);
+    assert_eq!(with_results.messages, baseline_results.messages);
+    assert!(losses.is_empty());
+    assert_eq!(
+        (
+            with_results.tool_change_groups[0].message_index,
+            with_results.tool_change_groups[0].content_index
+        ),
+        (2, 1)
+    );
 }
 
 struct StreamVectorConverter {

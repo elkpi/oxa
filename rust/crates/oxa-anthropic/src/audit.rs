@@ -79,6 +79,14 @@ fn walk(
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "block"
+        && matches!(
+            tag(&object, "type").as_deref(),
+            Some("compaction" | "tool_addition" | "tool_removal")
+        )
+    {
+        return Ok(());
+    }
     if name == "tool"
         && let Some(tool_type) = tag(&object, "type")
         && !tool_type.is_empty()
@@ -180,6 +188,14 @@ pub(crate) fn clean_json(raw: &RawValue, name: &str) -> Result<String, Error> {
     }
     let object: RawObject<'_> =
         serde_json::from_str(raw.get()).map_err(|error| Error::new(error.to_string()))?;
+    if name == "block"
+        && matches!(
+            tag(&object, "type").as_deref(),
+            Some("compaction" | "tool_addition" | "tool_removal")
+        )
+    {
+        return Ok(raw.get().to_string());
+    }
     if name == "tool"
         && let Some(tool_type) = tag(&object, "type")
         && !tool_type.is_empty()

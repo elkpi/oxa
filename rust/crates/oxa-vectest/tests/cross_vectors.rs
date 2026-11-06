@@ -112,12 +112,12 @@ fn nonstream_cross_vectors() {
         config: responses::Config::default(),
     };
 
-    assert_cross(&anthropic, &chatcompletions, 21);
-    assert_cross(&anthropic, &responses, 17);
+    assert_cross(&anthropic, &chatcompletions, 22);
+    assert_cross(&anthropic, &responses, 19);
     assert_cross(&anthropic, &anthropic, 2);
     assert_cross(&chatcompletions, &anthropic, 12);
     assert_cross(&chatcompletions, &responses, 11);
-    assert_cross(&responses, &anthropic, 22);
+    assert_cross(&responses, &anthropic, 23);
     assert_cross(&responses, &chatcompletions, 18);
     assert_cross(&responses, &responses, 1);
 }

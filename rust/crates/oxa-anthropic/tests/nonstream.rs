@@ -148,6 +148,7 @@ fn tool_choice_named_requires_a_name() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let err = encode_request(&req, &Config::default()).expect_err("encode name");
     assert!(
@@ -201,6 +202,7 @@ fn missing_max_tokens_defaults_to_4096_with_a_degraded_loss() {
         params: None,
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
     assert_eq!(wire.max_tokens, 4096);
@@ -235,6 +237,7 @@ fn single_text_message_renders_the_string_shorthand() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let (wire, _) = encode_request(&req, &Config::default()).expect("encode");
     assert_eq!(
@@ -306,6 +309,7 @@ fn unsupported_tool_result_content_is_dropped_with_a_loss() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode");
@@ -426,6 +430,7 @@ fn encodes_reasoning_effort_and_reports_unsigned_thinking_replay() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
 
     let (wire, losses) = encode_request(&req, &Config::default()).expect("encode request");
@@ -649,6 +654,7 @@ fn test_grammar_format_loss_on_anthropic_encode() {
         }),
         metadata: None,
         native: Vec::new(),
+        tool_change_groups: Vec::new(),
     };
     let (_, losses) = encode_request(&req, &Config::default()).expect("encode request");
     assert!(

@@ -706,6 +706,12 @@ pub(crate) fn encode_user_content(blocks: &[Block], path: &str) -> (ContentValue
                     }
                 }
             }
+            Block::Compaction { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic compaction block cannot be represented on the target face",
+            )),
             Block::EncryptedContent { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",
@@ -879,6 +885,12 @@ pub(crate) fn encode_assistant_message(blocks: &[Block], path: &str) -> (Message
                     }
                 }
             }
+            Block::Compaction { .. } => losses.push(loss(
+                format!("{path}[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic compaction block cannot be represented on the target face",
+            )),
             Block::EncryptedContent { .. } => losses.push(loss(
                 format!("{path}[{index}]"),
                 "type",

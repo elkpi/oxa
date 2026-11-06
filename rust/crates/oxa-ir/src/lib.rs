@@ -15,6 +15,8 @@ mod native;
 mod raw_schema;
 mod request;
 mod response;
+mod tool_change;
+pub use tool_change::validate_tool_availability;
 mod web_search;
 pub use web_search::{inspect_web_search_call, validate_web_search_extra};
 
@@ -43,6 +45,7 @@ pub use request::{
     ApplyPatchCallStatus, ApplyPatchOperation, ApplyPatchResultStatus, Block, CustomToolFormat,
     CustomToolOutput, ENCRYPTED_CONTENT_LOSS_DETAIL, Message, NativeAnnotation, NativeOmission,
     NativeProjection, Params, ReasoningEffort, Request, ResponseFormat, Role, SystemBlock,
-    TextCitation, Tool, ToolChoice, ToolChoiceMode, ToolType,
+    TextCitation, Tool, ToolChange, ToolChangeGroup, ToolChangeOp, ToolChangePart, ToolChangeRef,
+    ToolChoice, ToolChoiceMode, ToolType,
 };
 pub use response::{InputTokensDetails, OutputTokensDetails, Response, StopReason, Usage};

@@ -7,7 +7,7 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 
 /// The IR contract version emitted by this crate (spec/01 §6).
-pub const SPEC_VERSION: &str = "0.2.0";
+pub const SPEC_VERSION: &str = "0.3.0";
 
 /// Codec and validation errors.
 #[derive(Debug)]
@@ -33,7 +33,7 @@ impl std::fmt::Display for Error {
             Error::MissingSpecVersion => write!(f, "IR document carries no specVersion"),
             Error::SpecVersionMismatch(got) => write!(
                 f,
-                "IR document specVersion {got:?}, want \"0.1.0\" or \"0.2.0\""
+                "IR document specVersion {got:?}, want \"0.1.0\", \"0.2.0\", or \"0.3.0\""
             ),
             Error::Custom(msg) => write!(f, "{msg}"),
             Error::NativeForbidden(msg) => write!(f, "{msg}"),
@@ -86,10 +86,29 @@ fn check_no_document(val: &Value) -> Result<(), Error> {
         && let Some(Value::Array(content)) = map.get("content")
     {
         for block in content {
+            if block.get("type").and_then(Value::as_str) == Some("compaction") {
+                return Err(Error::Custom(
+                    "ir: compaction blocks are request-side only".into(),
+                ));
+            }
             if block.get("type").and_then(Value::as_str) == Some("document") {
                 return Err(Error::DocumentForbidden(
                     "ir: document blocks are request-side only and forbidden in response content (spec/01)"
                         .into(),
+                ));
+            }
+        }
+    }
+    if let Some(events) = val.get("events").and_then(Value::as_array) {
+        for event in events {
+            if event
+                .get("block")
+                .and_then(|block| block.get("type"))
+                .and_then(Value::as_str)
+                == Some("compaction")
+            {
+                return Err(Error::Custom(
+                    "ir: compaction blocks are request-side only".into(),
                 ));
             }
         }
@@ -111,6 +130,28 @@ fn check_block_shapes(document: &Value) -> Result<(), Error> {
 
     fn check_block(block: &Value) -> Result<(), Error> {
         match block.get("type").and_then(Value::as_str) {
+            Some("compaction") => {
+                if block
+                    .get("content")
+                    .is_some_and(|v| !v.is_null() && v.as_str().is_none_or(str::is_empty))
+                {
+                    return Err(Error::Custom(
+                        "ir: compaction content must be nonempty string or null".into(),
+                    ));
+                }
+                for key in ["signature", "encrypted_content"] {
+                    if block.get(key).is_some_and(|v| !v.is_string()) {
+                        return Err(Error::Custom(format!(
+                            "ir: compaction {key} must be a string"
+                        )));
+                    }
+                }
+                if block.get("tool_changes").is_some_and(|v| !v.is_array()) {
+                    return Err(Error::Custom(
+                        "ir: compaction tool_changes must be an array".into(),
+                    ));
+                }
+            }
             Some("tool_reference") => {
                 if !block
                     .get("tool_name")
@@ -576,6 +617,10 @@ pub fn to_json<T: Serialize>(value: &T) -> Result<String, Error> {
     }
     check_no_document(&document)?;
     check_block_shapes(&document)?;
+    if document.get("messages").is_some() {
+        let request: crate::Request = serde_json::from_str(&serde_json::to_string(&document)?)?;
+        crate::validate_tool_availability(&request)?;
+    }
     check_citations(&document)?;
     check_params(&document)?;
     check_system(&document)?;
@@ -598,6 +643,10 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     }
     check_no_document(&document)?;
     check_block_shapes(&document)?;
+    if document.get("messages").is_some() {
+        let request: crate::Request = serde_json::from_str(&serde_json::to_string(&document)?)?;
+        crate::validate_tool_availability(&request)?;
+    }
     check_citations(&document)?;
     check_params(&document)?;
     check_system(&document)?;
@@ -616,7 +665,7 @@ pub fn from_json<T: DeserializeOwned>(json: &str) -> Result<T, Error> {
     }
     match document.get("specVersion") {
         None => Err(Error::MissingSpecVersion),
-        Some(v) if v == "0.1.0" || v == "0.2.0" => Ok(serde_json::from_str(json)?),
+        Some(v) if v == "0.1.0" || v == "0.2.0" || v == "0.3.0" => Ok(serde_json::from_str(json)?),
         Some(other) => Err(Error::SpecVersionMismatch(
             other.as_str().unwrap_or_default().to_string(),
         )),

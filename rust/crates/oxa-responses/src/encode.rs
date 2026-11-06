@@ -13,17 +13,18 @@ use crate::normalize::{encode_assistant_message, encode_tool_choice, encode_user
 use crate::types::{
     ContentValue, ERROR_CODE_REFUSAL, ErrorWire, INCOMPLETE_REASON_MAX_OUTPUT_TOKENS,
     ITEM_TYPE_CUSTOM_TOOL_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, ITEM_TYPE_FUNCTION_CALL,
-    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input, InputTokenDetailsWire,
-    OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire, OutputValue,
-    PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request, Response,
-    STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_CUSTOM, TOOL_TYPE_FUNCTION,
-    TextParams, ToolDef, UsageWire,
+    ITEM_TYPE_MESSAGE, ITEM_TYPE_REASONING, IncompleteWire, Input, InputItem,
+    InputTokenDetailsWire, OBJECT_RESPONSE, OutputItem, OutputPart, OutputTokenDetailsWire,
+    OutputValue, PART_TYPE_INPUT_TEXT, PART_TYPE_OUTPUT_TEXT, ROLE_ASSISTANT, ROLE_USER, Request,
+    Response, STATUS_COMPLETED, STATUS_FAILED, STATUS_INCOMPLETE, TOOL_TYPE_CUSTOM,
+    TOOL_TYPE_FUNCTION, TextParams, ToolDef, UsageWire,
 };
 
 /// Converts an IR request to a Responses wire request (IR → face). System
 /// content renders as `instructions`; a sole user text message without system
 /// content renders as the `input` string shorthand (N-R-1 and N-R-2).
 pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<Loss>), Error> {
+    oxa_ir::validate_tool_availability(req).map_err(|e| Error::new(e.to_string()))?;
     for tool in req.tools.iter().flatten() {
         tool.validate_strict().map_err(Error::new)?;
     }
@@ -145,22 +146,45 @@ pub fn encode_request(req: &IrRequest, config: &Config) -> Result<(Request, Vec<
     out.parallel_tool_calls = parallel_tool_calls;
 
     let mut items = leading_system_items;
-    for (index, message) in req.messages.iter().enumerate() {
-        match message.role {
-            oxa_ir::Role::User => {
-                let (message_items, message_losses) =
-                    encode_user_message(message, &format!("messages[{index}]"));
-                items.extend(message_items);
-                losses.extend(message_losses);
+    for group in &req.tool_change_groups {
+        if group.message_index > req.messages.len()
+            || group.content_index < -1
+            || (group.content_index >= 0
+                && (group.message_index >= req.messages.len()
+                    || group.content_index as usize
+                        > req.messages[group.message_index].content.len()))
+        {
+            return Err(Error::new("responses: invalid tool change group position"));
+        }
+    }
+    for index in 0..=req.messages.len() {
+        append_tool_groups(req, index, -1, &mut items, &mut losses)?;
+        let Some(message) = req.messages.get(index) else {
+            break;
+        };
+        let mut start = 0;
+        for pos in 0..=message.content.len() {
+            if req
+                .tool_change_groups
+                .iter()
+                .any(|group| group.message_index == index && group.content_index == pos as isize)
+            {
+                if start < pos {
+                    encode_message_segment(message, start, pos, index, &mut items, &mut losses);
+                }
+                append_tool_groups(req, index, pos as isize, &mut items, &mut losses)?;
+                start = pos;
             }
-            oxa_ir::Role::Assistant => {
-                let (message_items, message_losses) = encode_assistant_message(
-                    &message.content,
-                    &format!("messages[{index}].content"),
-                );
-                items.extend(message_items);
-                losses.extend(message_losses);
-            }
+        }
+        if start < message.content.len() || message.content.is_empty() {
+            encode_message_segment(
+                message,
+                start,
+                message.content.len(),
+                index,
+                &mut items,
+                &mut losses,
+            );
         }
     }
     if req.system.is_empty()
@@ -354,6 +378,12 @@ pub fn encode_response(resp: &IrResponse, config: &Config) -> Result<(Response, 
                     ..Default::default()
                 });
             }
+            Block::Compaction { .. } => losses.push(loss(
+                format!("content[{index}]"),
+                "type",
+                LossReason::UnsupportedSemantic,
+                "Anthropic compaction block cannot be represented on the target face",
+            )),
             Block::RedactedThinking { .. } => {
                 losses.push(loss(
                     format!("content[{index}]"),
@@ -811,6 +841,97 @@ fn build_nested_container(
         raw: Some(serde_json::Value::Object(obj)),
         ..ToolDef::default()
     })
+}
+
+fn encode_message_segment(
+    message: &oxa_ir::Message,
+    start: usize,
+    end: usize,
+    index: usize,
+    items: &mut Vec<InputItem>,
+    losses: &mut Vec<Loss>,
+) {
+    let segment = oxa_ir::Message {
+        role: message.role,
+        content: message.content[start..end].to_vec(),
+    };
+    let (output, new_losses) = match message.role {
+        oxa_ir::Role::User => encode_user_message(&segment, &format!("messages[{index}]")),
+        oxa_ir::Role::Assistant => {
+            encode_assistant_message(&segment.content, &format!("messages[{index}].content"))
+        }
+    };
+    items.extend(output);
+    losses.extend(new_losses);
+}
+
+fn append_tool_groups(
+    req: &IrRequest,
+    message: usize,
+    content: isize,
+    items: &mut Vec<InputItem>,
+    losses: &mut Vec<Loss>,
+) -> Result<(), Error> {
+    for (i, group) in req
+        .tool_change_groups
+        .iter()
+        .enumerate()
+        .filter(|(_, g)| g.message_index == message && g.content_index == content)
+    {
+        let mut tools = Vec::new();
+        for (j, part) in group.parts.iter().enumerate() {
+            if let oxa_ir::ToolChangePart::Change { change } = part
+                && change.op == oxa_ir::ToolChangeOp::Add
+                && let Some(tool) = &change.tool
+                && (tool.tool_type != Some(ToolType::Native)
+                    || tool.source.as_deref() == Some("openai"))
+            {
+                tool.validate_strict().map_err(Error::new)?;
+                let base = format!("tool_change_groups[{i}].parts[{j}].change");
+                for (k, annotation) in change.native.iter().enumerate() {
+                    if annotation.source == "anthropic" && annotation.kind == "cache_control" {
+                        losses.push(loss(format!("{base}.native[{k}]"), "cache_control", LossReason::UnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
+                    }
+                }
+                for (k, annotation) in tool.native.iter().enumerate() {
+                    if annotation.source == "anthropic" && annotation.kind == "cache_control" {
+                        losses.push(loss(format!("{base}.tool.native[{k}]"), "cache_control", LossReason::UnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
+                    }
+                }
+                for (name, fields) in [
+                    ("extra", &change.extra),
+                    ("tool_extra", &change.tool_extra),
+                    ("definition_extra", &change.definition_extra),
+                ] {
+                    if fields.as_ref().is_some_and(|value| !value.is_empty()) {
+                        losses.push(loss(format!("{base}.{name}"), name, LossReason::UnmappedField, "source-native tool change extension cannot be represented on the target face"));
+                    }
+                }
+                tools.push(tool.clone());
+            } else {
+                let is_text = matches!(part, oxa_ir::ToolChangePart::Text { .. });
+                losses.push(loss(format!("tool_change_groups[{i}].parts[{j}]"), if is_text { "type" } else { "op" }, LossReason::UnsupportedSemantic,
+                    if is_text { "positional system text has no equivalent on the target face" } else { "positional tool availability change cannot be represented on the target face" }));
+            }
+        }
+        if !group.parts.is_empty() && tools.is_empty() {
+            continue;
+        }
+        let defs = encode_responses_grouped_tools(&tools, losses)?;
+        let values = defs
+            .into_iter()
+            .map(|tool| serde_json::to_value(tool).map_err(|e| Error::new(e.to_string())))
+            .collect::<Result<Vec<_>, _>>()?;
+        items.push(InputItem {
+            kind: "additional_tools".into(),
+            role: "developer".into(),
+            id: group.id.clone().unwrap_or_default(),
+            tools: Some(values),
+            extra: group.extra.clone().unwrap_or_default(),
+            ..InputItem::default()
+        });
+    }
+    Ok(())
 }
 
 fn encode_responses_grouped_tools(

@@ -19,6 +19,7 @@ mod native;
 mod normalize;
 mod streamin;
 mod streamout;
+mod tool_change;
 mod types;
 
 pub use config::Config;

@@ -488,6 +488,26 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	}
 }
 
+func TestChangeNativeMutualExclusion(t *testing.T) {
+	conflict := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`}, {Source: NativeSourceAnthropic, Kind: NativeKindDeferLoading, Value: `true`}}
+	cases := []struct {
+		name string
+		req  *Request
+		path string
+	}{
+		{"group", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Native: conflict}}}}}}, "tool_change_groups[0].parts[0].change"},
+		{"compaction", &Request{Messages: []Message{{Content: []Block{CompactionBlock{ToolChanges: []ToolChange{{Native: conflict}}}}}}}, "messages[0].content[0].tool_changes[0]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNativeRequest(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.path) {
+				t.Fatalf("expected conflict at %s, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
 func TestPositionalNativeHosts(t *testing.T) {
 	bad := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"bad"}`}}
 	good := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`}}

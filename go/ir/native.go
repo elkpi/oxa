@@ -229,7 +229,7 @@ func ValidateNativeRequest(req *Request) error {
 			if part.Change == nil {
 				continue
 			}
-			if err := validateNativeAtPath(part.Change.Native, hostTool, partPath+".change"); err != nil {
+			if err := validateToolAnnotations(part.Change.Native, partPath+".change"); err != nil {
 				return err
 			}
 			if part.Change.Tool != nil {
@@ -250,7 +250,7 @@ func ValidateNativeRequest(req *Request) error {
 			for k := range compaction.ToolChanges {
 				change := &compaction.ToolChanges[k]
 				changePath := fmt.Sprintf("%s.tool_changes[%d]", base, k)
-				if err := validateNativeAtPath(change.Native, hostTool, changePath); err != nil {
+				if err := validateToolAnnotations(change.Native, changePath); err != nil {
 					return err
 				}
 				if change.Tool != nil {
@@ -269,11 +269,15 @@ func ValidateNativeRequest(req *Request) error {
 // the defer_loading/cache_control mutual exclusion (spec/15 s3.4). path is the
 // IR path of the tool host for error messages.
 func validateToolNative(tool *Tool, path string) error {
-	if err := validateNativeAtPath(tool.Native, hostTool, path); err != nil {
+	return validateToolAnnotations(tool.Native, path)
+}
+
+func validateToolAnnotations(native []NativeAnnotation, path string) error {
+	if err := validateNativeAtPath(native, hostTool, path); err != nil {
 		return err
 	}
 	var hasCacheControl, hasDeferLoading bool
-	for _, n := range tool.Native {
+	for _, n := range native {
 		if n.Source == NativeSourceAnthropic {
 			switch n.Kind {
 			case NativeKindCacheControl:

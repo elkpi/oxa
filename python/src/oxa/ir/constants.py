@@ -2,8 +2,8 @@
 
 from typing import Final, Literal
 
-SPEC_VERSION: Final = "0.2.0"
-SUPPORTED_SPEC_VERSIONS: Final = ("0.1.0", "0.2.0")
+SPEC_VERSION: Final = "0.3.0"
+SUPPORTED_SPEC_VERSIONS: Final = ("0.1.0", "0.2.0", "0.3.0")
 
 # Roles (spec/01 §3.3)
 ROLE_USER: Final = "user"

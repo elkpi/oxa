@@ -62,6 +62,8 @@ def encode_request(
     table: Table | None = None,
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR request to a Chat Completions wire request (IR → face)."""
+    from oxa.ir.codec import validate_tool_availability
+    validate_tool_availability(req)
     losses: list[Loss] = []
 
     model = req.model
@@ -157,6 +159,18 @@ def encode_request(
                         break
                 except Exception:
                     pass
+
+    for group_index, group in enumerate(req.tool_change_groups):
+        if not group.parts:
+            losses.append(loss(f"tool_change_groups[{group_index}]", "tools", LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"))
+        for part_index, part in enumerate(group.parts):
+            is_text = part.type == "text"
+            losses.append(loss(
+                f"tool_change_groups[{group_index}].parts[{part_index}]",
+                "type" if is_text else "op",
+                LOSS_UNSUPPORTED_SEMANTIC,
+                "positional system text has no equivalent on the target face" if is_text else "positional tool availability change cannot be represented on the target face",
+            ))
 
     if req.system:
         has_dev = any(getattr(block, "role", "") == "developer" for block in req.system)

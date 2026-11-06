@@ -97,6 +97,11 @@ def is_empty_additional_tools(item: dict[str, Any]) -> bool:
     )
 
 
+def is_additional_tools(item: Any) -> bool:
+    """Returns true for an explicit Responses tool inventory."""
+    return isinstance(item, dict) and item.get("type") == "additional_tools"
+
+
 def empty_additional_tools_loss(index: int) -> Loss:
     return loss(
         f"input[{index}].tools",
@@ -404,7 +409,7 @@ def precheck_apply_patch_pairs(
         a_start = i
         while a_start < len(items):
             it = items[a_start]
-            if isinstance(it, dict) and is_empty_additional_tools(it):
+            if isinstance(it, dict) and is_additional_tools(it):
                 a_start += 1
                 continue
             if not isinstance(it, dict):
@@ -436,7 +441,7 @@ def precheck_apply_patch_pairs(
         o_start = a_start
         while o_start < len(items):
             it = items[o_start]
-            if isinstance(it, dict) and is_empty_additional_tools(it):
+            if isinstance(it, dict) and is_additional_tools(it):
                 o_start += 1
                 continue
             if not isinstance(it, dict):
@@ -516,11 +521,16 @@ def precheck_apply_patch_pairs(
     return decoded_calls, decoded_results, dropped, losses
 
 
+def capture_additional_tools(item: dict[str, Any], index: int, content_index: int, groups: list[Any]) -> None:
+    groups.append({"item": item, "index": index, "message_index": None, "content_index": content_index})
+
+
 def decode_assistant_run(
     items: list[dict[str, Any]],
     start: int,
     decoded_calls: dict[int, Block] | None = None,
     dropped: set[int] | None = None,
+    groups: list[Any] | None = None,
 ) -> tuple[IrMessage | None, int, list[Loss]]:
     """N-R-5 merges assistant items and function-call items into one assistant message."""
     thinkings: list[Block] = []
@@ -532,8 +542,8 @@ def decode_assistant_run(
     while index < len(items):
         item = items[index]
         kind = item.get("type", "")
-        if is_empty_additional_tools(item):
-            losses.append(empty_additional_tools_loss(index))
+        if is_additional_tools(item):
+            if groups is not None: capture_additional_tools(item, index, len(thinkings) + len(text) + len(calls), groups)
             index += 1
             continue
         if kind == ITEM_TYPE_WEB_SEARCH_CALL:
@@ -616,6 +626,7 @@ def decode_output_run(
     start: int,
     decoded_results: dict[int, Block] | None = None,
     dropped: set[int] | None = None,
+    groups: list[Any] | None = None,
 ) -> tuple[IrMessage | None, int, list[Loss]]:
     """Merge maximal function/custom result runs into a single user turn."""
     content: list[Block] = []
@@ -623,8 +634,8 @@ def decode_output_run(
     index = start
     while index < len(items):
         item = items[index]
-        if is_empty_additional_tools(item):
-            losses.append(empty_additional_tools_loss(index))
+        if is_additional_tools(item):
+            if groups is not None: capture_additional_tools(item, index, len(content), groups)
             index += 1
             continue
         if item.get("type") not in (

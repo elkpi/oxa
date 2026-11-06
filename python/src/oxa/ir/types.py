@@ -310,12 +310,25 @@ class ToolReferenceBlock:
             object.__setattr__(self, "native", _normalize_native(self.native))
 
 
+@dataclass(frozen=True, slots=True)
+class CompactionBlock:
+    content: str | None = None
+    content_present: bool = False
+    encrypted_content: str | None = None
+    signature: str | None = None
+    tool_changes: list[ToolChange] | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+    extra: dict[str, Any] | None = None
+    type: str = field(default="compaction", init=False)
+
+
 Block = (
     TextBlock
     | ThinkingBlock
     | RedactedThinkingBlock
     | EncryptedContentBlock
     | ToolReferenceBlock
+    | CompactionBlock
     | ImageBlock
     | DocumentBlock
     | ToolUseBlock
@@ -379,6 +392,42 @@ class Tool:
             raise ValueError("strict is only allowed as a boolean on function tools")
         if not isinstance(self.native, tuple):
             object.__setattr__(self, "native", _normalize_native(self.native))
+
+
+@dataclass(frozen=True, slots=True)
+class ToolChangeRef:
+    type: str
+    name: str | None = None
+    server_name: str | None = None
+    extra: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolChange:
+    op: str
+    tool: Tool | None = None
+    ref: ToolChangeRef | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+    extra: dict[str, Any] | None = None
+    tool_extra: dict[str, Any] | None = None
+    definition_extra: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ToolChangePart:
+    type: str
+    text: str | None = None
+    change: ToolChange | None = None
+    native: tuple[NativeAnnotation, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ToolChangeGroup:
+    message_index: int
+    content_index: int
+    parts: list[ToolChangePart]
+    id: str | None = None
+    extra: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -465,6 +514,7 @@ class Request:
     params: Params | None = None
     metadata: dict[str, str] | None = None
     native: tuple[NativeAnnotation, ...] = ()
+    tool_change_groups: list[ToolChangeGroup] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.native, tuple):

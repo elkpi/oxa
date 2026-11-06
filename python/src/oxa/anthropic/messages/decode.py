@@ -239,12 +239,32 @@ def decode_request(
 
     custom_call_ids: set[str] = set()
     messages: list[IrMessage] = []
+    from oxa.ir.types import ToolChangeGroup, ToolChangePart
+    from oxa.anthropic.messages.tool_change import decode_change
+    tool_change_groups: list[ToolChangeGroup] = []
     for index, msg in enumerate(raw_messages):
         role_str = msg.get("role", "")
         if role_str == AN_ROLE_SYSTEM:
             content = msg.get("content")
             if content is None:
                 raise ValueError(f"anthropic: messages[{index}]: content is missing")
+            if isinstance(content, list) and any(isinstance(b, dict) and b.get("type") in ("tool_addition", "tool_removal") for b in content):
+                parts: list[ToolChangePart] = []
+                for j, block in enumerate(content):
+                    path = f"messages[{index}].content[{j}]"
+                    if not isinstance(block, dict): raise ValueError(f"anthropic: {path} must be an object")
+                    if block.get("type") == "text":
+                        if not isinstance(block.get("text"), str): raise ValueError(f"anthropic: {path}.text must be a string")
+                        native = ()
+                        if "cache_control" in block:
+                            canon, l = parse_cache_control(block["cache_control"], path + ".cache_control")
+                            if l is not None: losses.append(l)
+                            if canon is not None: native = (NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_CACHE_CONTROL, value=canon, omission=NativeOmission(field="cache_control", reason=LOSS_UNMAPPED_FIELD, detail=CACHE_CONTROL_LOSS_DETAIL)),)
+                        parts.append(ToolChangePart(type="text", text=block["text"], native=native))
+                    else:
+                        parts.append(ToolChangePart(type="tool_change", change=decode_change(block, path)))
+                tool_change_groups.append(ToolChangeGroup(message_index=len(messages), content_index=-1, parts=parts))
+                continue
             if isinstance(content, str):
                 system.append(TextBlock(text=content))
             elif isinstance(content, list):
@@ -336,6 +356,7 @@ def decode_request(
         tool_choice=tool_choice,
         params=params,
         metadata=metadata,
+        tool_change_groups=tool_change_groups,
     )
 
     req, native_losses = decode_request_native(wire, req)

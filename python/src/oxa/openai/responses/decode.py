@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from typing import Any, cast
+from oxa.ir.types import ToolChange, ToolChangeGroup, ToolChangePart
 
 from oxa._metadata import string_metadata
 from oxa._verbosity import decode_verbosity
@@ -99,6 +100,7 @@ from oxa.openai.responses.normalize import (
     decode_output_run,
     decode_tool_choice,
     empty_additional_tools_loss,
+    is_additional_tools,
     is_empty_additional_tools,
     loss,
     precheck_apply_patch_pairs,
@@ -183,6 +185,27 @@ def decode_request(
         )
 
     raw_input = wire.get("input")
+    markers: list[dict[str, Any]] = []
+
+    def convert_markers() -> None:
+        pending = [marker for marker in markers if marker["message_index"] is None]
+        if not pending:
+            return
+        for marker in pending:
+            marker["message_index"] = marker["expected_message_index"]
+            parts: list[ToolChangePart] = []
+            item = marker["item"]
+            item_tools = item.get("tools")
+            if not isinstance(item_tools, list):
+                raise ValueError(f"responses: input[{marker['index']}]: additional_tools requires tools array")
+            if item.get("role") != "developer":
+                raise ValueError(f"responses: input[{marker['index']}].role must be developer")
+            group_names: set[str] = set()
+            for t_idx, t_entry in enumerate(item_tools):
+                decoded = decode_responses_tool_item(t_entry, [], f"input[{marker['index']}].tools[{t_idx}]", group_names, losses, raw_text)
+                parts.extend(ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=t)) for t in decoded)
+            req.tool_change_groups.append(ToolChangeGroup(message_index=marker["message_index"], content_index=marker["content_index"], parts=parts, id=item.get("id"), extra={k: v for k, v in item.items() if k not in {"type", "role", "tools", "id"}} or None))
+
     if isinstance(raw_input, str):
         req.messages.append(IrMessage(role=IR_ROLE_USER, content=[TextBlock(text=raw_input)]))
     elif isinstance(raw_input, list):
@@ -214,35 +237,36 @@ def decode_request(
                     req.messages.append(IrMessage(role=IR_ROLE_USER, content=content))
                     index += 1
                 elif role == ROLE_ASSISTANT:
-                    msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
+                    msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped, markers)
                     if msg is not None:
                         req.messages.append(msg)
+                    for marker in markers:
+                        if marker["message_index"] is None and marker["content_index"] >= 0 and marker["index"] >= index and marker["index"] < next_idx:
+                            marker["expected_message_index"] = len(req.messages) - 1
                     losses.extend(run_losses)
                     index = next_idx
                 else:
                     raise ValueError(f"responses: input[{index}]: unknown role {role!r}")
             elif kind in (ITEM_TYPE_FUNCTION_CALL, ITEM_TYPE_CUSTOM_TOOL_CALL, "apply_patch_call", ITEM_TYPE_REASONING, "web_search_call"):
-                msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped)
+                msg, next_idx, run_losses = decode_assistant_run(raw_input, index, decoded_calls, dropped, markers)
                 if msg is not None:
                     req.messages.append(msg)
+                for marker in markers:
+                    if marker["message_index"] is None and marker["content_index"] >= 0 and marker["index"] >= index and marker["index"] < next_idx:
+                        marker["expected_message_index"] = len(req.messages) - 1
                 losses.extend(run_losses)
                 index = next_idx
             elif kind in (ITEM_TYPE_FUNCTION_CALL_OUTPUT, ITEM_TYPE_CUSTOM_TOOL_CALL_OUTPUT, "apply_patch_call_output"):
-                msg, next_idx, run_losses = decode_output_run(raw_input, index, decoded_results, dropped)
+                msg, next_idx, run_losses = decode_output_run(raw_input, index, decoded_results, dropped, markers)
                 if msg is not None:
                     req.messages.append(msg)
+                for marker in markers:
+                    if marker["message_index"] is None and marker["content_index"] >= 0 and marker["index"] >= index and marker["index"] < next_idx:
+                        marker["expected_message_index"] = len(req.messages) - 1
                 losses.extend(run_losses)
                 index = next_idx
-            elif kind == "additional_tools":
-                item_tools = item.get("tools")
-                if not isinstance(item_tools, list):
-                    raise ValueError(f"responses: input[{index}]: additional_tools requires tools array")
-                if not item_tools:
-                    losses.append(empty_additional_tools_loss(index))
-                    index += 1
-                    continue
-                for t_idx, t_entry in enumerate(item_tools):
-                    tools.extend(decode_responses_tool_item(t_entry, [], f"input[{index}].tools[{t_idx}]", seen_names, losses, raw_text))
+            elif is_additional_tools(item):
+                markers.append({"item": item, "index": index, "message_index": None, "content_index": -1, "expected_message_index": len(req.messages)})
                 index += 1
             else:
                 losses.append(
@@ -255,6 +279,7 @@ def decode_request(
                 )
                 index += 1
 
+    convert_markers()
     if not req.messages:
         if not req.system:
             raise ValueError("responses: request carries no conversation input")
@@ -347,6 +372,7 @@ def decode_request(
             params=params,
             metadata=string_metadata(wire.get("metadata"), "responses"),
             native=tuple(native) if native else (),
+            tool_change_groups=req.tool_change_groups,
         ),
         losses,
     )

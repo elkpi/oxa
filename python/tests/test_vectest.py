@@ -43,8 +43,8 @@ class VectestHarnessTest(unittest.TestCase):
             ("responses", "stream"),
         ):
             vectors.extend(load_vectors(root, face, mode))
-        self.assertEqual(len(vectors), 548)
-        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 401)
+        self.assertEqual(len(vectors), 560)
+        self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 395)
 
     def test_compare_json_treats_supported_spec_versions_as_transitional_equivalents(self) -> None:
         compare_json(
@@ -70,6 +70,12 @@ class VectestHarnessTest(unittest.TestCase):
         # Bool vs int
         with self.assertRaises(AssertionError):
             compare_json({"x": True}, {"x": 1})
+
+    def test_compare_json_does_not_hide_or_mutate_missing_tool_groups(self) -> None:
+        actual = {"messages": []}
+        with self.assertRaises(AssertionError):
+            compare_json({"messages": [], "tool_change_groups": []}, actual)
+        self.assertEqual(actual, {"messages": []})
 
     def test_compare_losses_multiset(self) -> None:
         l1 = Loss(path="p", field="f", reason="r", detail="d1")

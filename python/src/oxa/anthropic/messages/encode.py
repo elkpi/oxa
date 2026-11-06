@@ -81,6 +81,7 @@ from oxa.ir import (
     WebSearchCallBlock,
 )
 from oxa.ir import (
+    ROLE_ASSISTANT as IR_ROLE_ASSISTANT,
     ROLE_USER as IR_ROLE_USER,
 )
 from oxa.modelmap import Table
@@ -107,6 +108,8 @@ def encode_request(
     table: Table | None = None,
 ) -> tuple[dict[str, Any], list[Loss]]:
     """Converts an IR request to an Anthropic Messages wire request (IR → face)."""
+    from oxa.ir.codec import validate_tool_availability
+    validate_tool_availability(req)
     validate_native_request(req)
     losses: list[Loss] = []
 
@@ -303,7 +306,39 @@ def encode_request(
         and not req.messages[0].content[0].citations
     )
 
+    def emit_groups(position: int) -> None:
+        from oxa.anthropic.messages.tool_change import encode_change
+        from oxa.anthropic.messages.native import get_block_cache_control
+        for i, group in enumerate(req.tool_change_groups):
+            if group.message_index != position: continue
+            if group.extra:
+                losses.append(loss(f"tool_change_groups[{i}].extra", "extra", LOSS_UNMAPPED_FIELD, "additional_tools item extensions have no equivalent on the target face"))
+            valid = group.content_index == -1 and position > 0 and req.messages[position - 1].role == IR_ROLE_USER and (position == len(req.messages) or req.messages[position].role == IR_ROLE_ASSISTANT)
+            if not valid or not group.parts:
+                if not group.parts: losses.append(loss(f"tool_change_groups[{i}]", "tools", LOSS_UNSUPPORTED_SEMANTIC, "empty positional tool group cannot be represented on the target face"))
+                for j, part in enumerate(group.parts):
+                    text = part.type == "text"
+                    losses.append(loss(f"tool_change_groups[{i}].parts[{j}]", "type" if text else "op", LOSS_UNSUPPORTED_SEMANTIC, "positional system text has no equivalent on the target face" if text else "positional tool availability change cannot be represented on the target face"))
+                continue
+            content = []
+            for j, part in enumerate(group.parts):
+                if (part.type == "tool_change" and part.change is not None and part.change.tool is not None
+                        and part.change.tool.type == "native" and part.change.tool.source != "anthropic"):
+                    losses.append(loss(f"tool_change_groups[{i}].parts[{j}]", "op", LOSS_UNSUPPORTED_SEMANTIC,
+                                       "positional tool availability change cannot be represented on the target face"))
+                    continue
+                if part.type == "text":
+                    item: dict[str, Any] = {"type": "text", "text": part.text}
+                    cc = get_block_cache_control(part.native)
+                    if cc is not None: item["cache_control"] = cc
+                    content.append(item)
+                elif part.type == "tool_change" and part.change is not None: content.append(encode_change(part.change))
+                else: raise ValueError("invalid tool change part")
+            if group.id is not None: losses.append(loss(f"tool_change_groups[{i}].id", "id", LOSS_UNMAPPED_FIELD, "additional_tools item id has no equivalent on the target face"))
+            if content: out["messages"].append({"role": "system", "content": content})
+
     for index, message in enumerate(req.messages):
+        emit_groups(index)
         if message.role == IR_ROLE_USER:
             for b_idx, blk in enumerate(message.content):
                 if isinstance(blk, RedactedThinkingBlock):
@@ -329,6 +364,8 @@ def encode_request(
                 "content": content_val,
             }
         )
+
+    emit_groups(len(req.messages))
 
     max_tokens = req.params.max_tokens if req.params and req.params.max_tokens is not None else None
     if max_tokens is None:
@@ -412,6 +449,12 @@ def encode_request_block(
 ) -> tuple[dict[str, Any] | None, list[Loss], bool]:
     encoded: dict[str, Any] | None = None
     losses: list[Loss] = []
+
+    from oxa.ir.types import CompactionBlock
+    if isinstance(block, CompactionBlock):
+        if path != "messages[0].content[0]": raise ValueError(f"anthropic: {path}: compaction must be the first conversation block")
+        from oxa.anthropic.messages.tool_change import encode_compaction
+        return encode_compaction(block), [], True
 
     if isinstance(block, TextBlock):
         encoded = {"type": BLOCK_TYPE_TEXT, "text": block.text}

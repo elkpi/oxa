@@ -14,6 +14,7 @@ from oxa.ir.native import (
     NativeOmission,
 )
 from oxa.ir import (
+    CompactionBlock,
     EncryptedContentBlock,
     ENCRYPTED_CONTENT_LOSS_DETAIL,
     LOSS_UNMAPPED_FIELD,
@@ -501,6 +502,15 @@ def encode_user_content(blocks: list[Block], path: str) -> tuple[Any, list[Loss]
                             "openai text annotations; the target face cannot preserve source locations and replay metadata",
                         )
                     )
+        elif isinstance(block, CompactionBlock):
+            losses.append(
+                loss(
+                    f"{path}[{index}]",
+                    "type",
+                    LOSS_UNSUPPORTED_SEMANTIC,
+                    "Anthropic compaction block cannot be represented on the target face",
+                )
+            )
         elif isinstance(block, EncryptedContentBlock):
             losses.append(
                 loss(

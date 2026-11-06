@@ -33,7 +33,7 @@
         "tool_changes",
         "N-AN-22"
       ],
-      "sha256": "13f05bc9a980ce13124d73514d08c1bb1ee50c04a6fc853fa85f487363cbf593"
+      "sha256": "e76ae32674ad38d47094b31be4c77608b3f5f63a8cd9fa7e5b23937d71575508"
     },
     {
       "name": "anthropic.nonstream.compaction-roundtrip-to-ir",
@@ -1174,7 +1174,7 @@
         "mid-conversation-system",
         "N-AN-22"
       ],
-      "sha256": "65aec5ac387d97656acd874e37a948d21b497a34e94c2459bf8960b09ac789ae"
+      "sha256": "1ed058dceb67853295a0d691d9695e75a0659acaa203844641d889495cfad8e5"
     },
     {
       "name": "anthropic.nonstream.tool-addition-to-ir",
@@ -1187,6 +1187,30 @@
         "N-AN-22"
       ],
       "sha256": "adda201bdec0b80467681534606a2bf302493c86aca24cd9e491033cebd1eae7"
+    },
+    {
+      "name": "anthropic.nonstream.tool-change-unions-from-ir",
+      "file": "anthropic/nonstream/tool-change-unions-from-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "tool_changes",
+        "compaction",
+        "N-AN-22"
+      ],
+      "sha256": "bb69327dd70a93d60203fdc7c093ad1a199ca4f4f055ced5bb5d4deda39061c8"
+    },
+    {
+      "name": "anthropic.nonstream.tool-change-unions-to-ir",
+      "file": "anthropic/nonstream/tool-change-unions-to-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "tool_changes",
+        "compaction",
+        "N-AN-22"
+      ],
+      "sha256": "2b63bda689c8b200fbb68619decdcc969a6740e5fec84f59baba57c27af64197"
     },
     {
       "name": "anthropic.nonstream.tool-choice-any-from-ir",
@@ -1389,7 +1413,7 @@
         "mid-conversation-system",
         "N-AN-22"
       ],
-      "sha256": "edf7fadedb687b47744a239bfdcb99cc07885669b90f8f7d74671ff6bbc6a618"
+      "sha256": "b40eb2421bfaba634775334f8badc42f2f48b50988ea4689d0861fb310a4c1ea"
     },
     {
       "name": "anthropic.nonstream.tool-removal-to-ir",
@@ -2757,7 +2781,7 @@
         "tool_addition",
         "N-CC-17"
       ],
-      "sha256": "c4748d35ac90ca44589b7925ebea63f40466dd6a6115b1a96c720df2edaab46f"
+      "sha256": "00ebac4b69b6dc5329234e2ddd42ce5354d0a9ed027d94eb31ab66e9c2da131b"
     },
     {
       "name": "cross.nonstream.anthropic-to-chatcompletions-tool-defer-loading",
@@ -2979,6 +3003,18 @@
       "sha256": "a25f34d7cede8fdcec75c180a5abf9c62bff191277d43dfe606b407c5f5e8ade"
     },
     {
+      "name": "cross.nonstream.anthropic-to-responses-tool-change-annotations-request",
+      "file": "cross/nonstream/anthropic-to-responses-tool-change-annotations-request.json",
+      "tags": [
+        "cross",
+        "anthropic",
+        "responses",
+        "tool_addition",
+        "N-R-15"
+      ],
+      "sha256": "953e8f2667da58ceebc6d40deb8812e9780f802d9ecca31472583d05dd1b43aa"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-responses-tool-change-request",
       "file": "cross/nonstream/anthropic-to-responses-tool-change-request.json",
       "tags": [
@@ -2988,7 +3024,7 @@
         "tool_addition",
         "N-R-15"
       ],
-      "sha256": "dffcc934de2828993c904101ab801aaa56693a5887fdab43ac195d2274b6b870"
+      "sha256": "232b869923eb28c9ffa5bb96f54e0c03a1c6ee4d3b96e69db9f8f45cc23136ab"
     },
     {
       "name": "cross.nonstream.anthropic-to-responses-tool-defer-loading",
@@ -3356,7 +3392,7 @@
         "additional_tools",
         "N-R-15"
       ],
-      "sha256": "a45f55c29e48d7e2dc8821a9d9a352945e3e5634cdf690d5fb75449504b57825"
+      "sha256": "16e2f804730c987f21835624e7c8998711b2e216b00d48333ffeff4cb7b64287"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-container-defer-loading",
@@ -3428,6 +3464,18 @@
         "n-nt-5"
       ],
       "sha256": "c5b392052920b69559b8b890c61b086458d06c8cf6f1e9259c5ddf02a7f8b5c9"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-native-tool-change-request",
+      "file": "cross/nonstream/responses-to-anthropic-native-tool-change-request.json",
+      "tags": [
+        "cross",
+        "tools",
+        "request",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "f9fcb280cf9239ca0c72831635ce2718a7bef9b82080a0dfa15a7feb1d512a21"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-parallel-tool-calls",

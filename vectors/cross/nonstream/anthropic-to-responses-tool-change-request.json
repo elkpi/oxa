@@ -47,7 +47,6 @@
     "max_output_tokens": 1024,
     "input": [
       {
-        "type": "message",
         "role": "user",
         "content": "Hello"
       },
@@ -66,7 +65,6 @@
         ]
       },
       {
-        "type": "message",
         "role": "assistant",
         "content": "Ready"
       }

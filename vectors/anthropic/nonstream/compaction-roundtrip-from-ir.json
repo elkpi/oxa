@@ -82,7 +82,12 @@
       },
       {
         "role": "assistant",
-        "content": "Understood"
+        "content": [
+          {
+            "type": "text",
+            "text": "Understood"
+          }
+        ]
       }
     ]
   },

@@ -64,7 +64,12 @@
     "messages": [
       {
         "role": "user",
-        "content": "Hello"
+        "content": [
+          {
+            "type": "text",
+            "text": "Hello"
+          }
+        ]
       },
       {
         "role": "system",
@@ -86,7 +91,12 @@
       },
       {
         "role": "assistant",
-        "content": "Ready"
+        "content": [
+          {
+            "type": "text",
+            "text": "Ready"
+          }
+        ]
       }
     ]
   },

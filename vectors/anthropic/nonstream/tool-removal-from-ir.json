@@ -77,7 +77,12 @@
     "messages": [
       {
         "role": "user",
-        "content": "Retire tool"
+        "content": [
+          {
+            "type": "text",
+            "text": "Retire tool"
+          }
+        ]
       },
       {
         "role": "system",
@@ -93,7 +98,12 @@
       },
       {
         "role": "assistant",
-        "content": "Retired"
+        "content": [
+          {
+            "type": "text",
+            "text": "Retired"
+          }
+        ]
       }
     ]
   },

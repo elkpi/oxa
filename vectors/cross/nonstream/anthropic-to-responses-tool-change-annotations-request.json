@@ -1,0 +1,109 @@
+{
+  "name": "cross.nonstream.anthropic-to-responses-tool-change-annotations-request",
+  "description": "A representable Anthropic tool addition reports explicit losses for its cache breakpoint and source-native extension.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {
+    "protocol": "anthropic"
+  },
+  "target": {
+    "protocol": "responses"
+  },
+  "input": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_tokens": 1024,
+    "messages": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "role": "system",
+        "content": [
+          {
+            "type": "tool_addition",
+            "tool": {
+              "type": "tool_definition",
+              "definition": {
+                "name": "calc",
+                "description": "Calculator",
+                "input_schema": {
+                  "type": "object"
+                },
+                "cache_control": {
+                  "type": "ephemeral"
+                }
+              },
+              "future_wrapper": {
+                "secret": "do-not-report"
+              }
+            },
+            "cache_control": {
+              "type": "ephemeral"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_output": {
+    "model": "claude-3-5-sonnet-20241022",
+    "max_output_tokens": 1024,
+    "input": [
+      {
+        "role": "user",
+        "content": "Hello"
+      },
+      {
+        "type": "additional_tools",
+        "role": "developer",
+        "tools": [
+          {
+            "type": "function",
+            "name": "calc",
+            "description": "Calculator",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": "Ready"
+      }
+    ]
+  },
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].parts[0].change.native[0]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
+    },
+    {
+      "path": "tool_change_groups[0].parts[0].change.tool_extra",
+      "field": "tool_extra",
+      "reason": "unmapped-field",
+      "detail": "source-native tool change extension cannot be represented on the target face"
+    },
+    {
+      "path": "tool_change_groups[0].parts[0].change.tool.native[0]",
+      "field": "cache_control",
+      "reason": "unmapped-field",
+      "detail": "anthropic-native cache breakpoint; the target face has no cache_control representation"
+    }
+  ],
+  "tags": [
+    "cross",
+    "anthropic",
+    "responses",
+    "tool_addition",
+    "N-R-15"
+  ]
+}

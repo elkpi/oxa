@@ -32,7 +32,10 @@
             },
             "strict": true
           }
-        ]
+        ],
+        "future": {
+          "sensitive": "do-not-report"
+        }
       }
     ]
   },
@@ -65,7 +68,14 @@
       }
     ]
   },
-  "expected_losses": [],
+  "expected_losses": [
+    {
+      "path": "tool_change_groups[0].extra",
+      "field": "extra",
+      "reason": "unmapped-field",
+      "detail": "additional_tools item extensions have no equivalent on the target face"
+    }
+  ],
   "tags": [
     "cross",
     "tools",

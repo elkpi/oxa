@@ -53,7 +53,8 @@
         "role": "assistant",
         "content": "Ready"
       }
-    ]
+    ],
+    "max_tokens": 1024
   },
   "expected_losses": [
     {

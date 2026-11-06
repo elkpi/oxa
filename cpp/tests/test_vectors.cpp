@@ -136,7 +136,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 108);
+        CHECK(r->executed == 110);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

@@ -2575,6 +2575,18 @@
       "sha256": "9f7f6099ec2702e315abe6aa321f93f69a4bf02687c769a2fb134fab2ede5353"
     },
     {
+      "name": "cross.nonstream.anthropic-positional-function-call-request",
+      "file": "cross/nonstream/anthropic-positional-function-call-request.json",
+      "tags": [
+        "cross",
+        "anthropic",
+        "responses",
+        "tool_addition",
+        "N-R-15"
+      ],
+      "sha256": "a01f8e61112135c7d07869b82dfc74a78941e2fe119794f750987ab7f835f77e"
+    },
+    {
       "name": "cross.nonstream.anthropic-to-anthropic-native-request",
       "file": "cross/nonstream/anthropic-to-anthropic-native-request.json",
       "tags": [
@@ -3511,6 +3523,18 @@
         "parallel-tools"
       ],
       "sha256": "073bd879e85af1bdce9aef6b7efabda3c9063fd9ae7c05c820c5dea64893676a"
+    },
+    {
+      "name": "cross.nonstream.responses-to-anthropic-positional-container-loss",
+      "file": "cross/nonstream/responses-to-anthropic-positional-container-loss.json",
+      "tags": [
+        "cross",
+        "responses",
+        "anthropic",
+        "additional_tools",
+        "N-R-15"
+      ],
+      "sha256": "9b1c352ced703d166ed6035c8de2d0162ab981f32bbf30bf570fa9338fc23a9f"
     },
     {
       "name": "cross.nonstream.responses-to-anthropic-prompt-cache-breakpoint",

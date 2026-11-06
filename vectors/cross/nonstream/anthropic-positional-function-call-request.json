@@ -1,0 +1,31 @@
+{
+  "name": "cross.nonstream.anthropic-positional-function-call-request",
+  "description": "A function added in a system message remains a function when called with a single input property.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": {"protocol": "anthropic"},
+  "target": {"protocol": "responses"},
+  "input": {
+    "model": "m",
+    "max_tokens": 32,
+    "messages": [
+      {"role": "user", "content": "go"},
+      {"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_definition", "definition": {"name": "f", "input_schema": {"type": "object", "properties": {"input": {"type": "string"}, "other": {"type": "string"}}}}}}]},
+      {"role": "assistant", "content": [{"type": "tool_use", "id": "c", "name": "f", "input": {"input": "hello"}}]},
+      {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "c", "content": "ok"}]}
+    ]
+  },
+  "expected_output": {
+    "model": "m",
+    "max_output_tokens": 32,
+    "input": [
+      {"role": "user", "content": "go"},
+      {"type": "additional_tools", "role": "developer", "tools": [{"type": "function", "name": "f", "parameters": {"type": "object", "properties": {"input": {"type": "string"}, "other": {"type": "string"}}}}]},
+      {"type": "function_call", "call_id": "c", "name": "f", "arguments": "{\"input\": \"hello\"}"},
+      {"type": "function_call_output", "call_id": "c", "output": "ok"}
+    ]
+  },
+  "expected_losses": [],
+  "tags": ["cross", "anthropic", "responses", "tool_addition", "N-R-15"]
+}

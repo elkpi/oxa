@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v2.5.3.** The source tree targets Spec 2.5.3 across Go,
-TypeScript, Rust, Python, and C++, using 543 shared golden vectors.
+**Latest coordinated release: v3.0.0.** The source tree targets Spec 3.0.0 across Go,
+TypeScript, Rust, Python, and C++, using 564 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,30 +54,30 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 2.5.3  | 2.5.3            |
-| TypeScript | `ts/`     | 2.5.3  | 2.5.3            |
-| Rust       | `rust/`   | 2.5.3  | 2.5.3            |
-| Python     | `python/` | 2.5.3  | 2.5.3            |
-| C++        | `cpp/`    | 2.5.3  | 2.5.3            |
+| Go         | `go/`     | 3.0.0  | 3.0.0            |
+| TypeScript | `ts/`     | 3.0.0  | 3.0.0            |
+| Rust       | `rust/`   | 3.0.0  | 3.0.0            |
+| Python     | `python/` | 3.0.0  | 3.0.0            |
+| C++        | `cpp/`    | 3.0.0  | 3.0.0            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v2.5.3)
-ts/        TypeScript implementation (v2.5.3)
+go/        Go reference implementation (v3.0.0)
+ts/        TypeScript implementation (v3.0.0)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v2.5.3)
-python/    Python implementation (v2.5.3)
-cpp/       C++ implementation (v2.5.3)
+rust/      Rust implementation (v3.0.0)
+python/    Python implementation (v3.0.0)
+cpp/       C++ implementation (v3.0.0)
 ```
 
 ## Current capabilities
 
-The source tree targets Spec 2.5.3 across Go, TypeScript, Rust,
+The source tree targets Spec 3.0.0 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). Coordinated release v2.5.3 is current.
+representation (IR). The IR document contract is 0.3.0.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
@@ -89,9 +89,8 @@ representation (IR). Coordinated release v2.5.3 is current.
 Semantic gaps are never silent: every conversion also returns an ordered
 loss list describing what could not be carried
 ([spec/02](spec/02-loss-policy.md)). Responses `developer` messages retain
-instruction text and ordering in the IR system field. The current IR cannot
-retain the developer/system role distinction, so each developer message
-records an explicit `degraded` loss.
+instruction text, ordering, and role in the IR system field. Encoding them to
+Anthropic records a `degraded` loss because Anthropic has no developer role.
 
 ## 原始 JSON 与业务运行时边界
 
@@ -121,7 +120,8 @@ Go/Rust 的旧 typed API 无法恢复已经被调用方反序列化丢弃的属�
 Anthropic 原生 schema 没有 `name`；编码到要求名称的 OpenAI 面时，OXA 不会合成名称，而是省略格式并报损。Anthropic 请求的 `stream` 传输标记目前仍按既有规则单独报 `unmapped-field`，不改变 schema 映射。
 
 OXA IR 是转换用的受限投影，不是业务运行时的完整模型。它没有运行时 error event、
-server/custom-tool 生命周期或 compaction 语义；`MessageDone` 只表示 IR 流结束，
+server/custom-tool 生命周期；请求侧 compaction 块仅用于保留与回放，不提供运行时压缩管理。
+`MessageDone` 只表示 IR 流结束，
 不代表上游请求成功。业务侧应在原始输入上做准入检查，并自行保留失败、取消、会话状态
 和 provider 扩展；不要把空 loss 列表当成完整准入或兼容性证明，也不要把未映射字段
 盲目透传到目标 API。
@@ -165,7 +165,7 @@ npm install @elkpi/oxa
 
 ### Other languages
 
-- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; latest published version `2.4.12`; its IR contract emits `specVersion: 0.2.0` and dual-reads `0.1.0`, and production crates use `serde` and `serde_json`.
+- **Rust**: workspace in [`rust/`](rust/README.md), published as `elkpi-oxa` on crates.io (`use oxa::...`) alongside modular `oxa-*` crates; it emits IR `specVersion: 0.3.0` and reads `0.1.0`, `0.2.0`, and `0.3.0`; production crates use `serde` and `serde_json`.
 - **Python**: PEP 621 package in [`python/`](python/README.md), published as `elkpi-oxa` on PyPI (`import oxa`), pure Python standard library with zero runtime dependencies.
 - **C++**: standard C++20 library in [`cpp/`](cpp/README.md), zero third-party runtime dependencies and exception-free error handling.
 

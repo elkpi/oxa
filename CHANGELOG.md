@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v3.0.0] - 2026-11-06
+
+### Added
+
+- Add ordered `tool_change_groups` to the request IR for mid-conversation tool additions and removals, including Anthropic system messages and Responses `additional_tools`.
+- Preserve Anthropic compaction blocks, replay metadata, and their tool changes in request history. Unsupported target faces report explicit losses rather than silently changing the tool inventory.
+- Add shared regression vectors for positional function calls and container-grouping losses; the suite contains 564 vectors.
+
+### Changed
+
+- Responses `additional_tools` remain at their conversation position instead of being promoted to request-level `tools`; empty inventories are preserved.
+- Bump the IR document contract to `0.3.0`. Consumers with exhaustive content-block matches must handle `CompactionBlock`.
+- The Go module path is now `github.com/elkpi/oxa/go/v3`; Go consumers must update imports from `/go/v2`.
+- All five language implementations target version 3.0.0.
+
 ## [v2.5.3] - 2026-11-05
 
 ### Added

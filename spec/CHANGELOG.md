@@ -14,7 +14,7 @@ precedence between spec, vectors, and schemas is defined in
   - Add `ToolChangeGroup`, `ToolChangePart`, `ToolChange`, `ToolChangeRef` types.
   - Responses `additional_tools` is no longer hoisted to `Request.Tools`; it is decoded into `tool_change_groups` at its exact position in the conversation. Empty `tools: []` is preserved as an empty group without losses and does not split runs (spec/11 N-R-15).
   - Anthropic mid-conversation system messages containing `tool_addition` or `tool_removal` are decoded into `tool_change_groups` with parts in original order; text is not folded into `Request.System` (spec/12 N-AN-15, N-AN-22).
-  - Chat Completions records bounded `unsupported-semantic` losses per change/part and does not mutate request `tools` (spec/10 N-CC-16).
+  - Chat Completions records bounded `unsupported-semantic` losses per change/part and does not mutate request `tools` (spec/10 N-CC-17).
   - Cross-face encoding to Anthropic records `unsupported-semantic` losses for groups placed on invalid boundaries without shifting positions.
 
 ## 2.5.3 - 2026-11-05

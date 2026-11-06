@@ -182,14 +182,14 @@ def validate_native_request(req: Any) -> None:
             # Part-level native round-trips only on text parts; tool_change
             # parts carry annotations on the change and its tool instead.
             if part.type == "text":
-                validate_annotations(part.native, HostType.CONTENT, part_path)
+                validate_positional_annotations(part.native, HostType.CONTENT, part_path)
                 continue
             change = part.change
             if change is None:
                 continue
-            validate_annotations(change.native, HostType.TOOL, f"{part_path}.change")
+            validate_positional_annotations(change.native, HostType.TOOL, f"{part_path}.change")
             if change.tool is not None:
-                validate_tool_native(change.tool, f"{part_path}.change.tool")
+                validate_tool_native(change.tool, f"{part_path}.change.tool", positional=True)
 
     for m_idx, msg in enumerate(getattr(req, "messages", ()) or ()):
         for c_idx, blk in enumerate(getattr(msg, "content", ()) or ()):
@@ -198,15 +198,17 @@ def validate_native_request(req: Any) -> None:
             base = f"messages[{m_idx}].content[{c_idx}]"
             for k, change in enumerate(blk.tool_changes or ()):
                 change_path = f"{base}.tool_changes[{k}]"
-                validate_annotations(change.native, HostType.TOOL, change_path)
+                validate_positional_annotations(change.native, HostType.TOOL, change_path)
                 if change.tool is not None:
-                    validate_tool_native(change.tool, f"{change_path}.tool")
+                    validate_tool_native(change.tool, f"{change_path}.tool", positional=True)
 
 
-def validate_tool_native(tool: Any, path: str) -> None:
-    """Applies tool-host annotation rules to one tool, including the
-    defer_loading/cache_control mutual exclusion (spec/15 §3.4)."""
-    validate_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
+def validate_tool_native(tool: Any, path: str, *, positional: bool = False) -> None:
+    """Validate tool annotations and mutual exclusions."""
+    if positional:
+        validate_positional_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
+    else:
+        validate_annotations(getattr(tool, "native", ()), HostType.TOOL, path)
     has_cache_control = False
     has_defer_loading = False
     for n in getattr(tool, "native", ()) or ():
@@ -217,6 +219,15 @@ def validate_tool_native(tool: Any, path: str) -> None:
                 has_defer_loading = True
     if has_cache_control and has_defer_loading:
         raise CodecError(f"ir: {path}: cannot specify both defer_loading and cache_control")
+
+
+def validate_positional_annotations(
+    annotations: Sequence[NativeAnnotation], host: HostType, path: str,
+) -> None:
+    try:
+        validate_annotations(annotations, host, path)
+    except CodecError:
+        raise CodecError(f"ir: {path}.native: invalid native annotation") from None
 
 
 def validate_annotations(

@@ -779,6 +779,19 @@ class NativeRequestTest(unittest.TestCase):
         self.assertEqual(len(for_ls), 2)
 
 
+    def test_positional_native_error_hides_value(self) -> None:
+        tool = Tool(name="read", input_schema={}, native=(NativeAnnotation(
+            source="anthropic", kind="cache_control",
+            value='{"type":"ephemeral","ttl":"secret-payload"}',
+        ),))
+        req = Request(model="m", messages=[Message(role="user", content=[TextBlock(text="go")])],
+                      tool_change_groups=[ToolChangeGroup(message_index=1, content_index=-1,
+                          parts=[ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=tool))])])
+        with self.assertRaises(CodecError) as exc:
+            validate_native_request(req)
+        self.assertIn("tool_change_groups[0].parts[0].change.tool.native", str(exc.exception))
+        self.assertNotIn("secret-payload", str(exc.exception))
+
     def test_validate_native_request_positional_and_compaction(self) -> None:
         def bad_tool() -> Tool:
             return Tool(

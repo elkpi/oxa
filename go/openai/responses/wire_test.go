@@ -934,3 +934,27 @@ func TestDecodeRequestJSONPreservesMixedSummaryTextAndOutputText(t *testing.T) {
 		t.Fatalf("got thinking blocks %q and %q, want A and B", first, second)
 	}
 }
+
+func TestDecodeAdditionalToolsUnknownFieldsAudited(t *testing.T) {
+	raw := []byte(`{"model":"m","input":[{"type":"additional_tools","role":"developer","status":"queued","future_execution":true,"tools":[{"type":"function","name":"read","parameters":{"type":"object","x-big":9007199254740991},"future_execution":true},{"type":"custom","name":"run","future_execution":true},{"type":"toolbox","name":"repo","future_execution":true,"tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}]},{"role":"user","content":"go"}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	if len(req.ToolChangeGroups) != 1 || len(req.ToolChangeGroups[0].Parts) != 3 {
+		t.Fatalf("groups=%+v", req.ToolChangeGroups)
+	}
+	want := []struct{ path, field string }{
+		{"input[0].tools[0].future_execution", "future_execution"},
+		{"input[0].tools[1].future_execution", "future_execution"},
+		{"input[0].tools[2].future_execution", "future_execution"},
+	}
+	if len(losses) != len(want) {
+		t.Fatalf("losses = %#v, want %d unmapped-field records", losses, len(want))
+	}
+	for i, w := range want {
+		if losses[i].Path != w.path || losses[i].Field != w.field || losses[i].Reason != ir.LossUnmappedField {
+			t.Fatalf("losses[%d] = %#v, want %+v", i, losses[i], w)
+		}
+	}
+}

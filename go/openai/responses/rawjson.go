@@ -30,6 +30,10 @@ type rawJSONSchema struct {
 	items   *rawJSONSchema
 	variant func(*rawJSONNode) *rawJSONSchema
 	opaque  bool
+	// retainExtra keeps unknown fields on this object verbatim in the
+	// cleaned JSON and loss-free: their values are replayed through an
+	// extra sidecar (spec/02 s4) instead of being dropped and lossed.
+	retainExtra bool
 }
 
 type rawJSONLoss struct {
@@ -318,7 +322,14 @@ func schemaForRawTypeSeen(t reflect.Type, seen map[reflect.Type]*rawJSONSchema) 
 			case ItemTypeWebSearchCall:
 				return rawObjectSchema(t, []string{"type", "id", "status", "action"}, nil, seen)
 			case ItemTypeAdditionalTools:
-				return &rawJSONSchema{opaque: true}
+				// The item-level unknown fields are retained in Extra for
+				// same-face replay (spec/11 N-R-15); declarations inside
+				// tools[] are audited like top-level tools (spec/02 s4).
+				item := rawObjectSchema(t, []string{"type", "role", "id", "status", "tools"}, map[string]*rawJSONSchema{
+					"tools": {items: schemaForRawTypeSeen(reflect.TypeOf(ToolDef{}), seen)},
+				}, seen)
+				item.retainExtra = true
+				return item
 			default:
 				return nil
 			}
@@ -606,10 +617,12 @@ func inspectRawJSON(node *rawJSONNode, schema *rawJSONSchema, path string) ([]ra
 			locations.values[fieldPath] = field.value.start
 			child, known := shape.fields[field.name]
 			if !known {
-				losses = append(losses, rawJSONLoss{
-					loss:   ir.Loss{Path: fieldPath, Field: field.name, Reason: ir.LossUnmappedField},
-					offset: field.keyOffset,
-				})
+				if !shape.retainExtra {
+					losses = append(losses, rawJSONLoss{
+						loss:   ir.Loss{Path: fieldPath, Field: field.name, Reason: ir.LossUnmappedField},
+						offset: field.keyOffset,
+					})
+				}
 				continue
 			}
 			if child != nil {
@@ -774,6 +787,16 @@ func filterKnownJSON(raw []byte, node *rawJSONNode, schema *rawJSONSchema) []byt
 		for _, f := range node.fields {
 			childSchema, isKnown := schema.fields[f.name]
 			if !isKnown {
+				if schema.retainExtra {
+					if !first {
+						buf = append(buf, ',')
+					}
+					first = false
+					keyBytes := raw[f.keyOffset:scanRawJSONString(raw, f.keyOffset)]
+					buf = append(buf, keyBytes...)
+					buf = append(buf, ':')
+					buf = append(buf, raw[f.value.start:f.value.end]...)
+				}
 				continue
 			}
 			if !first {

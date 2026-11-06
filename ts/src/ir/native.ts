@@ -217,18 +217,18 @@ export function validateNativeRequest(request: Request): void {
       // Part-level native round-trips only on text parts; tool_change parts
       // carry annotations on the change and its tool instead.
       if (part.type === "text" && part.native) {
-        validateAnnotations(part.native, "content", partPath);
+        validatePositionalAnnotations(part.native, "content", partPath);
       }
       if (part.type === "tool_change") {
         if (part.change.native) {
-          validateAnnotations(
+          validatePositionalAnnotations(
             part.change.native,
             "tool",
             `${partPath}.change`,
           );
         }
         if (part.change.tool) {
-          validateToolNative(part.change.tool, `${partPath}.change.tool`);
+          validateToolNative(part.change.tool, `${partPath}.change.tool`, true);
         }
       }
     });
@@ -241,19 +241,24 @@ export function validateNativeRequest(request: Request): void {
       blk.tool_changes?.forEach((change, k) => {
         const changePath = `${base}.tool_changes[${k}]`;
         if (change.native) {
-          validateAnnotations(change.native, "tool", changePath);
+          validatePositionalAnnotations(change.native, "tool", changePath);
         }
         if (change.tool) {
-          validateToolNative(change.tool, `${changePath}.tool`);
+          validateToolNative(change.tool, `${changePath}.tool`, true);
         }
       });
     });
   });
 }
 
-function validateToolNative(tool: Tool, path: string): void {
+function validateToolNative(
+  tool: Tool,
+  path: string,
+  positional = false,
+): void {
   if (tool.native) {
-    validateAnnotations(tool.native, "tool", path);
+    if (positional) validatePositionalAnnotations(tool.native, "tool", path);
+    else validateAnnotations(tool.native, "tool", path);
     let hasCacheControl = false;
     let hasDeferLoading = false;
     for (const n of tool.native) {
@@ -271,6 +276,21 @@ function validateToolNative(tool: Tool, path: string): void {
         `ir: ${path}: cannot specify both defer_loading and cache_control`,
       );
     }
+  }
+}
+
+function validatePositionalAnnotations(
+  annotations: readonly NativeAnnotation[],
+  host: HostType,
+  path: string,
+): void {
+  try {
+    validateAnnotations(annotations, host, path);
+  } catch {
+    throw new OxaError(
+      "invalid-input",
+      `ir: ${path}.native: invalid native annotation`,
+    );
   }
 }
 

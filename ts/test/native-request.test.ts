@@ -1019,6 +1019,47 @@ test("chatcompletions request controls conflict and validation", () => {
   assert.equal(encForeign.losses.length, 2);
 });
 
+test("positional native errors contain a path without opaque values", () => {
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        model: "m",
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "tool_change",
+                change: {
+                  op: "add",
+                  tool: {
+                    name: "read",
+                    input_schema: {},
+                    native: [
+                      {
+                        source: "anthropic",
+                        kind: "cache_control",
+                        value: '{"type":"ephemeral","ttl":"secret-payload"}',
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    (err: unknown) =>
+      err instanceof Error &&
+      err.message.includes(
+        "tool_change_groups[0].parts[0].change.tool.native",
+      ) &&
+      !err.message.includes("secret-payload"),
+  );
+});
+
 test("validates native annotations in positional tool changes and compaction", () => {
   const badTool = () => ({
     name: "read",
@@ -1050,7 +1091,7 @@ test("validates native annotations in positional tool changes and compaction", (
           },
         ],
       }),
-    /cache_control/,
+    /native annotation/,
   );
 
   assert.throws(
@@ -1115,7 +1156,7 @@ test("validates native annotations in positional tool changes and compaction", (
           },
         ],
       }),
-    /valid JSON/,
+    /native annotation/,
   );
 
   assert.throws(
@@ -1134,7 +1175,7 @@ test("validates native annotations in positional tool changes and compaction", (
           },
         ],
       }),
-    /cache_control/,
+    /native annotation/,
   );
 
   validateNativeRequest({

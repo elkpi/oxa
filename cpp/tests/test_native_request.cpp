@@ -641,9 +641,50 @@ void test_prompt_cache_breakpoint_host_and_null_value() {
     }
 }
 
+void test_positional_native_validation() {
+    using namespace oxa::ir;
+    Request req;
+    req.model = "m";
+    req.messages.push_back(Message{std::string(ROLE_USER), {TextBlock{"go"}}});
+    Tool tool;
+    tool.name = "read";
+    tool.native.push_back(NativeAnnotation{"anthropic", "cache_control", R"({"type":"bad"})", std::nullopt, std::nullopt});
+    ToolChange change;
+    change.op = "add";
+    change.tool = tool;
+    ToolChangePart part;
+    part.type = "tool_change";
+    part.change = change;
+    ToolChangeGroup group;
+    group.message_index = 1;
+    group.parts.push_back(part);
+    req.tool_change_groups.push_back(group);
+    auto invalid = validate_native_request(req);
+    CHECK(!invalid.ok());
+    CHECK(invalid.to_string().find("tool_change_groups[0].parts[0].change.tool") != std::string::npos);
+    CHECK(invalid.to_string().find("bad") == std::string::npos);
+
+    req.tool_change_groups.clear();
+    CompactionBlock block;
+    block.tool_changes = std::vector<ToolChange>{change};
+    req.messages[0].content = {block};
+    CHECK(!validate_native_request(req).ok());
+
+    req.messages[0].content = {TextBlock{"go"}};
+    group.parts[0].change->tool->native[0].value = R"({"type":"ephemeral"})";
+    group.parts[0].change->tool->native.push_back(NativeAnnotation{"anthropic", "defer_loading", "true", std::nullopt, std::nullopt});
+    req.tool_change_groups = {group};
+    CHECK(!validate_native_request(req).ok());
+    group.parts[0].change->tool->native.pop_back();
+    group.parts[0].change->tool->native.push_back(NativeAnnotation{"future_provider", "future_kind", "{}", std::nullopt, std::nullopt});
+    req.tool_change_groups = {group};
+    CHECK(validate_native_request(req).ok());
+}
+
 }  // namespace
 
 int main() {
+    test_positional_native_validation();
     test_native_portable_round_trip();
     test_validate_native_request();
     test_native_thinking_combinations();

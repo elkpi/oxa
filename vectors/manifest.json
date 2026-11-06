@@ -1236,6 +1236,18 @@
       "sha256": "2b63bda689c8b200fbb68619decdcc969a6740e5fec84f59baba57c27af64197"
     },
     {
+      "name": "anthropic.nonstream.tool-change-unknown-native-from-ir",
+      "file": "anthropic/nonstream/tool-change-unknown-native-from-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "tool_changes",
+        "compaction",
+        "N-AN-22"
+      ],
+      "sha256": "56ed2f6725382b6153e4d6b61378ad5d461d175e4673f9e540f6f5da1a731ab2"
+    },
+    {
       "name": "anthropic.nonstream.tool-choice-any-from-ir",
       "file": "anthropic/nonstream/tool-choice-any-from-ir.json",
       "tags": [

@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- Audit unknown fields in Responses `additional_tools` tool and container declarations in Go and TypeScript, while preserving item-level extensions.
+- Validate native annotations in positional tool changes and compaction tool changes across all five implementations; report unknown native sources when a positional tool addition is encoded to Responses.
+- Correct the Go release version constant and check Go release tags against the constant and module major path.
+
 ## [v3.0.0] - 2026-11-06
 
 ### Added

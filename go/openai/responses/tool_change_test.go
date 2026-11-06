@@ -43,6 +43,17 @@ func TestEmptyAdditionalToolsRoundTrips(t *testing.T) {
 	}
 }
 
+func TestPositionalUnknownNativeSourceReportsLoss(t *testing.T) {
+	req := &ir.Request{Model: "m", Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "go"}}}}, ToolChangeGroups: []ir.ToolChangeGroup{{MessageIndex: 1, ContentIndex: -1, Parts: []ir.ToolChangePart{{Type: ir.ToolChangePartTypeToolChange, Change: &ir.ToolChange{Op: ir.ToolChangeOpAdd, Tool: &ir.Tool{Name: "read", InputSchema: []byte(`{}`)}, Native: []ir.NativeAnnotation{{Source: "future_provider", Kind: "future_kind", Value: `{}`}}}}}}}}
+	_, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(losses) != 1 || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Fatalf("expected loss for unknown positional native source, got %+v", losses)
+	}
+}
+
 func TestEncodeRejectsOutOfRangeToolChangePosition(t *testing.T) {
 	req := &ir.Request{Model: "m", Messages: []ir.Message{{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "hi"}}}}, ToolChangeGroups: []ir.ToolChangeGroup{{MessageIndex: 9, ContentIndex: -1, Parts: []ir.ToolChangePart{}}}}
 	if _, _, err := EncodeRequest(req); err == nil {

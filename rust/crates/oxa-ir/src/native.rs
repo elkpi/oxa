@@ -199,26 +199,13 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
             // Part-level native round-trips only on text parts; tool_change
             // parts carry annotations on the change and its tool instead.
             if let ToolChangePart::Text { native, .. } = part {
-                validate_annotations(native, HostType::Content, &part_path).map_err(|_| {
-                    Error::Custom(format!("ir: {part_path}.native: invalid native annotation"))
-                })?;
+                validate_native_at_path(native, HostType::Content, &part_path)?;
                 continue;
             }
             let ToolChangePart::Change { change } = part else {
                 continue;
             };
-            let change_path = format!("{part_path}.change");
-            validate_annotations(&change.native, HostType::Tool, &change_path).map_err(|_| {
-                Error::Custom(format!(
-                    "ir: {change_path}.native: invalid native annotation"
-                ))
-            })?;
-            if let Some(tool) = &change.tool {
-                let path = format!("{change_path}.tool");
-                validate_tool_native(tool, &path).map_err(|_| {
-                    Error::Custom(format!("ir: {path}.native: invalid native annotation"))
-                })?;
-            }
+            validate_change_native(change, &format!("{part_path}.change"))?;
         }
     }
 
@@ -229,20 +216,7 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
             };
             let base = format!("messages[{m_idx}].content[{c_idx}]");
             for (k, change) in tool_changes.iter().flatten().enumerate() {
-                let change_path = format!("{base}.tool_changes[{k}]");
-                validate_annotations(&change.native, HostType::Tool, &change_path).map_err(
-                    |_| {
-                        Error::Custom(format!(
-                            "ir: {change_path}.native: invalid native annotation"
-                        ))
-                    },
-                )?;
-                if let Some(tool) = &change.tool {
-                    let path = format!("{change_path}.tool");
-                    validate_tool_native(tool, &path).map_err(|_| {
-                        Error::Custom(format!("ir: {path}.native: invalid native annotation"))
-                    })?;
-                }
+                validate_change_native(change, &format!("{base}.tool_changes[{k}]"))?;
             }
         }
     }
@@ -250,13 +224,23 @@ pub fn validate_native_request(request: &Request) -> Result<(), Error> {
     Ok(())
 }
 
-/// Applies tool-host annotation rules to one tool, including the
-/// defer_loading/cache_control mutual exclusion (spec/15 §3.4).
+fn validate_change_native(change: &crate::request::ToolChange, path: &str) -> Result<(), Error> {
+    validate_tool_annotations(&change.native, path)?;
+    if let Some(tool) = &change.tool {
+        validate_tool_native(tool, &format!("{path}.tool"))?;
+    }
+    Ok(())
+}
+
 fn validate_tool_native(tool: &Tool, path: &str) -> Result<(), Error> {
-    validate_annotations(&tool.native, HostType::Tool, path)?;
+    validate_tool_annotations(&tool.native, path)
+}
+
+fn validate_tool_annotations(native: &[NativeAnnotation], path: &str) -> Result<(), Error> {
+    validate_native_at_path(native, HostType::Tool, path)?;
     let mut has_cache_control = false;
     let mut has_defer_loading = false;
-    for n in &tool.native {
+    for n in native {
         if n.source == NATIVE_SOURCE_ANTHROPIC {
             if n.kind == NATIVE_KIND_CACHE_CONTROL {
                 has_cache_control = true;
@@ -271,6 +255,26 @@ fn validate_tool_native(tool: &Tool, path: &str) -> Result<(), Error> {
         )));
     }
     Ok(())
+}
+
+fn validate_native_at_path(
+    annotations: &[NativeAnnotation],
+    host: HostType,
+    path: &str,
+) -> Result<(), Error> {
+    if validate_annotations(annotations, host, path).is_ok() {
+        return Ok(());
+    }
+    for index in 0..annotations.len() {
+        if validate_annotations(&annotations[..=index], host, path).is_err() {
+            return Err(Error::Custom(format!(
+                "ir: {path}.native[{index}]: invalid native annotation"
+            )));
+        }
+    }
+    Err(Error::Custom(format!(
+        "ir: {path}.native: invalid native annotation"
+    )))
 }
 
 fn validate_annotations(

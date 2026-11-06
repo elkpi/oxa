@@ -1884,10 +1884,12 @@ StatusOr<Conversion<json::Value>> encode_request(const ir::Request& req,
                     const auto base = "tool_change_groups[" + std::to_string(gi) + "].parts[" + std::to_string(pi) + "].change";
                     for (std::size_t k = 0; k < part.change->native.size(); ++k) {
                         const auto& annotation = part.change->native[k];
+                        if (annotation.source != "anthropic" && annotation.source != "openai") losses.push_back(make_resp_loss(base + ".native[" + std::to_string(k) + "]", "source", ir::LOSS_UNSUPPORTED_SEMANTIC, ""));
                         if (annotation.source == "anthropic" && annotation.kind == "cache_control") losses.push_back(make_resp_loss(base + ".native[" + std::to_string(k) + "]", "cache_control", ir::LOSS_UNMAPPED_FIELD, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
                     }
                     for (std::size_t k = 0; k < part.change->tool->native.size(); ++k) {
                         const auto& annotation = part.change->tool->native[k];
+                        if (annotation.source != "anthropic" && annotation.source != "openai") losses.push_back(make_resp_loss(base + ".tool.native[" + std::to_string(k) + "]", "source", ir::LOSS_UNSUPPORTED_SEMANTIC, ""));
                         if (annotation.source == "anthropic" && annotation.kind == "cache_control") losses.push_back(make_resp_loss(base + ".tool.native[" + std::to_string(k) + "]", "cache_control", ir::LOSS_UNMAPPED_FIELD, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
                     }
                     for (const auto& [name, fields] : std::vector<std::pair<std::string, const json::Value*>>{{"extra", &part.change->extra}, {"tool_extra", &part.change->tool_extra}, {"definition_extra", &part.change->definition_extra}}) {

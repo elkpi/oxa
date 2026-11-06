@@ -2,6 +2,7 @@ package ir
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -487,6 +488,37 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	}
 }
 
+func TestPositionalNativeHosts(t *testing.T) {
+	bad := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"bad"}`}}
+	good := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`}}
+	for _, tc := range []struct {
+		name string
+		req  *Request
+		path string
+	}{
+		{"text", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeText, Native: bad}}}}}, "tool_change_groups[0].parts[0].native[0]"},
+		{"change", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Native: bad}}}}}}, "tool_change_groups[0].parts[0].change.native[0]"},
+		{"compaction change", &Request{Messages: []Message{{Content: []Block{CompactionBlock{ToolChanges: []ToolChange{{Native: bad}}}}}}}, "messages[0].content[0].tool_changes[0].native[0]"},
+		{"duplicate tool", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Tool: &Tool{Native: append(good[:1:1], good[0])}}}}}}}, "tool_change_groups[0].parts[0].change.tool.native[1]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNativeRequest(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.path) {
+				t.Fatalf("expected %s, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
+func TestPositionalNativeErrorDoesNotExposeValue(t *testing.T) {
+	tool := &Tool{Name: "read", Native: []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"secret-payload"}`}}}
+	req := &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Tool: tool}}}}}}
+	err := ValidateNativeRequest(req)
+	if err == nil || strings.Contains(err.Error(), "secret-payload") || !strings.Contains(err.Error(), "tool_change_groups[0].parts[0].change.tool") {
+		t.Fatalf("expected a value-free positional path error, got %v", err)
+	}
+}
+
 func TestValidateNativeRequestPositionalAndCompaction(t *testing.T) {
 	badTool := func() *Tool {
 		return &Tool{
@@ -519,6 +551,7 @@ func TestValidateNativeRequestPositionalAndCompaction(t *testing.T) {
 	// 2. defer_loading + cache_control mutual exclusion on positional tool
 	req = base()
 	excl := badTool()
+	excl.Native[0].Value = `{"type":"ephemeral"}`
 	excl.Native = append(excl.Native, NativeAnnotation{Source: NativeSourceAnthropic, Kind: NativeKindDeferLoading, Value: "true"})
 	req.ToolChangeGroups = []ToolChangeGroup{{
 		MessageIndex: 1, ContentIndex: -1,

@@ -223,19 +223,14 @@ func ValidateNativeRequest(req *Request) error {
 	for gIdx, group := range req.ToolChangeGroups {
 		for pIdx, part := range group.Parts {
 			partPath := fmt.Sprintf("tool_change_groups[%d].parts[%d]", gIdx, pIdx)
-			// Part-level native round-trips only on text parts; tool_change
-			// parts carry annotations on the change and its tool instead.
-			if part.Type == ToolChangePartTypeText {
-				if err := validateAnnotations(part.Native, hostContentBlock); err != nil {
-					return fmt.Errorf("ir: %s native invalid: %w", partPath, err)
-				}
-				continue
+			if err := validateNativeAtPath(part.Native, hostContentBlock, partPath); err != nil {
+				return err
 			}
 			if part.Change == nil {
 				continue
 			}
-			if err := validateAnnotations(part.Change.Native, hostTool); err != nil {
-				return fmt.Errorf("ir: %s.change native invalid: %w", partPath, err)
+			if err := validateNativeAtPath(part.Change.Native, hostTool, partPath+".change"); err != nil {
+				return err
 			}
 			if part.Change.Tool != nil {
 				if err := validateToolNative(part.Change.Tool, partPath+".change.tool"); err != nil {
@@ -255,8 +250,8 @@ func ValidateNativeRequest(req *Request) error {
 			for k := range compaction.ToolChanges {
 				change := &compaction.ToolChanges[k]
 				changePath := fmt.Sprintf("%s.tool_changes[%d]", base, k)
-				if err := validateAnnotations(change.Native, hostTool); err != nil {
-					return fmt.Errorf("ir: %s native invalid: %w", changePath, err)
+				if err := validateNativeAtPath(change.Native, hostTool, changePath); err != nil {
+					return err
 				}
 				if change.Tool != nil {
 					if err := validateToolNative(change.Tool, changePath+".tool"); err != nil {
@@ -274,8 +269,8 @@ func ValidateNativeRequest(req *Request) error {
 // the defer_loading/cache_control mutual exclusion (spec/15 s3.4). path is the
 // IR path of the tool host for error messages.
 func validateToolNative(tool *Tool, path string) error {
-	if err := validateAnnotations(tool.Native, hostTool); err != nil {
-		return fmt.Errorf("ir: %s native invalid: %w", path, err)
+	if err := validateNativeAtPath(tool.Native, hostTool, path); err != nil {
+		return err
 	}
 	var hasCacheControl, hasDeferLoading bool
 	for _, n := range tool.Native {
@@ -292,6 +287,18 @@ func validateToolNative(tool *Tool, path string) error {
 		return fmt.Errorf("ir: %s: cannot specify both defer_loading and cache_control", path)
 	}
 	return nil
+}
+
+func validateNativeAtPath(annotations []NativeAnnotation, host hostType, path string) error {
+	if err := validateAnnotations(annotations, host); err == nil {
+		return nil
+	}
+	for i := range annotations {
+		if err := validateAnnotations(annotations[:i+1], host); err != nil {
+			return fmt.Errorf("ir: %s.native[%d]: invalid native annotation", path, i)
+		}
+	}
+	return fmt.Errorf("ir: %s.native: invalid native annotations", path)
 }
 
 func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
@@ -392,11 +399,11 @@ func validateAnnotations(annotations []NativeAnnotation, host hostType) error {
 			case NativeKindCacheControl:
 				var obj map[string]any
 				if err := json.Unmarshal([]byte(ann.Value), &obj); err != nil || obj["type"] != "ephemeral" {
-					return fmt.Errorf("invalid cache_control %s", ann.Value)
+					return fmt.Errorf("invalid cache_control object")
 				}
 				if ttl, ok := obj["ttl"]; ok {
 					if ttl != "5m" && ttl != "1h" {
-						return fmt.Errorf("invalid cache_control ttl %v", ttl)
+						return fmt.Errorf("invalid cache_control ttl")
 					}
 				}
 			case NativeKindDocumentTitle, NativeKindDocumentContext:

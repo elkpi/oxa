@@ -276,11 +276,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - uses: actions/checkout@v7
-      - name: Fail if module path is still a placeholder
+      - name: Check Go module path
         run: |
-          if [ -f go/go.mod ] && grep -q "oxa-protocol" go/go.mod; then
-            echo "go/go.mod still uses the placeholder module path containing 'oxa-protocol'."
-            echo "Replace it with the real module path before tagging a release."
+          if [ -f go/go.mod ] && ! grep -Fxq 'module github.com/elkpi/oxa-protocol/go/v3' go/go.mod; then
+            echo "go/go.mod does not declare the expected Go module path."
             exit 1
           fi
       - uses: actions/setup-go@v7

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 // vector is one parsed vector file; it doubles as the manifest entry.

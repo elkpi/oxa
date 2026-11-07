@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v3/ir"
-	"github.com/elkpi/oxa/go/v3/modelmap"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/modelmap"
 )
 
 // streamFunctionCall retains a native function_call output item until its

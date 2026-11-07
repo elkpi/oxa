@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v3/ir"
-	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
-	"github.com/elkpi/oxa/go/v3/openai/responses"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/openai/chatcompletions"
+	"github.com/elkpi/oxa-protocol/go/v3/openai/responses"
 )
 
 func TestNativeToolDeclarationFidelity(t *testing.T) {

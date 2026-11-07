@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 // orderedTopKeys returns the top-level object keys of raw in source

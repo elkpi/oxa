@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 // defaultMaxTokens is applied when an IR request carries no Params.MaxTokens

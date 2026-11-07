@@ -44,7 +44,7 @@ check-modulepath:
 	@found=0; \
 	for f in go/go.mod go/*/go.mod; do \
 		[ -f "$$f" ] || continue; \
-		if grep -nE 'GH_USER|oxa-protocol' "$$f"; then found=1; fi; \
+		if grep -nE 'GH_USER|github\.com/oxa-protocol/' "$$f"; then found=1; fi; \
 	done; \
 	if [ "$$found" -eq 1 ]; then \
 		echo "check-modulepath: placeholder module path found (see above)."; \

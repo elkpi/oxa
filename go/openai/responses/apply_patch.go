@@ -3,7 +3,7 @@ package responses
 import (
 	"fmt"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 func decodeApplyPatchOperation(wire *ApplyPatchOperationWire, path string) (ir.ApplyPatchOperation, *ir.Loss, error) {

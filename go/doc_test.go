@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/elkpi/oxa/go/v3"
-	"github.com/elkpi/oxa/go/v3/anthropic/messages"
-	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
+	"github.com/elkpi/oxa-protocol/go/v3"
+	"github.com/elkpi/oxa-protocol/go/v3/anthropic/messages"
+	"github.com/elkpi/oxa-protocol/go/v3/openai/chatcompletions"
 )
 
 func TestVersion(t *testing.T) {
@@ -25,7 +25,7 @@ func TestReleaseVersionAgreement(t *testing.T) {
 		t.Fatal(err)
 	}
 	major := strings.Split(oxa.Version, ".")[0]
-	if !regexp.MustCompile(`(?m)^module github\.com/elkpi/oxa/go/v` + regexp.QuoteMeta(major) + `$`).Match(mod) {
+	if !regexp.MustCompile(`(?m)^module github\.com/elkpi/oxa-protocol/go/v` + regexp.QuoteMeta(major) + `$`).Match(mod) {
 		t.Fatalf("module path does not match exported major version %q", major)
 	}
 	tag := os.Getenv("OXA_RELEASE_TAG")

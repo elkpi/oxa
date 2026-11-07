@@ -227,6 +227,32 @@ func questionsFromSchema(schema json.RawMessage) (map[string]Question, []ir.Loss
 	return questions, losses, nil
 }
 
+// hasKeyBeyond reports whether the property carries a key outside the
+// branch's synthesized projection (spec/17 §7.4 exact-shape
+// reconstruction).
+func hasKeyBeyond(prop map[string]json.RawMessage, allowed ...string) bool {
+	for k := range prop {
+		beyond := true
+		for _, a := range allowed {
+			if k == a {
+				beyond = false
+				break
+			}
+		}
+		if beyond {
+			return true
+		}
+	}
+	return false
+}
+
+func beyondProjectionLoss(id string) *ir.Loss {
+	return &ir.Loss{
+		Path: "questions." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
+		Detail: "N-JEV-6: schema constraint beyond the synthesized projection",
+	}
+}
+
 // questionFromProperty reconstructs one question by exact property shape
 // (spec/17 §7.4): only type/minimum/maximum/enum/description are consumed;
 // any other key means the schema constraint set is not the synthesized
@@ -257,6 +283,9 @@ func questionFromProperty(id string, prop map[string]json.RawMessage) (Question,
 	switch propType {
 	case "number":
 		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			if hasKeyBeyond(prop, "type", "enum", "description") {
+				return Question{}, beyondProjectionLoss(id), false, nil
+			}
 			var enumValues []json.RawMessage
 			if err := json.Unmarshal(enum, &enumValues); err != nil {
 				return Question{}, nil, false, fmt.Errorf("jev: schema property %s enum: %w", id, err)
@@ -278,13 +307,17 @@ func questionFromProperty(id string, prop map[string]json.RawMessage) (Question,
 		minimum, hasMin := prop["minimum"]
 		maximum, hasMax := prop["maximum"]
 		if hasMin && hasMax {
-			if decimalEqualsZero(json.Number(minimum)) && decimalEqualsOne(json.Number(maximum)) {
+			if decimalEqualsZero(json.Number(minimum)) && decimalEqualsOne(json.Number(maximum)) &&
+				!hasKeyBeyond(prop, "type", "minimum", "maximum", "description") {
 				q.Type = QuestionTypeNoul
 				return q, nil, true, nil
 			}
 		}
 	case "string":
 		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			if hasKeyBeyond(prop, "type", "enum", "description") {
+				return Question{}, beyondProjectionLoss(id), false, nil
+			}
 			if names, ok := choiceOptions(enum); ok {
 				q.Type = QuestionTypeChoice
 				crit := map[string]string{}

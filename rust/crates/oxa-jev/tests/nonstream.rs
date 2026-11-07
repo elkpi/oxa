@@ -330,3 +330,52 @@ fn the_full_client_side_round_trip_reconstructs_questions_and_answers() {
     );
     assert_eq!(answer_value(&wire_response.answers, "is_urgent")["noul"], 0);
 }
+
+#[test]
+fn contradicting_bounds_alongside_an_enum_are_not_silently_dropped() {
+    use oxa_ir::{Params, Request, ResponseFormat};
+    use serde_json::{Map, Value};
+
+    let mut properties = Map::new();
+    properties.insert(
+        "ok".to_owned(),
+        serde_json::json!({"type": "number", "minimum": 0, "maximum": 1}),
+    );
+    properties.insert(
+        "weird".to_owned(),
+        serde_json::json!({"type": "number", "minimum": 9, "maximum": 9, "enum": [1, 2]}),
+    );
+    let mut schema = Map::new();
+    schema.insert("type".to_owned(), Value::String("object".to_owned()));
+    schema.insert("properties".to_owned(), Value::Object(properties));
+    let request = Request {
+        model: "m".to_owned(),
+        system: vec![SystemBlock::Text {
+            text: "state text".to_owned(),
+            role: String::new(),
+            native: Vec::new(),
+        }],
+        messages: Vec::new(),
+        tools: None,
+        tool_choice: None,
+        params: Some(Params {
+            response_format: Some(ResponseFormat::JsonSchema {
+                name: "jev_answers".to_owned(),
+                description: None,
+                schema,
+                schema_raw: None,
+                strict: None,
+            }),
+            ..Params::default()
+        }),
+        metadata: None,
+        native: Vec::new(),
+        tool_change_groups: Vec::new(),
+    };
+    let (wire, losses) =
+        oxa_jev::encode_request(&request, &Config::default()).expect("encode_request");
+    assert!(!wire.questions.contains_key("weird"));
+    assert_eq!(losses.len(), 1, "{losses:?}");
+    assert_eq!(losses[0].path, "questions.weird");
+    assert_eq!(losses[0].reason, LossReason::UnsupportedSemantic);
+}

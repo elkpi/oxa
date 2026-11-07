@@ -855,6 +855,24 @@ function stripTemplate(text: string): string {
     : text;
 }
 
+// hasKeyBeyond reports whether the property carries a key outside the
+// branch's synthesized projection (spec/17 §7.4 exact-shape reconstruction).
+function hasKeyBeyond(
+  property: JsonObject,
+  allowed: readonly string[],
+): boolean {
+  return Object.keys(property).some((key) => !allowed.includes(key));
+}
+
+function beyondProjectionLoss(id: string): Loss {
+  return {
+    path: `questions.${id}`,
+    field: "type",
+    reason: "unsupported-semantic",
+    detail: "N-JEV-6: schema constraint beyond the synthesized projection",
+  };
+}
+
 function questionsFromSchema(schema: JsonObject): {
   questions: Record<string, JevQuestion>;
   losses: Loss[];
@@ -891,6 +909,10 @@ function questionsFromSchema(schema: JsonObject): {
     if (propType === "number") {
       const enumValues = property.enum;
       if (isJsonArray(enumValues)) {
+        if (hasKeyBeyond(property, ["type", "enum", "description"])) {
+          losses.push(beyondProjectionLoss(id));
+          continue;
+        }
         const levels = scoreLevels(enumValues);
         if (levels === undefined) {
           losses.push({
@@ -920,7 +942,8 @@ function questionsFromSchema(schema: JsonObject): {
         minimumLeaf !== undefined &&
         maximumLeaf !== undefined &&
         decimalEqualsZero(minimumLeaf) &&
-        decimalEqualsOne(maximumLeaf)
+        decimalEqualsOne(maximumLeaf) &&
+        !hasKeyBeyond(property, ["type", "minimum", "maximum", "description"])
       ) {
         questions[id] = {
           type: QUESTION_TYPE_NOUL,
@@ -930,6 +953,14 @@ function questionsFromSchema(schema: JsonObject): {
       }
     }
     if (propType === "string") {
+      const enumValues = property.enum;
+      if (
+        isJsonArray(enumValues) &&
+        hasKeyBeyond(property, ["type", "enum", "description"])
+      ) {
+        losses.push(beyondProjectionLoss(id));
+        continue;
+      }
       const names = choiceOptions(property.enum);
       if (names !== undefined) {
         const criteria = makeKeyed<JsonValue>();

@@ -238,6 +238,21 @@ fn strip_template(text: &str) -> String {
 // questions_from_schema reads the synthesized schema's properties (the one
 // authorized read-only consumption of Params.ResponseFormat.Schema, spec/17
 // §3) and reconstructs the questions map.
+/// Reports whether the property carries a key outside the branch's
+/// synthesized projection (spec/17 §7.4 exact-shape reconstruction).
+fn keys_beyond(object: &JsonMap, allowed: &[&str]) -> bool {
+    object.keys().any(|key| !allowed.contains(&key.as_str()))
+}
+
+fn beyond_projection_loss(id: &str) -> Loss {
+    Loss {
+        path: format!("questions.{id}"),
+        field: "type".to_owned(),
+        reason: LossReason::UnsupportedSemantic,
+        detail: "N-JEV-6: schema constraint beyond the synthesized projection".to_owned(),
+    }
+}
+
 fn questions_from_schema(
     schema: &JsonMap,
 ) -> Result<(BTreeMap<String, JevQuestion>, Vec<Loss>), Error> {
@@ -276,6 +291,10 @@ fn questions_from_schema(
         match prop_type {
             Some("number") => {
                 if let Some(enum_values) = object.get("enum").and_then(|v| v.as_array()) {
+                    if keys_beyond(object, &["type", "enum", "description"]) {
+                        losses.push(beyond_projection_loss(id));
+                        continue;
+                    }
                     match score_levels(enum_values) {
                         Some(levels) => {
                             questions.insert(
@@ -317,7 +336,10 @@ fn questions_from_schema(
                     .get("maximum")
                     .map(decimal_equals_one)
                     .unwrap_or(false);
-                if minimum_zero && maximum_one {
+                if minimum_zero
+                    && maximum_one
+                    && !keys_beyond(object, &["type", "minimum", "maximum", "description"])
+                {
                     questions.insert(
                         id.clone(),
                         JevQuestion {
@@ -331,6 +353,10 @@ fn questions_from_schema(
             }
             Some("string") => {
                 if let Some(enum_values) = object.get("enum").and_then(|v| v.as_array()) {
+                    if keys_beyond(object, &["type", "enum", "description"]) {
+                        losses.push(beyond_projection_loss(id));
+                        continue;
+                    }
                     let names: Option<Vec<&str>> = enum_values
                         .iter()
                         .map(|value| value.as_str())

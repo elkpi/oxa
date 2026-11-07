@@ -700,13 +700,6 @@ func degradedType(id string) *ir.Loss {
 	}
 }
 
-func pickLoss(a, b *ir.Loss) *ir.Loss {
-	if a != nil {
-		return a
-	}
-	return b
-}
-
 func criteriaNames(raw json.RawMessage) ([]string, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {

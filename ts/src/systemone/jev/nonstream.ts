@@ -107,8 +107,7 @@ function sortRebuild(value: JsonValue): JsonValue {
  * insertion order; leaf values go through stringifyJson to keep number
  * tokens verbatim. */
 function canonicalStringify(value: JsonValue): string {
-  if (isJsonArray(value))
-    return `[${value.map(canonicalStringify).join(",")}]`;
+  if (isJsonArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
   if (isPlainObject(value)) {
     return `{${sortedKeys(value)
       .map((key) => `${stringifyJson(key)}:${canonicalStringify(value[key]!)}`)
@@ -575,8 +574,7 @@ export function decodeResponse(
               path: `answers.${id}`,
               field: "type",
               reason: "unsupported-semantic",
-              detail:
-                "N-JEV-5: experimental box answers are carried verbatim",
+              detail: "N-JEV-5: experimental box answers are carried verbatim",
             });
           }
           const sorted = makeKeyed<JsonValue>();
@@ -623,9 +621,7 @@ export function decodeResponse(
   // of deep-sorting the whole payload.
   const canonText = `{${[...answers.keys()]
     .sort()
-    .map(
-      (id) => `${stringifyJson(id)}:${stringifyJson(answers.get(id)!)}`,
-    )
+    .map((id) => `${stringifyJson(id)}:${stringifyJson(answers.get(id)!)}`)
     .join(",")}}`;
 
   return {
@@ -799,8 +795,7 @@ function isDerivedQuestionRendering(
     }
   }
   if (found.size !== expected.size) return false;
-  for (const [id, type] of expected)
-    if (found.get(id) !== type) return false;
+  for (const [id, type] of expected) if (found.get(id) !== type) return false;
   return true;
 }
 
@@ -849,8 +844,7 @@ function questionsFromSchema(schema: JsonObject): {
         path: `questions.${id}`,
         field: "type",
         reason: "unsupported-semantic",
-        detail:
-          "N-JEV-6: schema constraint beyond the synthesized projection",
+        detail: "N-JEV-6: schema constraint beyond the synthesized projection",
       });
       continue;
     }
@@ -940,7 +934,10 @@ function scoreLevels(enumValues: readonly JsonValue[]): number | undefined {
   for (const [index, value] of enumValues.entries()) {
     if (!scoreWithinLevels(value, index + 1)) return undefined;
     const parts = parseDecimal((value as { token: string }).token);
-    if (parts === undefined || (parts.intDigits.replace(/^0+/, "") || "0") !== String(index + 1))
+    if (
+      parts === undefined ||
+      (parts.intDigits.replace(/^0+/, "") || "0") !== String(index + 1)
+    )
       return undefined;
   }
   return enumValues.length;

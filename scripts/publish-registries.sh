@@ -151,11 +151,13 @@ if [[ "$TARGET_RUST" == "true" ]]; then
     wait_for_crate "oxa-modelmap"
     wait_for_crate "oxa-ir"
 
-    echo "--> [2/3] Publishing Rust Wave 2 (face crates: oxa-chatcompletions, oxa-anthropic, oxa-responses)..."
+    echo "--> [2/3] Publishing Rust Wave 2 (jev and face crates: oxa-jev, oxa-chatcompletions, oxa-anthropic, oxa-responses)..."
+    publish_crate "oxa-jev"
     publish_crate "oxa-chatcompletions"
     publish_crate "oxa-anthropic"
     publish_crate "oxa-responses"
 
+    wait_for_crate "oxa-jev"
     wait_for_crate "oxa-chatcompletions"
     wait_for_crate "oxa-anthropic"
     wait_for_crate "oxa-responses"

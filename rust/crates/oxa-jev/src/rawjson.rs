@@ -227,8 +227,9 @@ pub fn decode_response_json(raw: &str, config: &Config) -> Result<(IrResponse, V
                                         path: format!("answers.{id}"),
                                         field: "type".to_owned(),
                                         reason: LossReason::UnsupportedSemantic,
-                                        detail: "N-JEV-5: experimental box answers are carried verbatim"
-                                            .to_owned(),
+                                        detail:
+                                            "N-JEV-5: experimental box answers are carried verbatim"
+                                                .to_owned(),
                                     });
                                 }
                             }

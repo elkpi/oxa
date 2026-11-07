@@ -172,18 +172,50 @@ func marshalCanonical(v any) ([]byte, error) {
 // --- exact decimal comparison ----------------------------------------------
 // Range and integer validation must not round JSON number tokens through
 // IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
-// score level, even though both collapse to the same float64.
+// score level, even though both collapse to the same float64. A token is
+// represented as ±digits × 10^exp with digits stripped of leading and
+// trailing zeros, so magnitude checks work on the digit strings and their
+// order of magnitude without ever materializing a power of ten (exponents
+// saturate instead of expanding adversarially long powers into memory).
 
 var jsonNumberPattern = regexp.MustCompile(
 	`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`,
 )
 
-var zeroDigitsPattern = regexp.MustCompile(`^0*$`)
-
 type decimalParts struct {
-	negative   bool
-	intDigits  string
-	fracDigits string
+	negative bool
+	digits   string
+	exp      int64
+}
+
+// parseExponentSaturating parses the exponent literal with saturation at
+// ±2^62: the sign of the overflow preserves whether the value is
+// astronomically large or small, which is all the range checks need.
+func parseExponentSaturating(literal string) int64 {
+	const limit = int64(1) << 62
+	negative := strings.HasPrefix(literal, "-")
+	body := strings.TrimPrefix(strings.TrimPrefix(literal, "+"), "-")
+	var value int64
+	for _, r := range body {
+		if r < '0' || r > '9' {
+			return 0
+		}
+		digit := int64(r - '0')
+		if value > limit/10 {
+			value = limit
+			break
+		}
+		value *= 10
+		if value > limit-digit {
+			value = limit
+			break
+		}
+		value += digit
+	}
+	if negative {
+		return -value
+	}
+	return value
 }
 
 func parseDecimal(token string) (decimalParts, bool) {
@@ -192,13 +224,9 @@ func parseDecimal(token string) (decimalParts, bool) {
 	}
 	negative := strings.HasPrefix(token, "-")
 	body := strings.TrimPrefix(token, "-")
-	exponent := 0
+	exponent := int64(0)
 	if eIndex := strings.IndexAny(body, "eE"); eIndex >= 0 {
-		parsed, err := strconv.Atoi(body[eIndex+1:])
-		if err != nil {
-			return decimalParts{}, false
-		}
-		exponent = parsed
+		exponent = parseExponentSaturating(body[eIndex+1:])
 		body = body[:eIndex]
 	}
 	var intDigits, fracDigits string
@@ -207,140 +235,92 @@ func parseDecimal(token string) (decimalParts, bool) {
 	} else {
 		intDigits, fracDigits = body, ""
 	}
-	if exponent > 0 {
-		if exponent >= len(fracDigits) {
-			intDigits += fracDigits + strings.Repeat("0", exponent-len(fracDigits))
-			fracDigits = ""
-		} else {
-			intDigits += fracDigits[:exponent]
-			fracDigits = fracDigits[exponent:]
-		}
-	} else if exponent < 0 {
-		shift := -exponent
-		if shift >= len(intDigits) {
-			fracDigits = strings.Repeat("0", shift-len(intDigits)) + intDigits + fracDigits
-			intDigits = "0"
-		} else {
-			fracDigits = intDigits[len(intDigits)-shift:] + fracDigits
-			intDigits = intDigits[:len(intDigits)-shift]
-		}
+	exp := exponent - int64(len(fracDigits))
+	digits := strings.TrimLeft(intDigits+fracDigits, "0")
+	if digits == "" {
+		return decimalParts{negative: negative, digits: "0", exp: 0}, true
 	}
-	intDigits = strings.TrimLeft(intDigits, "0")
-	if intDigits == "" {
-		intDigits = "0"
-	}
-	return decimalParts{negative: negative, intDigits: intDigits, fracDigits: fracDigits}, true
+	trailing := len(digits) - len(strings.TrimRight(digits, "0"))
+	return decimalParts{
+		negative: negative,
+		digits:   digits[:len(digits)-trailing],
+		exp:      exp + int64(trailing),
+	}, true
 }
 
-func isZeroDecimal(parts decimalParts) bool {
-	return zeroDigitsPattern.MatchString(parts.intDigits) &&
-		zeroDigitsPattern.MatchString(parts.fracDigits)
+func decimalIsZero(parts decimalParts) bool {
+	return parts.digits == "0"
 }
 
-func compareMagnitude(a, b decimalParts) int {
-	if len(a.intDigits) != len(b.intDigits) {
-		if len(a.intDigits) < len(b.intDigits) {
-			return -1
-		}
-		return 1
-	}
-	if a.intDigits != b.intDigits {
-		if a.intDigits < b.intDigits {
-			return -1
-		}
-		return 1
-	}
-	width := len(a.fracDigits)
-	if len(b.fracDigits) > width {
-		width = len(b.fracDigits)
-	}
-	af := a.fracDigits + strings.Repeat("0", width-len(a.fracDigits))
-	bf := b.fracDigits + strings.Repeat("0", width-len(b.fracDigits))
-	if af == bf {
-		return 0
-	}
-	if af < bf {
-		return -1
-	}
-	return 1
+// decimalEqualsZero reports whether a JSON number token equals exactly 0,
+// accepting any decimal spelling such as `0.0` or `0e0`.
+func decimalEqualsZero(a json.Number) bool {
+	parts, ok := parseDecimal(string(a))
+	return ok && decimalIsZero(parts)
 }
 
-// compareDecimal compares a JSON number token against a decimal literal
-// exactly; ok is false when the leaf is not a JSON number token shape.
-func compareDecimal(a json.Number, b string) (int, bool) {
-	left, ok := parseDecimal(string(a))
-	if !ok {
-		return 0, false
+// decimalEqualsOne reports whether a JSON number token equals exactly 1,
+// accepting any decimal spelling such as `1.0` or `1e0`.
+func decimalEqualsOne(a json.Number) bool {
+	parts, ok := parseDecimal(string(a))
+	if !ok || decimalIsZero(parts) || parts.negative {
+		return false
 	}
-	right, ok := parseDecimal(b)
-	if !ok {
-		return 0, false
-	}
-	leftZero := isZeroDecimal(left)
-	rightZero := isZeroDecimal(right)
-	if leftZero && rightZero {
-		return 0, true
-	}
-	if leftZero {
-		if right.negative {
-			return 1, true
-		}
-		return -1, true
-	}
-	if rightZero {
-		if left.negative {
-			return -1, true
-		}
-		return 1, true
-	}
-	if left.negative != right.negative {
-		if left.negative {
-			return -1, true
-		}
-		return 1, true
-	}
-	magnitude := compareMagnitude(left, right)
-	if left.negative {
-		return -magnitude, true
-	}
-	return magnitude, true
+	return parts.exp == 0 && parts.digits == "1"
 }
 
 // decimalInUnitInterval reports whether a JSON number token is exactly within
 // [0,1] in decimal terms (spec/17 §4.1 noul range).
 func decimalInUnitInterval(a json.Number) bool {
-	low, ok := compareDecimal(a, "0")
-	if !ok || low < 0 {
+	parts, ok := parseDecimal(string(a))
+	if !ok {
 		return false
 	}
-	high, ok := compareDecimal(a, "1")
-	if !ok || high > 0 {
+	if decimalIsZero(parts) {
+		return true
+	}
+	if parts.negative {
 		return false
 	}
-	return true
+	// A positive nonzero value is within [0,1] exactly when it is 1 or a
+	// decimal fraction below 1: digits × 10^exp ≤ 1 with digits ≥ 1.
+	if parts.exp > 0 {
+		return false
+	}
+	if parts.exp == 0 {
+		return parts.digits == "1"
+	}
+	// exp < 0: value = digits × 10^exp ≤ 1 ⇔ digits ≤ 10^(-exp). The bound
+	// only matters when its digit count can reach len(digits); a longer
+	// bound means digits is certainly below it.
+	if -parts.exp+1 > int64(len(parts.digits)) {
+		return true
+	}
+	bound := "1" + strings.Repeat("0", int(-parts.exp))
+	if len(parts.digits) < len(bound) {
+		return true
+	}
+	return len(parts.digits) == len(bound) && parts.digits <= bound
 }
 
 // scoreTokenWithinLevels validates a score value against the discrete 1..N
-// levels exactly: the token must be an integer and its exact value must fall
-// in range (spec/17 §4.1).
+// levels exactly: the token must be an integer whose exact value falls in
+// range (spec/17 §4.1).
 func scoreTokenWithinLevels(a json.Number, levels int) bool {
 	parts, ok := parseDecimal(string(a))
-	if !ok || parts.negative {
+	if !ok || decimalIsZero(parts) || parts.negative {
 		return false
 	}
-	if !zeroDigitsPattern.MatchString(parts.fracDigits) {
+	// A fractional value (negative exp after trailing-zero stripping) is not
+	// an integer level; a positive exp of 2 or more is at least 100, beyond
+	// the 1..10 level bound.
+	if parts.exp < 0 || parts.exp > 2 {
 		return false
 	}
-	digits := strings.TrimLeft(parts.intDigits, "0")
-	if digits == "" {
-		digits = "0"
+	valueDigits := parts.digits + strings.Repeat("0", int(parts.exp))
+	levelDigits := strconv.Itoa(levels)
+	if len(valueDigits) != len(levelDigits) {
+		return len(valueDigits) < len(levelDigits)
 	}
-	if len(digits) > len(strconv.Itoa(levels)) {
-		return false
-	}
-	value, err := strconv.Atoi(digits)
-	if err != nil {
-		return false
-	}
-	return value >= 1 && value <= levels
+	return valueDigits <= levelDigits
 }

@@ -278,9 +278,7 @@ func questionFromProperty(id string, prop map[string]json.RawMessage) (Question,
 		minimum, hasMin := prop["minimum"]
 		maximum, hasMax := prop["maximum"]
 		if hasMin && hasMax {
-			low, lowOK := compareDecimal(json.Number(minimum), "0")
-			high, highOK := compareDecimal(json.Number(maximum), "1")
-			if lowOK && highOK && low == 0 && high == 0 {
+			if decimalEqualsZero(json.Number(minimum)) && decimalEqualsOne(json.Number(maximum)) {
 				q.Type = QuestionTypeNoul
 				return q, nil, true, nil
 			}
@@ -315,17 +313,20 @@ func scoreLevels(enum []json.RawMessage) (int, bool) {
 	}
 	for i, raw := range enum {
 		parts, ok := parseDecimal(string(raw))
-		if !ok || parts.negative {
+		if !ok || decimalIsZero(parts) || parts.negative || parts.exp < 0 {
 			return 0, false
 		}
-		if !zeroDigitsPattern.MatchString(parts.fracDigits) {
+		expected := strconv.Itoa(i + 1)
+		// The value must render as the plain integer digits; bounding the
+		// digit count by len(expected) keeps the shift bounded too.
+		if parts.exp+int64(len(parts.digits)) > int64(len(expected)) {
 			return 0, false
 		}
-		digits := strings.TrimLeft(parts.intDigits, "0")
-		if digits == "" {
-			digits = "0"
+		value := parts.digits
+		if parts.exp > 0 {
+			value += strings.Repeat("0", int(parts.exp))
 		}
-		if digits != strconv.Itoa(i+1) {
+		if value != expected {
 			return 0, false
 		}
 	}

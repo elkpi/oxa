@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/elkpi/oxa/go/v3/ir"
@@ -117,15 +118,19 @@ func stateFromIR(req *ir.Request, questions map[string]Question) (string, []ir.L
 	return stripTemplate(strings.Join(sysParts, "\n\n")), losses, nil
 }
 
-// isDerivedQuestionRendering reports whether the message's text is exactly a
-// §7.2 rendering of the expected questions: every line is a question line,
-// a criteria line, or blank, and the question (id, type) set matches.
+// isDerivedQuestionRendering reports whether the message's content is exactly
+// a §7.2 rendering of the expected questions: every block is a text block,
+// every line is a question line, a criteria line, or blank, and the question
+// (id, type) set matches. Mixed-in non-text blocks have no Jev destination
+// and must surface as a loss, never as a silent drop.
 func isDerivedQuestionRendering(msg ir.Message, expected map[string]string) bool {
 	var texts []string
 	for _, b := range msg.Content {
-		if tb, ok := b.(ir.TextBlock); ok {
-			texts = append(texts, tb.Text)
+		tb, ok := b.(ir.TextBlock)
+		if !ok {
+			return false
 		}
+		texts = append(texts, tb.Text)
 	}
 	if len(texts) == 0 {
 		return false
@@ -201,7 +206,7 @@ func questionsFromSchema(schema json.RawMessage) (map[string]Question, []ir.Loss
 	questions := map[string]Question{}
 	var losses []ir.Loss
 	for _, id := range sortedKeys(obj.Properties) {
-		var prop map[string]any
+		var prop map[string]json.RawMessage
 		if err := json.Unmarshal(obj.Properties[id], &prop); err != nil {
 			return nil, nil, fmt.Errorf("jev: schema property %s: %w", id, err)
 		}
@@ -226,7 +231,7 @@ func questionsFromSchema(schema json.RawMessage) (map[string]Question, []ir.Loss
 // (spec/17 §7.4): only type/minimum/maximum/enum/description are consumed;
 // any other key means the schema constraint set is not the synthesized
 // projection, and the property is skipped with N-JEV-6.
-func questionFromProperty(id string, prop map[string]any) (Question, *ir.Loss, bool, error) {
+func questionFromProperty(id string, prop map[string]json.RawMessage) (Question, *ir.Loss, bool, error) {
 	for k := range prop {
 		switch k {
 		case "type", "minimum", "maximum", "enum", "description":
@@ -238,16 +243,25 @@ func questionFromProperty(id string, prop map[string]any) (Question, *ir.Loss, b
 		}
 	}
 	q := Question{}
-	if desc, ok := prop["description"].(string); ok {
-		q.Instructions = desc
+	if desc, ok := prop["description"]; ok {
+		if err := json.Unmarshal(desc, &q.Instructions); err != nil {
+			return Question{}, nil, false, fmt.Errorf("jev: schema property %s description: %w", id, err)
+		}
 	}
-	propType, _ := prop["type"].(string)
+	var propType string
+	if typeRaw, ok := prop["type"]; ok {
+		if err := json.Unmarshal(typeRaw, &propType); err != nil {
+			return Question{}, nil, false, fmt.Errorf("jev: schema property %s type: %w", id, err)
+		}
+	}
 	switch propType {
 	case "number":
-		min, hasMin := prop["minimum"].(float64)
-		max, hasMax := prop["maximum"].(float64)
-		if enum, hasEnum := prop["enum"].([]any); hasEnum {
-			levels, ok := scoreLevels(enum)
+		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			var enumValues []json.RawMessage
+			if err := json.Unmarshal(enum, &enumValues); err != nil {
+				return Question{}, nil, false, fmt.Errorf("jev: schema property %s enum: %w", id, err)
+			}
+			levels, ok := scoreLevels(enumValues)
 			if !ok {
 				return Question{}, &ir.Loss{
 					Path: "questions." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
@@ -261,22 +275,30 @@ func questionFromProperty(id string, prop map[string]any) (Question, *ir.Loss, b
 				Detail: "N-JEV-9: criteria descriptions live in the prompt text",
 			}, true, nil
 		}
-		if hasMin && hasMax && min == 0 && max == 1 {
-			q.Type = QuestionTypeNoul
-			return q, nil, true, nil
+		minimum, hasMin := prop["minimum"]
+		maximum, hasMax := prop["maximum"]
+		if hasMin && hasMax {
+			low, lowOK := compareDecimal(json.Number(minimum), "0")
+			high, highOK := compareDecimal(json.Number(maximum), "1")
+			if lowOK && highOK && low == 0 && high == 0 {
+				q.Type = QuestionTypeNoul
+				return q, nil, true, nil
+			}
 		}
 	case "string":
-		if names, ok := choiceOptions(prop["enum"]); ok {
-			q.Type = QuestionTypeChoice
-			crit := map[string]string{}
-			for _, name := range names {
-				crit[name] = name
+		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			if names, ok := choiceOptions(enum); ok {
+				q.Type = QuestionTypeChoice
+				crit := map[string]string{}
+				for _, name := range names {
+					crit[name] = name
+				}
+				q.Criteria = marshalCriteria(crit)
+				return q, &ir.Loss{
+					Path: "questions." + id, Field: "criteria", Reason: ir.LossDegraded,
+					Detail: "N-JEV-9: criteria descriptions live in the prompt text",
+				}, true, nil
 			}
-			q.Criteria = marshalCriteria(crit)
-			return q, &ir.Loss{
-				Path: "questions." + id, Field: "criteria", Reason: ir.LossDegraded,
-				Detail: "N-JEV-9: criteria descriptions live in the prompt text",
-			}, true, nil
 		}
 	}
 	return Question{}, &ir.Loss{
@@ -285,29 +307,40 @@ func questionFromProperty(id string, prop map[string]any) (Question, *ir.Loss, b
 	}, false, nil
 }
 
-// scoreLevels validates an enum of ascending 1..N integers and returns N.
-func scoreLevels(enum []any) (int, bool) {
+// scoreLevels validates an enum of ascending 1..N integers exactly and
+// returns N.
+func scoreLevels(enum []json.RawMessage) (int, bool) {
 	if len(enum) == 0 {
 		return 0, false
 	}
-	for i, v := range enum {
-		n, ok := v.(float64)
-		if !ok || n != float64(i+1) {
+	for i, raw := range enum {
+		parts, ok := parseDecimal(string(raw))
+		if !ok || parts.negative {
+			return 0, false
+		}
+		if !zeroDigitsPattern.MatchString(parts.fracDigits) {
+			return 0, false
+		}
+		digits := strings.TrimLeft(parts.intDigits, "0")
+		if digits == "" {
+			digits = "0"
+		}
+		if digits != strconv.Itoa(i+1) {
 			return 0, false
 		}
 	}
 	return len(enum), true
 }
 
-func choiceOptions(v any) ([]string, bool) {
-	items, ok := v.([]any)
-	if !ok || len(items) == 0 {
+func choiceOptions(raw json.RawMessage) ([]string, bool) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil || len(items) == 0 {
 		return nil, false
 	}
 	names := make([]string, len(items))
 	for i, item := range items {
-		s, ok := item.(string)
-		if !ok {
+		var s string
+		if err := json.Unmarshal(item, &s); err != nil {
 			return nil, false
 		}
 		names[i] = s
@@ -461,9 +494,8 @@ func recoverScalarAnswer(id string, v any, context map[string]Question) (json.Ra
 				out, err := marshalAnswer(map[string]any{"type": QuestionTypeNoul, "noul": n})
 				return out, nil, err
 			case json.Number:
-				n, err := t.Float64()
 				var loss *ir.Loss
-				if err != nil || n < 0 || n > 1 {
+				if !decimalInUnitInterval(t) {
 					loss = outOfRange(id, "noul")
 				}
 				out, mErr := marshalAnswer(map[string]any{"type": QuestionTypeNoul, "noul": t})
@@ -482,7 +514,7 @@ func recoverScalarAnswer(id string, v any, context map[string]Question) (json.Ra
 			if t, isNum := v.(json.Number); isNum {
 				var loss *ir.Loss
 				levels, _ := criteriaCount(q.Criteria)
-				if levels > 0 && !scoreWithinLevels(t, levels) {
+				if levels > 0 && !scoreTokenWithinLevels(t, levels) {
 					loss = outOfRange(id, "score")
 				}
 				out, err := marshalAnswer(map[string]any{"type": QuestionTypeScore, "score": t})
@@ -517,7 +549,8 @@ func recoverObjectAnswer(id string, obj map[string]any, raw json.RawMessage, con
 		return nil, nil, fmt.Errorf("jev: answer %s: %w", id, err)
 	}
 	compactRaw := json.RawMessage(compacted.Bytes())
-	typ, _ := obj["type"].(string)
+	carried, _ := obj["type"].(string)
+	typ := carried
 	if typ == QuestionTypeBox {
 		return compactRaw, &ir.Loss{
 			Path: "answers." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
@@ -552,52 +585,29 @@ func recoverObjectAnswer(id string, obj map[string]any, raw json.RawMessage, con
 		obj["type"] = typ
 	}
 
-	switch typ {
-	case QuestionTypeNoul:
-		n, ok := numValue(obj["noul"])
-		if !ok {
-			if b, isBool := obj["noul"].(bool); isBool {
-				n, ok = 0, true
-				if b {
-					n = 1
-				}
-				obj["noul"] = n
+	// A typed answer carries verbatim; the encoder rewrites the object only
+	// when it must synthesize the type or normalize a boolean noul.
+	rewrite := carried == "" ||
+		(typ == QuestionTypeNoul && isJSONBool(obj["noul"]))
+	if !rewrite {
+		loss, err := validateAnswer(id, obj, typ, context)
+		if err != nil {
+			return nil, nil, err
+		}
+		return compactRaw, loss, nil
+	}
+	if typ == QuestionTypeNoul {
+		if b, isBool := obj["noul"].(bool); isBool {
+			n := 0
+			if b {
+				n = 1
 			}
+			obj["noul"] = n
 		}
-		if !ok {
-			return nil, nil, fmt.Errorf("jev: answer %s carries no noul value", id)
-		}
-		if l := rangeLoss(id, n, 0, 1, context); l != nil {
-			loss = pickLoss(loss, l)
-		}
-	case QuestionTypeChoice:
-		c, ok := obj["choice"].(string)
-		if !ok {
-			return nil, nil, fmt.Errorf("jev: answer %s carries no choice value", id)
-		}
-		if q, hasQ := context[id]; hasQ {
-			names, err := criteriaNames(q.Criteria)
-			if err != nil {
-				return nil, nil, err
-			}
-			if len(names) > 0 && !contains(names, c) {
-				loss = pickLoss(loss, outOfRange(id, "choice"))
-			}
-		}
-	case QuestionTypeScore:
-		n, ok := numValue(obj["score"])
-		if !ok {
-			return nil, nil, fmt.Errorf("jev: answer %s carries no score value", id)
-		}
-		if q, hasQ := context[id]; hasQ {
-			levels, err := criteriaCount(q.Criteria)
-			if err != nil {
-				return nil, nil, err
-			}
-			if levels > 0 && !scoreWithinFloat(n, levels) {
-				loss = pickLoss(loss, outOfRange(id, "score"))
-			}
-		}
+	}
+	loss, err := validateAnswer(id, obj, typ, context)
+	if err != nil {
+		return nil, nil, err
 	}
 	out, err := marshalAnswer(obj)
 	if err != nil {
@@ -606,48 +616,74 @@ func recoverObjectAnswer(id string, obj map[string]any, raw json.RawMessage, con
 	return out, loss, nil
 }
 
+// validateAnswer reports the range/option losses of an answer against its
+// question context; value-shape failures stay structural.
+func validateAnswer(id string, holder map[string]any, typ string, context map[string]Question) (*ir.Loss, error) {
+	switch typ {
+	case QuestionTypeNoul:
+		leaf, present := holder["noul"]
+		if present {
+			if _, isBool := leaf.(bool); isBool {
+				return nil, nil
+			}
+		}
+		num, isNum := leaf.(json.Number)
+		if !present || !isNum {
+			return nil, fmt.Errorf("jev: answer %s carries no noul value", id)
+		}
+		if q, ok := context[id]; ok && q.Type == QuestionTypeNoul && !decimalInUnitInterval(num) {
+			return outOfRange(id, "noul"), nil
+		}
+		return nil, nil
+	case QuestionTypeChoice:
+		choice, present := holder["choice"].(string)
+		if !present {
+			return nil, fmt.Errorf("jev: answer %s carries no choice value", id)
+		}
+		if q, ok := context[id]; ok {
+			names, err := criteriaNames(q.Criteria)
+			if err != nil {
+				return nil, err
+			}
+			if len(names) > 0 && !contains(names, choice) {
+				return outOfRange(id, "choice"), nil
+			}
+		}
+		return nil, nil
+	case QuestionTypeScore:
+		num, present := holder["score"].(json.Number)
+		if !present {
+			return nil, fmt.Errorf("jev: answer %s carries no score value", id)
+		}
+		if q, ok := context[id]; ok {
+			levels, err := criteriaCount(q.Criteria)
+			if err != nil {
+				return nil, err
+			}
+			if levels > 0 && !scoreTokenWithinLevels(num, levels) {
+				return outOfRange(id, "score"), nil
+			}
+		}
+		return nil, nil
+	}
+	return nil, nil
+}
+
 func hasKey(obj map[string]any, key string) bool {
 	_, ok := obj[key]
 	return ok
 }
 
-// numValue extracts a float64 from a JSON number leaf (json.Number or float64).
-func numValue(v any) (float64, bool) {
-	switch n := v.(type) {
-	case float64:
-		return n, true
-	case json.Number:
-		f, err := n.Float64()
-		return f, err == nil
-	}
-	return 0, false
-}
-
-func rangeLoss(id string, n, lo, hi float64, context map[string]Question) *ir.Loss {
-	if q, ok := context[id]; ok && q.Type == QuestionTypeNoul && (n < lo || n > hi) {
-		return outOfRange(id, "noul")
-	}
-	return nil
+// isJSONBool reports whether the leaf is a JSON boolean.
+func isJSONBool(v any) bool {
+	_, ok := v.(bool)
+	return ok
 }
 
 // supportedQuestionType reports whether the question type participates in
 // the synthesized output contract (box and unknown types do not).
 func supportedQuestionType(t string) bool {
 	return t == QuestionTypeNoul || t == QuestionTypeChoice || t == QuestionTypeScore
-}
-
-// scoreWithinLevels validates a score against the discrete 1..N levels
-// (spec/17 §4.1); fractional or out-of-range values are outside.
-func scoreWithinLevels(n json.Number, levels int) bool {
-	f, err := n.Float64()
-	if err != nil {
-		return false
-	}
-	return scoreWithinFloat(f, levels)
-}
-
-func scoreWithinFloat(f float64, levels int) bool {
-	return f == float64(int(f)) && f >= 1 && f <= float64(levels)
 }
 
 func outOfRange(id, field string) *ir.Loss {

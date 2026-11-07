@@ -55,32 +55,56 @@ func parseQuestions(raw json.RawMessage) (map[string]Question, []ir.Loss, error)
 	}
 	out := make(map[string]Question, len(m))
 	var losses []ir.Loss
+	// Audit the fields of supported questions in source order; a whole-unit
+	// skip (experimental box or unsupported type) suppresses the per-field
+	// audit inside the unit, per spec/02 §4.
+	type collected struct {
+		question    Question
+		unknown     []string
+		typeMissing bool
+	}
+	collectedByID := make(map[string]collected, len(m))
 	for _, id := range sortedKeys(m) {
 		qm, err := decodeRawObject(m[id], "question "+id)
 		if err != nil {
 			return nil, nil, err
 		}
-		var q Question
+		var entry collected
 		for _, k := range sortedKeys(qm) {
 			switch k {
 			case "type":
-				if err := json.Unmarshal(qm[k], &q.Type); err != nil {
+				if err := json.Unmarshal(qm[k], &entry.question.Type); err != nil {
 					return nil, nil, fmt.Errorf("jev: question %s type: %w", id, err)
 				}
 			case "instructions":
-				if err := json.Unmarshal(qm[k], &q.Instructions); err != nil {
+				if err := json.Unmarshal(qm[k], &entry.question.Instructions); err != nil {
 					return nil, nil, fmt.Errorf("jev: question %s instructions: %w", id, err)
 				}
 			case "criteria":
-				q.Criteria = qm[k]
+				entry.question.Criteria = qm[k]
 			default:
-				losses = append(losses, ir.Loss{
-					Path: "questions." + id, Field: k, Reason: ir.LossUnmappedField,
-					Detail: "unknown property on the Jev question",
-				})
+				entry.unknown = append(entry.unknown, k)
 			}
 		}
-		out[id] = q
+		entry.typeMissing = entry.question.Type == ""
+		collectedByID[id] = entry
+	}
+	for _, id := range sortedKeys(m) {
+		entry := collectedByID[id]
+		if entry.typeMissing || !supportedQuestionType(entry.question.Type) {
+			losses = append(losses, ir.Loss{
+				Path: "questions." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
+				Detail: wholeUnitSkipDetail(entry.question.Type),
+			})
+			continue
+		}
+		for _, k := range entry.unknown {
+			losses = append(losses, ir.Loss{
+				Path: "questions." + id, Field: k, Reason: ir.LossUnmappedField,
+				Detail: "unknown property on the Jev question",
+			})
+		}
+		out[id] = entry.question
 	}
 	return out, losses, nil
 }
@@ -203,4 +227,13 @@ func decodeRawObject(raw []byte, what string) (map[string]json.RawMessage, error
 		return nil, fmt.Errorf("jev: %s must be an object", what)
 	}
 	return m, nil
+}
+
+// wholeUnitSkipDetail names the whole-unit loss of a question whose type is
+// experimental or unsupported (spec/17 §8).
+func wholeUnitSkipDetail(typeValue string) string {
+	if typeValue == QuestionTypeBox {
+		return "N-JEV-5: experimental box questions are out of scope"
+	}
+	return "N-JEV-6: skipped from schema and prompt"
 }

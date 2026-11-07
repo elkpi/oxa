@@ -76,6 +76,7 @@
     "dist/openai/responses",
     "dist/sse",
     "dist/stream",
+    "dist/systemone/jev",
     "README.md",
     "LICENSE",
     "NOTICE"

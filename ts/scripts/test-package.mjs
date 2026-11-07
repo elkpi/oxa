@@ -51,6 +51,7 @@ const publicDistRoots = [
   "dist/openai/responses/",
   "dist/sse/",
   "dist/stream/",
+  "dist/systemone/jev/",
 ];
 const publicRootFiles =
   /dist\/(?:error|index|loss|modelmap)\.(?:d\.ts|d\.ts\.map|js|js\.map)$/u;
@@ -99,6 +100,10 @@ const expectedExports = {
   "./anthropic/messages": [
     "./dist/anthropic/messages/index.js",
     "./dist/anthropic/messages/index.d.ts",
+  ],
+  "./systemone/jev": [
+    "./dist/systemone/jev/index.js",
+    "./dist/systemone/jev/index.d.ts",
   ],
 };
 assert.deepEqual(

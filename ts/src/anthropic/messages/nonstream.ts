@@ -809,7 +809,12 @@ export function encodeRequest(
   const metadata = encodeAnthropicMetadata(request.metadata, losses);
   const maxTokens = request.params?.max_tokens ?? 4096n;
   if (request.params?.max_tokens === undefined)
-    losses.push(loss("params.max_tokens", "max_tokens", "degraded"));
+    losses.push({
+      path: "params",
+      field: "max_tokens",
+      reason: "degraded",
+      detail: "Anthropic Messages requires max_tokens; defaulting to 4096",
+    });
   const firstBlock = request.messages[0]?.content[0];
   const shorthand =
     (request.system === undefined || request.system.length === 0) &&

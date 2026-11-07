@@ -24,9 +24,12 @@
 //   - [github.com/elkpi/oxa/go/v3/openai/chatcompletions]: Implements the OpenAI Chat Completions face (decoders, encoders, and streaming).
 //   - [github.com/elkpi/oxa/go/v3/openai/responses]: Implements the OpenAI Responses API face.
 //   - [github.com/elkpi/oxa/go/v3/anthropic/messages]: Implements the Anthropic Messages API face.
+//   - [github.com/elkpi/oxa/go/v3/systemone/jev]: Implements the SystemOne Jev evaluation face.
 //   - [github.com/elkpi/oxa/go/v3/modelmap]: Implements optional, caller-supplied model name translation.
 //   - [github.com/elkpi/oxa/go/v3/sse]: Standalone byte-level Server-Sent Events (SSE) framing adapter.
 package oxa
 
 // Version is the current release version of the oxa Go reference implementation.
-const Version = "3.0.1"
+// v3.1.0 targets the SystemOne Jev face and publishes once every language
+// wave passes the shared 589-vector suite (spec/README).
+const Version = "3.1.0"

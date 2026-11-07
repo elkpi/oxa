@@ -114,6 +114,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "oxa-jev"
+version = "3.0.1"
+dependencies = [
+ "oxa-ir",
+ "oxa-modelmap",
+ "oxa-vectest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "oxa-modelmap"
 version = "3.0.1"
 
@@ -139,6 +150,7 @@ dependencies = [
  "oxa-anthropic",
  "oxa-chatcompletions",
  "oxa-ir",
+ "oxa-jev",
  "oxa-responses",
  "serde",
  "serde_json",

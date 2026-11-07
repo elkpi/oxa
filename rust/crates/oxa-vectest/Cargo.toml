@@ -15,5 +15,6 @@ serde_json = { workspace = true }
 [dev-dependencies]
 oxa-anthropic = { path = "../oxa-anthropic" }
 oxa-chatcompletions = { path = "../oxa-chatcompletions" }
+oxa-jev = { path = "../oxa-jev" }
 oxa-responses = { path = "../oxa-responses" }
 tempfile = "3"

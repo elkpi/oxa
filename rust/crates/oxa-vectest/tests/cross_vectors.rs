@@ -5,6 +5,7 @@ use std::path::Path;
 
 use oxa_anthropic as anthropic;
 use oxa_chatcompletions as chatcompletions;
+use oxa_jev as jev;
 use oxa_responses as responses;
 use oxa_vectest::{Converter, Outcome, run_cross_in};
 
@@ -59,6 +60,7 @@ macro_rules! converter {
 converter!(Anthropic, "anthropic", anthropic);
 converter!(ChatCompletions, "chatcompletions", chatcompletions);
 converter!(Responses, "responses", responses);
+converter!(Jev, "jev", jev);
 
 fn assert_cross(source: &dyn Converter, target: &dyn Converter, expected: usize) {
     let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -111,13 +113,20 @@ fn nonstream_cross_vectors() {
     let responses = Responses {
         config: responses::Config::default(),
     };
+    let jev = Jev {
+        config: jev::Config::default(),
+    };
 
     assert_cross(&anthropic, &chatcompletions, 22);
     assert_cross(&anthropic, &responses, 20);
     assert_cross(&anthropic, &anthropic, 2);
     assert_cross(&chatcompletions, &anthropic, 12);
     assert_cross(&chatcompletions, &responses, 11);
+    assert_cross(&chatcompletions, &jev, 1);
     assert_cross(&responses, &anthropic, 24);
     assert_cross(&responses, &chatcompletions, 18);
     assert_cross(&responses, &responses, 1);
+    assert_cross(&jev, &anthropic, 1);
+    assert_cross(&jev, &chatcompletions, 1);
+    assert_cross(&jev, &responses, 1);
 }

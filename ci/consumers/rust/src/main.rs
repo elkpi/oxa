@@ -1,3 +1,4 @@
+use oxa::jev as oxa_jev;
 use oxa::chatcompletions::{
     decode_request, ChoiceDelta, Chunk, Config, ContentValue, DeltaPayload, FunctionDelta, Message,
     Request, StreamDecoder, ToolCallDelta, ROLE_USER, TOOL_TYPE_FUNCTION,
@@ -19,6 +20,14 @@ fn chunk(delta: DeltaPayload, finish_reason: Option<&str>) -> Chunk {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let (jev_request, jev_losses) = oxa_jev::decode_request_json(
+        r#"{"model":"jev-latest","state":"s","questions":{"q":{"type":"noul","instructions":"ok?"}}}"#,
+        &oxa_jev::Config::default(),
+    )?;
+    assert_eq!(jev_request.messages.len(), 1);
+    assert!(jev_losses.is_empty());
+
+
     let request = Request {
         model: "gpt-4o-mini".to_string(),
         messages: vec![Message {

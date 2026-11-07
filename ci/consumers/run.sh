@@ -100,7 +100,7 @@ run_rust_consumer() {
     local target="$TMP/cargo-target"
     local crates="$TMP/rust-crates"
     mkdir -p "$crates"
-    for crate in oxa-ir oxa-modelmap oxa-chatcompletions oxa-anthropic oxa-responses oxa-sse elkpi-oxa; do
+    for crate in oxa-ir oxa-modelmap oxa-chatcompletions oxa-anthropic oxa-jev oxa-responses oxa-sse elkpi-oxa; do
         local manifest="$ROOT/rust/crates/$crate/Cargo.toml"
         local package_list="$TMP/$crate.package-list"
         (
@@ -121,6 +121,7 @@ run_rust_consumer() {
             -e "s/oxa-modelmap = { workspace = true }/oxa-modelmap = { version = \"$VERSION\", path = \"..\/oxa-modelmap\" }/" \
             -e "s/oxa-chatcompletions = { workspace = true }/oxa-chatcompletions = { version = \"$VERSION\", path = \"..\/oxa-chatcompletions\" }/" \
             -e "s/oxa-anthropic = { workspace = true }/oxa-anthropic = { version = \"$VERSION\", path = \"..\/oxa-anthropic\" }/" \
+            -e "s/oxa-jev = { workspace = true }/oxa-jev = { version = \"$VERSION\", path = \"..\/oxa-jev\" }/" \
             -e "s/oxa-responses = { workspace = true }/oxa-responses = { version = \"$VERSION\", path = \"..\/oxa-responses\" }/" \
             -e "s/oxa-sse = { workspace = true }/oxa-sse = { version = \"$VERSION\", path = \"..\/oxa-sse\" }/" \
             -e 's/serde = { workspace = true }/serde = { version = "1", features = ["derive"] }/' \

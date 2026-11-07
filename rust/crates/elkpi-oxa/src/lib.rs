@@ -18,7 +18,13 @@ pub mod anthropic {
     pub use oxa_anthropic as messages;
 }
 
+/// The SystemOne Jev evaluation face.
+pub mod systemone {
+    pub use oxa_jev as jev;
+}
+
 // Flat re-exports
 pub use oxa_anthropic as messages;
 pub use oxa_chatcompletions as chatcompletions;
+pub use oxa_jev as jev;
 pub use oxa_responses as responses;

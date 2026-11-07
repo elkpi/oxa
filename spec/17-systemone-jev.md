@@ -103,8 +103,8 @@ line, a criteria line, or blank, and its question (id, type) set equals
 the reconstructed questions'; any other user message content, and all
 assistant/tool message content, has no Jev destination and records one
 N-JEV-10 `unsupported-semantic` loss per message. Sampling parameters,
-tools, tool choice, metadata, and native annotations record per-item
-losses (N-JEV-10).
+tools, tool choice, metadata, native annotations, and positional tool
+availability changes (`tool_change_groups`) record losses (N-JEV-10).
 
 ## 4. Response Field Mapping
 
@@ -272,6 +272,7 @@ Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-e
 | reconstructed `criteria` descriptions | degraded | IR → request | N-JEV-9: criteria descriptions live in the prompt text |
 | IR params (temperature/top_p/max_tokens/stop/effort/verbosity) | unmapped-field | IR → request | N-JEV-10: one loss per present field |
 | IR tools / tool_choice / metadata / native annotations | unmapped-field | IR → request | N-JEV-10: no Jev equivalent |
+| IR positional tool changes (`tool_change_groups`) | unsupported-semantic | IR → request | N-JEV-10: one loss when present; positional availability has no Jev equivalent |
 | non-derived user, assistant, and tool message content | unsupported-semantic | IR → request | N-JEV-10: not the derived question rendering; Jev has no conversation turns |
 | answers beyond the requested questions | unmapped-field | IR → response | carries; one loss per extra answer key |
 | `answers.<id>` type `box` | unsupported-semantic | response → IR | N-JEV-5: carried verbatim in the answers text |

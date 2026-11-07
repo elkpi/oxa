@@ -15,5 +15,6 @@ oxa-ir = { version = "3.0.1", path = "crates/oxa-ir" }
 oxa-modelmap = { version = "3.0.1", path = "crates/oxa-modelmap" }
 oxa-chatcompletions = { version = "3.0.1", path = "crates/oxa-chatcompletions" }
 oxa-anthropic = { version = "3.0.1", path = "crates/oxa-anthropic" }
+oxa-jev = { version = "3.0.1", path = "crates/oxa-jev" }
 oxa-responses = { version = "3.0.1", path = "crates/oxa-responses" }
 oxa-sse = { version = "3.0.1", path = "crates/oxa-sse" }

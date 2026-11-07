@@ -1,8 +1,13 @@
-//! JSON helpers for the Jev face: compact re-serialization and exact decimal
-//! comparison of number tokens (spec/17 §7.5/§7.6 canon; range validation
-//! must not round tokens through f64).
+//! JSON helpers for the Jev face: compact re-serialization, source-order
+//! object walks, and exact decimal comparison of number tokens (spec/17
+//! §7.5/§7.6 canon; range validation must not round tokens through f64, and
+//! exponent handling must not expand adversarially long powers of ten into
+//! memory).
 
+use serde::de::{MapAccess, Visitor};
+use serde::{Deserialize, Deserializer};
 use serde_json::Value;
+use serde_json::value::RawValue;
 
 /// Removes whitespace outside JSON string literals, preserving key order and
 /// number tokens — the wire-side equivalent of Go's json.Compact on RawValue
@@ -36,168 +41,226 @@ pub fn compact_json_text(raw: &str) -> String {
 }
 
 // --- exact decimal comparison ------------------------------------------------
-// Range and integer validation must not round JSON number tokens through
-// IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
-// score level, even though both collapse to the same f64.
+// A token is represented as ±digits × 10^exp with `digits` stripped of
+// leading and trailing zeros, so magnitude comparison works on the digit
+// strings and their order of magnitude without ever materializing a power
+// of ten: 1.0000000000000001 is greater than 1 and 1.5 is not a score level,
+// even though both collapse to the same f64.
 
 pub(crate) struct DecimalParts {
     pub(crate) negative: bool,
-    pub(crate) int_digits: String,
-    pub(crate) frac_digits: String,
+    pub(crate) digits: String,
+    pub(crate) exp: i64,
+}
+
+/// Parses the exponent literal with saturation at ±2^62: the sign of the
+/// overflow preserves whether the value is astronomically large or small,
+/// which is all the range checks need.
+fn parse_exponent_saturating(literal: &str) -> i64 {
+    const LIMIT: i64 = 1 << 62;
+    let negative = literal.starts_with('-');
+    let body = literal.trim_start_matches('+').trim_start_matches('-');
+    if body.is_empty() || !body.chars().all(|c| c.is_ascii_digit()) {
+        return 0;
+    }
+    let mut value: i64 = 0;
+    for character in body.chars() {
+        let digit = (character as u8 - b'0') as i64;
+        if value > LIMIT / 10 {
+            value = LIMIT;
+            break;
+        }
+        value *= 10;
+        if value > LIMIT - digit {
+            value = LIMIT;
+            break;
+        }
+        value += digit;
+    }
+    if negative { -value } else { value }
 }
 
 pub(crate) fn parse_decimal(token: &str) -> Option<DecimalParts> {
-    if !is_json_number_shape(token) {
+    let negative = token.starts_with('-');
+    let body = token.trim_start_matches('-');
+    let (mantissa, exponent) = match body.find(['e', 'E']) {
+        Some(index) => (
+            &body[..index],
+            Some(parse_exponent_saturating(&body[index + 1..])),
+        ),
+        None => (body, None),
+    };
+    let (int_part, frac_part) = match mantissa.find('.') {
+        Some(dot) => (&mantissa[..dot], &mantissa[dot + 1..]),
+        None => (mantissa, ""),
+    };
+    if int_part.is_empty() && frac_part.is_empty() {
         return None;
     }
-    let negative = token.starts_with('-');
-    let mut body = token.trim_start_matches('-').to_owned();
-    let mut exponent: i64 = 0;
-    if let Some(e_index) = body.find(['e', 'E']) {
-        exponent = body[e_index + 1..].parse().ok()?;
-        body.truncate(e_index);
+    if !int_part.chars().all(|c| c.is_ascii_digit())
+        || !frac_part.chars().all(|c| c.is_ascii_digit())
+    {
+        return None;
     }
-    let (mut int_digits, mut frac_digits) = match body.find('.') {
-        Some(dot) => (body[..dot].to_owned(), body[dot + 1..].to_owned()),
-        None => (body.clone(), String::new()),
-    };
-    if exponent > 0 {
-        let shift = exponent as usize;
-        if shift >= frac_digits.len() {
-            int_digits.push_str(&frac_digits);
-            int_digits.push_str(&"0".repeat(shift - frac_digits.len()));
-            frac_digits.clear();
-        } else {
-            int_digits.push_str(&frac_digits[..shift]);
-            frac_digits.drain(..shift);
-        }
-    } else if exponent < 0 {
-        let shift = (-exponent) as usize;
-        if shift >= int_digits.len() {
-            frac_digits = "0".repeat(shift - int_digits.len()) + &int_digits + &frac_digits;
-            int_digits = "0".to_owned();
-        } else {
-            let keep = int_digits.len() - shift;
-            frac_digits = int_digits[keep..].to_owned() + &frac_digits;
-            int_digits.truncate(keep);
-        }
+    let mut exp = exponent.unwrap_or(0) - frac_part.len() as i64;
+    let mut digits = format!("{int_part}{frac_part}");
+    let stripped = digits.trim_start_matches('0');
+    let stripped = if stripped.is_empty() { "0" } else { stripped };
+    digits = stripped.to_owned();
+    if digits != "0" {
+        let trailing = digits.len() - digits.trim_end_matches('0').len();
+        digits.truncate(digits.len() - trailing);
+        exp += trailing as i64;
+    } else {
+        exp = 0;
     }
-    let trimmed = int_digits.trim_start_matches('0');
-    int_digits = if trimmed.is_empty() { "0" } else { trimmed }.to_owned();
     Some(DecimalParts {
         negative,
-        int_digits,
-        frac_digits,
+        digits,
+        exp,
     })
 }
 
-fn is_json_number_shape(token: &str) -> bool {
-    let body = token.trim_start_matches('-');
-    if body.is_empty() {
+pub(crate) fn decimal_is_zero(parts: &DecimalParts) -> bool {
+    parts.digits == "0"
+}
+
+/// Compares the magnitudes of two nonzero decimals: the decimal order of the
+/// leading digit decides first, then the significant digits lexicographically
+/// (a prefix is smaller than a longer extension).
+/// Reports whether a JSON number token is exactly within [0,1] in decimal
+/// terms (spec/17 §4.1 noul range).
+pub(crate) fn decimal_in_unit_interval(a: &Value) -> bool {
+    let Some(number) = a.as_number() else {
+        return false;
+    };
+    let Some(parts) = parse_decimal(&number.to_string()) else {
+        return false;
+    };
+    if decimal_is_zero(&parts) {
+        return true;
+    }
+    if parts.negative {
         return false;
     }
-    let mut chars = body.chars().peekable();
-    match chars.next() {
-        Some('0') => {
-            if let Some(next) = chars.peek()
-                && next.is_ascii_digit()
-            {
-                return false;
-            }
-        }
-        Some(first) if first.is_ascii_digit() => {}
-        _ => return false,
+    // A positive nonzero value is within [0,1] exactly when it is 1 or a
+    // decimal fraction below 1: digits × 10^exp ≤ 1 with digits ≥ 1.
+    if parts.exp > 0 {
+        return false;
     }
-    let mut seen_digit = true;
-    for character in chars {
-        match character {
-            '.' => {
-                if !seen_digit {
-                    return false;
-                }
-                seen_digit = false;
-            }
-            'e' | 'E' => return true, // exponent body: delegate to parse
-            _ if character.is_ascii_digit() => seen_digit = true,
-            _ => return false,
-        }
+    if parts.exp == 0 {
+        return parts.digits == "1";
     }
-    seen_digit
-}
-
-fn is_zero_decimal(parts: &DecimalParts) -> bool {
-    parts.int_digits.chars().all(|c| c == '0') && parts.frac_digits.chars().all(|c| c == '0')
-}
-
-fn compare_magnitude(a: &DecimalParts, b: &DecimalParts) -> i32 {
-    if a.int_digits.len() != b.int_digits.len() {
-        return if a.int_digits.len() < b.int_digits.len() {
-            -1
-        } else {
-            1
-        };
+    // exp < 0: value = digits × 10^exp ≤ 1 ⇔ digits ≤ 10^(-exp).
+    let limit_exp = (-parts.exp) as usize;
+    let digits = parts.digits.trim_start_matches('0');
+    let bound = format!("1{}", "0".repeat(limit_exp));
+    if digits.len() < bound.len() {
+        return true;
     }
-    if a.int_digits != b.int_digits {
-        return if a.int_digits < b.int_digits { -1 } else { 1 };
-    }
-    let width = a.frac_digits.len().max(b.frac_digits.len());
-    let af = format!("{:0<width$}", a.frac_digits, width = width);
-    let bf = format!("{:0<width$}", b.frac_digits, width = width);
-    if af == bf {
-        0
-    } else if af < bf {
-        -1
-    } else {
-        1
-    }
-}
-
-/// Compares a JSON number token against a decimal literal exactly; `None`
-/// when the leaf is not a JSON number.
-pub fn compare_decimal(a: &Value, b: &str) -> Option<i32> {
-    let number = a.as_number()?;
-    let left = parse_decimal(&number.to_string())?;
-    let right = parse_decimal(b)?;
-    let left_zero = is_zero_decimal(&left);
-    let right_zero = is_zero_decimal(&right);
-    if left_zero && right_zero {
-        return Some(0);
-    }
-    if left_zero {
-        return Some(if right.negative { 1 } else { -1 });
-    }
-    if right_zero {
-        return Some(if left.negative { -1 } else { 1 });
-    }
-    if left.negative != right.negative {
-        return Some(if left.negative { -1 } else { 1 });
-    }
-    let magnitude = compare_magnitude(&left, &right);
-    Some(if left.negative { -magnitude } else { magnitude })
+    digits.len() == bound.len() && digits <= bound.as_str()
 }
 
 /// Validates a score value against the discrete 1..N levels exactly: the
-/// token must be an integer and its exact value must fall in range
-/// (spec/17 §4.1).
-pub fn score_token_within_levels(a: &Value, levels: usize) -> bool {
-    let number = match a.as_number() {
-        Some(number) => number,
-        None => return false,
+/// token must be an integer whose exact value falls in range (spec/17 §4.1).
+pub(crate) fn score_token_within_levels(a: &Value, levels: usize) -> bool {
+    let Some(number) = a.as_number() else {
+        return false;
     };
-    let parts = match parse_decimal(&number.to_string()) {
-        Some(parts) => parts,
-        None => return false,
+    let Some(parts) = parse_decimal(&number.to_string()) else {
+        return false;
     };
-    if parts.negative || parts.frac_digits.chars().any(|c| c != '0') {
+    if decimal_is_zero(&parts) || parts.negative {
         return false;
     }
-    let digits = parts.int_digits.trim_start_matches('0');
-    let digits = if digits.is_empty() { "0" } else { digits };
-    if digits.len() > levels.to_string().len() {
+    // A fractional value (negative exp after trailing-zero stripping) is not
+    // an integer level; a positive exp of 2 or more is at least 100, beyond
+    // the 1..10 level bound.
+    if parts.exp < 0 || parts.exp > 2 {
         return false;
     }
-    match digits.parse::<usize>() {
-        Ok(value) => value >= 1 && value <= levels,
-        Err(_) => false,
+    let value_digits = format!("{}{}", parts.digits, "0".repeat(parts.exp as usize));
+    let level_digits = levels.to_string();
+    if value_digits.len() != level_digits.len() {
+        return value_digits.len() < level_digits.len();
     }
+    match value_digits.cmp(&level_digits) {
+        std::cmp::Ordering::Less | std::cmp::Ordering::Equal => true,
+        std::cmp::Ordering::Greater => false,
+    }
+}
+
+/// Reports whether a JSON number token equals exactly 1 (used for the
+/// synthesized-schema bound check, accepting any decimal spelling such as
+/// `1.0` or `1e0`).
+pub(crate) fn decimal_equals_one(a: &Value) -> bool {
+    let Some(number) = a.as_number() else {
+        return false;
+    };
+    let Some(parts) = parse_decimal(&number.to_string()) else {
+        return false;
+    };
+    if decimal_is_zero(&parts) || parts.negative {
+        return false;
+    }
+    parts.exp == 0 && parts.digits == "1"
+}
+
+// --- source-order object walks ------------------------------------------------
+
+/// A source-order JSON object with raw value texts.
+pub(crate) struct SourceObject<'a> {
+    pub(crate) entries: Vec<(String, &'a RawValue)>,
+}
+
+impl<'a> SourceObject<'a> {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub(crate) fn get(&self, key: &str) -> Option<&'a RawValue> {
+        self.entries
+            .iter()
+            .find(|(name, _)| name == key)
+            .map(|(_, raw)| *raw)
+    }
+
+    pub(crate) fn tag(&self, key: &str) -> Option<String> {
+        self.entries
+            .iter()
+            .rev()
+            .find(|(name, _)| name == key)
+            .and_then(|(_, raw)| serde_json::from_str(raw.get()).ok())
+    }
+}
+
+impl<'de> Deserialize<'de> for SourceObject<'de> {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> Visitor<'de> for ObjectVisitor {
+            type Value = SourceObject<'de>;
+            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
+                formatter.write_str("a JSON object")
+            }
+            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
+                let mut entries = Vec::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    entries.push((key, map.next_value::<&'de RawValue>()?));
+                }
+                Ok(SourceObject { entries })
+            }
+        }
+        deserializer.deserialize_map(ObjectVisitor)
+    }
+}
+
+pub(crate) fn parse_source_object<'a>(
+    raw: &'a str,
+    what: &str,
+) -> Result<SourceObject<'a>, crate::Error> {
+    let value: &'a RawValue = serde_json::from_str(raw)
+        .map_err(|err| crate::Error::new(format!("jev: {what}: {err}")))?;
+    let parsed: SourceObject<'a> = serde_json::from_str(value.get())
+        .map_err(|_| crate::Error::new(format!("jev: {what} must be an object")))?;
+    Ok(parsed)
 }

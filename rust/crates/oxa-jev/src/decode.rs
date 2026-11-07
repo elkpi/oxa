@@ -341,11 +341,12 @@ fn state_scalar_error() -> Error {
     fail("state must be a string, object, or array")
 }
 
-/// The typed Jev wire response.
+/// The typed Jev wire response. Answers hold their raw wire text so carried
+/// content keeps the model's key order and number tokens verbatim.
 #[derive(Default, Debug, serde::Serialize)]
 pub struct WireResponse {
     pub model: String,
-    pub answers: BTreeMap<String, Value>,
+    pub answers: BTreeMap<String, Box<serde_json::value::RawValue>>,
     pub usage: WireUsage,
 }
 
@@ -386,16 +387,15 @@ pub(crate) fn usage_loss_list(usage: &Usage) -> Vec<Loss> {
 /// preserved) — so the text composes layer-by-layer instead of deep-sorting
 /// the whole payload.
 pub(crate) fn answers_canon_text(
-    answers: &BTreeMap<String, Value>,
+    answers: &BTreeMap<String, Box<serde_json::value::RawValue>>,
     losses: &mut Vec<Loss>,
 ) -> Result<String, Error> {
     let mut entries: Vec<String> = Vec::new();
     for (id, answer) in answers {
-        let object = answer
-            .as_object()
-            .ok_or_else(|| fail(format!("answer {id} must be an object")))?;
+        let object = serde_json::from_str::<serde_json::Map<String, Value>>(answer.get())
+            .map_err(|_| fail(format!("answer {id} must be an object")))?;
         let mut fields: Vec<(String, String)> = Vec::new();
-        for (field, leaf) in object {
+        for (field, leaf) in &object {
             let raw = serde_json::to_string(leaf).map_err(|err| fail(err.to_string()))?;
             match field.as_str() {
                 "type" | "noul" | "choice" | "score" | "legend" | "probabilities"
@@ -421,7 +421,7 @@ pub(crate) fn answers_canon_text(
             serde_json::to_string(id).unwrap(),
             body
         ));
-        if answer.get("type").and_then(|v| v.as_str()) == Some(QUESTION_TYPE_BOX) {
+        if object.get("type").and_then(|v| v.as_str()) == Some(QUESTION_TYPE_BOX) {
             losses.push(Loss {
                 path: format!("answers.{id}"),
                 field: "type".to_owned(),

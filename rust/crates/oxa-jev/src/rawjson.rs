@@ -1,8 +1,6 @@
 //! Raw JSON entrypoints (spec/02 §4): unknown properties are audited in
 //! source encounter order, interleaved with the semantic losses of each key.
 
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
 use serde_json::Value;
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
@@ -15,55 +13,8 @@ use crate::decode::{
     supported_question_type, whole_unit_skip_detail,
 };
 use crate::error::Error;
-use crate::json_util::compact_json_text;
+use crate::json_util::{compact_json_text, parse_source_object};
 use crate::question::JevQuestion;
-
-/// A source-order JSON object with raw value texts.
-struct SourceObject<'a> {
-    entries: Vec<(String, &'a RawValue)>,
-}
-
-impl<'a> SourceObject<'a> {
-    fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn tag(&self, key: &str) -> Option<String> {
-        self.entries
-            .iter()
-            .rev()
-            .find(|(name, _)| name == key)
-            .and_then(|(_, raw)| serde_json::from_str(raw.get()).ok())
-    }
-}
-
-impl<'de> Deserialize<'de> for SourceObject<'de> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct ObjectVisitor;
-        impl<'de> Visitor<'de> for ObjectVisitor {
-            type Value = SourceObject<'de>;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a JSON object")
-            }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut entries = Vec::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    entries.push((key, map.next_value::<&'de RawValue>()?));
-                }
-                Ok(SourceObject { entries })
-            }
-        }
-        deserializer.deserialize_map(ObjectVisitor)
-    }
-}
-
-fn parse_source_object<'a>(raw: &'a str, what: &str) -> Result<SourceObject<'a>, crate::Error> {
-    let value: &'a RawValue = serde_json::from_str(raw)
-        .map_err(|err| crate::Error::new(format!("jev: {what}: {err}")))?;
-    let parsed: SourceObject<'a> = serde_json::from_str(value.get())
-        .map_err(|_| crate::Error::new(format!("jev: {what} must be an object")))?;
-    Ok(parsed)
-}
 
 /// Converts a raw Jev request document to the IR with losses in source
 /// encounter order (spec/17 §3, spec/02 §4).

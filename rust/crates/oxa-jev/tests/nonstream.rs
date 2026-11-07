@@ -61,6 +61,15 @@ fn response_with(text: &str) -> oxa_ir::Response {
     }
 }
 
+/// Parses a raw wire answer into a JSON value for assertions.
+fn answer_value(
+    answers: &BTreeMap<String, Box<serde_json::value::RawValue>>,
+    id: &str,
+) -> serde_json::Value {
+    serde_json::from_str(answers.get(id).expect("answer present").get())
+        .expect("answer must be valid JSON")
+}
+
 fn degraded_fields(losses: &[oxa_ir::Loss]) -> Vec<String> {
     losses
         .iter()
@@ -77,28 +86,9 @@ fn scalar_answers_recover_their_types_from_question_context() {
         &config,
     )
     .expect("encode_response");
-    let answers = &wire.answers;
-    assert_eq!(
-        answers
-            .get("urgent")
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str()),
-        Some("noul")
-    );
-    assert_eq!(
-        answers
-            .get("mood")
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str()),
-        Some("choice")
-    );
-    assert_eq!(
-        answers
-            .get("level")
-            .and_then(|v| v.get("type"))
-            .and_then(|v| v.as_str()),
-        Some("score")
-    );
+    assert_eq!(answer_value(&wire.answers, "urgent")["type"], "noul");
+    assert_eq!(answer_value(&wire.answers, "mood")["type"], "choice");
+    assert_eq!(answer_value(&wire.answers, "level")["type"], "score");
     let degraded = degraded_fields(&losses);
     assert_eq!(degraded.len(), 2);
 }
@@ -113,7 +103,7 @@ fn missing_context_answers_and_empty_responses_are_structural_errors() {
         "{err}"
     );
     let err = oxa_jev::encode_response(&response_with("null"), &config).expect_err("null answers");
-    assert!(err.to_string().contains("not a JSON object"), "{err}");
+    assert!(err.to_string().contains("must be an object"), "{err}");
     let err = oxa_jev::encode_response(&response_with("{}"), &config).expect_err("empty answers");
     assert!(err.to_string().contains("carries no answers"), "{err}");
 }
@@ -335,19 +325,8 @@ fn the_full_client_side_round_trip_reconstructs_questions_and_answers() {
     .expect("encode_response");
     assert!(response_losses.is_empty(), "{response_losses:?}");
     assert_eq!(
-        wire_response
-            .answers
-            .get("sentiment")
-            .and_then(|v| v.get("choice"))
-            .and_then(|v| v.as_str()),
-        Some("mixed")
+        answer_value(&wire_response.answers, "sentiment")["choice"],
+        "mixed"
     );
-    assert_eq!(
-        wire_response
-            .answers
-            .get("is_urgent")
-            .and_then(|v| v.get("noul"))
-            .and_then(|v| v.as_i64()),
-        Some(0)
-    );
+    assert_eq!(answer_value(&wire_response.answers, "is_urgent")["noul"], 0);
 }

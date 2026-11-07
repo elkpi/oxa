@@ -3,6 +3,7 @@
 //! validation compare JSON number tokens as exact decimals.
 
 use serde_json::Value;
+use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
 use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrResponse, StopReason};
@@ -13,7 +14,10 @@ use crate::decode::{
     QUESTION_TYPE_SCORE, fail, supported_question_type, usage_loss_list,
 };
 use crate::error::Error;
-use crate::json_util::{compare_decimal, parse_decimal, score_token_within_levels};
+use crate::json_util::{
+    compact_json_text, decimal_equals_one, decimal_in_unit_interval, decimal_is_zero,
+    parse_decimal, parse_source_object, score_token_within_levels,
+};
 use crate::question::JevQuestion;
 use crate::{WireRequest, WireResponse, WireUsage};
 
@@ -120,6 +124,15 @@ fn request_losses(request: &IrRequest) -> Vec<Loss> {
     }
     if request.tool_choice.is_some() {
         losses.push(jev10("tool_choice", "tool_choice"));
+    }
+    for index in 0..request.tool_change_groups.len() {
+        losses.push(Loss {
+            path: format!("tool_change_groups[{index}]"),
+            field: "tool_change_groups".to_owned(),
+            reason: LossReason::UnsupportedSemantic,
+            detail: "N-JEV-10: positional tool availability changes have no Jev equivalent"
+                .to_owned(),
+        });
     }
     if !request.native.is_empty() {
         losses.push(jev10("native", "native"));
@@ -296,9 +309,15 @@ fn questions_from_schema(
                         }
                     }
                 }
-                let minimum = object.get("minimum").and_then(exact_decimal_token);
-                let maximum = object.get("maximum").and_then(exact_decimal_token);
-                if minimum.as_deref() == Some("0") && maximum.as_deref() == Some("1") {
+                let minimum_zero = object
+                    .get("minimum")
+                    .map(decimal_is_zero_value)
+                    .unwrap_or(false);
+                let maximum_one = object
+                    .get("maximum")
+                    .map(decimal_equals_one)
+                    .unwrap_or(false);
+                if minimum_zero && maximum_one {
                     questions.insert(
                         id.clone(),
                         JevQuestion {
@@ -357,12 +376,6 @@ fn questions_from_schema(
     Ok((questions, losses))
 }
 
-// exact_decimal_token renders a JSON number token exactly; None for
-// non-number leaves.
-fn exact_decimal_token(value: &Value) -> Option<String> {
-    value.as_number().map(|number| number.to_string())
-}
-
 // score_levels validates an enum of ascending 1..N integers exactly and
 // returns N.
 fn score_levels(enum_values: &[Value]) -> Option<usize> {
@@ -370,18 +383,24 @@ fn score_levels(enum_values: &[Value]) -> Option<usize> {
         return None;
     }
     for (index, value) in enum_values.iter().enumerate() {
-        let token = exact_decimal_token(value)?;
-        let parts = parse_decimal(&token)?;
-        if parts.negative || parts.frac_digits.chars().any(|c| c != '0') {
+        if !score_token_within_levels(value, index + 1) {
             return None;
         }
-        let digits = parts.int_digits.trim_start_matches('0');
-        let digits = if digits.is_empty() { "0" } else { digits };
-        if digits != (index + 1).to_string() {
+        let number = value.as_number()?;
+        let parts = parse_decimal(&number.to_string())?;
+        if parts.digits != (index + 1).to_string() {
             return None;
         }
     }
     Some(enum_values.len())
+}
+
+fn decimal_is_zero_value(value: &Value) -> bool {
+    value
+        .as_number()
+        .and_then(|number| parse_decimal(&number.to_string()))
+        .map(|parts| decimal_is_zero(&parts))
+        .unwrap_or(false)
 }
 
 /// Parses the aggregated model output back into typed Jev answers
@@ -407,12 +426,10 @@ pub fn encode_response(
         return Err(fail("response has no text content"));
     }
     let aggregated = texts.concat();
-    let answers: BTreeMap<String, Value> = serde_json::from_str(&aggregated).map_err(|err| {
-        fail(format!(
-            "aggregated response text is not a JSON object: {err}"
-        ))
-    })?;
-    if answers.is_empty() {
+    // The answers parse as source-order raw entries so typed carries keep
+    // the model's key order and number tokens verbatim (spec/17 §4.1).
+    let source = parse_source_object(&aggregated, "aggregated response text")?;
+    if source.is_empty() {
         return Err(fail("aggregated response text carries no answers"));
     }
 
@@ -421,13 +438,13 @@ pub fn encode_response(
         if !supported_question_type(&question.kind) {
             continue;
         }
-        if !answers.contains_key(id) {
+        if source.get(id).is_none() {
             return Err(fail(format!("answer {id} is missing from the response")));
         }
     }
 
-    let mut recovered = BTreeMap::new();
-    for (id, raw) in &answers {
+    let mut recovered: BTreeMap<String, Box<RawValue>> = BTreeMap::new();
+    for (id, raw) in &source.entries {
         let answer = recover_answer(id, raw, &context)?;
         if !context.empty && !context.map.contains_key(id) {
             losses.push(Loss {
@@ -486,20 +503,54 @@ impl AnswerContext {
 }
 
 struct RecoveredAnswer {
-    value: Value,
+    value: Box<RawValue>,
     loss: Option<Loss>,
+}
+
+impl RecoveredAnswer {
+    /// Wraps already-rendered wire JSON unchanged.
+    fn into_raw(self) -> Self {
+        self
+    }
+
+    fn from_value(value: Value) -> Result<Self, Error> {
+        let text = serde_json::to_string(&value).map_err(|err| fail(err.to_string()))?;
+        Ok(RecoveredAnswer {
+            value: RawValue::from_string(text).map_err(|err| fail(err.to_string()))?,
+            loss: None,
+        })
+    }
+
+    fn with_loss(value: Value, loss: Option<Loss>) -> Result<Self, Error> {
+        let text = serde_json::to_string(&value).map_err(|err| fail(err.to_string()))?;
+        Ok(RecoveredAnswer {
+            value: RawValue::from_string(text).map_err(|err| fail(err.to_string()))?,
+            loss,
+        })
+    }
+
+    /// Carries the compacted original raw text verbatim.
+    fn verbatim(raw: &RawValue, loss: Option<Loss>) -> Result<Self, Error> {
+        let text = compact_json_text(raw.get());
+        let value = RawValue::from_string(text).map_err(|err| fail(err.to_string()))?;
+        Ok(RecoveredAnswer { value, loss })
+    }
 }
 
 fn recover_answer(
     id: &str,
-    raw: &Value,
+    raw: &RawValue,
     context: &AnswerContext,
 ) -> Result<RecoveredAnswer, Error> {
-    match raw {
+    let parsed: Value =
+        serde_json::from_str(raw.get()).map_err(|err| fail(format!("answer {id}: {err}")))?;
+    match &parsed {
         Value::Bool(_) | Value::String(_) | Value::Number(_) => {
-            recover_scalar_answer(id, raw, context)
+            recover_scalar_answer(id, &parsed, context).map(|answer| answer.into_raw())
         }
-        Value::Object(_) => recover_object_answer(id, raw, context),
+        Value::Object(_) => {
+            recover_object_answer(id, &parsed, raw, context).map(|answer| answer.into_raw())
+        }
         _ => Err(fail(format!(
             "answer {id} must be an object or scalar value"
         ))),
@@ -554,10 +605,11 @@ fn recover_scalar_answer(
         match question.kind.as_str() {
             QUESTION_TYPE_NOUL => match raw {
                 Value::Bool(value) => {
-                    return Ok(RecoveredAnswer {
-                        value: typed_answer(QUESTION_TYPE_NOUL, "noul", boolean_noul(*value)),
-                        loss: None,
-                    });
+                    return RecoveredAnswer::from_value(typed_answer(
+                        QUESTION_TYPE_NOUL,
+                        "noul",
+                        boolean_noul(*value),
+                    ));
                 }
                 Value::Number(_) => {
                     let loss = if decimal_in_unit_interval(raw) {
@@ -565,10 +617,10 @@ fn recover_scalar_answer(
                     } else {
                         Some(out_of_range(id, "noul"))
                     };
-                    return Ok(RecoveredAnswer {
-                        value: typed_answer(QUESTION_TYPE_NOUL, "noul", raw.clone()),
+                    return RecoveredAnswer::with_loss(
+                        typed_answer(QUESTION_TYPE_NOUL, "noul", raw.clone()),
                         loss,
-                    });
+                    );
                 }
                 _ => {}
             },
@@ -580,10 +632,10 @@ fn recover_scalar_answer(
                         }
                         _ => None,
                     };
-                    return Ok(RecoveredAnswer {
-                        value: typed_answer(QUESTION_TYPE_CHOICE, "choice", raw.clone()),
+                    return RecoveredAnswer::with_loss(
+                        typed_answer(QUESTION_TYPE_CHOICE, "choice", raw.clone()),
                         loss,
-                    });
+                    );
                 }
             }
             QUESTION_TYPE_SCORE if raw.is_number() => {
@@ -593,35 +645,30 @@ fn recover_scalar_answer(
                 } else {
                     None
                 };
-                return Ok(RecoveredAnswer {
-                    value: typed_answer(QUESTION_TYPE_SCORE, "score", raw.clone()),
+                return RecoveredAnswer::with_loss(
+                    typed_answer(QUESTION_TYPE_SCORE, "score", raw.clone()),
                     loss,
-                });
+                );
             }
             _ => {}
         }
-        return Ok(RecoveredAnswer {
-            value: raw.clone(),
-            loss: Some(contradiction_loss(id)),
-        });
+        return RecoveredAnswer::with_loss(raw.clone(), Some(contradiction_loss(id)));
     }
     match raw {
-        Value::Bool(value) => Ok(RecoveredAnswer {
-            value: typed_answer(QUESTION_TYPE_NOUL, "noul", boolean_noul(*value)),
-            loss: None,
-        }),
-        Value::String(choice) => Ok(RecoveredAnswer {
-            value: typed_answer(
-                QUESTION_TYPE_CHOICE,
-                "choice",
-                Value::String(choice.clone()),
-            ),
-            loss: None,
-        }),
-        Value::Number(number) => Ok(RecoveredAnswer {
-            value: typed_answer(QUESTION_TYPE_SCORE, "score", Value::Number(number.clone())),
-            loss: Some(degraded_type(id)),
-        }),
+        Value::Bool(value) => RecoveredAnswer::from_value(typed_answer(
+            QUESTION_TYPE_NOUL,
+            "noul",
+            boolean_noul(*value),
+        )),
+        Value::String(choice) => RecoveredAnswer::from_value(typed_answer(
+            QUESTION_TYPE_CHOICE,
+            "choice",
+            Value::String(choice.clone()),
+        )),
+        Value::Number(number) => RecoveredAnswer::with_loss(
+            typed_answer(QUESTION_TYPE_SCORE, "score", Value::Number(number.clone())),
+            Some(degraded_type(id)),
+        ),
         _ => Err(fail(format!(
             "answer {id} must be an object or scalar value"
         ))),
@@ -631,19 +678,20 @@ fn recover_scalar_answer(
 fn recover_object_answer(
     id: &str,
     obj: &Value,
+    raw: &RawValue,
     context: &AnswerContext,
 ) -> Result<RecoveredAnswer, Error> {
     let carried = obj.get("type").and_then(|v| v.as_str());
     if carried == Some(QUESTION_TYPE_BOX) {
-        return Ok(RecoveredAnswer {
-            value: obj.clone(),
-            loss: Some(Loss {
+        return RecoveredAnswer::verbatim(
+            raw,
+            Some(Loss {
                 path: format!("answers.{id}"),
                 field: "type".to_owned(),
                 reason: LossReason::UnsupportedSemantic,
                 detail: "N-JEV-5: experimental box answers are carried verbatim".to_owned(),
             }),
-        });
+        );
     }
     let question = context.question(id);
     if let (Some(question), Some(carried)) = (question, carried)
@@ -651,10 +699,7 @@ fn recover_object_answer(
     {
         // The carried answer contradicts the original question: carry
         // verbatim rather than rewrite (spec/17 §4.1, N-JEV-12).
-        return Ok(RecoveredAnswer {
-            value: obj.clone(),
-            loss: Some(contradiction_loss(id)),
-        });
+        return RecoveredAnswer::verbatim(raw, Some(contradiction_loss(id)));
     }
     let mut kind = carried.map(str::to_owned);
     if kind.is_none()
@@ -676,15 +721,13 @@ fn recover_object_answer(
     let kind = kind.unwrap_or_default();
 
     // A typed answer carries verbatim; the encoder rewrites the object only
-    // when it must synthesize the type or normalize a boolean noul.
+    // when it must synthesize the type or normalize a boolean noul. The
+    // rewrite re-serializes through the canonical map, so nested keys sort.
     let rewrite = carried.is_none()
         || (kind == QUESTION_TYPE_NOUL && obj.get("noul").map(Value::is_boolean) == Some(true));
     if !rewrite {
         let loss = validate_answer(id, obj, &kind, question)?;
-        return Ok(RecoveredAnswer {
-            value: obj.clone(),
-            loss,
-        });
+        return RecoveredAnswer::verbatim(raw, loss);
     }
     let mut working = obj.clone();
     if let Some(object) = working.as_object_mut() {
@@ -695,10 +738,7 @@ fn recover_object_answer(
         }
     }
     let loss = validate_answer(id, &working, &kind, question)?;
-    Ok(RecoveredAnswer {
-        value: working,
-        loss,
-    })
+    RecoveredAnswer::with_loss(working, loss)
 }
 
 // validate_answer reports the range/option losses of an answer against its
@@ -779,19 +819,4 @@ fn criteria_count_of(criteria: Option<&Value>) -> usize {
         .and_then(|criteria| criteria.as_array())
         .map(|array| array.len())
         .unwrap_or(0)
-}
-
-// decimal_in_unit_interval reports whether a JSON number token is exactly
-// within [0,1] in decimal terms (spec/17 §4.1 noul range).
-fn decimal_in_unit_interval(value: &Value) -> bool {
-    let Some(low) = compare_decimal(value, "0") else {
-        return false;
-    };
-    if low < 0 {
-        return false;
-    }
-    let Some(high) = compare_decimal(value, "1") else {
-        return false;
-    };
-    high <= 0
 }

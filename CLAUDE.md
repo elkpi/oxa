@@ -22,7 +22,7 @@ be refreshed when vectors change.
 ## Common commands
 
 The Go reference implementation is a separate module at
-`github.com/elkpi/oxa/go`; run Go commands from `go/` unless a Make target is
+`github.com/elkpi/oxa-protocol/go/v3`; run Go commands from `go/` unless a Make target is
 used.
 
 ```bash

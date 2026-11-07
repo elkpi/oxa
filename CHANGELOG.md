@@ -17,6 +17,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Nonstream only (Jev has no streaming mode). Go-first; the 18 shared
   vectors are Go-covered until the remaining languages follow.
 
+### Changed
+
+- The Go module path changes from `github.com/elkpi/oxa/go/v3` to
+  `github.com/elkpi/oxa-protocol/go/v3`. Go consumers must update all imports;
+  types imported from the old and new paths are distinct.
+
 ## [v3.0.1] - 2026-11-07
 
 ### Fixed

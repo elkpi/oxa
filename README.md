@@ -3,7 +3,7 @@
 Protocol conversion between the OpenAI and Anthropic APIs, as pure
 in-process libraries.
 
-[![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
+[![CI](https://github.com/elkpi/oxa-protocol/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa-protocol/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
 **Latest coordinated release: v3.0.1.** The source tree targets Spec 3.0.1 across Go,
@@ -137,15 +137,15 @@ server/custom-tool 生命周期；请求侧 compaction 块仅用于保留与回�
 Requires Go 1.23+. See [`go/README.md`](go/README.md) for package details.
 
 ```bash
-go get github.com/elkpi/oxa/go/v3
+go get github.com/elkpi/oxa-protocol/go/v3
 ```
 
 Any face pair composes through the IR in two steps:
 
 ```go
 import (
-    messages "github.com/elkpi/oxa/go/v3/anthropic/messages"
-    "github.com/elkpi/oxa/go/v3/openai/chatcompletions"
+    messages "github.com/elkpi/oxa-protocol/go/v3/anthropic/messages"
+    "github.com/elkpi/oxa-protocol/go/v3/openai/chatcompletions"
 )
 
 irReq, losses, err := chatcompletions.DecodeRequest(ccRequest)

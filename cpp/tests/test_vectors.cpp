@@ -1,6 +1,7 @@
 #include "oxa/anthropic/messages.hpp"
 #include "oxa/openai/chatcompletions.hpp"
 #include "oxa/openai/responses.hpp"
+#include "oxa/systemone/jev.hpp"
 #include "oxa/vectest.hpp"
 #include "test_util.hpp"
 
@@ -55,6 +56,23 @@ public:
     }
 };
 
+class JevConverter : public oxa::vectest::Converter {
+public:
+    std::string_view face() const override { return "jev"; }
+    oxa::StatusOr<oxa::Conversion<oxa::ir::Request>> decode_request(const oxa::json::Value& wire) const override {
+        return oxa::systemone::jev::decode_request(wire);
+    }
+    oxa::StatusOr<oxa::Conversion<oxa::ir::Response>> decode_response(const oxa::json::Value& wire) const override {
+        return oxa::systemone::jev::decode_response(wire);
+    }
+    oxa::StatusOr<oxa::Conversion<oxa::json::Value>> encode_request(const oxa::ir::Request& req) const override {
+        return oxa::systemone::jev::encode_request(req);
+    }
+    oxa::StatusOr<oxa::Conversion<oxa::json::Value>> encode_response(const oxa::ir::Response& resp) const override {
+        return oxa::systemone::jev::encode_response(resp);
+    }
+};
+
 int main() {
     // Baseline 0.1.0 vectors compare against converters that emit 0.2.0.
     {
@@ -70,6 +88,7 @@ int main() {
     ChatCompletionsConverter cc;
     AnthropicConverter ant;
     ResponsesConverter resp;
+    JevConverter jev;
 
     {
         oxa::ir::Request req;
@@ -125,9 +144,22 @@ int main() {
         CHECK(r->executed == 189);
     }
 
-    // 4. Cross-protocol nonstream
+    // 4. SystemOne Jev nonstream
     {
-        std::vector<const oxa::vectest::Converter*> convs{&cc, &ant, &resp};
+        auto r = oxa::vectest::run_nonstream(jev);
+        CHECK_MSG(r.ok(), r.status().to_string());
+        if (!r->failures.empty()) {
+            for (const auto& f : r->failures) {
+                std::fprintf(stderr, "JEV FAIL: %s: %s\n", f.vector_name.c_str(), f.message.c_str());
+            }
+        }
+        CHECK(r->failures.empty());
+        CHECK(r->executed == 18);
+    }
+
+    // 5. Cross-protocol nonstream
+    {
+        std::vector<const oxa::vectest::Converter*> convs{&cc, &ant, &resp, &jev};
         auto r = oxa::vectest::run_cross(convs);
         CHECK_MSG(r.ok(), r.status().to_string());
         if (!r->failures.empty()) {
@@ -136,9 +168,6 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        // executed counts every loaded cross vector; the four SystemOne Jev
-        // vectors are skipped as Go-only until that face joins the C++ wave
-        // (spec/17).
         CHECK(r->executed == 114);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }

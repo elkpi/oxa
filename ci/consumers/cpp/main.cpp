@@ -4,6 +4,7 @@
 
 #include "oxa/ir.hpp"
 #include "oxa/openai/chatcompletions.hpp"
+#include "oxa/systemone/jev.hpp"
 
 int main() {
     const auto request = oxa::openai::chatcompletions::decode_request(
@@ -64,6 +65,43 @@ int main() {
     });
     if (!oxa::ir::validate_native_request(native_req).ok()) {
         std::cerr << "validate native request failed\n";
+        return 1;
+    }
+
+    const std::string jev_request_json =
+        R"({"model":"jev-latest","state":"state text","questions":{"q":{"type":"noul"}}})";
+    auto jev_req = oxa::systemone::jev::decode_request(std::string_view(jev_request_json));
+    if (!jev_req.ok() || !jev_req->losses.empty()) {
+        std::cerr << "jev decode_request failed\n";
+        return 1;
+    }
+    auto jev_wire = oxa::systemone::jev::encode_request(jev_req->value);
+    if (!jev_wire.ok()) {
+        std::cerr << "jev encode_request failed\n";
+        return 1;
+    }
+    const std::string jev_response_json =
+        R"({"model":"m","answers":{"q":{"type":"noul","noul":1}},"usage":{"input_tokens":1,"output_tokens":2}})";
+    auto jev_resp =
+        oxa::systemone::jev::decode_response(std::string_view(jev_response_json));
+    if (!jev_resp.ok()) {
+        std::cerr << "jev decode_response failed\n";
+        return 1;
+    }
+    auto jev_resp_wire = oxa::systemone::jev::encode_response(jev_resp->value);
+    if (!jev_resp_wire.ok()) {
+        std::cerr << "jev encode_response failed\n";
+        return 1;
+    }
+    auto jev_parsed = oxa::json::parse(oxa::json::serialize(jev_resp_wire->value));
+    if (!jev_parsed.ok()) {
+        std::cerr << "jev response JSON invalid\n";
+        return 1;
+    }
+    const auto* jev_answers = jev_parsed->find("answers");
+    if (jev_answers == nullptr || jev_answers->find("q") == nullptr ||
+        jev_answers->find("q")->find("noul") == nullptr) {
+        std::cerr << "jev response answers missing\n";
         return 1;
     }
 

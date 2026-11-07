@@ -18,6 +18,7 @@ from oxa.jev.constants import (
     QUESTION_TYPE_SCORE,
     RESPONSE_FORMAT_NAME,
 )
+from oxa.jev.number_token import NumberToken
 
 _FAIL_PREFIX = "jev: "
 
@@ -27,13 +28,37 @@ def _fail(message: str) -> ValueError:
 
 
 def _is_number(value: Any) -> bool:
-    """JSON number after the exact parse: int stays int, floats arrive as
-    Decimal."""
-    return isinstance(value, (int, float, Decimal)) and not isinstance(value, bool)
+    """JSON number after the exact parse: ints stay int, literals arrive as
+    NumberToken (token-preserving)."""
+    return isinstance(value, (int, float, Decimal, NumberToken)) and not isinstance(
+        value, bool
+    )
 
 
 def _as_decimal(value: Any) -> Decimal:
-    return value if isinstance(value, Decimal) else Decimal(str(value))
+    if isinstance(value, NumberToken):
+        return value.value
+    if isinstance(value, Decimal):
+        return value
+    return Decimal(str(value))
+
+
+def _dumps_wire(value: Any) -> str:
+    """Serializes an encode-side wire value with number tokens verbatim
+    (str() of a Decimal would normalize the spelling and float() would
+    round; json.dumps would emit the non-JSON Infinity for overflow)."""
+    if isinstance(value, dict):
+        body = ",".join(json.dumps(key) + ":" + _dumps_wire(child) for key, child in value.items())
+        return "{" + body + "}"
+    if isinstance(value, list):
+        return "[" + ",".join(_dumps_wire(child) for child in value) + "]"
+    if isinstance(value, NumberToken):
+        return value.token
+    if isinstance(value, bool) or value is None:
+        return json.dumps(value)
+    if isinstance(value, int):
+        return str(value)
+    return json.dumps(value)
 
 
 def _supported_question_type(kind: str) -> bool:
@@ -67,10 +92,11 @@ def _degraded_type(identifier: str) -> Loss:
 
 
 def _contradiction_loss(identifier: str) -> Loss:
-    return _loss_unsupported(
-        f"answers.{identifier}",
-        "type",
-        "N-JEV-12: carried answer contradicts the original question",
+    return Loss(
+        path=f"answers.{identifier}",
+        field="type",
+        reason="unmapped-value",
+        detail="N-JEV-12: carried answer contradicts the original question",
     )
 
 
@@ -116,6 +142,12 @@ def _is_derived_question_rendering(
     return all(found[key] == kind for key, kind in expected.items())
 
 
+def _keys_beyond(property_schema: dict[str, Any], allowed: tuple[str, ...]) -> bool:
+    """Reports whether the property carries a key outside the branch's
+    synthesized projection (spec/17 §7.4 exact-shape reconstruction)."""
+    return any(key not in allowed for key in property_schema)
+
+
 def questions_from_schema(
     schema: dict[str, Any]
 ) -> tuple[dict[str, dict[str, Any]], list[Loss]]:
@@ -151,55 +183,32 @@ def questions_from_schema(
         prop_type = property_schema.get("type")
         description = property_schema.get("description")
         instructions = description if isinstance(description, str) else None
-        if prop_type == "number" and isinstance(property_schema.get("enum"), list):
-            levels = _score_levels(property_schema["enum"])
-            if levels is None:
-                losses.append(
-                    _loss_unsupported(
-                        f"questions.{identifier}",
-                        "type",
-                        "N-JEV-6: skipped from schema and prompt",
+        if prop_type == "number":
+            enum_values = property_schema.get("enum")
+            if isinstance(enum_values, list):
+                if _keys_beyond(property_schema, ("type", "enum", "description")):
+                    losses.append(
+                        _loss_unsupported(
+                            f"questions.{identifier}",
+                            "type",
+                            "N-JEV-6: schema constraint beyond the synthesized projection",
+                        )
                     )
-                )
-                continue
-            questions[identifier] = {
-                "type": QUESTION_TYPE_SCORE,
-                "instructions": instructions,
-                "criteria": ["" for _ in range(levels)],
-            }
-            losses.append(
-                _loss_degraded(
-                    f"questions.{identifier}",
-                    "criteria",
-                    "N-JEV-9: criteria descriptions live in the prompt text",
-                )
-            )
-            continue
-        minimum = property_schema.get("minimum")
-        maximum = property_schema.get("maximum")
-        if (
-            prop_type == "number"
-            and _is_number(minimum)
-            and _is_number(maximum)
-            and _as_decimal(minimum) == 0
-            and _as_decimal(maximum) == 1
-        ):
-            questions[identifier] = {
-                "type": QUESTION_TYPE_NOUL,
-                "instructions": instructions,
-            }
-            continue
-        if prop_type == "string" and isinstance(property_schema.get("enum"), list):
-            names = property_schema["enum"]
-            if (
-                names
-                and all(isinstance(name, str) for name in names)
-            ):
-                criteria = {name: name for name in names}
+                    continue
+                levels = _score_levels(enum_values)
+                if levels is None:
+                    losses.append(
+                        _loss_unsupported(
+                            f"questions.{identifier}",
+                            "type",
+                            "N-JEV-6: skipped from schema and prompt",
+                        )
+                    )
+                    continue
                 questions[identifier] = {
-                    "type": QUESTION_TYPE_CHOICE,
+                    "type": QUESTION_TYPE_SCORE,
                     "instructions": instructions,
-                    "criteria": criteria,
+                    "criteria": ["" for _ in range(levels)],
                 }
                 losses.append(
                     _loss_degraded(
@@ -209,6 +218,51 @@ def questions_from_schema(
                     )
                 )
                 continue
+            minimum = property_schema.get("minimum")
+            maximum = property_schema.get("maximum")
+            if (
+                _is_number(minimum)
+                and _is_number(maximum)
+                and _as_decimal(minimum) == 0
+                and _as_decimal(maximum) == 1
+                and not _keys_beyond(
+                    property_schema, ("type", "minimum", "maximum", "description")
+                )
+            ):
+                questions[identifier] = {
+                    "type": QUESTION_TYPE_NOUL,
+                    "instructions": instructions,
+                }
+                continue
+        elif prop_type == "string":
+            enum_values = property_schema.get("enum")
+            if isinstance(enum_values, list):
+                if _keys_beyond(property_schema, ("type", "enum", "description")):
+                    losses.append(
+                        _loss_unsupported(
+                            f"questions.{identifier}",
+                            "type",
+                            "N-JEV-6: schema constraint beyond the synthesized projection",
+                        )
+                    )
+                    continue
+                if enum_values and all(
+                    isinstance(name, str) for name in enum_values
+                ):
+                    criteria = {name: name for name in enum_values}
+                    questions[identifier] = {
+                        "type": QUESTION_TYPE_CHOICE,
+                        "instructions": instructions,
+                        "criteria": criteria,
+                    }
+                    losses.append(
+                        _loss_degraded(
+                            f"questions.{identifier}",
+                            "criteria",
+                            "N-JEV-9: criteria descriptions live in the prompt text",
+                        )
+                    )
+                    continue
         losses.append(
             _loss_unsupported(
                 f"questions.{identifier}",
@@ -356,8 +410,7 @@ def encode_request_json(
 
 def _recover_scalar(
     identifier: str,
-    answer: Any,
-    exact_value: Any,
+    value: Any,
     question: dict[str, Any] | None,
 ) -> tuple[Any, Loss | None]:
     """Scalar values follow the output contract; with question context the
@@ -366,53 +419,52 @@ def _recover_scalar(
     if question is not None:
         qtype = question["type"]
         if qtype == QUESTION_TYPE_NOUL:
-            if isinstance(exact_value, bool):
-                return {"type": "noul", "noul": 1 if exact_value else 0}, None
-            if _is_number(exact_value):
+            if isinstance(value, bool):
+                return {"type": "noul", "noul": 1 if value else 0}, None
+            if _is_number(value):
                 loss = (
                     None
-                    if _decimal_in_unit_interval(_as_decimal(exact_value))
+                    if _decimal_in_unit_interval(_as_decimal(value))
                     else _out_of_range(identifier, "noul")
                 )
-                return {"type": "noul", "noul": answer}, loss
-            return answer, _contradiction_loss(identifier)
+                return {"type": "noul", "noul": value}, loss
+            return value, _contradiction_loss(identifier)
         if qtype == QUESTION_TYPE_CHOICE:
-            if isinstance(exact_value, str):
+            if isinstance(value, str):
                 criteria = question.get("criteria") or {}
                 names = sorted(criteria) if isinstance(criteria, dict) else []
                 loss = (
                     _out_of_range(identifier, "choice")
-                    if names and exact_value not in names
+                    if names and value not in names
                     else None
                 )
-                return {"type": "choice", "choice": answer}, loss
-            return answer, _contradiction_loss(identifier)
+                return {"type": "choice", "choice": value}, loss
+            return value, _contradiction_loss(identifier)
         if qtype == QUESTION_TYPE_SCORE:
-            if _is_number(exact_value):
+            if _is_number(value):
                 levels = len(question.get("criteria") or [])
                 loss = (
                     None
-                    if _score_token_within_levels(_as_decimal(exact_value), levels)
+                    if _score_token_within_levels(_as_decimal(value), levels)
                     else _out_of_range(identifier, "score")
                 )
-                return {"type": "score", "score": answer}, loss
-            return answer, _contradiction_loss(identifier)
-    if isinstance(exact_value, bool):
-        return {"type": "noul", "noul": 1 if exact_value else 0}, None
-    if isinstance(exact_value, str):
-        return {"type": "choice", "choice": answer}, None
-    if _is_number(exact_value):
-        return {"type": "score", "score": answer}, _degraded_type(identifier)
+                return {"type": "score", "score": value}, loss
+            return value, _contradiction_loss(identifier)
+    if isinstance(value, bool):
+        return {"type": "noul", "noul": 1 if value else 0}, None
+    if isinstance(value, str):
+        return {"type": "choice", "choice": value}, None
+    if _is_number(value):
+        return {"type": "score", "score": value}, _degraded_type(identifier)
     raise _fail(f"answer {identifier} must be an object or scalar value")
 
 
 def _recover_object(
     identifier: str,
     answer: dict[str, Any],
-    exact_answer: dict[str, Any],
     question: dict[str, Any] | None,
 ) -> tuple[Any, Loss | None]:
-    carried = exact_answer.get("type")
+    carried = answer.get("type")
     if carried == QUESTION_TYPE_BOX:
         return (
             answer,
@@ -428,11 +480,11 @@ def _recover_object(
         return answer, _contradiction_loss(identifier)
     kind = carried or (question["type"] if question is not None else None)
     if kind is None:
-        if "noul" in exact_answer:
+        if "noul" in answer:
             kind = "noul"
-        elif "choice" in exact_answer:
+        elif "choice" in answer:
             kind = "choice"
-        elif "score" in exact_answer:
+        elif "score" in answer:
             kind = "score"
         else:
             raise _fail(f"answer {identifier} carries no recognized value")
@@ -446,7 +498,7 @@ def _recover_object(
             wire_answer["noul"] = 1 if wire_answer["noul"] else 0
     else:
         wire_answer = answer
-    loss = _validate_answer(identifier, exact_answer, kind, question)
+    loss = _validate_answer(identifier, answer, kind, question)
     return wire_answer, loss
 
 
@@ -517,10 +569,9 @@ def encode_response(
         raise _fail("response has no text content")
     aggregated = "".join(texts)
 
-    plain: dict[str, Any] = json.loads(aggregated)
-    if not isinstance(plain, dict) or not plain:
+    parsed: dict[str, Any] = json.loads(aggregated, parse_float=NumberToken)
+    if not isinstance(parsed, dict) or not parsed:
         raise _fail("aggregated response text is not a non-empty JSON object")
-    exact: dict[str, Any] = json.loads(aggregated, parse_float=Decimal)
 
     context = questions or {}
     supported_context = {
@@ -529,13 +580,12 @@ def encode_response(
         if _supported_question_type(question["type"])
     }
     for identifier in sorted(supported_context):
-        if identifier not in plain:
+        if identifier not in parsed:
             raise _fail(f"answer {identifier} is missing from the response")
 
     recovered: dict[str, Any] = {}
-    for identifier in plain:
-        answer = plain[identifier]
-        exact_answer = exact[identifier]
+    for identifier in parsed:
+        answer = parsed[identifier]
         if context and identifier not in context:
             losses.append(
                 Loss(
@@ -546,14 +596,10 @@ def encode_response(
                 )
             )
         question = supported_context.get(identifier)
-        if isinstance(exact_answer, dict):
-            wire_answer, loss = _recover_object(
-                identifier, answer, exact_answer, question
-            )
+        if isinstance(answer, dict):
+            wire_answer, loss = _recover_object(identifier, answer, question)
         else:
-            wire_answer, loss = _recover_scalar(
-                identifier, answer, exact_answer, question
-            )
+            wire_answer, loss = _recover_scalar(identifier, answer, question)
         if loss is not None:
             losses.append(loss)
         recovered[identifier] = wire_answer
@@ -600,5 +646,5 @@ def encode_response_json(
     questions: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, list[Loss]]:
     wire, losses = encode_response(resp, table, questions)
-    text = json.dumps(wire, ensure_ascii=False, default=str)
+    text = _dumps_wire(wire)
     return text, losses

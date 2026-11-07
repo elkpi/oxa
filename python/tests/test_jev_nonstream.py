@@ -7,9 +7,11 @@ import unittest
 from oxa.ir import Message, Request, Response, TextBlock, Usage
 from oxa.jev import (
     decode_request_json,
+    decode_response,
     decode_response_json,
     encode_request,
     encode_response,
+    encode_response_json,
 )
 
 
@@ -252,6 +254,165 @@ class RoundTripTest(unittest.TestCase):
         self.assertEqual(answers["sentiment"]["choice"], "mixed")
         self.assertEqual(answers["is_urgent"]["noul"], 0)
         self.assertEqual(answers["is_urgent"]["type"], "noul")
+
+
+class VerbatimNumberTokensTest(unittest.TestCase):
+    def test_encoded_answers_keep_the_source_number_spelling(self):
+        wire, _ = encode_response(
+            response_with('{"q":{"type":"noul","noul":1.0000000000000001}}'),
+        )
+        (text, _) = encode_response_json(
+            response_with('{"q":{"type":"noul","noul":1.0000000000000001}}')
+        )
+        self.assertIn('"noul":1.0000000000000001', text)
+        self.assertEqual(wire["answers"]["q"]["noul"].token, "1.0000000000000001")
+
+    def test_overflowing_literals_stay_valid_json(self):
+        (text, _) = encode_response_json(
+            response_with('{"q":{"type":"noul","noul":1e400}}')
+        )
+        self.assertIn('"noul":1e400', text)
+        import json
+
+        self.assertEqual(json.loads(text)["answers"]["q"]["noul"], 1e400)
+
+    def test_decoded_canon_keeps_the_source_number_spelling(self):
+        (decoded, _) = decode_response_json(
+            r'{"model":"m","answers":{"q":{"type":"noul","noul":1e-2}},"usage":{"input_tokens":1,"output_tokens":2}}',
+        )
+        self.assertIn('"noul":1e-2', decoded.content[0].text)
+
+
+class ResponseSourceOrderTest(unittest.TestCase):
+    def test_raw_response_losses_follow_source_encounter_order(self):
+        _, losses = decode_response_json(
+            r'{"model":"m","answers":{"z":{"type":"box","x":1},"a":{"type":"noul","y":1}},"usage":{"other":1}}',
+        )
+        self.assertEqual(
+            [(loss.path, loss.field) for loss in losses],
+            [
+                ("answers.z", "type"),
+                ("answers.z", "x"),
+                ("answers.a", "y"),
+                ("usage", "other"),
+            ],
+        )
+
+
+class TypedResponseAuditTest(unittest.TestCase):
+    def test_typed_responses_audit_unknown_fields_and_validate_usage(self):
+        _, losses = decode_response(
+            {
+                "model": "m",
+                "answers": {"q": {"type": "noul", "noul": 1}},
+                "usage": {"input_tokens": 1, "other": 9},
+                "unknown": 3,
+            }
+        )
+        self.assertEqual(
+            [(loss.path, loss.field) for loss in losses],
+            [("usage", "other"), ("unknown", "unknown")],
+        )
+        with self.assertRaises(ValueError) as caught:
+            decode_response(
+                {
+                    "model": "m",
+                    "answers": {"q": {"type": "noul", "noul": 1}},
+                    "usage": {"input_tokens": "wrong"},
+                }
+            )
+        self.assertIn("must be an integer", str(caught.exception))
+
+
+class CriteriaShapeTest(unittest.TestCase):
+    def test_wrongly_shaped_criteria_are_structural_errors(self):
+        cases = [
+            ("score", '{"yes":"ok"}', "score criteria must be an array"),
+            ("score", "null", "score criteria is required"),
+            ("score", "[]", "score criteria must not be empty"),
+            ("choice", '{"yes":"ok","no":"x"}', None),  # valid
+            ("choice", "[]", "choice criteria must be an object"),
+            ("noul", '["b"]', "noul criteria must be an object"),
+        ]
+        for kind, criteria, message in cases:
+            with self.subTest(kind=kind, criteria=criteria):
+                call = (
+                    decode_request_json,
+                    (
+                        '{"model":"m","state":"s","questions":{"q":{"type":"'
+                        + kind
+                        + '","criteria":'
+                        + criteria
+                        + "}}}"
+                    ),
+                )
+                if message is None:
+                    call[0](call[1])
+                    continue
+                with self.assertRaises(ValueError) as caught:
+                    call[0](call[1])
+                self.assertIn(message, str(caught.exception))
+
+
+class ContradictionReasonTest(unittest.TestCase):
+    def test_a_contradicting_answer_records_unmapped_value(self):
+        _, losses = encode_response(
+            response_with('{"q": "wrong"}'), None, {"q": {"type": "noul"}}
+        )
+        self.assertEqual(len(losses), 1)
+        self.assertEqual(losses[0].reason, "unmapped-value")
+        self.assertIn("N-JEV-12", losses[0].detail)
+
+
+class EmptyCriteriaDescriptionTest(unittest.TestCase):
+    def test_an_empty_criteria_description_renders_without_a_colon(self):
+        (request, _) = decode_request_json(
+            r'{"model":"m","state":"s","questions":{"q":{"type":"choice","criteria":{"yes":""}}}}',
+        )
+        text = request.messages[0].content[0].text
+        self.assertTrue(text.endswith("\n- yes"), text)
+        self.assertNotIn("- yes:", text)
+
+
+class SchemaExactShapeTest(unittest.TestCase):
+    def test_contradicting_bounds_are_not_silently_dropped(self):
+        from oxa.jev.encode import questions_from_schema
+
+        with self.assertRaises(ValueError):
+            questions_from_schema(
+                {
+                    "properties": {
+                        "q": {
+                            "type": "number",
+                            "minimum": 9,
+                            "maximum": 9,
+                            "enum": [1, 2],
+                        }
+                    }
+                }
+            )
+        questions, losses = questions_from_schema(
+            {
+                "properties": {
+                    "ok": {"type": "number", "minimum": 0, "maximum": 1},
+                    "weird": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "multipleOf": 0.5,
+                    },
+                }
+            }
+        )
+        self.assertEqual(sorted(questions), ["ok"])
+        self.assertEqual(
+            [(loss.path, loss.field) for loss in losses],
+            [("questions.weird", "type")],
+        )
+        self.assertIn(
+            "beyond the synthesized projection",
+            losses[0].detail,
+        )
 
 
 if __name__ == "__main__":

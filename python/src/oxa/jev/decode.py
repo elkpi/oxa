@@ -5,7 +5,6 @@ insertion order); errors are reserved for structural violations."""
 from __future__ import annotations
 
 import json
-from decimal import Decimal
 from typing import Any
 
 from oxa.ir import Loss, Message, Params, Request, Response, TextBlock, Usage
@@ -13,9 +12,12 @@ from oxa.ir import Loss, Message, Params, Request, Response, TextBlock, Usage
 from oxa.jev.constants import (
     INSTRUCTION_TEMPLATE,
     QUESTION_TYPE_BOX,
+    QUESTION_TYPE_CHOICE,
+    QUESTION_TYPE_NOUL,
     RESPONSE_FORMAT_NAME,
     SYNTHESIZED_ID,
 )
+from oxa.jev.number_token import NumberToken
 
 
 def _fail(message: str) -> ValueError:
@@ -32,13 +34,42 @@ def _whole_unit_skip_detail(kind: str) -> str:
     return "N-JEV-6: skipped from schema and prompt"
 
 
+def _criteria_default(value: Any) -> str:
+    if isinstance(value, NumberToken):
+        return value.token
+    return str(value)
+
+
 def _criteria_line(name: str, description: Any) -> str:
-    if description is None:
+    if description is None or description == "":
         return f"- {name}"
     if isinstance(description, str):
         return f"- {name}: {description}"
-    raw = json.dumps(description, separators=(",", ":"), default=str)
+    raw = json.dumps(
+        description, separators=(",", ":"), default=_criteria_default
+    )
     return f"- {name}: {raw}"
+
+
+def _validate_criteria(identifier: str, kind: str, criteria: Any) -> None:
+    """Criteria shapes are structural (spec/17 §1/§2): noul carries an
+    optional object, choice a non-empty object, score a non-empty array."""
+    if kind == QUESTION_TYPE_NOUL:
+        if criteria is not None and not isinstance(criteria, dict):
+            raise _fail(f"question {identifier} noul criteria must be an object")
+        return
+    if criteria is None:
+        raise _fail(f"question {identifier} {kind} criteria is required")
+    if kind == QUESTION_TYPE_CHOICE:
+        if not isinstance(criteria, dict):
+            raise _fail(f"question {identifier} choice criteria must be an object")
+        if not criteria:
+            raise _fail(f"question {identifier} choice criteria must not be empty")
+    else:
+        if not isinstance(criteria, list):
+            raise _fail(f"question {identifier} score criteria must be an array")
+        if not criteria:
+            raise _fail(f"question {identifier} score criteria must not be empty")
 
 
 def _reject_constant(_: str) -> Any:
@@ -67,8 +98,8 @@ def _state_canonical_text(state: Any) -> str:
             return "{" + body + "}"
         if isinstance(value, list):
             return "[" + ",".join(dumps(child) for child in value) + "]"
-        if isinstance(value, Decimal):
-            return str(value)
+        if isinstance(value, NumberToken):
+            return value.token
         if isinstance(value, bool) or value is None:
             return json.dumps(value)
         if isinstance(value, int):
@@ -237,6 +268,7 @@ def _walk_request(
                 kind_part, instructions, criteria = _question_parts(
                     identifier, question, losses
                 )
+                _validate_criteria(identifier, kind_part, criteria)
                 collected[identifier] = {
                     "type": kind_part,
                     "instructions": instructions,
@@ -295,7 +327,9 @@ def _request_from_parts(
 def decode_request_json(raw_text: str, table: Any = None) -> tuple[Request, list[Loss]]:
     """Converts a raw Jev request document to the IR with losses in source
     encounter order (spec/17 §3, spec/02 §4)."""
-    wire = json.loads(raw_text, parse_float=Decimal, parse_constant=_reject_constant)
+    wire = json.loads(
+        raw_text, parse_float=NumberToken, parse_constant=_reject_constant
+    )
     if not isinstance(wire, dict):
         raise _fail("request JSON must be an object")
     losses: list[Loss] = []
@@ -316,36 +350,15 @@ def decode_request(
     return request, losses
 
 
-def _answers_canon_text(answers: dict[str, Any], losses: list[Loss]) -> str:
-    """§7.5 canon: answer keys and each answer's recognized fields sort
-    ascending, while field values carry verbatim (nested key order and number
-    tokens preserved) — composed layer-by-layer."""
-
-    def dumps_verbatim(value: Any) -> str:
-        if isinstance(value, dict):
-            body = ",".join(
-                json.dumps(key) + ":" + dumps_verbatim(child)
-                for key, child in value.items()
-            )
-            return "{" + body + "}"
-        if isinstance(value, list):
-            return "[" + ",".join(dumps_verbatim(child) for child in value) + "]"
-        if isinstance(value, Decimal):
-            return str(value)
-        if isinstance(value, bool) or value is None:
-            return json.dumps(value)
-        if isinstance(value, int):
-            return str(value)
-        return json.dumps(value)
-
-    entries: list[str] = []
-    for identifier in sorted(answers):
-        answer = answers[identifier]
+def _audit_answers(answers: dict[str, Any], losses: list[Loss]) -> None:
+    """Audits the answers map in encounter order (spec/02 §4): recognized
+    fields are silent, the experimental box type reports N-JEV-5 at the
+    type field's position, and unknown properties report one unmapped-field
+    loss each. The typed entrypoint shares this walk (insertion order)."""
+    for identifier, answer in answers.items():
         if not isinstance(answer, dict):
             raise _fail(f"answer {identifier} must be an object")
-        fields: list[tuple[str, str]] = []
         for field, leaf in answer.items():
-            raw = dumps_verbatim(leaf)
             if field in (
                 "type",
                 "noul",
@@ -356,7 +369,6 @@ def _answers_canon_text(answers: dict[str, Any], losses: list[Loss]) -> str:
                 "confidence",
                 "box",
             ):
-                fields.append((field, raw))
                 if field == "type" and leaf == QUESTION_TYPE_BOX:
                     losses.append(
                         Loss(
@@ -375,53 +387,57 @@ def _answers_canon_text(answers: dict[str, Any], losses: list[Loss]) -> str:
                         detail="unknown property on the Jev answer; dropped",
                     )
                 )
+
+
+def _answers_canon_text(answers: dict[str, Any]) -> str:
+    """§7.5 canon: answer keys and each answer's recognized fields sort
+    ascending, while field values carry verbatim (nested key order and
+    number tokens preserved) — composed layer-by-layer."""
+
+    def dumps_verbatim(value: Any) -> str:
+        if isinstance(value, dict):
+            body = ",".join(
+                json.dumps(key) + ":" + dumps_verbatim(child)
+                for key, child in value.items()
+            )
+            return "{" + body + "}"
+        if isinstance(value, list):
+            return "[" + ",".join(dumps_verbatim(child) for child in value) + "]"
+        if isinstance(value, NumberToken):
+            return value.token
+        if isinstance(value, bool) or value is None:
+            return json.dumps(value)
+        if isinstance(value, int):
+            return str(value)
+        return json.dumps(value)
+
+    entries: list[str] = []
+    for identifier in sorted(answers):
+        answer = answers[identifier]
+        fields: list[tuple[str, str]] = []
+        for field, leaf in answer.items():
+            if field in (
+                "type",
+                "noul",
+                "choice",
+                "score",
+                "legend",
+                "probabilities",
+                "confidence",
+                "box",
+            ):
+                fields.append((field, dumps_verbatim(leaf)))
         fields.sort(key=lambda item: item[0])
         body = ",".join(json.dumps(name) + ":" + raw for name, raw in fields)
         entries.append(json.dumps(identifier) + ":{" + body + "}")
     return "{" + ",".join(entries) + "}"
 
 
-def decode_response(
-    wire: dict[str, Any], raw_text: str = "", table: Any = None
-) -> tuple[Response, list[Loss]]:
-    """Typed entrypoint: losses in deterministic (insertion) order."""
-    if not isinstance(wire, dict):
-        raise _fail("response JSON must be an object")
-    losses: list[Loss] = []
-    model = wire.get("model")
-    if not isinstance(model, str) or not model:
-        raise _fail("response model is required")
-    answers = wire.get("answers")
-    if not isinstance(answers, dict) or not answers:
-        raise _fail("response answers must not be empty")
-    usage = wire.get("usage")
-    if not isinstance(usage, dict):
-        raise _fail("response usage must be an object")
-    canon_text = _answers_canon_text(answers, losses)
-    mapped = table.map(model) if table is not None else model
-    response = Response(
-        id=SYNTHESIZED_ID,
-        model=mapped,
-        content=[TextBlock(text=canon_text)],
-        stop_reason="end_turn",
-        usage=Usage(
-            input_tokens=usage.get("input_tokens", 0),
-            output_tokens=usage.get("output_tokens", 0),
-        ),
-    )
-    return response, losses
-
-
-def decode_response_json(
-    raw_text: str, table: Any = None
-) -> tuple[Response, list[Loss]]:
-    """Converts a raw Jev response document to the IR with losses in source
-    encounter order (spec/17 §4, spec/02 §4)."""
-    losses: list[Loss] = []
-    wire = json.loads(raw_text, parse_float=Decimal, parse_constant=_reject_constant)
-    if not isinstance(wire, dict):
-        raise _fail("response JSON must be an object")
-
+def _walk_response(
+    wire: dict[str, Any], losses: list[Loss]
+) -> tuple[str, dict[str, Any], dict[str, int]]:
+    """Shared response walk: audits unknown properties at their source
+    position and validates token types; structural violations raise."""
     model: str | None = None
     model_seen = False
     answers: dict[str, Any] | None = None
@@ -438,6 +454,7 @@ def decode_response_json(
         elif key == "answers":
             if not isinstance(leaf, dict) or not leaf:
                 raise _fail("response answers must not be empty")
+            _audit_answers(leaf, losses)
             answers = leaf
             answers_seen = True
         elif key == "usage":
@@ -463,8 +480,46 @@ def decode_response_json(
         raise _fail("response answers must not be empty")
     if not usage_seen:
         raise _fail("response usage must be an object")
+    return model, answers, usage
 
-    canon_text = _answers_canon_text(answers, losses)
+
+def decode_response(
+    wire: dict[str, Any], raw_text: str = "", table: Any = None
+) -> tuple[Response, list[Loss]]:
+    """Typed entrypoint: losses in deterministic (insertion) order."""
+    if not isinstance(wire, dict):
+        raise _fail("response JSON must be an object")
+    losses: list[Loss] = []
+    model, answers, usage = _walk_response(wire, losses)
+    canon_text = _answers_canon_text(answers)
+    mapped = table.map(model) if table is not None else model
+    response = Response(
+        id=SYNTHESIZED_ID,
+        model=mapped,
+        content=[TextBlock(text=canon_text)],
+        stop_reason="end_turn",
+        usage=Usage(
+            input_tokens=usage["input_tokens"],
+            output_tokens=usage["output_tokens"],
+        ),
+    )
+    return response, losses
+
+
+def decode_response_json(
+    raw_text: str, table: Any = None
+) -> tuple[Response, list[Loss]]:
+    """Converts a raw Jev response document to the IR with losses in source
+    encounter order (spec/17 §4, spec/02 §4)."""
+    losses: list[Loss] = []
+    wire = json.loads(
+        raw_text, parse_float=NumberToken, parse_constant=_reject_constant
+    )
+    if not isinstance(wire, dict):
+        raise _fail("response JSON must be an object")
+
+    model, answers, usage = _walk_response(wire, losses)
+    canon_text = _answers_canon_text(answers)
     mapped = table.map(model) if table is not None else model
     response = Response(
         id=SYNTHESIZED_ID,

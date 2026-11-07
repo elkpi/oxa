@@ -9,9 +9,33 @@
 from __future__ import annotations
 
 from collections import Counter
+from decimal import Decimal
 from typing import Any
 
 from oxa.ir import Loss
+
+
+def _token_number(value: Any) -> Decimal | None:
+    """Unwraps token-preserving number wrappers (e.g. the Jev face's
+    NumberToken) to their exact decimal; builtin numbers and everything
+    else return None."""
+    if isinstance(value, bool) or value is None or isinstance(value, (int, float)):
+        return None
+    if isinstance(value, Decimal):
+        return value
+    token = getattr(value, "token", None)
+    raw = getattr(value, "value", None)
+    if isinstance(token, str) and isinstance(raw, Decimal):
+        return raw
+    return None
+
+
+def _number_or_none(value: Any, is_token: bool) -> Decimal | None:
+    if is_token:
+        return _token_number(value)
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return Decimal(str(value))
+    return None
 
 
 def compare_json(expected: Any, actual: Any, path: str = "") -> None:
@@ -19,6 +43,26 @@ def compare_json(expected: Any, actual: Any, path: str = "") -> None:
 
     Raises AssertionError describing the first mismatch path.
     """
+    expected_is_token = _token_number(expected) is not None
+    actual_is_token = _token_number(actual) is not None
+    if expected_is_token or actual_is_token:
+        # A token-preserving wrapper compares by exact value against builtin
+        # numbers (Jev carries raw number literals, INV-1); builtin-vs-
+        # builtin comparisons below keep the INV-7 int/float distinction.
+        loc = path or "<root>"
+        expected_number = _number_or_none(expected, expected_is_token)
+        actual_number = _number_or_none(actual, actual_is_token)
+        if expected_number is None or actual_number is None:
+            raise AssertionError(
+                f"type mismatch at {loc}: a token-preserving number cannot "
+                "match a non-number"
+            )
+        if expected_number != actual_number:
+            raise AssertionError(
+                f"number differs at {loc}: expected {expected_number}, got {actual_number}"
+            )
+        return
+
     if isinstance(expected, bool) or isinstance(actual, bool):
         if not (isinstance(expected, bool) and isinstance(actual, bool)):
             loc = path or "<root>"

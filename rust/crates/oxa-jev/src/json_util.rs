@@ -125,9 +125,6 @@ pub(crate) fn decimal_is_zero(parts: &DecimalParts) -> bool {
     parts.digits == "0"
 }
 
-/// Compares the magnitudes of two nonzero decimals: the decimal order of the
-/// leading digit decides first, then the significant digits lexicographically
-/// (a prefix is smaller than a longer extension).
 /// Reports whether a JSON number token is exactly within [0,1] in decimal
 /// terms (spec/17 §4.1 noul range).
 pub(crate) fn decimal_in_unit_interval(a: &Value) -> bool {
@@ -151,9 +148,15 @@ pub(crate) fn decimal_in_unit_interval(a: &Value) -> bool {
     if parts.exp == 0 {
         return parts.digits == "1";
     }
-    // exp < 0: value = digits × 10^exp ≤ 1 ⇔ digits ≤ 10^(-exp).
+    // exp < 0: value = digits × 10^exp ≤ 1 ⇔ digits ≤ 10^(-exp). The bound
+    // only matters when its digit count can reach digits.len(); a longer
+    // bound means digits is certainly below it, and a saturated exponent
+    // never materializes as a power of ten.
     let limit_exp = (-parts.exp) as usize;
     let digits = parts.digits.trim_start_matches('0');
+    if limit_exp + 1 > digits.len() {
+        return true;
+    }
     let bound = format!("1{}", "0".repeat(limit_exp));
     if digits.len() < bound.len() {
         return true;

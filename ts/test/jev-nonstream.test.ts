@@ -205,6 +205,40 @@ test("the full client-side round trip reconstructs questions and answers", () =>
   });
 });
 
+test("contradicting bounds alongside an enum are not silently dropped", () => {
+  const request = {
+    model: "m",
+    system: [
+      { type: "text" as const, text: `state text${INSTRUCTION_SUFFIX}` },
+    ],
+    messages: [
+      {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "question ok (noul): " }],
+      },
+    ],
+    params: {
+      response_format: {
+        type: "json_schema" as const,
+        name: "jev_answers",
+        schema: {
+          type: "object",
+          properties: fromValue({
+            ok: { type: "number", minimum: 0, maximum: 1 },
+            weird: { type: "number", minimum: 9, maximum: 9, enum: [1, 2] },
+          }),
+          required: ["ok"],
+        },
+      },
+    },
+  };
+  const wire = jev.encodeRequest(request as never);
+  assert.ok(!Object.keys(wire.value.questions ?? {}).includes("weird"));
+  assert.equal(wire.losses.length, 1);
+  assert.equal(wire.losses[0]!.path, "questions.weird");
+  assert.equal(wire.losses[0]!.reason, "unsupported-semantic");
+});
+
 test("prototype-like question and answer IDs stay own properties", () => {
   const decoded = jev.decodeRequestJSON(
     `{"model":"m","state":"s","questions":{"__proto__":{"type":"noul","instructions":"q"}}}`,

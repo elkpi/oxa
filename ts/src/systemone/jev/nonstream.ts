@@ -132,15 +132,44 @@ function detach(value: JsonValue): JsonValue {
 // --- exact decimal comparison ------------------------------------------------
 // Range and integer validation must not round JSON number tokens through
 // IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
-// score level, even though both collapse to the same double.
+// score level, even though both collapse to the same double. A token is
+// represented as ±digits × 10^exp with digits stripped of leading and
+// trailing zeros, so magnitude checks work on the digit strings and their
+// order of magnitude without ever materializing a power of ten (exponents
+// saturate instead of expanding adversarially long powers into memory).
 
 const JSON_NUMBER_PATTERN =
   /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
 
 interface DecimalParts {
   readonly negative: boolean;
-  readonly intDigits: string;
-  readonly fracDigits: string;
+  readonly digits: string;
+  readonly exp: number;
+}
+
+/** Parses the exponent literal with saturation at ±2^62: the sign of the
+ * overflow preserves whether the value is astronomically large or small,
+ * which is all the range checks need. */
+function parseExponentSaturating(literal: string): number {
+  const LIMIT = 2 ** 62;
+  const negative = literal.startsWith("-");
+  const body = literal.replace(/^[+-]/, "");
+  let value = 0;
+  for (const character of body) {
+    const digit = character.charCodeAt(0) - 48;
+    if (digit < 0 || digit > 9) return 0;
+    if (value > LIMIT / 10) {
+      value = LIMIT;
+      break;
+    }
+    value *= 10;
+    if (value > LIMIT - digit) {
+      value = LIMIT;
+      break;
+    }
+    value += digit;
+  }
+  return negative ? -value : value;
 }
 
 function parseDecimal(token: string): DecimalParts | undefined {
@@ -150,7 +179,7 @@ function parseDecimal(token: string): DecimalParts | undefined {
   let exponent = 0;
   const eIndex = body.search(/[eE]/);
   if (eIndex >= 0) {
-    exponent = Number(body.slice(eIndex + 1));
+    exponent = parseExponentSaturating(body.slice(eIndex + 1));
     body = body.slice(0, eIndex);
   }
   let intDigits: string;
@@ -163,73 +192,77 @@ function parseDecimal(token: string): DecimalParts | undefined {
     intDigits = body;
     fracDigits = "";
   }
-  if (exponent > 0) {
-    if (exponent >= fracDigits.length) {
-      intDigits += fracDigits + "0".repeat(exponent - fracDigits.length);
-      fracDigits = "";
-    } else {
-      intDigits += fracDigits.slice(0, exponent);
-      fracDigits = fracDigits.slice(exponent);
-    }
-  } else if (exponent < 0) {
-    const shift = -exponent;
-    if (shift >= intDigits.length) {
-      fracDigits =
-        "0".repeat(shift - intDigits.length) + intDigits + fracDigits;
-      intDigits = "0";
-    } else {
-      fracDigits = intDigits.slice(intDigits.length - shift) + fracDigits;
-      intDigits = intDigits.slice(0, intDigits.length - shift);
-    }
-  }
-  intDigits = intDigits.replace(/^0+(?=[0-9])/, "");
-  if (intDigits === "") intDigits = "0";
-  return { negative, intDigits, fracDigits };
+  const exp = exponent - fracDigits.length;
+  const digits = (intDigits + fracDigits).replace(/^0+(?=[0-9])/, "");
+  if (digits === "0") return { negative, digits: "0", exp: 0 };
+  const trimmedRight = digits.replace(/0+$/, "");
+  const trailing = digits.length - trimmedRight.length;
+  return {
+    negative,
+    digits: digits.slice(0, digits.length - trailing),
+    exp: exp + trailing,
+  };
 }
 
 function isZeroDecimal(parts: DecimalParts): boolean {
-  return /^0*$/.test(parts.intDigits) && /^0*$/.test(parts.fracDigits);
+  return parts.digits === "0";
 }
 
-function compareMagnitude(a: DecimalParts, b: DecimalParts): number {
-  if (a.intDigits.length !== b.intDigits.length)
-    return a.intDigits.length < b.intDigits.length ? -1 : 1;
-  if (a.intDigits !== b.intDigits) return a.intDigits < b.intDigits ? -1 : 1;
-  const width = Math.max(a.fracDigits.length, b.fracDigits.length);
-  const af = a.fracDigits.padEnd(width, "0");
-  const bf = b.fracDigits.padEnd(width, "0");
-  if (af === bf) return 0;
-  return af < bf ? -1 : 1;
+/** Reports whether a JSON number token equals exactly 0, accepting any
+ * decimal spelling such as `0.0` or `0e0`; false for non-number leaves. */
+function decimalEqualsZero(a: JsonValue): boolean {
+  if (!isJsonNumber(a)) return false;
+  const parts = parseDecimal(a.token);
+  return parts !== undefined && isZeroDecimal(parts);
 }
 
-/** Compares a JSON number token against a decimal literal exactly; undefined
- * when the leaf is not a JSON number. */
-function decimalCompare(a: JsonValue, b: string): number | undefined {
-  if (!isJsonNumber(a)) return undefined;
-  const left = parseDecimal(a.token);
-  const right = parseDecimal(b);
-  if (left === undefined || right === undefined) return undefined;
-  const leftZero = isZeroDecimal(left);
-  const rightZero = isZeroDecimal(right);
-  if (leftZero && rightZero) return 0;
-  if (leftZero) return right.negative ? 1 : -1;
-  if (rightZero) return left.negative ? -1 : 1;
-  if (left.negative !== right.negative) return left.negative ? -1 : 1;
-  const magnitude = compareMagnitude(left, right);
-  return left.negative ? -magnitude : magnitude;
+/** Reports whether a JSON number token equals exactly 1, accepting any
+ * decimal spelling such as `1.0` or `1e0`; false for non-number leaves. */
+function decimalEqualsOne(a: JsonValue): boolean {
+  if (!isJsonNumber(a)) return false;
+  const parts = parseDecimal(a.token);
+  if (parts === undefined || isZeroDecimal(parts) || parts.negative)
+    return false;
+  return parts.exp === 0 && parts.digits === "1";
+}
+
+/** Reports whether a JSON number token is exactly within [0,1] in decimal
+ * terms (spec/17 §4.1 noul range); false for non-number leaves. */
+function decimalWithinUnitInterval(a: JsonValue): boolean {
+  if (!isJsonNumber(a)) return false;
+  const parts = parseDecimal(a.token);
+  if (parts === undefined) return false;
+  if (isZeroDecimal(parts)) return true;
+  if (parts.negative) return false;
+  // A positive nonzero value is within [0,1] exactly when it is 1 or a
+  // decimal fraction below 1: digits × 10^exp ≤ 1 with digits ≥ 1.
+  if (parts.exp > 0) return false;
+  if (parts.exp === 0) return parts.digits === "1";
+  // exp < 0: value = digits × 10^exp ≤ 1 ⇔ digits ≤ 10^(-exp). The bound
+  // only matters when its digit count can reach digits.length; a longer
+  // bound means digits is certainly below it.
+  if (-parts.exp + 1 > parts.digits.length) return true;
+  const bound = "1" + "0".repeat(-parts.exp);
+  if (parts.digits.length < bound.length) return true;
+  return parts.digits.length === bound.length && parts.digits <= bound;
 }
 
 /** Validates a score value against the discrete 1..N levels exactly: the
- * token must be an integer and its exact value must fall in range. */
+ * token must be an integer whose exact value falls in range. */
 function scoreWithinLevels(leaf: JsonValue, levels: number): boolean {
   if (!isJsonNumber(leaf)) return false;
   const parts = parseDecimal(leaf.token);
-  if (parts === undefined || parts.negative) return false;
-  if (!/^0*$/.test(parts.fracDigits)) return false;
-  const digits = parts.intDigits.replace(/^0+/, "") || "0";
-  if (digits.length > String(levels).length) return false;
-  const value = Number(digits);
-  return value >= 1 && value <= levels;
+  if (parts === undefined || isZeroDecimal(parts) || parts.negative)
+    return false;
+  // A fractional value (negative exp after trailing-zero stripping) is not
+  // an integer level; a positive exp of 2 or more is at least 100, beyond
+  // the 1..10 level bound.
+  if (parts.exp < 0 || parts.exp > 2) return false;
+  const valueDigits = parts.digits + "0".repeat(parts.exp);
+  const levelDigits = String(levels);
+  if (valueDigits.length !== levelDigits.length)
+    return valueDigits.length < levelDigits.length;
+  return valueDigits <= levelDigits;
 }
 
 // ---------------------------------------------------------------------------
@@ -550,6 +583,17 @@ export function decodeResponse(
             const leaf = answer[field]!;
             switch (field) {
               case "type":
+                filtered[field] = leaf;
+                if (leaf === QUESTION_TYPE_BOX) {
+                  losses.push({
+                    path: `answers.${id}`,
+                    field: "type",
+                    reason: "unsupported-semantic",
+                    detail:
+                      "N-JEV-5: experimental box answers are carried verbatim",
+                  });
+                }
+                break;
               case "noul":
               case "choice":
               case "score":
@@ -567,15 +611,6 @@ export function decodeResponse(
                   detail: "unknown property on the Jev answer; dropped",
                 });
             }
-          }
-          const type = answer.type;
-          if (type === QUESTION_TYPE_BOX) {
-            losses.push({
-              path: `answers.${id}`,
-              field: "type",
-              reason: "unsupported-semantic",
-              detail: "N-JEV-5: experimental box answers are carried verbatim",
-            });
           }
           const sorted = makeKeyed<JsonValue>();
           for (const field of Object.keys(filtered).sort())
@@ -820,6 +855,24 @@ function stripTemplate(text: string): string {
     : text;
 }
 
+// hasKeyBeyond reports whether the property carries a key outside the
+// branch's synthesized projection (spec/17 §7.4 exact-shape reconstruction).
+function hasKeyBeyond(
+  property: JsonObject,
+  allowed: readonly string[],
+): boolean {
+  return Object.keys(property).some((key) => !allowed.includes(key));
+}
+
+function beyondProjectionLoss(id: string): Loss {
+  return {
+    path: `questions.${id}`,
+    field: "type",
+    reason: "unsupported-semantic",
+    detail: "N-JEV-6: schema constraint beyond the synthesized projection",
+  };
+}
+
 function questionsFromSchema(schema: JsonObject): {
   questions: Record<string, JevQuestion>;
   losses: Loss[];
@@ -856,6 +909,10 @@ function questionsFromSchema(schema: JsonObject): {
     if (propType === "number") {
       const enumValues = property.enum;
       if (isJsonArray(enumValues)) {
+        if (hasKeyBeyond(property, ["type", "enum", "description"])) {
+          losses.push(beyondProjectionLoss(id));
+          continue;
+        }
         const levels = scoreLevels(enumValues);
         if (levels === undefined) {
           losses.push({
@@ -881,15 +938,13 @@ function questionsFromSchema(schema: JsonObject): {
       }
       const minimumLeaf = property.minimum;
       const maximumLeaf = property.maximum;
-      const minimum =
-        minimumLeaf === undefined
-          ? undefined
-          : decimalCompare(minimumLeaf, "0");
-      const maximum =
-        maximumLeaf === undefined
-          ? undefined
-          : decimalCompare(maximumLeaf, "1");
-      if (minimum === 0 && maximum === 0) {
+      if (
+        minimumLeaf !== undefined &&
+        maximumLeaf !== undefined &&
+        decimalEqualsZero(minimumLeaf) &&
+        decimalEqualsOne(maximumLeaf) &&
+        !hasKeyBeyond(property, ["type", "minimum", "maximum", "description"])
+      ) {
         questions[id] = {
           type: QUESTION_TYPE_NOUL,
           ...(description === undefined ? {} : { instructions: description }),
@@ -898,6 +953,14 @@ function questionsFromSchema(schema: JsonObject): {
       }
     }
     if (propType === "string") {
+      const enumValues = property.enum;
+      if (
+        isJsonArray(enumValues) &&
+        hasKeyBeyond(property, ["type", "enum", "description"])
+      ) {
+        losses.push(beyondProjectionLoss(id));
+        continue;
+      }
       const names = choiceOptions(property.enum);
       if (names !== undefined) {
         const criteria = makeKeyed<JsonValue>();
@@ -934,11 +997,11 @@ function scoreLevels(enumValues: readonly JsonValue[]): number | undefined {
   for (const [index, value] of enumValues.entries()) {
     if (!scoreWithinLevels(value, index + 1)) return undefined;
     const parts = parseDecimal((value as { token: string }).token);
-    if (
-      parts === undefined ||
-      (parts.intDigits.replace(/^0+/, "") || "0") !== String(index + 1)
-    )
-      return undefined;
+    if (parts === undefined) return undefined;
+    const expected = String(index + 1);
+    // scoreWithinLevels bounds exp to 0..2, so the shift stays bounded.
+    const rendered = parts.digits + "0".repeat(Math.max(parts.exp, 0));
+    if (rendered !== expected) return undefined;
   }
   return enumValues.length;
 }
@@ -1113,10 +1176,9 @@ function recoverScalarAnswer(
             }),
           };
         if (isJsonNumber(raw)) {
-          const loss =
-            decimalCompare(raw, "0")! < 0 || decimalCompare(raw, "1")! > 0
-              ? outOfRange(id, "noul")
-              : undefined;
+          const loss = decimalWithinUnitInterval(raw)
+            ? undefined
+            : outOfRange(id, "noul");
           return {
             value: rebuild({ noul: raw, type: QUESTION_TYPE_NOUL }),
             loss,
@@ -1236,8 +1298,7 @@ function validateAnswer(
       if (!isJsonNumber(leaf)) fail(`answer ${id} carries no noul value`);
       if (question === undefined || question.type !== QUESTION_TYPE_NOUL)
         return undefined;
-      if (decimalCompare(leaf, "0")! < 0 || decimalCompare(leaf, "1")! > 0)
-        return outOfRange(id, "noul");
+      if (!decimalWithinUnitInterval(leaf)) return outOfRange(id, "noul");
       return undefined;
     }
     case QUESTION_TYPE_CHOICE: {

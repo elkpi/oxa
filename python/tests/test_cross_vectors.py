@@ -38,6 +38,18 @@ from oxa.openai.responses import (
 from oxa.openai.responses import (
     encode_response as resp_encode_response,
 )
+from oxa.jev import (
+    decode_request_json as jev_decode_request_json,
+)
+from oxa.jev import (
+    decode_response_json as jev_decode_response_json,
+)
+from oxa.jev import (
+    encode_request as jev_encode_request,
+)
+from oxa.jev import (
+    encode_response as jev_encode_response,
+)
 from oxa.vectest import (
     find_repo_root,
     load_cross_vectors,
@@ -51,6 +63,10 @@ DECODERS = {
     "anthropic/messages": (an_decode_request, an_decode_response),
     "responses": (resp_decode_request, resp_decode_response),
     "openai/responses": (resp_decode_request, resp_decode_response),
+    "jev": (
+        lambda wire, raw_text, table: jev_decode_request_json(raw_text, table),
+        lambda wire, raw_text, table: jev_decode_response_json(raw_text, table),
+    ),
 }
 
 ENCODERS = {
@@ -60,6 +76,10 @@ ENCODERS = {
     "anthropic/messages": (an_encode_request, an_encode_response),
     "responses": (resp_encode_request, resp_encode_response),
     "openai/responses": (resp_encode_request, resp_encode_response),
+    "jev": (
+        lambda req, table: jev_encode_request(req, table),
+        lambda resp, table: jev_encode_response(resp, table),
+    ),
 }
 
 
@@ -77,11 +97,6 @@ class CrossVectorsTest(unittest.TestCase):
             with self.subTest(vector=vector.name):
                 src_proto = vector.source.protocol
                 tgt_proto = vector.target.protocol
-
-                if src_proto == "jev" or tgt_proto == "jev":
-                    # SystemOne Jev vectors are Go-only until that face joins
-                    # the Python wave (spec/17).
-                    continue
 
                 self.assertIn(src_proto, DECODERS, f"unknown source protocol {src_proto}")
                 self.assertIn(tgt_proto, ENCODERS, f"unknown target protocol {tgt_proto}")

@@ -227,6 +227,32 @@ func questionsFromSchema(schema json.RawMessage) (map[string]Question, []ir.Loss
 	return questions, losses, nil
 }
 
+// hasKeyBeyond reports whether the property carries a key outside the
+// branch's synthesized projection (spec/17 §7.4 exact-shape
+// reconstruction).
+func hasKeyBeyond(prop map[string]json.RawMessage, allowed ...string) bool {
+	for k := range prop {
+		beyond := true
+		for _, a := range allowed {
+			if k == a {
+				beyond = false
+				break
+			}
+		}
+		if beyond {
+			return true
+		}
+	}
+	return false
+}
+
+func beyondProjectionLoss(id string) *ir.Loss {
+	return &ir.Loss{
+		Path: "questions." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
+		Detail: "N-JEV-6: schema constraint beyond the synthesized projection",
+	}
+}
+
 // questionFromProperty reconstructs one question by exact property shape
 // (spec/17 §7.4): only type/minimum/maximum/enum/description are consumed;
 // any other key means the schema constraint set is not the synthesized
@@ -257,6 +283,9 @@ func questionFromProperty(id string, prop map[string]json.RawMessage) (Question,
 	switch propType {
 	case "number":
 		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			if hasKeyBeyond(prop, "type", "enum", "description") {
+				return Question{}, beyondProjectionLoss(id), false, nil
+			}
 			var enumValues []json.RawMessage
 			if err := json.Unmarshal(enum, &enumValues); err != nil {
 				return Question{}, nil, false, fmt.Errorf("jev: schema property %s enum: %w", id, err)
@@ -278,15 +307,17 @@ func questionFromProperty(id string, prop map[string]json.RawMessage) (Question,
 		minimum, hasMin := prop["minimum"]
 		maximum, hasMax := prop["maximum"]
 		if hasMin && hasMax {
-			low, lowOK := compareDecimal(json.Number(minimum), "0")
-			high, highOK := compareDecimal(json.Number(maximum), "1")
-			if lowOK && highOK && low == 0 && high == 0 {
+			if decimalEqualsZero(json.Number(minimum)) && decimalEqualsOne(json.Number(maximum)) &&
+				!hasKeyBeyond(prop, "type", "minimum", "maximum", "description") {
 				q.Type = QuestionTypeNoul
 				return q, nil, true, nil
 			}
 		}
 	case "string":
 		if enum, hasEnum := prop["enum"]; hasEnum && !isJSONNull(enum) {
+			if hasKeyBeyond(prop, "type", "enum", "description") {
+				return Question{}, beyondProjectionLoss(id), false, nil
+			}
 			if names, ok := choiceOptions(enum); ok {
 				q.Type = QuestionTypeChoice
 				crit := map[string]string{}
@@ -315,17 +346,20 @@ func scoreLevels(enum []json.RawMessage) (int, bool) {
 	}
 	for i, raw := range enum {
 		parts, ok := parseDecimal(string(raw))
-		if !ok || parts.negative {
+		if !ok || decimalIsZero(parts) || parts.negative || parts.exp < 0 {
 			return 0, false
 		}
-		if !zeroDigitsPattern.MatchString(parts.fracDigits) {
+		expected := strconv.Itoa(i + 1)
+		// The value must render as the plain integer digits; bounding the
+		// digit count by len(expected) keeps the shift bounded too.
+		if parts.exp+int64(len(parts.digits)) > int64(len(expected)) {
 			return 0, false
 		}
-		digits := strings.TrimLeft(parts.intDigits, "0")
-		if digits == "" {
-			digits = "0"
+		value := parts.digits
+		if parts.exp > 0 {
+			value += strings.Repeat("0", int(parts.exp))
 		}
-		if digits != strconv.Itoa(i+1) {
+		if value != expected {
 			return 0, false
 		}
 	}

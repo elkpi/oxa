@@ -197,6 +197,30 @@ func TestEncodeRequestSkipsSchemaPropertiesWithExtraConstraints(t *testing.T) {
 	}
 }
 
+func TestEncodeRequestRejectsContradictingBoundsAlongsideEnum(t *testing.T) {
+	req := &ir.Request{
+		Model:  "m",
+		System: []ir.SystemBlock{{Text: "state text\n\n" + instructionTemplate}},
+		Params: ir.Params{ResponseFormat: &ir.ResponseFormat{
+			Type: ir.ResponseFormatJSONSchema,
+			Name: ResponseFormatName,
+			Schema: json.RawMessage(`{"type":"object","properties":{
+				"ok":{"type":"number","minimum":0,"maximum":1},
+				"weird":{"type":"number","minimum":9,"maximum":9,"enum":[1,2]}},"required":["ok"]}`),
+		}},
+	}
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if _, ok := wire.Questions["weird"]; ok {
+		t.Errorf("weird property reconstructed despite contradicting bounds")
+	}
+	if len(losses) != 1 || losses[0].Path != "questions.weird" || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Errorf("losses = %+v, want one N-JEV-6 loss for questions.weird", losses)
+	}
+}
+
 func TestEncodeResponseWithContextRecoversTypes(t *testing.T) {
 	resp := &ir.Response{
 		Model:      "jev-latest",

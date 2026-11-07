@@ -4,8 +4,9 @@ Status: normative for terminology. These definitions fix how documents 00–20
 and `vectors/README.md` use these terms; where a term has a normative home,
 the entry links to it.
 
-**AN / CC / RE** — The three protocol faces: Anthropic Messages, OpenAI Chat
-Completions, OpenAI Responses ([00, §1](00-scope-and-architecture.md)).
+**AN / CC / RE / JE** — The four protocol faces: Anthropic Messages, OpenAI
+Chat Completions, OpenAI Responses, SystemOne Jev
+([00, §1](00-scope-and-architecture.md)).
 
 **Absorb (skip-and-absorb)** — Decoder behavior for an unsupported native
 unit: record one loss, consume the unit's matching descendants and
@@ -51,7 +52,7 @@ semantically unmappable is a loss, never an error ([02, §4](02-loss-policy.md))
 `content_block_start`, `content_block_delta`, `content_block_stop`,
 `message_delta`, `message_done` ([01, §5](01-intermediate-representation.md)).
 
-**Face** — One of the three supported protocols viewed as a conversion
+**Face** — One of the four supported protocols viewed as a conversion
 endpoint. Each face implements exactly face → IR and IR → face, and nothing
 else ([00, §4](00-scope-and-architecture.md)).
 
@@ -84,6 +85,10 @@ tracks the IR document shapes and may lag the spec version ([README](README.md))
 raw-JSON opacity, first message user, tool use answered, tool results
 merged, event grammar, index discipline, structural equality, total order,
 schema agreement ([01, §7](01-intermediate-representation.md)).
+
+**Jev** — The SystemOne Jev face: a structured decision protocol
+(`state + questions → typed answers`) projected onto the IR conversation
+model; nonstream only ([17](17-systemone-jev.md)).
 
 **Loss** — A record describing something a conversion could not carry:
 `path`, `field`, `reason`, optional `detail`. Losses are first-class output,

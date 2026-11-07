@@ -5,6 +5,37 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 3.1.0 - 2026-11-07
+
+- Add the SystemOne Jev face ([17](17-systemone-jev.md)): the TypeSafe AI
+  `POST /v1/systemone` structured decision protocol (`state + questions →
+  typed answers`) projected onto the IR conversation model. Nonstream only;
+  no streaming converters, and spec/20 does not apply to this face.
+- Request projection: `state` renders into the system text (object/array
+  state serializes to canonical compact JSON with one `degraded` loss);
+  `instructions`/`criteria` render into the user text in ascending
+  lexicographic ID order; the supported question types synthesize one
+  `Params.ResponseFormat` `json_schema` (name `jev_answers`) per spec/17
+  §7.3. `assets` and `box` questions are experimental and record
+  `unsupported-semantic` losses.
+- Response projection: `answers` carry verbatim into one canonical text
+  block (probabilities, confidence, and legend survive as data); encode
+  parses the aggregated text back into typed answers, recovering types from
+  `WithQuestions` context or inferring them from the carried value shape
+  (a bare number infers `score` with one `degraded` ambiguity loss, and
+  out-of-range values carry with one `degraded` loss each).
+- `EncodeRequest` is the one authorized read-only consumer of
+  `Params.ResponseFormat.Schema` (INV-1 still forbids mutation and
+  re-ordering): questions reconstruct from the synthesized schema shapes,
+  and choice/score criteria descriptions degrade to name-only or empty
+  descriptions (N-JEV-9). The user-message text of a decoded request is
+  derived data and is not re-carried into `state`.
+- Decoded responses synthesize the envelope `id` `"jev"` because the IR
+  document schema requires a non-empty id.
+- All losses use the `N-JEV-*` catalog in spec/17 §8. The IR contract
+  stays at `0.3.0` (`endpoint.protocol` gains `jev` in
+  `spec/schema/vector.schema.json` only).
+
 ## 3.0.1 - 2026-11-07
 
 - Clarify recursive unknown-field auditing for Responses `additional_tools` declarations while preserving item-level extensions.

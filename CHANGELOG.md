@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- Add the SystemOne Jev face (`go/systemone/jev`, spec/17): the TypeSafe AI
+  `/v1/systemone` structured decision protocol projected onto the IR —
+  `state + questions` decode into system/user messages plus a synthesized
+  `json_schema` response format; model output parses back into typed
+  `answers` with verbatim `probabilities`/`confidence`/`legend` carry.
+  Nonstream only (Jev has no streaming mode). Go-first; the 18 shared
+  vectors are Go-covered until the remaining languages follow.
+
 ## [v3.0.1] - 2026-11-07
 
 ### Fixed

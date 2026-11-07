@@ -75,15 +75,18 @@ cpp/       C++ implementation (v3.0.1)
 
 ## Current capabilities
 
-The source tree targets Spec 3.0.1 across Go, TypeScript, Rust,
+The source tree targets Spec 3.1.0 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
-representation (IR). The IR document contract is 0.3.0.
+representation (IR). The IR document contract is 0.3.0. The SystemOne Jev
+face ([spec/17](spec/17-systemone-jev.md)) currently ships in the Go
+reference implementation only.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |
 | Chat Completions ↔ IR   | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + `tool_calls` aggregation |
 | Responses ↔ IR          | requests and responses (reasoning, usage, structured output formats)       | text + thinking/signature events + function-call aggregation |
 | Anthropic Messages ↔ IR | requests and responses (thinking, usage, JSON Schema structured output) | text + thinking/signature events + `input_json_delta` aggregation |
+| SystemOne Jev ↔ IR      | evaluation requests and typed answers (Go only; nonstream by protocol)     | none (Jev has no streaming mode)                            |
 | Any face → any face     | two-step composition (below); locked by cross vectors | caller-composed via IR events (`Feed` → `Apply`)            |
 
 Semantic gaps are never silent: every conversion also returns an ordered

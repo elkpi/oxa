@@ -14,8 +14,8 @@ against [spec/schema/vector.schema.json](../spec/schema/vector.schema.json).
 
 Vectors live at `vectors/<face>/<mode>/<area>-<case>.json`, where:
 
-- `<face>` is one of `chatcompletions`, `responses`, `anthropic`, or
-  `cross`
+- `<face>` is one of `chatcompletions`, `responses`, `anthropic`, `jev`,
+  or `cross`
 - `<mode>` is `nonstream` or `stream`
 - `<area>-<case>` is a short kebab-case slug, e.g. `minimal-text-to-ir`
 

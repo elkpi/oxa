@@ -76,6 +76,20 @@ function sortedKeys(object: JsonObject): readonly string[] {
     .sort((a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0));
 }
 
+/** Caller-keyed wire objects must keep every key as an own property, so
+ * `__proto__` and friends never touch the prototype chain (spec/02 audit
+ * discipline; Go's map has this property by construction). */
+function makeKeyed<T>(): Record<string, T> {
+  return Object.create(null) as Record<string, T>;
+}
+
+function hasOwnKey(
+  object: Readonly<Record<string, unknown>>,
+  key: string,
+): boolean {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
 /** Rebuilds a JSON value with object keys sorted at every depth. */
 function sortRebuild(value: JsonValue): JsonValue {
   if (isJsonArray(value)) return value.map(sortRebuild);
@@ -87,9 +101,24 @@ function sortRebuild(value: JsonValue): JsonValue {
   return value;
 }
 
-/** Clones a JSON value without source-text markers, so stringifyJson renders
- * it compact (the Go RawMessage compact discipline) instead of reproducing
- * the source document's whitespace. Key order is preserved. */
+/** Serializes a JSON value with keys in ascending lexicographic order at
+ * every depth (spec/17 §7.5/§7.6 canon). JavaScript object enumeration
+ * reorders integer-like keys numerically, so the walk cannot rely on
+ * insertion order; leaf values go through stringifyJson to keep number
+ * tokens verbatim. */
+function canonicalStringify(value: JsonValue): string {
+  if (isJsonArray(value)) return `[${value.map(canonicalStringify).join(",")}]`;
+  if (isPlainObject(value)) {
+    return `{${sortedKeys(value)
+      .map((key) => `${stringifyJson(key)}:${canonicalStringify(value[key]!)}`)
+      .join(",")}}`;
+  }
+  return stringifyJson(value);
+}
+
+/** Clones a JSON value without parse-time source-text markers, so
+ * stringifyJson renders it compact with key order preserved — the wire-side
+ * equivalent of Go's json.Compact on RawMessage carries. */
 function detach(value: JsonValue): JsonValue {
   if (isJsonArray(value)) return value.map(detach);
   if (isPlainObject(value)) {
@@ -100,15 +129,107 @@ function detach(value: JsonValue): JsonValue {
   return value;
 }
 
-/** Numeric value of a JSON number leaf, or undefined for non-numbers. */
-function numericValue(value: JsonValue | undefined): number | undefined {
-  if (value === undefined || !isJsonNumber(value)) return undefined;
-  const parsed = Number(value.token);
-  return Number.isFinite(parsed) ? parsed : undefined;
+// --- exact decimal comparison ------------------------------------------------
+// Range and integer validation must not round JSON number tokens through
+// IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
+// score level, even though both collapse to the same double.
+
+const JSON_NUMBER_PATTERN =
+  /^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/;
+
+interface DecimalParts {
+  readonly negative: boolean;
+  readonly intDigits: string;
+  readonly fracDigits: string;
 }
 
-function scoreWithinLevels(f: number, levels: number): boolean {
-  return f === Math.trunc(f) && f >= 1 && f <= levels;
+function parseDecimal(token: string): DecimalParts | undefined {
+  if (!JSON_NUMBER_PATTERN.test(token)) return undefined;
+  const negative = token.startsWith("-");
+  let body = negative ? token.slice(1) : token;
+  let exponent = 0;
+  const eIndex = body.search(/[eE]/);
+  if (eIndex >= 0) {
+    exponent = Number(body.slice(eIndex + 1));
+    body = body.slice(0, eIndex);
+  }
+  let intDigits: string;
+  let fracDigits: string;
+  const dot = body.indexOf(".");
+  if (dot >= 0) {
+    intDigits = body.slice(0, dot);
+    fracDigits = body.slice(dot + 1);
+  } else {
+    intDigits = body;
+    fracDigits = "";
+  }
+  if (exponent > 0) {
+    if (exponent >= fracDigits.length) {
+      intDigits += fracDigits + "0".repeat(exponent - fracDigits.length);
+      fracDigits = "";
+    } else {
+      intDigits += fracDigits.slice(0, exponent);
+      fracDigits = fracDigits.slice(exponent);
+    }
+  } else if (exponent < 0) {
+    const shift = -exponent;
+    if (shift >= intDigits.length) {
+      fracDigits =
+        "0".repeat(shift - intDigits.length) + intDigits + fracDigits;
+      intDigits = "0";
+    } else {
+      fracDigits = intDigits.slice(intDigits.length - shift) + fracDigits;
+      intDigits = intDigits.slice(0, intDigits.length - shift);
+    }
+  }
+  intDigits = intDigits.replace(/^0+(?=[0-9])/, "");
+  if (intDigits === "") intDigits = "0";
+  return { negative, intDigits, fracDigits };
+}
+
+function isZeroDecimal(parts: DecimalParts): boolean {
+  return /^0*$/.test(parts.intDigits) && /^0*$/.test(parts.fracDigits);
+}
+
+function compareMagnitude(a: DecimalParts, b: DecimalParts): number {
+  if (a.intDigits.length !== b.intDigits.length)
+    return a.intDigits.length < b.intDigits.length ? -1 : 1;
+  if (a.intDigits !== b.intDigits) return a.intDigits < b.intDigits ? -1 : 1;
+  const width = Math.max(a.fracDigits.length, b.fracDigits.length);
+  const af = a.fracDigits.padEnd(width, "0");
+  const bf = b.fracDigits.padEnd(width, "0");
+  if (af === bf) return 0;
+  return af < bf ? -1 : 1;
+}
+
+/** Compares a JSON number token against a decimal literal exactly; undefined
+ * when the leaf is not a JSON number. */
+function decimalCompare(a: JsonValue, b: string): number | undefined {
+  if (!isJsonNumber(a)) return undefined;
+  const left = parseDecimal(a.token);
+  const right = parseDecimal(b);
+  if (left === undefined || right === undefined) return undefined;
+  const leftZero = isZeroDecimal(left);
+  const rightZero = isZeroDecimal(right);
+  if (leftZero && rightZero) return 0;
+  if (leftZero) return right.negative ? 1 : -1;
+  if (rightZero) return left.negative ? -1 : 1;
+  if (left.negative !== right.negative) return left.negative ? -1 : 1;
+  const magnitude = compareMagnitude(left, right);
+  return left.negative ? -magnitude : magnitude;
+}
+
+/** Validates a score value against the discrete 1..N levels exactly: the
+ * token must be an integer and its exact value must fall in range. */
+function scoreWithinLevels(leaf: JsonValue, levels: number): boolean {
+  if (!isJsonNumber(leaf)) return false;
+  const parts = parseDecimal(leaf.token);
+  if (parts === undefined || parts.negative) return false;
+  if (!/^0*$/.test(parts.fracDigits)) return false;
+  const digits = parts.intDigits.replace(/^0+/, "") || "0";
+  if (digits.length > String(levels).length) return false;
+  const value = Number(digits);
+  return value >= 1 && value <= levels;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,10 +242,11 @@ export function decodeRequest(
 ): ConversionResult<Request> {
   const losses: Loss[] = [];
   let modelName: string | undefined;
+  let modelSeen = false;
   let stateValue: JsonValue | undefined;
   let stateSeen = false;
   let questionsValue: JsonObject | undefined;
-  const questions: Record<string, RenderedQuestion> = {};
+  const questions = new Map<string, RenderedQuestion>();
 
   const unknownProperty = (path: string, key: string, what: string): void => {
     losses.push({
@@ -141,6 +263,7 @@ export function decodeRequest(
       case "model":
         if (typeof value !== "string") fail("request model must be a string");
         modelName = value;
+        modelSeen = true;
         break;
       case "state": {
         stateSeen = true;
@@ -164,16 +287,25 @@ export function decodeRequest(
           fail("request questions must not be empty");
         for (const id of sourceKeysOf(questionsValue)) {
           const question = requireObject(questionsValue[id], `question ${id}`);
-          let type = "";
+          // Determine the question type first: a whole-unit skip (experimental
+          // box or unsupported type) suppresses the per-field audit inside the
+          // unit, per spec/02 §4.
+          const carried = question.type;
+          if (typeof carried !== "string")
+            fail(`question ${id} type must be a string`);
+          if (
+            carried === QUESTION_TYPE_BOX ||
+            !supportedQuestionType(carried)
+          ) {
+            losses.push(wholeUnitSkipLoss(id, carried));
+            continue;
+          }
           let instructions = "";
           let criteria: JsonValue | undefined;
           for (const field of sourceKeysOf(question)) {
             const leaf = question[field]!;
             switch (field) {
               case "type":
-                if (typeof leaf !== "string")
-                  fail(`question ${id} type must be a string`);
-                type = leaf;
                 break;
               case "instructions":
                 if (typeof leaf !== "string")
@@ -187,12 +319,12 @@ export function decodeRequest(
                 unknownProperty(`questions.${id}`, field, "Jev question");
             }
           }
-          const rendered = renderQuestion(id, type, instructions, criteria);
+          const rendered = renderQuestion(id, carried, instructions, criteria);
           if (rendered.loss !== undefined) {
             losses.push(rendered.loss);
             continue;
           }
-          questions[id] = rendered;
+          questions.set(id, rendered);
         }
         break;
       }
@@ -209,19 +341,20 @@ export function decodeRequest(
     }
   }
 
-  if (modelName === undefined) fail("request model is required");
+  if (!modelSeen || modelName === undefined || modelName === "")
+    fail("request model is required");
   if (!stateSeen || stateValue === null) fail("request state is required");
   if (questionsValue === undefined) fail("request questions must not be empty");
-  if (Object.keys(questions).length === 0)
+  if (questions.size === 0)
     fail("request questions produced no supported questions");
 
   // The §7.2 rendering follows ascending lexicographic ID order regardless
   // of the wire's encounter order; the loss walk above stays in source order.
   let questionLines: string[] = [];
-  const props: Record<string, JsonValue> = {};
+  const props = makeKeyed<JsonValue>();
   const required: string[] = [];
-  for (const id of Object.keys(questions).sort()) {
-    const rendered = questions[id]!;
+  for (const id of [...questions.keys()].sort()) {
+    const rendered = questions.get(id)!;
     questionLines = questionLines.concat(rendered.lines);
     props[id] = rendered.property;
     required.push(id);
@@ -229,9 +362,9 @@ export function decodeRequest(
 
   const stateText = stateAsText(stateValue!);
 
-  const schema: Record<string, JsonValue> = {};
+  const schema = makeKeyed<JsonValue>();
   schema.additionalProperties = false;
-  const sortedProps: Record<string, JsonValue> = {};
+  const sortedProps = makeKeyed<JsonValue>();
   for (const id of Object.keys(props).sort()) sortedProps[id] = props[id]!;
   schema.properties = sortedProps;
   schema.required = required.slice().sort();
@@ -266,7 +399,23 @@ export function decodeRequest(
 
 function stateAsText(value: JsonValue): string {
   if (typeof value === "string") return value;
-  return stringifyJson(sortRebuild(value));
+  return canonicalStringify(value);
+}
+
+function wholeUnitSkipLoss(id: string, type: string): Loss {
+  return type === QUESTION_TYPE_BOX
+    ? {
+        path: `questions.${id}`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: "N-JEV-5: experimental box questions are out of scope",
+      }
+    : {
+        path: `questions.${id}`,
+        field: "type",
+        reason: "unsupported-semantic",
+        detail: "N-JEV-6: skipped from schema and prompt",
+      };
 }
 
 interface RenderedQuestion {
@@ -300,7 +449,7 @@ function renderQuestion(
       criteriaLines.push(
         description === undefined || description === null
           ? `- ${name}`
-          : `- ${name}: ${stringifyJson(sortRebuild(description))}`,
+          : `- ${name}: ${canonicalStringify(description)}`,
       );
       return;
     }
@@ -348,28 +497,6 @@ function renderQuestion(
       property.enum = enumValues;
       break;
     }
-    case QUESTION_TYPE_BOX:
-      return {
-        lines: [],
-        property: {},
-        loss: {
-          path: `questions.${id}`,
-          field: "type",
-          reason: "unsupported-semantic",
-          detail: "N-JEV-5: experimental box questions are out of scope",
-        },
-      };
-    default:
-      return {
-        lines: [],
-        property: {},
-        loss: {
-          path: `questions.${id}`,
-          field: "type",
-          reason: "unsupported-semantic",
-          detail: "N-JEV-6: skipped from schema and prompt",
-        },
-      };
   }
 
   if (instructions !== "") property.description = fromValue(instructions);
@@ -393,7 +520,7 @@ export function decodeResponse(
   const losses: Loss[] = [];
   let modelName: string | undefined;
   let modelSeen = false;
-  let answers: Record<string, JsonObject> | undefined;
+  let answers: Map<string, JsonObject> | undefined;
   let usage: { input_tokens: bigint; output_tokens: bigint } | undefined;
 
   const unknownProperty = (path: string, key: string, what: string): void => {
@@ -415,10 +542,10 @@ export function decodeResponse(
         break;
       case "answers": {
         const map = requireObject(value, "answers");
-        answers = {};
+        answers = new Map();
         for (const id of sourceKeysOf(map)) {
           const answer = requireObject(map[id], `answer ${id}`);
-          const filtered: Record<string, JsonValue> = {};
+          const filtered = makeKeyed<JsonValue>();
           for (const field of sourceKeysOf(answer)) {
             const leaf = answer[field]!;
             switch (field) {
@@ -450,10 +577,10 @@ export function decodeResponse(
               detail: "N-JEV-5: experimental box answers are carried verbatim",
             });
           }
-          const sorted: Record<string, JsonValue> = {};
+          const sorted = makeKeyed<JsonValue>();
           for (const field of Object.keys(filtered).sort())
             sorted[field] = detach(filtered[field]!);
-          answers[id] = sorted;
+          answers.set(id, sorted);
         }
         break;
       }
@@ -482,19 +609,26 @@ export function decodeResponse(
     }
   }
 
-  if (!modelSeen || modelName === undefined) fail("response model is required");
+  if (!modelSeen || modelName === undefined || modelName === "")
+    fail("response model is required");
   if (usage === undefined) usage = { input_tokens: 0n, output_tokens: 0n };
-  if (answers === undefined || Object.keys(answers).length === 0)
+  if (answers === undefined || answers.size === 0)
     fail("response answers must not be empty");
 
-  const canon: Record<string, JsonValue> = {};
-  for (const id of Object.keys(answers).sort()) canon[id] = answers[id]!;
+  // §7.5 canon: answer keys and each answer's recognized fields sort
+  // ascending, while field values carry verbatim (nested key order and
+  // number tokens preserved) — so the text composes layer-by-layer instead
+  // of deep-sorting the whole payload.
+  const canonText = `{${[...answers.keys()]
+    .sort()
+    .map((id) => `${stringifyJson(id)}:${stringifyJson(answers.get(id)!)}`)
+    .join(",")}}`;
 
   return {
     value: {
       id: SYNTHESIZED_ID,
       model: mapModel(options.modelMapper, modelName),
-      content: [{ type: "text", text: stringifyJson(canon) }],
+      content: [{ type: "text", text: canonText }],
       stop_reason: "end_turn",
       usage,
     },
@@ -542,7 +676,7 @@ export function encodeRequest(
   losses.push(...stateLosses);
   losses.push(...requestLosses(request));
 
-  const questionsWire: Record<string, JsonValue> = {};
+  const questionsWire = makeKeyed<JsonValue>();
   for (const id of Object.keys(questions).sort())
     questionsWire[id] = questionWire(questions[id]!);
 
@@ -630,16 +764,20 @@ function stateFromIR(
   return { state: stripTemplate(sysParts.join("\n\n")), losses };
 }
 
-// isDerivedQuestionRendering reports whether the message's text is exactly a
-// §7.2 rendering of the expected questions: every line is a question line, a
-// criteria line, or blank, and the question (id, type) set matches.
+// isDerivedQuestionRendering reports whether the message's content is exactly
+// a §7.2 rendering of the expected questions: every block is a text block,
+// every line is a question line, a criteria line, or blank, and the question
+// (id, type) set matches. Mixed-in non-text blocks have no Jev destination
+// and must surface as a loss, never as a silent drop.
 function isDerivedQuestionRendering(
   message: Message,
   expected: ReadonlyMap<string, string>,
 ): boolean {
-  const texts = message.content
-    .filter((block): block is TextBlock => block.type === "text")
-    .map((block) => block.text);
+  const texts: string[] = [];
+  for (const block of message.content) {
+    if (block.type !== "text") return false;
+    texts.push(block.text);
+  }
   if (texts.length === 0) return false;
   const found = new Map<string, string>();
   for (const text of texts) {
@@ -689,7 +827,7 @@ function questionsFromSchema(schema: JsonObject): {
   const properties = schema.properties;
   if (!isPlainObject(properties) || Object.keys(properties).length === 0)
     fail("response format schema has no properties");
-  const questions: Record<string, JevQuestion> = {};
+  const questions = makeKeyed<JevQuestion>();
   const losses: Loss[] = [];
   for (const id of sortedKeys(properties)) {
     const property = requireObject(properties[id], `schema property ${id}`);
@@ -741,9 +879,17 @@ function questionsFromSchema(schema: JsonObject): {
         });
         continue;
       }
-      const minimum = numericValue(property.minimum);
-      const maximum = numericValue(property.maximum);
-      if (minimum === 0 && maximum === 1) {
+      const minimumLeaf = property.minimum;
+      const maximumLeaf = property.maximum;
+      const minimum =
+        minimumLeaf === undefined
+          ? undefined
+          : decimalCompare(minimumLeaf, "0");
+      const maximum =
+        maximumLeaf === undefined
+          ? undefined
+          : decimalCompare(maximumLeaf, "1");
+      if (minimum === 0 && maximum === 0) {
         questions[id] = {
           type: QUESTION_TYPE_NOUL,
           ...(description === undefined ? {} : { instructions: description }),
@@ -754,8 +900,8 @@ function questionsFromSchema(schema: JsonObject): {
     if (propType === "string") {
       const names = choiceOptions(property.enum);
       if (names !== undefined) {
-        const criteria: Record<string, JsonValue> = {};
-        for (const name of names) criteria[name] = name;
+        const criteria = makeKeyed<JsonValue>();
+        for (const name of names) criteria[name] = fromValue(name);
         questions[id] = {
           type: QUESTION_TYPE_CHOICE,
           ...(description === undefined ? {} : { instructions: description }),
@@ -786,8 +932,13 @@ function questionsFromSchema(schema: JsonObject): {
 function scoreLevels(enumValues: readonly JsonValue[]): number | undefined {
   if (enumValues.length === 0) return undefined;
   for (const [index, value] of enumValues.entries()) {
-    const numeric = numericValue(value);
-    if (numeric === undefined || numeric !== index + 1) return undefined;
+    if (!scoreWithinLevels(value, index + 1)) return undefined;
+    const parts = parseDecimal((value as { token: string }).token);
+    if (
+      parts === undefined ||
+      (parts.intDigits.replace(/^0+/, "") || "0") !== String(index + 1)
+    )
+      return undefined;
   }
   return enumValues.length;
 }
@@ -831,14 +982,14 @@ export function encodeResponse(
   const context = options.questions ?? {};
   for (const id of Object.keys(context).sort()) {
     if (!supportedQuestionType(context[id]!.type)) continue;
-    if (answers[id] === undefined)
+    if (!hasOwnKey(answers, id))
       fail(`answer ${id} is missing from the response`);
   }
 
-  const out: Record<string, JsonValue> = {};
+  const out = makeKeyed<JsonValue>();
   for (const id of sortedKeys(answers)) {
     const recovered = recoverAnswer(id, answers[id]!, context);
-    if (Object.keys(context).length > 0 && context[id] === undefined)
+    if (Object.keys(context).length > 0 && !hasOwnKey(context, id))
       losses.push({
         path: "answers",
         field: id,
@@ -858,7 +1009,7 @@ export function encodeResponse(
     });
   losses.push(...usageLosses(response.usage));
 
-  const answersWire: Record<string, JsonValue> = {};
+  const answersWire = makeKeyed<JsonValue>();
   for (const id of Object.keys(out).sort()) answersWire[id] = out[id]!;
 
   return {
@@ -938,17 +1089,11 @@ const outOfRange = (id: string, field: string): Loss => ({
   detail: "N-JEV-14: value kept, not rewritten",
 });
 
-/** Rebuilds an answer object with sorted keys at every depth (INV-1-safe). */
+/** Rebuilds an answer object with sorted keys at every depth; used only when
+ * the encoder must rewrite the object (a synthesized type or a normalized
+ * boolean noul). Carried answers stay verbatim. */
 function rebuild(value: Record<string, JsonValue>): JsonObject {
   return sortRebuild(value) as JsonObject;
-}
-
-function scalarAnswer(
-  id: string,
-  value: JsonValue,
-  loss: Loss | undefined,
-): RecoveredAnswer {
-  return { value, loss };
 }
 
 function recoverScalarAnswer(
@@ -956,25 +1101,26 @@ function recoverScalarAnswer(
   raw: JsonValue,
   context: Readonly<Record<string, JevQuestion>>,
 ): RecoveredAnswer {
-  const question = context[id];
+  const question = hasOwnKey(context, id) ? context[id] : undefined;
   if (question !== undefined) {
     switch (question.type) {
       case QUESTION_TYPE_NOUL: {
         if (typeof raw === "boolean")
-          return scalarAnswer(
-            id,
-            rebuild({ noul: fromValue(raw ? 1 : 0), type: QUESTION_TYPE_NOUL }),
-            undefined,
-          );
-        const numeric = numericValue(raw);
-        if (numeric !== undefined) {
+          return {
+            value: rebuild({
+              noul: fromValue(raw ? 1 : 0),
+              type: QUESTION_TYPE_NOUL,
+            }),
+          };
+        if (isJsonNumber(raw)) {
           const loss =
-            numeric < 0 || numeric > 1 ? outOfRange(id, "noul") : undefined;
-          return scalarAnswer(
-            id,
-            rebuild({ noul: raw, type: QUESTION_TYPE_NOUL }),
+            decimalCompare(raw, "0")! < 0 || decimalCompare(raw, "1")! > 0
+              ? outOfRange(id, "noul")
+              : undefined;
+          return {
+            value: rebuild({ noul: raw, type: QUESTION_TYPE_NOUL }),
             loss,
-          );
+          };
         }
         break;
       }
@@ -985,27 +1131,24 @@ function recoverScalarAnswer(
             names !== undefined && names.length > 0 && !names.includes(raw)
               ? outOfRange(id, "choice")
               : undefined;
-          return scalarAnswer(
-            id,
-            rebuild({ choice: raw, type: QUESTION_TYPE_CHOICE }),
+          return {
+            value: rebuild({ choice: raw, type: QUESTION_TYPE_CHOICE }),
             loss,
-          );
+          };
         }
         break;
       }
       case QUESTION_TYPE_SCORE: {
-        const numeric = numericValue(raw);
-        if (numeric !== undefined) {
+        if (isJsonNumber(raw)) {
           const levels = criteriaCountOf(question.criteria);
           const loss =
-            levels > 0 && !scoreWithinLevels(numeric, levels)
+            levels > 0 && !scoreWithinLevels(raw, levels)
               ? outOfRange(id, "score")
               : undefined;
-          return scalarAnswer(
-            id,
-            rebuild({ score: raw, type: QUESTION_TYPE_SCORE }),
+          return {
+            value: rebuild({ score: raw, type: QUESTION_TYPE_SCORE }),
             loss,
-          );
+          };
         }
         break;
       }
@@ -1013,17 +1156,16 @@ function recoverScalarAnswer(
     return { value: raw, loss: contradictionLoss(id) };
   }
   if (typeof raw === "boolean")
-    return scalarAnswer(
-      id,
-      rebuild({ noul: fromValue(raw ? 1 : 0), type: QUESTION_TYPE_NOUL }),
-      undefined,
-    );
+    return {
+      value: rebuild({
+        noul: fromValue(raw ? 1 : 0),
+        type: QUESTION_TYPE_NOUL,
+      }),
+    };
   if (typeof raw === "string")
-    return scalarAnswer(
-      id,
-      rebuild({ choice: raw, type: QUESTION_TYPE_CHOICE }),
-      undefined,
-    );
+    return {
+      value: rebuild({ choice: raw, type: QUESTION_TYPE_CHOICE }),
+    };
   if (isJsonNumber(raw))
     return {
       value: rebuild({ score: raw, type: QUESTION_TYPE_SCORE }),
@@ -1031,17 +1173,6 @@ function recoverScalarAnswer(
     };
   fail(`answer ${id} must be an object or scalar value`);
 }
-
-const ANSWER_FIELDS = [
-  "type",
-  "noul",
-  "choice",
-  "score",
-  "legend",
-  "probabilities",
-  "confidence",
-  "box",
-] as const;
 
 function recoverObjectAnswer(
   id: string,
@@ -1059,11 +1190,13 @@ function recoverObjectAnswer(
         detail: "N-JEV-5: experimental box answers are carried verbatim",
       },
     };
-  const question = context[id];
-  if (question !== undefined) {
-    if (carried !== undefined && carried !== question.type)
-      return { value: obj, loss: contradictionLoss(id) };
-  }
+  const question = hasOwnKey(context, id) ? context[id] : undefined;
+  if (
+    question !== undefined &&
+    carried !== undefined &&
+    carried !== question.type
+  )
+    return { value: obj, loss: contradictionLoss(id) };
   let type = carried;
   if (type === undefined && question !== undefined) type = question.type;
   if (type === undefined) {
@@ -1073,45 +1206,64 @@ function recoverObjectAnswer(
     else fail(`answer ${id} carries no recognized value`);
   }
 
+  // A typed answer carries verbatim; the encoder rewrites the object only
+  // when it must synthesize the type or normalize a boolean noul.
+  const rewrite =
+    carried === undefined ||
+    (type === QUESTION_TYPE_NOUL && typeof obj.noul === "boolean");
+  if (!rewrite) {
+    return { value: obj, loss: validateAnswer(id, obj, type!, question) };
+  }
   const working: Record<string, JsonValue> = { ...obj, type };
-  let loss: Loss | undefined;
+  if (type === QUESTION_TYPE_NOUL && typeof working.noul === "boolean")
+    working.noul = fromValue(working.noul ? 1 : 0);
+  const loss = validateAnswer(id, working, type, question);
+  return { value: rebuild(working), loss };
+}
+
+// validateAnswer reports the range/option losses of an answer against its
+// question context; value-shape failures stay structural.
+function validateAnswer(
+  id: string,
+  holder: Readonly<Record<string, JsonValue>>,
+  type: string,
+  question: JevQuestion | undefined,
+): Loss | undefined {
   switch (type) {
     case QUESTION_TYPE_NOUL: {
-      const leaf = working.noul;
-      if (typeof leaf === "boolean") working.noul = fromValue(leaf ? 1 : 0);
-      const numeric = numericValue(working.noul);
-      if (numeric === undefined) fail(`answer ${id} carries no noul value`);
-      if (
-        question !== undefined &&
-        question.type === QUESTION_TYPE_NOUL &&
-        (numeric < 0 || numeric > 1)
-      )
-        loss = outOfRange(id, "noul");
-      break;
+      const leaf = holder.noul;
+      if (typeof leaf === "boolean") return undefined;
+      if (!isJsonNumber(leaf)) fail(`answer ${id} carries no noul value`);
+      if (question === undefined || question.type !== QUESTION_TYPE_NOUL)
+        return undefined;
+      if (decimalCompare(leaf, "0")! < 0 || decimalCompare(leaf, "1")! > 0)
+        return outOfRange(id, "noul");
+      return undefined;
     }
     case QUESTION_TYPE_CHOICE: {
-      const choice = working.choice;
-      if (typeof choice !== "string")
+      if (typeof holder.choice !== "string")
         fail(`answer ${id} carries no choice value`);
-      if (question !== undefined) {
-        const names = choiceNamesOfCriteria(question.criteria);
-        if (names !== undefined && names.length > 0 && !names.includes(choice))
-          loss = outOfRange(id, "choice");
-      }
-      break;
+      if (question === undefined) return undefined;
+      const names = choiceNamesOfCriteria(question.criteria);
+      if (
+        names !== undefined &&
+        names.length > 0 &&
+        !names.includes(holder.choice)
+      )
+        return outOfRange(id, "choice");
+      return undefined;
     }
     case QUESTION_TYPE_SCORE: {
-      const numeric = numericValue(working.score);
-      if (numeric === undefined) fail(`answer ${id} carries no score value`);
-      if (question !== undefined) {
-        const levels = criteriaCountOf(question.criteria);
-        if (levels > 0 && !scoreWithinLevels(numeric, levels))
-          loss = outOfRange(id, "score");
-      }
-      break;
+      if (!isJsonNumber(holder.score))
+        fail(`answer ${id} carries no score value`);
+      if (question === undefined) return undefined;
+      const levels = criteriaCountOf(question.criteria);
+      if (levels > 0 && !scoreWithinLevels(holder.score, levels))
+        return outOfRange(id, "score");
+      return undefined;
     }
   }
-  return { value: rebuild(working), loss };
+  return undefined;
 }
 
 function choiceNamesOfCriteria(

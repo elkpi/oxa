@@ -3,7 +3,9 @@ package jev
 import (
 	"bytes"
 	"encoding/json"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/elkpi/oxa/go/v3/ir"
@@ -165,4 +167,180 @@ func marshalCanonical(v any) ([]byte, error) {
 	default:
 		return json.Marshal(v)
 	}
+}
+
+// --- exact decimal comparison ----------------------------------------------
+// Range and integer validation must not round JSON number tokens through
+// IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
+// score level, even though both collapse to the same float64.
+
+var jsonNumberPattern = regexp.MustCompile(
+	`^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$`,
+)
+
+var zeroDigitsPattern = regexp.MustCompile(`^0*$`)
+
+type decimalParts struct {
+	negative   bool
+	intDigits  string
+	fracDigits string
+}
+
+func parseDecimal(token string) (decimalParts, bool) {
+	if !jsonNumberPattern.MatchString(token) {
+		return decimalParts{}, false
+	}
+	negative := strings.HasPrefix(token, "-")
+	body := strings.TrimPrefix(token, "-")
+	exponent := 0
+	if eIndex := strings.IndexAny(body, "eE"); eIndex >= 0 {
+		parsed, err := strconv.Atoi(body[eIndex+1:])
+		if err != nil {
+			return decimalParts{}, false
+		}
+		exponent = parsed
+		body = body[:eIndex]
+	}
+	var intDigits, fracDigits string
+	if dot := strings.IndexByte(body, '.'); dot >= 0 {
+		intDigits, fracDigits = body[:dot], body[dot+1:]
+	} else {
+		intDigits, fracDigits = body, ""
+	}
+	if exponent > 0 {
+		if exponent >= len(fracDigits) {
+			intDigits += fracDigits + strings.Repeat("0", exponent-len(fracDigits))
+			fracDigits = ""
+		} else {
+			intDigits += fracDigits[:exponent]
+			fracDigits = fracDigits[exponent:]
+		}
+	} else if exponent < 0 {
+		shift := -exponent
+		if shift >= len(intDigits) {
+			fracDigits = strings.Repeat("0", shift-len(intDigits)) + intDigits + fracDigits
+			intDigits = "0"
+		} else {
+			fracDigits = intDigits[len(intDigits)-shift:] + fracDigits
+			intDigits = intDigits[:len(intDigits)-shift]
+		}
+	}
+	intDigits = strings.TrimLeft(intDigits, "0")
+	if intDigits == "" {
+		intDigits = "0"
+	}
+	return decimalParts{negative: negative, intDigits: intDigits, fracDigits: fracDigits}, true
+}
+
+func isZeroDecimal(parts decimalParts) bool {
+	return zeroDigitsPattern.MatchString(parts.intDigits) &&
+		zeroDigitsPattern.MatchString(parts.fracDigits)
+}
+
+func compareMagnitude(a, b decimalParts) int {
+	if len(a.intDigits) != len(b.intDigits) {
+		if len(a.intDigits) < len(b.intDigits) {
+			return -1
+		}
+		return 1
+	}
+	if a.intDigits != b.intDigits {
+		if a.intDigits < b.intDigits {
+			return -1
+		}
+		return 1
+	}
+	width := len(a.fracDigits)
+	if len(b.fracDigits) > width {
+		width = len(b.fracDigits)
+	}
+	af := a.fracDigits + strings.Repeat("0", width-len(a.fracDigits))
+	bf := b.fracDigits + strings.Repeat("0", width-len(b.fracDigits))
+	if af == bf {
+		return 0
+	}
+	if af < bf {
+		return -1
+	}
+	return 1
+}
+
+// compareDecimal compares a JSON number token against a decimal literal
+// exactly; ok is false when the leaf is not a JSON number token shape.
+func compareDecimal(a json.Number, b string) (int, bool) {
+	left, ok := parseDecimal(string(a))
+	if !ok {
+		return 0, false
+	}
+	right, ok := parseDecimal(b)
+	if !ok {
+		return 0, false
+	}
+	leftZero := isZeroDecimal(left)
+	rightZero := isZeroDecimal(right)
+	if leftZero && rightZero {
+		return 0, true
+	}
+	if leftZero {
+		if right.negative {
+			return 1, true
+		}
+		return -1, true
+	}
+	if rightZero {
+		if left.negative {
+			return -1, true
+		}
+		return 1, true
+	}
+	if left.negative != right.negative {
+		if left.negative {
+			return -1, true
+		}
+		return 1, true
+	}
+	magnitude := compareMagnitude(left, right)
+	if left.negative {
+		return -magnitude, true
+	}
+	return magnitude, true
+}
+
+// decimalInUnitInterval reports whether a JSON number token is exactly within
+// [0,1] in decimal terms (spec/17 §4.1 noul range).
+func decimalInUnitInterval(a json.Number) bool {
+	low, ok := compareDecimal(a, "0")
+	if !ok || low < 0 {
+		return false
+	}
+	high, ok := compareDecimal(a, "1")
+	if !ok || high > 0 {
+		return false
+	}
+	return true
+}
+
+// scoreTokenWithinLevels validates a score value against the discrete 1..N
+// levels exactly: the token must be an integer and its exact value must fall
+// in range (spec/17 §4.1).
+func scoreTokenWithinLevels(a json.Number, levels int) bool {
+	parts, ok := parseDecimal(string(a))
+	if !ok || parts.negative {
+		return false
+	}
+	if !zeroDigitsPattern.MatchString(parts.fracDigits) {
+		return false
+	}
+	digits := strings.TrimLeft(parts.intDigits, "0")
+	if digits == "" {
+		digits = "0"
+	}
+	if len(digits) > len(strconv.Itoa(levels)) {
+		return false
+	}
+	value, err := strconv.Atoi(digits)
+	if err != nil {
+		return false
+	}
+	return value >= 1 && value <= levels
 }

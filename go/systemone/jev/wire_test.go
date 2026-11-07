@@ -292,6 +292,117 @@ func TestEncodeResponseErrors(t *testing.T) {
 	}
 }
 
+func TestDecodeRequestWholeUnitSkipSuppressesFieldAudit(t *testing.T) {
+	raw := `{"model":"m","state":"s","questions":{"box":{"type":"box","bogus":1},"ok":{"type":"noul"}}}`
+	_, losses, err := DecodeRequestJSON([]byte(raw))
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	var boxLosses []ir.Loss
+	for _, l := range losses {
+		if l.Path == "questions.box" {
+			boxLosses = append(boxLosses, l)
+		}
+	}
+	if len(boxLosses) != 1 || boxLosses[0].Field != "type" {
+		t.Errorf("box losses = %+v, want exactly the whole-unit N-JEV-5 loss", boxLosses)
+	}
+}
+
+func TestDecodeRequestMixedUserContentIsNeverDerived(t *testing.T) {
+	req := &ir.Request{
+		Model:  "jev-latest",
+		System: []ir.SystemBlock{{Text: "state text\n\n" + instructionTemplate}},
+		Messages: []ir.Message{{
+			Role: ir.RoleUser,
+			Content: []ir.Block{
+				ir.TextBlock{Text: "question q (noul): "},
+				ir.ImageBlock{URL: "https://example.com/i.png"},
+			},
+		}},
+		Params: ir.Params{ResponseFormat: &ir.ResponseFormat{
+			Type:   ir.ResponseFormatJSONSchema,
+			Name:   ResponseFormatName,
+			Schema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"number","minimum":0,"maximum":1}},"required":["q"]}`),
+		}},
+	}
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if strings.Contains(string(wire.State), "question q") {
+		t.Errorf("mixed-content message was treated as derived: state = %s", wire.State)
+	}
+	if len(losses) != 1 || losses[0].Path != "messages[0]" {
+		t.Errorf("losses = %+v, want one N-JEV-10 loss for messages[0]", losses)
+	}
+}
+
+func TestEncodeResponseExactDecimalRangeValidation(t *testing.T) {
+	// 1.0000000000000001 collapses to 1.0 as a float64 but is greater than 1
+	// in decimal terms; the exact comparison must report the loss.
+	resp := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"q": 1.0000000000000001}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	_, losses, err := EncodeResponse(resp, WithQuestions(map[string]Question{
+		"q": {Type: QuestionTypeNoul},
+	}))
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	var degraded []ir.Loss
+	for _, l := range losses {
+		if l.Reason == ir.LossDegraded {
+			degraded = append(degraded, l)
+		}
+	}
+	if len(degraded) != 1 || degraded[0].Field != "noul" {
+		t.Errorf("losses = %+v, want exactly one N-JEV-14 noul loss", losses)
+	}
+
+	scored := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"s": 1.0000000000000001}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	scoreWire, scoreLosses, err := EncodeResponse(scored, WithQuestions(map[string]Question{
+		"s": {Type: QuestionTypeScore, Criteria: json.RawMessage(`["low","high"]`)},
+	}))
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	_ = scoreWire
+	var scoreDegraded []ir.Loss
+	for _, l := range scoreLosses {
+		if l.Reason == ir.LossDegraded {
+			scoreDegraded = append(scoreDegraded, l)
+		}
+	}
+	if len(scoreDegraded) != 1 || scoreDegraded[0].Field != "score" {
+		t.Errorf("score losses = %+v, want exactly one N-JEV-14 score loss", scoreLosses)
+	}
+}
+
+func TestEncodeResponseTypedAnswersCarryVerbatim(t *testing.T) {
+	resp := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"q":{"type":"choice","choice":"yes","probabilities":{"z":0.2,"a":0.8}}}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	wire, losses, err := EncodeResponse(resp)
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if len(losses) != 0 {
+		t.Errorf("losses = %+v, want none for a typed carry", losses)
+	}
+	if !strings.Contains(string(wire.Answers["q"]), `"probabilities":{"z":0.2,"a":0.8}`) {
+		t.Errorf("nested probabilities were reordered: %s", wire.Answers["q"])
+	}
+}
+
 func TestDecodeRequestErrors(t *testing.T) {
 	cases := []struct {
 		name string
@@ -299,6 +410,7 @@ func TestDecodeRequestErrors(t *testing.T) {
 		want string
 	}{
 		{"missing model", `{"state": "s", "questions": {"q": {"type": "noul"}}}`, "model is required"},
+		{"empty model", `{"model": "", "state": "s", "questions": {"q": {"type": "noul"}}}`, "model is required"},
 		{"missing state", `{"model": "m", "questions": {"q": {"type": "noul"}}}`, "state is required"},
 		{"null state", `{"model": "m", "state": null, "questions": {"q": {"type": "noul"}}}`, "state is required"},
 		{"empty questions", `{"model": "m", "state": "s", "questions": {}}`, "must not be empty"},

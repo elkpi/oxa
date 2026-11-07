@@ -79,7 +79,8 @@ The source tree targets Spec 3.1.0 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
 representation (IR). The IR document contract is 0.3.0. The SystemOne Jev
 face ([spec/17](spec/17-systemone-jev.md)) currently ships in the Go
-reference implementation only.
+reference implementation and the TypeScript package; Rust, Python, and C++
+follow in later waves.
 
 | Conversion              | Nonstream                                                                  | Streaming                                                   |
 | ----------------------- | -------------------------------------------------------------------------- | ----------------------------------------------------------- |

@@ -217,23 +217,27 @@ pub fn decode_response_json(raw: &str, config: &Config) -> Result<(IrResponse, V
                 let mut collected: BTreeMap<String, &RawValue> = BTreeMap::new();
                 for (id, answer_raw) in &map.entries {
                     let answer = parse_source_object(answer_raw.get(), &format!("answer {id}"))?;
-                    for (field, _) in &answer.entries {
+                    for (field, leaf) in &answer.entries {
                         match field.as_str() {
-                            "type" | "noul" | "choice" | "score" | "legend" | "probabilities"
+                            "type" => {
+                                if serde_json::from_str::<String>(leaf.get()).ok().as_deref()
+                                    == Some(QUESTION_TYPE_BOX)
+                                {
+                                    losses.push(Loss {
+                                        path: format!("answers.{id}"),
+                                        field: "type".to_owned(),
+                                        reason: LossReason::UnsupportedSemantic,
+                                        detail: "N-JEV-5: experimental box answers are carried verbatim"
+                                            .to_owned(),
+                                    });
+                                }
+                            }
+                            "noul" | "choice" | "score" | "legend" | "probabilities"
                             | "confidence" | "box" => {}
                             other => {
                                 unknown(&mut losses, &format!("answers.{id}"), other, "Jev answer")
                             }
                         }
-                    }
-                    if answer.tag("type").as_deref() == Some(QUESTION_TYPE_BOX) {
-                        losses.push(Loss {
-                            path: format!("answers.{id}"),
-                            field: "type".to_owned(),
-                            reason: LossReason::UnsupportedSemantic,
-                            detail: "N-JEV-5: experimental box answers are carried verbatim"
-                                .to_owned(),
-                        });
                     }
                     collected.insert(id.clone(), *answer_raw);
                 }

@@ -1,6 +1,6 @@
 # oxa Rust implementation
 
-The Rust workspace targets **3.0.0**. Rust emits IR documents
+The Rust workspace targets **3.0.1**. Rust emits IR documents
 with `specVersion: 0.3.0` and accepts `0.1.0`, `0.2.0`, and `0.3.0`; implementation
 and IR contract versions are independent version axes.
 

@@ -5,13 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [v3.0.1] - 2026-11-07
 
 ### Fixed
 
-- Audit unknown fields in Responses `additional_tools` tool and container declarations in Go and TypeScript, while preserving item-level extensions.
-- Validate native annotations in positional tool changes and compaction tool changes across all five implementations; report unknown native sources when a positional tool addition is encoded to Responses.
+- Audit unknown fields in Responses `additional_tools` tool and container declarations in Go and TypeScript, while preserving item-level extensions and opaque JSON Schema payloads.
+- Validate native annotations and their mutual exclusions in positional tool changes and compaction across all five implementations, with value-free indexed error paths.
+- Report unknown native sources in Responses positional additions and unknown sources or kinds in retained Anthropic tool changes, including compaction.
 - Correct the Go release version constant and check Go release tags against the constant and module major path.
+- Keep the IR contract at `0.3.0` and pin behavior with 567 shared vectors.
 
 ## [v3.0.0] - 2026-11-06
 

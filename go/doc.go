@@ -29,4 +29,4 @@
 package oxa
 
 // Version is the current release version of the oxa Go reference implementation.
-const Version = "3.0.0"
+const Version = "3.0.1"

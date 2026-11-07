@@ -8,4 +8,5 @@
 #include "oxa/openai/chatcompletions.hpp"
 #include "oxa/openai/responses.hpp"
 #include "oxa/sse.hpp"
+#include "oxa/systemone/jev.hpp"
 #include "oxa/status.hpp"

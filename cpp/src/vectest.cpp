@@ -395,17 +395,16 @@ StatusOr<Report> run_cross(const std::vector<const Converter*>& converters,
             auto it = conv_map.find("anthropic");
             return it != conv_map.end() ? it->second : nullptr;
         }
+        if (proto == "jev") {
+            auto it = conv_map.find("jev");
+            return it != conv_map.end() ? it->second : nullptr;
+        }
         return nullptr;
     };
 
     for (const auto& vec : vectors) {
         if (!vec.expected_output.has_value()) {
             report.failures.push_back({vec.name, "cross vector missing expected_output"});
-            continue;
-        }
-        if (vec.source_protocol == "jev" || vec.target_protocol == "jev") {
-            // SystemOne Jev vectors are Go-only until that face joins the
-            // C++ wave (spec/17).
             continue;
         }
         const Converter* src = find_conv(vec.source_protocol);

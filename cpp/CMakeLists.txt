@@ -25,6 +25,7 @@ add_library(oxa
   src/openai/chatcompletions.cpp
   src/openai/responses.cpp
   src/anthropic/messages.cpp
+  src/systemone/jev.cpp
 )
 target_compile_features(oxa PUBLIC cxx_std_20)
 target_include_directories(oxa PUBLIC
@@ -75,7 +76,7 @@ install(FILES
 
 enable_testing()
 
-foreach(t test_tool_change test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools test_fidelity_v2411)
+foreach(t test_tool_change test_status test_json test_ir test_modelmap test_sse test_chatcompletions test_anthropic test_responses test_jev test_vectors test_stream test_stream_corpus test_constants test_rawjson test_native_request test_native_tools test_fidelity_v2411)
   add_executable(${t} tests/${t}.cpp)
   target_link_libraries(${t} PRIVATE oxa oxa_vectest)
   add_test(NAME ${t} COMMAND ${t})

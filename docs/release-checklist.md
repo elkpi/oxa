@@ -21,7 +21,7 @@ announcement are separate, explicitly authorized actions.
    - **Python**: the `consumers` job builds valid wheel/sdist artifacts and installs each in a clean environment without `PYTHONPATH`.
    - **C++**: the `consumers` job verifies CMake package installation (`cmake --install`) and export (`find_package(oxa CONFIG REQUIRED)`) against an external downstream consumer project.
 4. **Module and package coordinates final**:
-   - `go/go.mod` declares `module github.com/elkpi/oxa/go/v3` with no placeholder. CI's tag-only `release-guard` job re-checks this at tag time.
+   - `go/go.mod` declares `module github.com/elkpi/oxa-protocol/go/v3` with no placeholder. CI's tag-only `release-guard` job re-checks this at tag time.
    - The Go `Version` constant matches the release tag and its major version matches the module path. The tag-only `release-guard` verifies all three.
    - `ts/package.json` declares npm package `@elkpi/oxa`; its version, Python `pyproject.toml`, Rust `Cargo.toml`, and C++ `CMakeLists.txt` project versions match the target release version.
 5. **Specification frozen**: `spec/README.md` states the release spec version; every shipped-scope document is marked `ready`.

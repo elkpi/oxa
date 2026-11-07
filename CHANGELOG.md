@@ -7,21 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v3.1.0] - 2026-11-08
+
 ### Added
 
-- Add the SystemOne Jev face (`go/systemone/jev`, spec/17): the TypeSafe AI
-  `/v1/systemone` structured decision protocol projected onto the IR —
-  `state + questions` decode into system/user messages plus a synthesized
-  `json_schema` response format; model output parses back into typed
-  `answers` with verbatim `probabilities`/`confidence`/`legend` carry.
-  Nonstream only (Jev has no streaming mode). Go-first; the 18 shared
-  vectors are Go-covered until the remaining languages follow.
+- Add the SystemOne Jev face (spec/17) across Go, TypeScript, Rust, Python,
+  and C++: the TypeSafe AI `/v1/systemone` structured decision protocol
+  projects `state + questions` onto the IR and parses model output back into
+  typed answers. Jev is nonstream by protocol. All 22 Jev vectors and all
+  four Jev cross-protocol pairs pass in the shared 589-vector suite.
 
 ### Changed
 
-- The Go module path changes from `github.com/elkpi/oxa/go/v3` to
-  `github.com/elkpi/oxa-protocol/go/v3`. Go consumers must update all imports;
-  types imported from the old and new paths are distinct.
+- Coordinate all five implementation packages at version 3.1.0; the IR
+  document contract remains 0.3.0.
+- Move the Go module path to `github.com/elkpi/oxa-protocol/go/v3`. Go
+  consumers must update imports; old and new package paths have distinct
+  Go type identities.
 
 ## [v3.0.1] - 2026-11-07
 

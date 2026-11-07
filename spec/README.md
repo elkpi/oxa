@@ -20,8 +20,8 @@ Rust, Python, and C++; spec/17). The
 SystemOne Jev face
 targets implementation release **v3.1.0**, published once every language
 wave passes this same suite — a minor bump (a new face inside the existing
-framework) with the IR contract staying at 0.3.0; everything else
-corresponds to release **v3.0.1**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+framework) with the IR contract staying at 0.3.0. See [CHANGELOG.md](CHANGELOG.md)
+and the versioning policy below.
 
 ## Versioning policy
 

@@ -278,10 +278,20 @@ json::Value deep_raw(const json::Value& v) {
         case json::Value::Kind::Int:
         case json::Value::Kind::Double:
             return json::Value::raw(number_token(v));
+        case json::Value::Kind::String: {
+            if (v.source()) {
+                auto preserved = json::preserve_source(v);
+                if (preserved.ok() && preserved->is_raw()) return std::move(*preserved);
+            }
+            return v;
+        }
         case json::Value::Kind::Array:
         case json::Value::Kind::Object:
             if (v.source() && v.span_end() > v.span_begin()) {
-                return json::Value::raw(compact_json_text(v.raw_slice()));
+                auto preserved = json::preserve_source(v);
+                if (preserved.ok() && preserved->is_raw()) {
+                    return json::Value::raw(compact_json_text(preserved->as_raw_text()));
+                }
             }
             if (v.kind() == json::Value::Kind::Array) {
                 json::Value out = json::Value::array();
@@ -348,6 +358,12 @@ std::string whole_unit_skip_detail(std::string_view kind) {
         return "N-JEV-5: experimental box questions are out of scope";
     }
     return "N-JEV-6: skipped from schema and prompt";
+}
+
+bool is_answer_field(std::string_view field) noexcept {
+    return field == "type" || field == "noul" || field == "choice" || field == "score" ||
+           field == "legend" || field == "probabilities" || field == "confidence" ||
+           field == "box";
 }
 
 bool has_criteria(const std::optional<json::Value>& criteria) noexcept {
@@ -485,7 +501,7 @@ StatusOr<DecodedRequest> walk_request(const json::Value& wire, LossCollector& lo
     // State canon (spec/17 §7.6): keys sorted at every depth, compact,
     // exact number tokens.
     out.state_text =
-        state_value->is_string() ? state_value->as_string() : json::serialize(deep_raw(*state_value));
+        state_value->is_string() ? state_value->as_string() : json::serialize(deep_raw_numbers(*state_value));
 
     for (const auto& [id, question_value] : questions_value->as_object()) {
         if (!question_value.is_object()) {
@@ -1017,11 +1033,11 @@ StatusOr<std::pair<json::Value, std::optional<ir::Loss>>> recover_object(
     const bool has_carried = carried_value != nullptr && carried_value->is_string();
     const std::string carried = has_carried ? carried_value->as_string() : "";
     if (has_carried && carried == QUESTION_TYPE_BOX) {
-        return std::make_pair(deep_raw_numbers(answer),
+        return std::make_pair(deep_raw(answer),
                               std::optional<ir::Loss>(box_answer_loss(id)));
     }
     if (question != nullptr && has_carried && carried != question->type) {
-        return std::make_pair(deep_raw_numbers(answer),
+        return std::make_pair(deep_raw(answer),
                               std::optional<ir::Loss>(contradiction_loss(id)));
     }
     std::string kind;
@@ -1053,7 +1069,7 @@ StatusOr<std::pair<json::Value, std::optional<ir::Loss>>> recover_object(
             wire.set("noul", json::Value::integer(carried_noul->as_bool() ? 1 : 0));
         }
     } else {
-        wire = deep_raw_numbers(answer);
+        wire = deep_raw(answer);
     }
     std::optional<ir::Loss> loss;
     OXA_RETURN_IF_ERROR(validate_answer(id, answer, kind, question, loss));
@@ -1190,11 +1206,7 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire, cons
             return invalid_argument("jev: answer " + id + " must be an object");
         }
         for (const auto& [field, leaf] : answer.as_object()) {
-            const bool recognized =
-                field == "type" || field == "noul" || field == "choice" || field == "score" ||
-                field == "legend" || field == "probabilities" || field == "confidence" ||
-                field == "box";
-            if (!recognized) {
+            if (!is_answer_field(field)) {
                 collector.add(leaf, "answers." + id, field, ir::LOSS_UNMAPPED_FIELD,
                               "unknown property on the Jev answer; dropped");
             } else if (field == "type" && leaf.is_string() &&
@@ -1234,11 +1246,7 @@ StatusOr<Conversion<ir::Response>> decode_response(const json::Value& wire, cons
     for (const auto& [id, answer] : answers_value->as_object()) {
         json::Value fields = json::Value::object();
         for (const auto& [field, leaf] : answer.as_object()) {
-            const bool recognized =
-                field == "type" || field == "noul" || field == "choice" || field == "score" ||
-                field == "legend" || field == "probabilities" || field == "confidence" ||
-                field == "box";
-            if (recognized) fields.set(field, leaf);
+            if (is_answer_field(field)) fields.set(field, leaf);
         }
         filtered.set(id, std::move(fields));
     }
@@ -1289,7 +1297,13 @@ StatusOr<Conversion<json::Value>> encode_response(const ir::Response& resp, cons
     }
 
     json::Value recovered = json::Value::object();
-    for (const auto& [id, answer] : parsed.as_object()) {
+    std::vector<const json::Object::value_type*> ordered_answers;
+    for (const auto& entry : parsed.as_object()) ordered_answers.push_back(&entry);
+    std::stable_sort(ordered_answers.begin(), ordered_answers.end(), [](const auto* a, const auto* b) {
+        return a->second.span_begin() < b->second.span_begin();
+    });
+    for (const auto* entry : ordered_answers) {
+        const auto& [id, answer] = *entry;
         if (!context.empty() && context.find(id) == context.end()) {
             collector.add(json::Value{}, "answers", id, ir::LOSS_UNMAPPED_FIELD,
                           "answer beyond the requested questions");

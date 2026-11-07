@@ -93,7 +93,12 @@ int main() {
         std::cerr << "jev encode_response failed\n";
         return 1;
     }
-    const auto& jev_answers = jev_resp_wire->value.find("answers");
+    auto jev_parsed = oxa::json::parse(oxa::json::serialize(jev_resp_wire->value));
+    if (!jev_parsed.ok()) {
+        std::cerr << "jev response JSON invalid\n";
+        return 1;
+    }
+    const auto* jev_answers = jev_parsed->find("answers");
     if (jev_answers == nullptr || jev_answers->find("q") == nullptr ||
         jev_answers->find("q")->find("noul") == nullptr) {
         std::cerr << "jev response answers missing\n";

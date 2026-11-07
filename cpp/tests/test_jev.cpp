@@ -270,6 +270,47 @@ void test_schema_exact_shape() {
     CHECK(extra->losses[0].path == "questions.weird");
 }
 
+void test_state_canon_sorts_nested_objects_and_uses_mutated_values() {
+    auto parsed = oxa::json::parse(R"json({"model":"m","state":{"z":1,"a":{"z":2,"a":3}},"questions":{"q":{"type":"noul"}}})json");
+    CHECK(parsed.ok());
+    parsed->find("state")->find("a")->set("a", oxa::json::Value::integer(42));
+    auto result = oxa::systemone::jev::decode_request(*parsed);
+    CHECK(result.ok());
+    CHECK(result->value.system[0].text.starts_with(R"json({"a":{"a":42,"z":2},"z":1})json"));
+}
+
+void test_typed_answer_is_carried_verbatim() {
+    auto result = oxa::systemone::jev::encode_response_json(response_with(
+        R"json({"q":{"type":"choice","choice":"yes","probabilities":{"z":0.2,"a":0.8}}})json"));
+    CHECK(result.ok());
+    CHECK(result->value.find(R"json({"type":"choice","choice":"yes","probabilities":{"z":0.2,"a":0.8}})json") != std::string::npos);
+}
+
+void test_decoded_answer_preserves_string_escapes() {
+    const std::string escaped = std::string(1, static_cast<char>(92)) + "u0061";
+    const std::string wire = R"json({"model":"m","answers":{"q":{"type":"choice","choice":")json" + escaped + R"json("}},"usage":{}})json";
+    auto result = oxa::systemone::jev::decode_response(std::string_view(wire));
+    CHECK(result.ok());
+    CHECK(std::get<oxa::ir::TextBlock>(result->value.content[0]).text.find(escaped) != std::string::npos);
+}
+
+void test_encoded_answer_losses_follow_source_order() {
+    auto result = oxa::systemone::jev::encode_response(response_with(R"json({"z":2,"a":3})json"));
+    CHECK(result.ok());
+    CHECK(result->losses.size() == 2);
+    CHECK(result->losses[0].path == "answers.z");
+    CHECK(result->losses[1].path == "answers.a");
+}
+
+void test_decoded_answer_uses_mutated_nested_values() {
+    auto wire = oxa::json::parse(R"json({"model":"m","answers":{"q":{"type":"choice","choice":"yes","probabilities":{"z":1,"a":2}}},"usage":{}})json");
+    CHECK(wire.ok());
+    wire->find("answers")->find("q")->find("probabilities")->set("z", oxa::json::Value::integer(42));
+    auto result = oxa::systemone::jev::decode_response(*wire);
+    CHECK(result.ok());
+    CHECK(std::get<oxa::ir::TextBlock>(result->value.content[0]).text.find(R"json("z":42)json") != std::string::npos);
+}
+
 void test_round_trip() {
     auto decoded = oxa::systemone::jev::decode_request(std::string_view(
         R"json({"model":"jev-latest","state":"The customer said the delivery was late.","questions":{"sentiment":{"type":"choice","instructions":"What is the overall sentiment?","criteria":{"positive":"happy","negative":"unhappy","mixed":"both"}},"is_urgent":{"type":"noul","instructions":"Does this convey urgency?"}}})json"));
@@ -299,10 +340,12 @@ void test_round_trip() {
         Options{oxa::modelmap::Table(), questions});
     CHECK(answers.ok());
     CHECK(answers->losses.empty());
-    CHECK(str_of(pick(pick(pick(answers->value, "answers"), "sentiment"), "choice")) ==
+    auto parsed_answers = oxa::json::parse(oxa::json::serialize(answers->value));
+    CHECK(parsed_answers.ok());
+    CHECK(str_of(pick(pick(pick(*parsed_answers, "answers"), "sentiment"), "choice")) ==
           std::string("mixed"));
-    CHECK(int_of(pick(pick(pick(answers->value, "answers"), "is_urgent"), "noul")) == 0);
-    CHECK(str_of(pick(pick(pick(answers->value, "answers"), "is_urgent"), "type")) ==
+    CHECK(int_of(pick(pick(pick(*parsed_answers, "answers"), "is_urgent"), "noul")) == 0);
+    CHECK(str_of(pick(pick(pick(*parsed_answers, "answers"), "is_urgent"), "type")) ==
           std::string(oxa::systemone::jev::QUESTION_TYPE_NOUL));
 }
 
@@ -322,6 +365,11 @@ int main() {
     test_contradiction_reason();
     test_empty_criteria_description();
     test_schema_exact_shape();
+    test_state_canon_sorts_nested_objects_and_uses_mutated_values();
+    test_typed_answer_is_carried_verbatim();
+    test_decoded_answer_preserves_string_escapes();
+    test_encoded_answer_losses_follow_source_order();
+    test_decoded_answer_uses_mutated_nested_values();
     test_round_trip();
     return 0;
 }

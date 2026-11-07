@@ -21,6 +21,7 @@ dependencies = [
  "oxa-anthropic",
  "oxa-chatcompletions",
  "oxa-ir",
+ "oxa-jev",
  "oxa-modelmap",
  "oxa-responses",
  "oxa-sse",

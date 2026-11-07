@@ -1,74 +1,8 @@
-//! JSON helpers for the Jev face: source-order object walks, compact
-//! re-serialization, and exact decimal comparison of number tokens (spec/17
-//! §7.5/§7.6 canon; range validation must not round tokens through f64).
+//! JSON helpers for the Jev face: compact re-serialization and exact decimal
+//! comparison of number tokens (spec/17 §7.5/§7.6 canon; range validation
+//! must not round tokens through f64).
 
-use serde::de::{MapAccess, Visitor};
-use serde::{Deserialize, Deserializer};
 use serde_json::Value;
-use serde_json::value::RawValue;
-
-/// A source-order JSON object: every key with its raw text.
-pub struct RawObject<'a> {
-    pub entries: Vec<(String, &'a RawValue)>,
-}
-
-impl<'de> Deserialize<'de> for RawObject<'de> {
-    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
-        struct ObjectVisitor;
-        impl<'de> Visitor<'de> for ObjectVisitor {
-            type Value = RawObject<'de>;
-            fn expecting(&self, formatter: &mut std::fmt::Formatter) -> std::fmt::Result {
-                formatter.write_str("a JSON object")
-            }
-            fn visit_map<M: MapAccess<'de>>(self, mut map: M) -> Result<Self::Value, M::Error> {
-                let mut entries = Vec::new();
-                while let Some(key) = map.next_key::<String>()? {
-                    entries.push((key, map.next_value::<&'de RawValue>()?));
-                }
-                Ok(RawObject { entries })
-            }
-        }
-        deserializer.deserialize_map(ObjectVisitor)
-    }
-}
-
-impl<'a> RawObject<'a> {
-    /// Parses a JSON object keeping every key with its raw value text in
-    /// source encounter order.
-    pub fn parse(raw: &'a str, what: &str) -> Result<RawObject<'a>, crate::Error> {
-        let value: &'a RawValue = serde_json::from_str(raw)
-            .map_err(|err| crate::Error::new(format!("jev: {what}: {err}")))?;
-        Self::from_raw_value(value, what)
-    }
-
-    pub fn from_raw_value(value: &'a RawValue, what: &str) -> Result<RawObject<'a>, crate::Error> {
-        let parsed: RawObject<'a> = serde_json::from_str(value.get())
-            .map_err(|_| crate::Error::new(format!("jev: {what} must be an object")))?;
-        Ok(parsed)
-    }
-
-    pub fn get(&self, key: &str) -> Option<&'a RawValue> {
-        self.entries
-            .iter()
-            .find(|(name, _)| name == key)
-            .map(|(_, raw)| *raw)
-    }
-
-    pub fn tag(&self, key: &str) -> Option<String> {
-        self.get(key).and_then(|raw| {
-            serde_json::from_str::<String>(raw.get()).ok().or_else(|| {
-                serde_json::from_str::<Value>(raw.get())
-                    .ok()?
-                    .as_str()
-                    .map(str::to_owned)
-            })
-        })
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-}
 
 /// Removes whitespace outside JSON string literals, preserving key order and
 /// number tokens — the wire-side equivalent of Go's json.Compact on RawValue
@@ -105,8 +39,6 @@ pub fn compact_json_text(raw: &str) -> String {
 // Range and integer validation must not round JSON number tokens through
 // IEEE 754 doubles: 1.0000000000000001 is greater than 1 and 1.5 is not a
 // score level, even though both collapse to the same f64.
-
-const JSON_NUMBER_PATTERN: &str = "^-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$";
 
 pub(crate) struct DecimalParts {
     pub(crate) negative: bool,
@@ -167,10 +99,10 @@ fn is_json_number_shape(token: &str) -> bool {
     let mut chars = body.chars().peekable();
     match chars.next() {
         Some('0') => {
-            if let Some(next) = chars.peek() {
-                if next.is_ascii_digit() {
-                    return false;
-                }
+            if let Some(next) = chars.peek()
+                && next.is_ascii_digit()
+            {
+                return false;
             }
         }
         Some(first) if first.is_ascii_digit() => {}
@@ -268,24 +200,4 @@ pub fn score_token_within_levels(a: &Value, levels: usize) -> bool {
         Ok(value) => value >= 1 && value <= levels,
         Err(_) => false,
     }
-}
-
-/// Validates an enum of ascending 1..N integers exactly and returns N.
-pub fn score_levels(enum_values: &[Value]) -> Option<usize> {
-    if enum_values.is_empty() {
-        return None;
-    }
-    for (index, value) in enum_values.iter().enumerate() {
-        let number = value.as_number()?;
-        let parts = parse_decimal(&number.to_string())?;
-        if parts.negative || parts.frac_digits.chars().any(|c| c != '0') {
-            return None;
-        }
-        let digits = parts.int_digits.trim_start_matches('0');
-        let digits = if digits.is_empty() { "0" } else { digits };
-        if digits != (index + 1).to_string() {
-            return None;
-        }
-    }
-    Some(enum_values.len())
 }

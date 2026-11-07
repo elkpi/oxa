@@ -103,13 +103,15 @@ pub(crate) fn synthesized_response_format(
             }
             other => return Err(fail(format!("unsupported question type {other}"))),
         }
-        if let Some(instructions) = &question.instructions {
-            if !instructions.is_empty() {
-                property.insert(
-                    "description".to_owned(),
-                    Value::String(instructions.clone()),
-                );
-            }
+        if let Some(instructions) = question
+            .instructions
+            .as_ref()
+            .filter(|instructions| !instructions.is_empty())
+        {
+            property.insert(
+                "description".to_owned(),
+                Value::String(instructions.clone()),
+            );
         }
         properties.insert(id.clone(), Value::Object(property));
         required.push(Value::String(id.clone()));

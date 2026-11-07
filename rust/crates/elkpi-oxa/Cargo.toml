@@ -15,5 +15,6 @@ oxa-ir = { workspace = true }
 oxa-modelmap = { workspace = true }
 oxa-chatcompletions = { workspace = true }
 oxa-anthropic = { workspace = true }
+oxa-jev = { workspace = true }
 oxa-responses = { workspace = true }
 oxa-sse = { workspace = true }

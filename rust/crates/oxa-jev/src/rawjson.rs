@@ -11,8 +11,8 @@ use oxa_ir::{Loss, LossReason, Request as IrRequest, Response as IrResponse};
 
 use crate::config::Config;
 use crate::decode::{
-    INSTRUCTION_TEMPLATE, QUESTION_TYPE_BOX, QUESTION_TYPE_NOUL, QUESTION_TYPE_SCORE,
-    SYNTHESIZED_ID, WireUsage, fail, supported_question_type, whole_unit_skip_detail,
+    INSTRUCTION_TEMPLATE, QUESTION_TYPE_BOX, SYNTHESIZED_ID, WireUsage, fail,
+    supported_question_type, whole_unit_skip_detail,
 };
 use crate::error::Error;
 use crate::json_util::compact_json_text;
@@ -190,7 +190,7 @@ pub fn decode_request_json(raw: &str, config: &Config) -> Result<(IrRequest, Vec
     if !state_seen || state_text.is_none() {
         return Err(fail("request state is required"));
     }
-    if !questions_seen || questions.as_ref().map_or(true, |m| m.is_empty()) {
+    if !questions_seen || questions.as_ref().is_none_or(|m| m.is_empty()) {
         return Err(fail("request questions must not be empty"));
     }
 

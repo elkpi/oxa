@@ -10,7 +10,7 @@ use oxa_ir::{Block, Loss, LossReason, Request as IrRequest, Response as IrRespon
 use crate::config::Config;
 use crate::decode::{
     INSTRUCTION_TEMPLATE, QUESTION_TYPE_BOX, QUESTION_TYPE_CHOICE, QUESTION_TYPE_NOUL,
-    QUESTION_TYPE_SCORE, SYNTHESIZED_ID, fail, supported_question_type, usage_loss_list,
+    QUESTION_TYPE_SCORE, fail, supported_question_type, usage_loss_list,
 };
 use crate::error::Error;
 use crate::json_util::{compare_decimal, parse_decimal, score_token_within_levels};
@@ -395,7 +395,7 @@ pub fn encode_response(
     for (index, block) in response.content.iter().enumerate() {
         match block {
             Block::Text { text, .. } => texts.push(text),
-            other => losses.push(Loss {
+            _other => losses.push(Loss {
                 path: format!("content[{index}]"),
                 field: "type".to_owned(),
                 reason: LossReason::UnsupportedSemantic,
@@ -586,19 +586,17 @@ fn recover_scalar_answer(
                     });
                 }
             }
-            QUESTION_TYPE_SCORE => {
-                if raw.is_number() {
-                    let levels = criteria_count_of(question.criteria.as_ref());
-                    let loss = if levels > 0 && !score_token_within_levels(raw, levels) {
-                        Some(out_of_range(id, "score"))
-                    } else {
-                        None
-                    };
-                    return Ok(RecoveredAnswer {
-                        value: typed_answer(QUESTION_TYPE_SCORE, "score", raw.clone()),
-                        loss,
-                    });
-                }
+            QUESTION_TYPE_SCORE if raw.is_number() => {
+                let levels = criteria_count_of(question.criteria.as_ref());
+                let loss = if levels > 0 && !score_token_within_levels(raw, levels) {
+                    Some(out_of_range(id, "score"))
+                } else {
+                    None
+                };
+                return Ok(RecoveredAnswer {
+                    value: typed_answer(QUESTION_TYPE_SCORE, "score", raw.clone()),
+                    loss,
+                });
             }
             _ => {}
         }
@@ -648,21 +646,21 @@ fn recover_object_answer(
         });
     }
     let question = context.question(id);
-    if let (Some(question), Some(carried)) = (question, carried) {
-        if carried != question.kind {
-            // The carried answer contradicts the original question: carry
-            // verbatim rather than rewrite (spec/17 §4.1, N-JEV-12).
-            return Ok(RecoveredAnswer {
-                value: obj.clone(),
-                loss: Some(contradiction_loss(id)),
-            });
-        }
+    if let (Some(question), Some(carried)) = (question, carried)
+        && carried != question.kind
+    {
+        // The carried answer contradicts the original question: carry
+        // verbatim rather than rewrite (spec/17 §4.1, N-JEV-12).
+        return Ok(RecoveredAnswer {
+            value: obj.clone(),
+            loss: Some(contradiction_loss(id)),
+        });
     }
     let mut kind = carried.map(str::to_owned);
-    if kind.is_none() {
-        if let Some(question) = question {
-            kind = Some(question.kind.clone());
-        }
+    if kind.is_none()
+        && let Some(question) = question
+    {
+        kind = Some(question.kind.clone());
     }
     if kind.is_none() {
         kind = if obj.get("noul").is_some() {
@@ -723,10 +721,12 @@ fn validate_answer(
             };
             leaf.as_number()
                 .ok_or_else(|| fail(format!("answer {id} carries no noul value")))?;
-            let question = match question {
-                Some(question) if question.kind == QUESTION_TYPE_NOUL => question,
-                _ => return Ok(None),
-            };
+            if question
+                .map(|question| question.kind != QUESTION_TYPE_NOUL)
+                .unwrap_or(true)
+            {
+                return Ok(None);
+            }
             if !decimal_in_unit_interval(leaf) {
                 return Ok(Some(out_of_range(id, "noul")));
             }
@@ -740,10 +740,11 @@ fn validate_answer(
             let Some(question) = question else {
                 return Ok(None);
             };
-            if let Some(names) = choice_names_of_criteria(question.criteria.as_ref()) {
-                if !names.is_empty() && !names.contains(&choice.to_owned()) {
-                    return Ok(Some(out_of_range(id, "choice")));
-                }
+            if let Some(names) = choice_names_of_criteria(question.criteria.as_ref())
+                && !names.is_empty()
+                && !names.contains(&choice.to_owned())
+            {
+                return Ok(Some(out_of_range(id, "choice")));
             }
             Ok(None)
         }

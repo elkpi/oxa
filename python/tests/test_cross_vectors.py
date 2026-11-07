@@ -71,12 +71,17 @@ class CrossVectorsTest(unittest.TestCase):
             return
 
         vectors = load_cross_vectors(root)
-        self.assertEqual(len(vectors), 110, "expected 110 cross nonstream vectors")
+        self.assertEqual(len(vectors), 114, "expected 114 cross nonstream vectors")
 
         for vector in vectors:
             with self.subTest(vector=vector.name):
                 src_proto = vector.source.protocol
                 tgt_proto = vector.target.protocol
+
+                if src_proto == "jev" or tgt_proto == "jev":
+                    # SystemOne Jev vectors are Go-only until that face joins
+                    # the Python wave (spec/17).
+                    continue
 
                 self.assertIn(src_proto, DECODERS, f"unknown source protocol {src_proto}")
                 self.assertIn(tgt_proto, ENCODERS, f"unknown target protocol {tgt_proto}")

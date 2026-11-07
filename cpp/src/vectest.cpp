@@ -403,6 +403,11 @@ StatusOr<Report> run_cross(const std::vector<const Converter*>& converters,
             report.failures.push_back({vec.name, "cross vector missing expected_output"});
             continue;
         }
+        if (vec.source_protocol == "jev" || vec.target_protocol == "jev") {
+            // SystemOne Jev vectors are Go-only until that face joins the
+            // C++ wave (spec/17).
+            continue;
+        }
         const Converter* src = find_conv(vec.source_protocol);
         const Converter* tgt = find_conv(vec.target_protocol);
         if (!src) {

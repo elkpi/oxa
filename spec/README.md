@@ -13,9 +13,9 @@ Current spec version: **3.1.0**. The IR contract is **0.3.0**.
 Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)，原生请求配置保真见 [15](15-native-request-options.md)，原生工具声明保真见 [16](16-native-tool-declarations.md)，SystemOne Jev face 映射见 [17](17-systemone-jev.md)。
 
 Go, TypeScript, Rust, Python, and C++ share
-one golden suite of **585 vectors**, covering reasoning, usage granularity,
+one golden suite of **589 vectors**, covering reasoning, usage granularity,
 structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, Native Tool Declarations, and the SystemOne Jev face.
-The 18 Jev vectors are covered by the Go reference implementation first; the
+The 22 Jev vectors are covered by the Go reference implementation first; the
 remaining languages follow in later waves (spec/17).
 The corresponding implementation release is **v3.0.1**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 

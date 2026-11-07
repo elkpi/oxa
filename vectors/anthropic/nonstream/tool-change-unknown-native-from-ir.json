@@ -1,0 +1,44 @@
+{
+  "name": "anthropic.nonstream.tool-change-unknown-native-from-ir",
+  "description": "Unknown native sources and kinds on retained positional and compaction tool changes are reported without exposing their values.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {"protocol": "anthropic"},
+  "target": {"protocol": "anthropic"},
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "m",
+    "params": {"max_tokens": 32},
+    "messages": [{"role": "user", "content": [
+      {"type": "compaction", "content": "summary", "tool_changes": [{"op": "remove", "ref": {"type": "tool_reference", "name": "old"}, "native": [
+        {"source": "future_provider", "kind": "feature", "value": "{\"secret\":\"opaque\"}"},
+        {"source": "anthropic", "kind": "future_feature", "value": "{\"secret\":\"opaque\"}"}
+      ]}]},
+      {"type": "text", "text": "go"}
+    ]}],
+    "tool_change_groups": [{"message_index": 1, "content_index": -1, "parts": [{"type": "tool_change", "change": {
+      "op": "add", "ref": {"type": "tool_reference", "name": "new"}, "native": [
+        {"source": "future_provider", "kind": "feature", "value": "{\"secret\":\"opaque\"}"},
+        {"source": "anthropic", "kind": "future_feature", "value": "{\"secret\":\"opaque\"}"}
+      ]
+    }}]}]
+  },
+  "expected_output": {
+    "model": "m", "max_tokens": 32,
+    "messages": [
+      {"role": "user", "content": [
+        {"type": "compaction", "content": "summary", "tool_changes": [{"type": "tool_removal", "tool": {"type": "tool_reference", "name": "old"}}]},
+        {"type": "text", "text": "go"}
+      ]},
+      {"role": "system", "content": [{"type": "tool_addition", "tool": {"type": "tool_reference", "name": "new"}}]}
+    ]
+  },
+  "expected_losses": [
+    {"path": "messages[0].content[0].tool_changes[0].native[0]", "field": "source", "reason": "unsupported-semantic"},
+    {"path": "messages[0].content[0].tool_changes[0].native[1]", "field": "kind", "reason": "unsupported-semantic"},
+    {"path": "tool_change_groups[0].parts[0].change.native[0]", "field": "source", "reason": "unsupported-semantic"},
+    {"path": "tool_change_groups[0].parts[0].change.native[1]", "field": "kind", "reason": "unsupported-semantic"}
+  ],
+  "tags": ["anthropic", "request", "tool_changes", "compaction", "N-AN-22"]
+}

@@ -84,7 +84,7 @@ fn encode_tool_change(
         if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
             wire.cache_control = Some(cache_control);
         }
-        return Ok((wire, Vec::new(), true));
+        return Ok((wire, tool_change_native_losses(change, path), true));
     }
     let Some(tool) = &change.tool else {
         return Ok((
@@ -172,7 +172,7 @@ fn encode_tool_change(
     if let Some(cache_control) = crate::native::get_block_cache_control(&change.native) {
         wire.cache_control = Some(cache_control);
     }
-    let mut losses = Vec::new();
+    let mut losses = tool_change_native_losses(change, path);
     for (index, ann) in tool.native.iter().enumerate() {
         if ann.source != oxa_ir::NATIVE_SOURCE_ANTHROPIC
             && ann.kind != oxa_ir::NATIVE_KIND_DEFER_LOADING
@@ -196,6 +196,30 @@ fn encode_tool_change(
         }
     }
     Ok((wire, losses, true))
+}
+
+fn tool_change_native_losses(change: &oxa_ir::ToolChange, path: &str) -> Vec<Loss> {
+    change
+        .native
+        .iter()
+        .enumerate()
+        .filter_map(|(index, ann)| {
+            if ann.source == "anthropic" && ann.kind == "cache_control" {
+                return None;
+            }
+            let field = if ann.source == "anthropic" || ann.source == "openai" {
+                "kind"
+            } else {
+                "source"
+            };
+            Some(loss(
+                format!("{path}.native[{index}]"),
+                field,
+                LossReason::UnsupportedSemantic,
+                "",
+            ))
+        })
+        .collect()
 }
 
 fn tool_change_group_content(

@@ -109,7 +109,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 138);
+        CHECK(r->executed == 139);
     }
 
     // 3. Responses nonstream
@@ -122,7 +122,7 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 187);
+        CHECK(r->executed == 189);
     }
 
     // 4. Cross-protocol nonstream

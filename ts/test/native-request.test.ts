@@ -1018,3 +1018,197 @@ test("chatcompletions request controls conflict and validation", () => {
   assert.equal((encForeign.value as any).context_management, undefined);
   assert.equal(encForeign.losses.length, 2);
 });
+
+test("positional native errors contain a path without opaque values", () => {
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        model: "m",
+        messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "tool_change",
+                change: {
+                  op: "add",
+                  tool: {
+                    name: "read",
+                    input_schema: {},
+                    native: [
+                      {
+                        source: "anthropic",
+                        kind: "cache_control",
+                        value: '{"type":"ephemeral","ttl":"secret-payload"}',
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    (err: unknown) =>
+      err instanceof Error &&
+      err.message.includes(
+        "tool_change_groups[0].parts[0].change.tool.native",
+      ) &&
+      !err.message.includes("secret-payload"),
+  );
+});
+
+test("validates native annotations in positional tool changes and compaction", () => {
+  const badTool = () => ({
+    name: "read",
+    input_schema: { type: "object" },
+    native: [
+      {
+        source: "anthropic",
+        kind: "cache_control",
+        value: '{"type":"bad"}',
+      },
+    ],
+  });
+  const base = (): Request => ({
+    model: "m",
+    messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+  });
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              { type: "tool_change", change: { op: "add", tool: badTool() } },
+            ],
+          },
+        ],
+      }),
+    /native annotation/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "tool_change",
+                change: {
+                  op: "add",
+                  tool: {
+                    name: "read",
+                    input_schema: { type: "object" },
+                    native: [
+                      {
+                        source: "anthropic",
+                        kind: "cache_control",
+                        value: '{"type":"ephemeral"}',
+                      },
+                      {
+                        source: "anthropic",
+                        kind: "defer_loading",
+                        value: "true",
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    /cannot specify both defer_loading and cache_control/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        tool_change_groups: [
+          {
+            message_index: 1,
+            content_index: -1,
+            parts: [
+              {
+                type: "text",
+                text: "note",
+                native: [
+                  {
+                    source: "anthropic",
+                    kind: "cache_control",
+                    value: "{bad",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    /native annotation/,
+  );
+
+  assert.throws(
+    () =>
+      validateNativeRequest({
+        ...base(),
+        messages: [
+          {
+            role: "user",
+            content: [
+              {
+                type: "compaction",
+                tool_changes: [{ op: "add", tool: badTool() }],
+              },
+            ],
+          },
+        ],
+      }),
+    /native annotation/,
+  );
+
+  validateNativeRequest({
+    ...base(),
+    tool_change_groups: [
+      {
+        message_index: 1,
+        content_index: -1,
+        parts: [
+          {
+            type: "tool_change",
+            change: {
+              op: "add",
+              tool: {
+                name: "read",
+                input_schema: { type: "object" },
+                native: [
+                  {
+                    source: "anthropic",
+                    kind: "cache_control",
+                    value: '{"type":"ephemeral"}',
+                  },
+                  {
+                    source: "future_provider",
+                    kind: "future_kind",
+                    value: "{}",
+                  },
+                ],
+              },
+            },
+          },
+        ],
+      },
+    ],
+  });
+});

@@ -889,11 +889,27 @@ fn append_tool_groups(
                 tool.validate_strict().map_err(Error::new)?;
                 let base = format!("tool_change_groups[{i}].parts[{j}].change");
                 for (k, annotation) in change.native.iter().enumerate() {
+                    if annotation.source != "anthropic" && annotation.source != "openai" {
+                        losses.push(loss(
+                            format!("{base}.native[{k}]"),
+                            "source",
+                            LossReason::UnsupportedSemantic,
+                            "",
+                        ));
+                    }
                     if annotation.source == "anthropic" && annotation.kind == "cache_control" {
                         losses.push(loss(format!("{base}.native[{k}]"), "cache_control", LossReason::UnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
                     }
                 }
                 for (k, annotation) in tool.native.iter().enumerate() {
+                    if annotation.source != "anthropic" && annotation.source != "openai" {
+                        losses.push(loss(
+                            format!("{base}.tool.native[{k}]"),
+                            "source",
+                            LossReason::UnsupportedSemantic,
+                            "",
+                        ));
+                    }
                     if annotation.source == "anthropic" && annotation.kind == "cache_control" {
                         losses.push(loss(format!("{base}.tool.native[{k}]"), "cache_control", LossReason::UnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"));
                     }

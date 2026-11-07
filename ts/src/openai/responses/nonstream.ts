@@ -1276,6 +1276,15 @@ export function encodeRequest(
           const base = `tool_change_groups[${i}].parts[${j}].change`;
           (part.change.native ?? []).forEach((annotation, k) => {
             if (
+              annotation.source !== "anthropic" &&
+              annotation.source !== "openai"
+            )
+              losses.push({
+                path: `${base}.native[${k}]`,
+                field: "source",
+                reason: "unsupported-semantic",
+              });
+            if (
               annotation.source === "anthropic" &&
               annotation.kind === "cache_control"
             )
@@ -1288,6 +1297,15 @@ export function encodeRequest(
               });
           });
           (part.change.tool.native ?? []).forEach((annotation, k) => {
+            if (
+              annotation.source !== "anthropic" &&
+              annotation.source !== "openai"
+            )
+              losses.push({
+                path: `${base}.tool.native[${k}]`,
+                field: "source",
+                reason: "unsupported-semantic",
+              });
             if (
               annotation.source === "anthropic" &&
               annotation.kind === "cache_control"

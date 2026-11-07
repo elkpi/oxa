@@ -17,6 +17,7 @@ from oxa.openai.responses import (
     encode_request as r_encode_request,
 )
 from oxa.ir import (
+    CompactionBlock,
     LOSS_DEGRADED,
     LOSS_UNMAPPED_FIELD,
     LOSS_UNMAPPED_VALUE,
@@ -30,6 +31,9 @@ from oxa.ir import (
     Response,
     TextBlock,
     Tool,
+    ToolChange,
+    ToolChangeGroup,
+    ToolChangePart,
     Usage,
     dump_block,
     dump_request,
@@ -42,6 +46,7 @@ from oxa.ir import (
 from oxa.ir.native import (
     NATIVE_KIND_CACHE_CONTROL,
     NATIVE_KIND_CONTEXT_MANAGEMENT,
+    NATIVE_KIND_DEFER_LOADING,
     NATIVE_KIND_THINKING_BUDGET,
     NATIVE_KIND_THINKING_MODE,
     NATIVE_SOURCE_ANTHROPIC,
@@ -772,6 +777,115 @@ class NativeRequestTest(unittest.TestCase):
         self.assertNotIn("thinking", enc_foreign)
         self.assertNotIn("context_management", enc_foreign)
         self.assertEqual(len(for_ls), 2)
+
+
+    def test_positional_native_error_hides_value(self) -> None:
+        tool = Tool(name="read", input_schema={}, native=(NativeAnnotation(
+            source="anthropic", kind="cache_control",
+            value='{"type":"ephemeral","ttl":"secret-payload"}',
+        ),))
+        req = Request(model="m", messages=[Message(role="user", content=[TextBlock(text="go")])],
+                      tool_change_groups=[ToolChangeGroup(message_index=1, content_index=-1,
+                          parts=[ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=tool))])])
+        with self.assertRaises(CodecError) as exc:
+            validate_native_request(req)
+        self.assertIn("tool_change_groups[0].parts[0].change.tool.native", str(exc.exception))
+        self.assertNotIn("secret-payload", str(exc.exception))
+
+    def test_validate_native_request_positional_and_compaction(self) -> None:
+        def bad_tool() -> Tool:
+            return Tool(
+                name="read",
+                input_schema={"type": "object"},
+                native=(
+                    NativeAnnotation(
+                        source=NATIVE_SOURCE_ANTHROPIC,
+                        kind=NATIVE_KIND_CACHE_CONTROL,
+                        value='{"type":"bad"}',
+                    ),
+                ),
+            )
+
+        def req_with_groups(groups: list[ToolChangeGroup]) -> Request:
+            return Request(
+                model="m",
+                messages=[Message(role="user", content=[TextBlock(text="go")])],
+                tool_change_groups=groups,
+            )
+
+        # 1. Invalid cache_control on change.tool
+        req = req_with_groups([
+            ToolChangeGroup(
+                message_index=1,
+                content_index=-1,
+                parts=[ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=bad_tool()))],
+            )
+        ])
+        with self.assertRaises(CodecError):
+            validate_native_request(req)
+
+        # 2. defer_loading + cache_control mutual exclusion on positional tool
+        excl = Tool(
+            name="read",
+            input_schema={"type": "object"},
+            native=(
+                NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_CACHE_CONTROL, value='{"type":"ephemeral"}'),
+                NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_DEFER_LOADING, value="true"),
+            ),
+        )
+        req = req_with_groups([
+            ToolChangeGroup(
+                message_index=1,
+                content_index=-1,
+                parts=[ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=excl))],
+            )
+        ])
+        with self.assertRaises(CodecError):
+            validate_native_request(req)
+
+        # 3. Text part native with invalid JSON value
+        req = req_with_groups([
+            ToolChangeGroup(
+                message_index=1,
+                content_index=-1,
+                parts=[ToolChangePart(type="text", text="note", native=(NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_CACHE_CONTROL, value="{bad"),))],
+            )
+        ])
+        with self.assertRaises(CodecError):
+            validate_native_request(req)
+
+        # 4. Compaction tool_changes with invalid annotation
+        req = Request(
+            model="m",
+            messages=[
+                Message(
+                    role="user",
+                    content=[
+                        CompactionBlock(tool_changes=[ToolChange(op="add", tool=bad_tool())])
+                    ],
+                )
+            ],
+        )
+        with self.assertRaises(CodecError):
+            validate_native_request(req)
+
+        # 5. Valid positional native (valid cache_control + unknown source) passes
+        ok_tool = Tool(
+            name="read",
+            input_schema={"type": "object"},
+            native=(
+                NativeAnnotation(source=NATIVE_SOURCE_ANTHROPIC, kind=NATIVE_KIND_CACHE_CONTROL, value='{"type":"ephemeral"}'),
+                NativeAnnotation(source="future_provider", kind="future_kind", value="{}"),
+            ),
+        )
+        req = req_with_groups([
+            ToolChangeGroup(
+                message_index=1,
+                content_index=-1,
+                parts=[ToolChangePart(type="tool_change", change=ToolChange(op="add", tool=ok_tool))],
+            )
+        ])
+        validate_native_request(req)
 
 
 if __name__ == "__main__":

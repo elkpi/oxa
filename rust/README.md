@@ -1,11 +1,11 @@
 # oxa Rust implementation
 
-The Rust workspace targets **3.0.0**. Rust emits IR documents
+The Rust workspace targets **3.0.1**. Rust emits IR documents
 with `specVersion: 0.3.0` and accepts `0.1.0`, `0.2.0`, and `0.3.0`; implementation
 and IR contract versions are independent version axes.
 
 It conforms to the **same shared `vectors/` golden set** as every other
-oxa implementation — Rust gets no vector set of its own, and CI runs all 564
+oxa implementation — Rust gets no vector set of its own, and CI runs all 567
 shared vectors against it, including structured outputs, Custom Tools, Apply Patch,
 native request options, Responses reasoning-summary fidelity, and Anthropic native tool declarations.
 

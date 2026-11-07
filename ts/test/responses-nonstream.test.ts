@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   decodeRequest,
+  decodeRequestJSON,
   decodeResponse,
   encodeRequest,
   encodeResponse,
@@ -613,4 +614,54 @@ test("additional_tools are emitted at boundaries between assistant text blocks",
     { type: "additional_tools", role: "developer", tools: [] },
     { role: "assistant", content: "after" },
   ]);
+});
+
+test("audits unknown fields inside additional_tools declarations", () => {
+  const { losses } = decodeRequestJSON(
+    JSON.stringify({
+      model: "m",
+      input: [
+        {
+          type: "additional_tools",
+          role: "developer",
+          status: "queued",
+          future_execution: true,
+          tools: [
+            {
+              type: "function",
+              name: "read",
+              parameters: { type: "object" },
+              future_execution: true,
+            },
+            { type: "custom", name: "run", future_execution: true },
+            {
+              type: "toolbox",
+              name: "repo",
+              future_execution: true,
+              tools: [
+                {
+                  type: "function",
+                  name: "read",
+                  parameters: { type: "object" },
+                },
+              ],
+            },
+          ],
+        },
+        { role: "user", content: "go" },
+      ],
+    }),
+  );
+  const audited = losses.filter(
+    (l) => l.field === "future_execution" && l.reason === "unmapped-field",
+  );
+  assert.equal(audited.length, 3);
+  assert.deepEqual(
+    audited.map((l) => l.path),
+    [
+      "input[0].tools[0].future_execution",
+      "input[0].tools[1].future_execution",
+      "input[0].tools[2].future_execution",
+    ],
+  );
 });

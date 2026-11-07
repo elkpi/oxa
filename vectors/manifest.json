@@ -1236,6 +1236,18 @@
       "sha256": "2b63bda689c8b200fbb68619decdcc969a6740e5fec84f59baba57c27af64197"
     },
     {
+      "name": "anthropic.nonstream.tool-change-unknown-native-from-ir",
+      "file": "anthropic/nonstream/tool-change-unknown-native-from-ir.json",
+      "tags": [
+        "anthropic",
+        "request",
+        "tool_changes",
+        "compaction",
+        "N-AN-22"
+      ],
+      "sha256": "56ed2f6725382b6153e4d6b61378ad5d461d175e4673f9e540f6f5da1a731ab2"
+    },
+    {
       "name": "anthropic.nonstream.tool-choice-any-from-ir",
       "file": "anthropic/nonstream/tool-choice-any-from-ir.json",
       "tags": [
@@ -5624,6 +5636,30 @@
         "INV-3"
       ],
       "sha256": "1eb184356466ba9a9aef40bcea4b2a409116b1e3cf00a0a68d2c02604f49c8e9"
+    },
+    {
+      "name": "responses.nonstream.tool-additional-tools-unknown-fields-to-ir",
+      "file": "responses/nonstream/tool-additional-tools-unknown-fields-to-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "unmapped-field",
+        "N-R-15"
+      ],
+      "sha256": "d4fd150b5c17887a54e3630b56c042872982451e1690f4f7d912064a756d1b3b"
+    },
+    {
+      "name": "responses.nonstream.tool-additional-unknown-native-from-ir",
+      "file": "responses/nonstream/tool-additional-unknown-native-from-ir.json",
+      "tags": [
+        "tools",
+        "request",
+        "additional_tools",
+        "native",
+        "N-R-15"
+      ],
+      "sha256": "cc8a5ea1a588b5b7a5dbec8685396916213b524d40d91e6989f38edfff82a41f"
     },
     {
       "name": "responses.nonstream.tool-choice-auto-from-ir",

@@ -2,6 +2,7 @@ package ir
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -484,5 +485,135 @@ func TestValidateNativeRequestNewKinds(t *testing.T) {
 	}
 	if err := ValidateNativeRequest(reqPCBOnThinking); err == nil {
 		t.Fatalf("expected error for prompt_cache_breakpoint on ThinkingBlock")
+	}
+}
+
+func TestChangeNativeMutualExclusion(t *testing.T) {
+	conflict := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`}, {Source: NativeSourceAnthropic, Kind: NativeKindDeferLoading, Value: `true`}}
+	cases := []struct {
+		name string
+		req  *Request
+		path string
+	}{
+		{"group", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Native: conflict}}}}}}, "tool_change_groups[0].parts[0].change"},
+		{"compaction", &Request{Messages: []Message{{Content: []Block{CompactionBlock{ToolChanges: []ToolChange{{Native: conflict}}}}}}}, "messages[0].content[0].tool_changes[0]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNativeRequest(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.path) {
+				t.Fatalf("expected conflict at %s, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
+func TestPositionalNativeHosts(t *testing.T) {
+	bad := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"bad"}`}}
+	good := []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`}}
+	for _, tc := range []struct {
+		name string
+		req  *Request
+		path string
+	}{
+		{"text", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeText, Native: bad}}}}}, "tool_change_groups[0].parts[0].native[0]"},
+		{"change", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Native: bad}}}}}}, "tool_change_groups[0].parts[0].change.native[0]"},
+		{"compaction change", &Request{Messages: []Message{{Content: []Block{CompactionBlock{ToolChanges: []ToolChange{{Native: bad}}}}}}}, "messages[0].content[0].tool_changes[0].native[0]"},
+		{"duplicate tool", &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Tool: &Tool{Native: append(good[:1:1], good[0])}}}}}}}, "tool_change_groups[0].parts[0].change.tool.native[1]"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateNativeRequest(tc.req)
+			if err == nil || !strings.Contains(err.Error(), tc.path) {
+				t.Fatalf("expected %s, got %v", tc.path, err)
+			}
+		})
+	}
+}
+
+func TestPositionalNativeErrorDoesNotExposeValue(t *testing.T) {
+	tool := &Tool{Name: "read", Native: []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"secret-payload"}`}}}
+	req := &Request{ToolChangeGroups: []ToolChangeGroup{{Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange, Change: &ToolChange{Tool: tool}}}}}}
+	err := ValidateNativeRequest(req)
+	if err == nil || strings.Contains(err.Error(), "secret-payload") || !strings.Contains(err.Error(), "tool_change_groups[0].parts[0].change.tool") {
+		t.Fatalf("expected a value-free positional path error, got %v", err)
+	}
+}
+
+func TestValidateNativeRequestPositionalAndCompaction(t *testing.T) {
+	badTool := func() *Tool {
+		return &Tool{
+			Name:        "read",
+			InputSchema: json.RawMessage(`{"type":"object"}`),
+			Native: []NativeAnnotation{{
+				Source: NativeSourceAnthropic, Kind: NativeKindCacheControl,
+				Value: `{"type":"bad"}`,
+			}},
+		}
+	}
+	base := func() *Request {
+		return &Request{
+			Model:    "m",
+			Messages: []Message{{Role: RoleUser, Content: []Block{TextBlock{Text: "go"}}}},
+		}
+	}
+
+	// 1. Invalid cache_control on change.tool
+	req := base()
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: badTool()}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid cache_control on positional change tool")
+	}
+
+	// 2. defer_loading + cache_control mutual exclusion on positional tool
+	req = base()
+	excl := badTool()
+	excl.Native[0].Value = `{"type":"ephemeral"}`
+	excl.Native = append(excl.Native, NativeAnnotation{Source: NativeSourceAnthropic, Kind: NativeKindDeferLoading, Value: "true"})
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: excl}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected defer_loading+cache_control exclusion error on positional tool")
+	}
+
+	// 3. Text part native with invalid annotation (bad JSON value)
+	req = base()
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeText, Text: "note",
+			Native: []NativeAnnotation{{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{bad`}}}},
+	}}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid JSON on text part native")
+	}
+
+	// 4. Compaction tool_changes with invalid annotation
+	req = base()
+	compaction := CompactionBlock{ToolChanges: []ToolChange{{Op: ToolChangeOpAdd, Tool: badTool()}}}
+	req.Messages[0].Content = []Block{compaction}
+	if err := ValidateNativeRequest(req); err == nil {
+		t.Fatal("expected error for invalid cache_control in compaction tool_changes")
+	}
+
+	// 5. Valid case passes: valid cache_control + unknown non-empty source stay accepted
+	req = base()
+	okTool := &Tool{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`),
+		Native: []NativeAnnotation{
+			{Source: NativeSourceAnthropic, Kind: NativeKindCacheControl, Value: `{"type":"ephemeral"}`},
+			{Source: "future_provider", Kind: "future_kind", Value: `{}`},
+		}}
+	req.ToolChangeGroups = []ToolChangeGroup{{
+		MessageIndex: 1, ContentIndex: -1,
+		Parts: []ToolChangePart{{Type: ToolChangePartTypeToolChange,
+			Change: &ToolChange{Op: ToolChangeOpAdd, Tool: okTool}}},
+	}}
+	if err := ValidateNativeRequest(req); err != nil {
+		t.Fatalf("expected valid positional native to pass, got %v", err)
 	}
 }

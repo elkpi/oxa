@@ -436,10 +436,14 @@ def encode_tool_change_group(group: Any, group_index: int) -> tuple[dict[str, An
         ):
             base = f"tool_change_groups[{group_index}].parts[{part_index}].change"
             for annotation_index, annotation in enumerate(change.native):
+                if annotation.source not in ("anthropic", "openai"):
+                    losses.append(loss(f"{base}.native[{annotation_index}]", "source", LOSS_UNSUPPORTED_SEMANTIC, ""))
                 if annotation.source == "anthropic" and annotation.kind == "cache_control":
                     losses.append(loss(f"{base}.native[{annotation_index}]", "cache_control", LOSS_UNMAPPED_FIELD,
                                        "anthropic-native cache breakpoint; the target face has no cache_control representation"))
             for annotation_index, annotation in enumerate(change.tool.native):
+                if annotation.source not in ("anthropic", "openai"):
+                    losses.append(loss(f"{base}.tool.native[{annotation_index}]", "source", LOSS_UNSUPPORTED_SEMANTIC, ""))
                 if annotation.source == "anthropic" and annotation.kind == "cache_control":
                     losses.append(loss(f"{base}.tool.native[{annotation_index}]", "cache_control", LOSS_UNMAPPED_FIELD,
                                        "anthropic-native cache breakpoint; the target face has no cache_control representation"))

@@ -934,3 +934,63 @@ func TestDecodeRequestJSONPreservesMixedSummaryTextAndOutputText(t *testing.T) {
 		t.Fatalf("got thinking blocks %q and %q, want A and B", first, second)
 	}
 }
+
+func TestAdditionalToolsNestedAuditRoundTrip(t *testing.T) {
+	raw := []byte(`{"model":"m","input":[{"type":"additional_tools","role":"developer","id":"later","future_item":true,"tools":[{"type":"namespace","name":"repo","outer":false,"tools":[{"type":"toolbox","name":"inner","middle":null,"tools":[{"type":"function","name":"read","parameters":{"properties":{"future":{"const":900719925474099312345}}},"leaf":true}]}]}]},{"role":"user","content":"go"}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"input[0].tools[0].outer", "input[0].tools[0].tools[0].middle", "input[0].tools[0].tools[0].tools[0].leaf"}
+	if len(losses) != len(want) {
+		t.Fatalf("losses: %+v", losses)
+	}
+	for i, path := range want {
+		if losses[i].Path != path || losses[i].Reason != ir.LossUnmappedField {
+			t.Fatalf("loss %d: %+v", i, losses[i])
+		}
+	}
+	if req.ToolChangeGroups[0].ID != "later" || req.ToolChangeGroups[0].MessageIndex != 0 {
+		t.Fatalf("group: %+v", req.ToolChangeGroups[0])
+	}
+	wire, encodeLosses, err := EncodeRequest(req)
+	if err != nil || len(encodeLosses) != 0 {
+		t.Fatalf("encode losses %v, error %v", encodeLosses, err)
+	}
+	encoded, err := json.Marshal(wire)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{`"future_item":true`, `900719925474099312345`, `"id":"later"`} {
+		if !strings.Contains(string(encoded), text) {
+			t.Fatalf("missing %s in %s", text, encoded)
+		}
+	}
+	if strings.Contains(string(encoded), `"leaf"`) {
+		t.Fatalf("unknown declaration field retained: %s", encoded)
+	}
+}
+
+func TestDecodeAdditionalToolsUnknownFieldsAudited(t *testing.T) {
+	raw := []byte(`{"model":"m","input":[{"type":"additional_tools","role":"developer","status":"queued","future_execution":true,"tools":[{"type":"function","name":"read","parameters":{"type":"object","x-big":9007199254740991},"future_execution":true},{"type":"custom","name":"run","future_execution":true},{"type":"toolbox","name":"repo","future_execution":true,"tools":[{"type":"function","name":"read","parameters":{"type":"object"}}]}]},{"role":"user","content":"go"}]}`)
+	req, losses, err := DecodeRequestJSON(raw)
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	if len(req.ToolChangeGroups) != 1 || len(req.ToolChangeGroups[0].Parts) != 3 {
+		t.Fatalf("groups=%+v", req.ToolChangeGroups)
+	}
+	want := []struct{ path, field string }{
+		{"input[0].tools[0].future_execution", "future_execution"},
+		{"input[0].tools[1].future_execution", "future_execution"},
+		{"input[0].tools[2].future_execution", "future_execution"},
+	}
+	if len(losses) != len(want) {
+		t.Fatalf("losses = %#v, want %d unmapped-field records", losses, len(want))
+	}
+	for i, w := range want {
+		if losses[i].Path != w.path || losses[i].Field != w.field || losses[i].Reason != ir.LossUnmappedField {
+			t.Fatalf("losses[%d] = %#v, want %+v", i, losses[i], w)
+		}
+	}
+}

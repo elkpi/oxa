@@ -61,6 +61,11 @@ def encode_change(change: ToolChange, path: str, losses: list[Loss]) -> dict[str
         tool = {**(change.tool_extra or {}), "type": "tool_definition", "definition": {**(change.definition_extra or {}), **wire["tools"][0]}}
     else: raise ValueError("invalid tool change")
     result = {**(change.extra or {}), "type": "tool_addition" if change.op == "add" else "tool_removal", "tool": tool}
+    for index, annotation in enumerate(change.native):
+        if annotation.source == "anthropic" and annotation.kind == "cache_control":
+            continue
+        field = "kind" if annotation.source in ("anthropic", "openai") else "source"
+        losses.append(Loss(path=f"{path}.native[{index}]", field=field, reason="unsupported-semantic"))
     cache = get_block_cache_control(change.native)
     if cache is not None: result["cache_control"] = cache
     return result

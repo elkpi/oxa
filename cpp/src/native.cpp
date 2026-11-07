@@ -891,28 +891,72 @@ Status validate_native_request(const Request& req) {
         }
     }
 
-    if (req.tools.has_value()) {
-        for (std::size_t t_idx = 0; t_idx < req.tools->size(); ++t_idx) {
-            std::string tool_path = "tools[" + std::to_string(t_idx) + "]";
-            auto tool_st = validate_annotations((*req.tools)[t_idx].native, HostType::Tool, tool_path);
-            if (!tool_st.ok()) return tool_st;
-            bool has_cache_control = false;
-            bool has_defer_loading = false;
-            for (const auto& n : (*req.tools)[t_idx].native) {
-                if (n.source == NATIVE_SOURCE_ANTHROPIC) {
-                    if (n.kind == NATIVE_KIND_CACHE_CONTROL) {
-                        has_cache_control = true;
-                    } else if (n.kind == NATIVE_KIND_DEFER_LOADING) {
-                        has_defer_loading = true;
-                    }
-                }
+    const auto validate_at_path = [](const std::vector<NativeAnnotation>& native, HostType host, const std::string& path) -> Status {
+        if (validate_annotations(native, host, path).ok()) return ok_status();
+        for (std::size_t i = 0; i < native.size(); ++i) {
+            const std::vector<NativeAnnotation> prefix(native.begin(), native.begin() + i + 1);
+            if (!validate_annotations(prefix, host, path).ok()) {
+                return invalid_argument("ir: " + path + ".native[" + std::to_string(i) + "]: invalid native annotation");
             }
-            if (has_cache_control && has_defer_loading) {
-                return invalid_argument("ir: " + tool_path + ": cannot specify both defer_loading and cache_control");
+        }
+        return invalid_argument("ir: " + path + ".native: invalid native annotation");
+    };
+    const auto validate_tool_annotations = [&](const std::vector<NativeAnnotation>& native, const std::string& path) -> Status {
+        auto tool_st = validate_at_path(native, HostType::Tool, path);
+        if (!tool_st.ok()) return tool_st;
+        bool has_cache_control = false;
+        bool has_defer_loading = false;
+        for (const auto& n : native) {
+            if (n.source == NATIVE_SOURCE_ANTHROPIC) {
+                if (n.kind == NATIVE_KIND_CACHE_CONTROL) has_cache_control = true;
+                if (n.kind == NATIVE_KIND_DEFER_LOADING) has_defer_loading = true;
+            }
+        }
+        if (has_cache_control && has_defer_loading) {
+            return invalid_argument("ir: " + path + ": cannot specify both defer_loading and cache_control");
+        }
+        return ok_status();
+    };
+    const auto validate_tool = [&](const Tool& tool, const std::string& path) -> Status {
+        return validate_tool_annotations(tool.native, path);
+    };
+    const auto validate_change = [&](const ToolChange& change, const std::string& path) -> Status {
+        auto change_st = validate_tool_annotations(change.native, path);
+        if (!change_st.ok()) return change_st;
+        return change.tool ? validate_tool(*change.tool, path + ".tool") : ok_status();
+    };
+    if (req.tools.has_value()) {
+        for (std::size_t i = 0; i < req.tools->size(); ++i) {
+            auto tool_st = validate_tool((*req.tools)[i], "tools[" + std::to_string(i) + "]");
+            if (!tool_st.ok()) return tool_st;
+        }
+    }
+    for (std::size_t i = 0; i < req.tool_change_groups.size(); ++i) {
+        const auto& group = req.tool_change_groups[i];
+        for (std::size_t j = 0; j < group.parts.size(); ++j) {
+            const auto& part = group.parts[j];
+            const auto path = "tool_change_groups[" + std::to_string(i) + "].parts[" + std::to_string(j) + "]";
+            if (part.type == "text") {
+                auto part_st = validate_at_path(part.native, HostType::Content, path);
+                if (!part_st.ok()) return part_st;
+            }
+            if (part.change) {
+                auto change_st = validate_change(*part.change, path + ".change");
+                if (!change_st.ok()) return change_st;
             }
         }
     }
-
+    for (std::size_t i = 0; i < req.messages.size(); ++i) {
+        for (std::size_t j = 0; j < req.messages[i].content.size(); ++j) {
+            const auto* block = std::get_if<CompactionBlock>(&req.messages[i].content[j]);
+            if (!block || !block->tool_changes) continue;
+            for (std::size_t k = 0; k < block->tool_changes->size(); ++k) {
+                const auto path = "messages[" + std::to_string(i) + "].content[" + std::to_string(j) + "].tool_changes[" + std::to_string(k) + "]";
+                auto change_st = validate_change((*block->tool_changes)[k], path);
+                if (!change_st.ok()) return change_st;
+            }
+        }
+    }
     return ok_status();
 }
 

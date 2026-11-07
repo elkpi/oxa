@@ -6,8 +6,8 @@ in-process libraries.
 [![CI](https://github.com/elkpi/oxa/actions/workflows/ci.yml/badge.svg)](https://github.com/elkpi/oxa/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 
-**Latest coordinated release: v3.0.0.** The source tree targets Spec 3.0.0 across Go,
-TypeScript, Rust, Python, and C++, using 564 shared golden vectors.
+**Latest coordinated release: v3.0.1.** The source tree targets Spec 3.0.1 across Go,
+TypeScript, Rust, Python, and C++, using 567 shared golden vectors.
 
 ## What is oxa?
 
@@ -54,28 +54,28 @@ without a corresponding vector update.
 
 | Language   | Directory | Source | Latest published |
 | ---------- | --------- | ------ | ---------------- |
-| Go         | `go/`     | 3.0.0  | 3.0.0            |
-| TypeScript | `ts/`     | 3.0.0  | 3.0.0            |
-| Rust       | `rust/`   | 3.0.0  | 3.0.0            |
-| Python     | `python/` | 3.0.0  | 3.0.0            |
-| C++        | `cpp/`    | 3.0.0  | 3.0.0            |
+| Go         | `go/`     | 3.0.1  | 3.0.1            |
+| TypeScript | `ts/`     | 3.0.1  | 3.0.1            |
+| Rust       | `rust/`   | 3.0.1  | 3.0.1            |
+| Python     | `python/` | 3.0.1  | 3.0.1            |
+| C++        | `cpp/`    | 3.0.1  | 3.0.1            |
 
 ## Directory overview
 
 ```
 spec/      Protocol-conversion specification
 vectors/   Golden test vectors generated from the spec
-go/        Go reference implementation (v3.0.0)
-ts/        TypeScript implementation (v3.0.0)
+go/        Go reference implementation (v3.0.1)
+ts/        TypeScript implementation (v3.0.1)
 docs/      Design docs and the release checklist
-rust/      Rust implementation (v3.0.0)
-python/    Python implementation (v3.0.0)
-cpp/       C++ implementation (v3.0.0)
+rust/      Rust implementation (v3.0.1)
+python/    Python implementation (v3.0.1)
+cpp/       C++ implementation (v3.0.1)
 ```
 
 ## Current capabilities
 
-The source tree targets Spec 3.0.0 across Go, TypeScript, Rust,
+The source tree targets Spec 3.0.1 across Go, TypeScript, Rust,
 Python, and C++, converting each protocol face through a shared intermediate
 representation (IR). The IR document contract is 0.3.0.
 

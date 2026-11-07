@@ -287,6 +287,12 @@ StatusOr<json::Value> encode_tool_change(const ir::ToolChange& change, const std
         tool.set("definition", std::move(definition));
     }
     out.set("tool", std::move(tool));
+    for (std::size_t i = 0; i < change.native.size(); ++i) {
+        const auto& ann = change.native[i];
+        if (ann.source == "anthropic" && ann.kind == "cache_control") continue;
+        const auto field = ann.source == "anthropic" || ann.source == "openai" ? "kind" : "source";
+        losses.push_back(make_ant_loss(path + ".native[" + std::to_string(i) + "]", field, ir::LOSS_UNSUPPORTED_SEMANTIC, ""));
+    }
     if (auto cc = get_block_cache_control(change.native)) out.set("cache_control", std::move(*cc));
     return out;
 }

@@ -5,6 +5,13 @@ implementations. The spec follows [Semantic Versioning](https://semver.org/);
 precedence between spec, vectors, and schemas is defined in
 [README.md](README.md#source-of-truth-precedence).
 
+## 3.0.1 - 2026-11-07
+
+- Clarify recursive unknown-field auditing for Responses `additional_tools` declarations while preserving item-level extensions.
+- Require validation of native annotations on positional tool changes and compaction, including mutual exclusions and value-free indexed error paths.
+- Require explicit losses for unknown native annotations on Anthropic tool changes, including compaction.
+- Keep the IR contract at `0.3.0`.
+
 ## 3.0.0 - 2026-11-06
 
 - IR contract bumped to `0.3.0`.

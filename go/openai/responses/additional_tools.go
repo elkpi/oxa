@@ -71,11 +71,17 @@ func appendAdditionalGroups(items *[]InputItem, req *ir.Request, message, conten
 			if part.Type == ir.ToolChangePartTypeToolChange && part.Change != nil && part.Change.Op == ir.ToolChangeOpAdd && part.Change.Tool != nil && (part.Change.Tool.Type != ir.ToolTypeNative || part.Change.Tool.Source == ir.NativeSourceOpenAI) {
 				base := fmt.Sprintf("tool_change_groups[%d].parts[%d].change", i, j)
 				for k, ann := range part.Change.Native {
+					if ann.Source != ir.NativeSourceAnthropic && ann.Source != ir.NativeSourceOpenAI {
+						losses = append(losses, loss(fmt.Sprintf("%s.native[%d]", base, k), "source", ir.LossUnsupportedSemantic, ""))
+					}
 					if ann.Source == ir.NativeSourceAnthropic && ann.Kind == ir.NativeKindCacheControl {
 						losses = append(losses, loss(fmt.Sprintf("%s.native[%d]", base, k), "cache_control", ir.LossUnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"))
 					}
 				}
 				for k, ann := range part.Change.Tool.Native {
+					if ann.Source != ir.NativeSourceAnthropic && ann.Source != ir.NativeSourceOpenAI {
+						losses = append(losses, loss(fmt.Sprintf("%s.tool.native[%d]", base, k), "source", ir.LossUnsupportedSemantic, ""))
+					}
 					if ann.Source == ir.NativeSourceAnthropic && ann.Kind == ir.NativeKindCacheControl {
 						losses = append(losses, loss(fmt.Sprintf("%s.tool.native[%d]", base, k), "cache_control", ir.LossUnmappedField, "anthropic-native cache breakpoint; the target face has no cache_control representation"))
 					}

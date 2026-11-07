@@ -214,6 +214,17 @@ function encodeToolChange(
       definition: { ...change.definition_extra, ...definition },
     };
   } else return fail("invalid tool change");
+  (change.native ?? []).forEach((ann, index) => {
+    if (ann.source === "anthropic" && ann.kind === "cache_control") return;
+    losses.push({
+      path: `${path}.native[${index}]`,
+      field:
+        ann.source === "anthropic" || ann.source === "openai"
+          ? "kind"
+          : "source",
+      reason: "unsupported-semantic",
+    });
+  });
   const cc = change.native?.find(
     (ann) => ann.source === "anthropic" && ann.kind === "cache_control",
   );

@@ -641,9 +641,94 @@ void test_prompt_cache_breakpoint_host_and_null_value() {
     }
 }
 
+void test_positional_native_validation() {
+    using namespace oxa::ir;
+    Request req;
+    req.model = "m";
+    req.messages.push_back(Message{std::string(ROLE_USER), {TextBlock{"go"}}});
+    Tool tool;
+    tool.name = "read";
+    tool.native.push_back(NativeAnnotation{"anthropic", "cache_control", R"({"type":"bad"})", std::nullopt, std::nullopt});
+    ToolChange change;
+    change.op = "add";
+    change.tool = tool;
+    ToolChangePart part;
+    part.type = "tool_change";
+    part.change = change;
+    ToolChangeGroup group;
+    group.message_index = 1;
+    group.parts.push_back(part);
+    req.tool_change_groups.push_back(group);
+    auto invalid = validate_native_request(req);
+    CHECK(!invalid.ok());
+    CHECK(invalid.to_string().find("tool_change_groups[0].parts[0].change.tool") != std::string::npos);
+    CHECK(invalid.to_string().find("bad") == std::string::npos);
+
+    req.tool_change_groups.clear();
+    CompactionBlock block;
+    block.tool_changes = std::vector<ToolChange>{change};
+    req.messages[0].content = {block};
+    CHECK(!validate_native_request(req).ok());
+
+    req.messages[0].content = {TextBlock{"go"}};
+    group.parts[0].change->tool->native[0].value = R"({"type":"ephemeral"})";
+    group.parts[0].change->tool->native.push_back(NativeAnnotation{"anthropic", "defer_loading", "true", std::nullopt, std::nullopt});
+    req.tool_change_groups = {group};
+    CHECK(!validate_native_request(req).ok());
+    group.parts[0].change->tool->native.pop_back();
+    group.parts[0].change->tool->native.push_back(NativeAnnotation{"future_provider", "future_kind", "{}", std::nullopt, std::nullopt});
+    req.tool_change_groups = {group};
+    CHECK(validate_native_request(req).ok());
+}
+
+void test_change_native_conflicts_and_indices() {
+    using namespace oxa::ir;
+    NativeAnnotation cache{"anthropic", "cache_control", R"({"type":"ephemeral"})", std::nullopt, std::nullopt};
+    NativeAnnotation defer{"anthropic", "defer_loading", "true", std::nullopt, std::nullopt};
+    NativeAnnotation future{"future", "future", "{}", std::nullopt, std::nullopt};
+    NativeAnnotation invalid{"anthropic", "cache_control", R"({"type":"secret-value"})", std::nullopt, std::nullopt};
+    for (bool compaction : {false, true}) {
+        Request req;
+        req.model = "m";
+        req.messages.push_back(Message{std::string(ROLE_USER), {TextBlock{"go"}}});
+        ToolChange change;
+        change.op = "add";
+        change.ref = ToolChangeRef{"tool_reference", "read", "", oxa::json::Value::object()};
+        change.native = {cache, defer};
+        ToolChangePart part;
+        part.type = "tool_change";
+        part.change = change;
+        ToolChangeGroup group;
+        group.message_index = 1;
+        group.parts = {part};
+        CompactionBlock block;
+        block.tool_changes = std::vector<ToolChange>{change};
+        if (compaction) req.messages[0].content = {block};
+        else req.tool_change_groups = {group};
+        const std::string path = compaction ? "messages[0].content[0].tool_changes[0]" : "tool_change_groups[0].parts[0].change";
+        auto conflict = validate_native_request(req);
+        CHECK(!conflict.ok());
+        CHECK(conflict.to_string().find(path) != std::string::npos);
+        change.native = {future, invalid};
+        if (compaction) {
+            block.tool_changes = std::vector<ToolChange>{change};
+            req.messages[0].content = {block};
+        } else {
+            group.parts[0].change = change;
+            req.tool_change_groups = {group};
+        }
+        auto error = validate_native_request(req);
+        CHECK(!error.ok());
+        CHECK(error.to_string().find(path + ".native[1]") != std::string::npos);
+        CHECK(error.to_string().find("secret-value") == std::string::npos);
+    }
+}
+
 }  // namespace
 
 int main() {
+    test_change_native_conflicts_and_indices();
+    test_positional_native_validation();
     test_native_portable_round_trip();
     test_validate_native_request();
     test_native_thinking_combinations();

@@ -1,0 +1,68 @@
+{
+  "name": "jev.nonstream.stop-usage-loss-response-from-ir",
+  "description": "A non-end_turn stop reason and usage granularity details have no Jev equivalent and record unmapped-field losses; answers and usage totals map directly.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "target": {
+    "protocol": "jev"
+  },
+  "input": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "jev-latest",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"delivered\": 0}"
+      }
+    ],
+    "stop_reason": "max_tokens",
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5,
+      "cache_read_input_tokens": 3
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "answers": {
+      "delivered": {
+        "type": "score",
+        "score": 0
+      }
+    },
+    "usage": {
+      "input_tokens": 10,
+      "output_tokens": 5
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "answers.delivered",
+      "field": "type",
+      "reason": "degraded",
+      "detail": "N-JEV-13: noul/score are ambiguous without question context"
+    },
+    {
+      "path": "stop_reason",
+      "field": "stop_reason",
+      "reason": "unmapped-field",
+      "detail": "N-JEV-16: Jev responses carry no stop reason"
+    },
+    {
+      "path": "usage",
+      "field": "cache_read_input_tokens",
+      "reason": "unmapped-field",
+      "detail": "N-JEV-17: usage granularity has no Jev equivalent"
+    }
+  ],
+  "tags": [
+    "response",
+    "loss",
+    "usage"
+  ]
+}

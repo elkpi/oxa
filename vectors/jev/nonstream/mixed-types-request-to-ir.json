@@ -1,0 +1,84 @@
+{
+  "name": "jev.nonstream.mixed-types-request-to-ir",
+  "description": "A Jev request mixing noul, choice, and score questions renders the user text in ascending lexicographic ID order and synthesizes one schema property per question type.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "typesafe-jev-1.13.0",
+    "state": "Customer feedback transcript.",
+    "questions": {
+      "is_urgent": {
+        "type": "noul",
+        "instructions": "Does this convey urgency?"
+      },
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the overall sentiment?",
+        "criteria": {
+          "positive": "Customer is happy overall",
+          "negative": "Customer is unhappy overall",
+          "mixed": "Customer has both good and bad things to say"
+        }
+      },
+      "severity": {
+        "type": "score",
+        "instructions": "How severe is the issue?",
+        "criteria": ["low", "medium", "high"]
+      }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "typesafe-jev-1.13.0",
+    "system": [
+      {
+        "type": "text",
+        "text": "Customer feedback transcript.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question is_urgent (noul): Does this convey urgency?\nquestion sentiment (choice): What is the overall sentiment?\ncriteria:\n- mixed: Customer has both good and bad things to say\n- negative: Customer is unhappy overall\n- positive: Customer is happy overall\nquestion severity (score): How severe is the issue?\ncriteria:\n- level 1: low\n- level 2: medium\n- level 3: high"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "is_urgent": {
+              "description": "Does this convey urgency?",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            "sentiment": {
+              "description": "What is the overall sentiment?",
+              "enum": ["mixed", "negative", "positive"],
+              "type": "string"
+            },
+            "severity": {
+              "description": "How severe is the issue?",
+              "enum": [1, 2, 3],
+              "type": "number"
+            }
+          },
+          "required": ["is_urgent", "sentiment", "severity"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["request", "text", "response-format"]
+}

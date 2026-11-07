@@ -1,0 +1,64 @@
+{
+  "name": "jev.nonstream.minimal-choice-request-to-ir",
+  "description": "Minimal Jev request with one choice question projects to an IR request: state plus instruction template in system, rendered questions in the user message, and the synthesized json_schema response format.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "jev-latest",
+    "state": "The customer said the delivery was late but the product quality was excellent.",
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the overall sentiment of this feedback?",
+        "criteria": {
+          "positive": "Customer is happy overall",
+          "negative": "Customer is unhappy overall",
+          "mixed": "Customer has both good and bad things to say"
+        }
+      }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "The customer said the delivery was late but the product quality was excellent.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question sentiment (choice): What is the overall sentiment of this feedback?\ncriteria:\n- mixed: Customer has both good and bad things to say\n- negative: Customer is unhappy overall\n- positive: Customer is happy overall"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sentiment": {
+              "description": "What is the overall sentiment of this feedback?",
+              "enum": ["mixed", "negative", "positive"],
+              "type": "string"
+            }
+          },
+          "required": ["sentiment"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["request", "text", "minimal", "response-format"]
+}

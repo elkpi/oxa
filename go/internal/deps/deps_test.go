@@ -1,6 +1,6 @@
 // Package deps guards the dependency graph of the oxa Go module: the face
-// converter packages (openai/chatcompletions, openai/responses once it
-// exists, anthropic/messages) must import the ir package, the modelmap
+// converter packages (openai/chatcompletions, openai/responses,
+// anthropic/messages, systemone/jev) must import the ir package, the modelmap
 // injection point, and the standard library only, and must never import each
 // other (spec/00 hub architecture: every converter talks to the IR, never
 // face to face).
@@ -17,12 +17,12 @@ import (
 
 const modulePath = "github.com/elkpi/oxa/go/v3"
 
-// spokePackages lists the face converter packages that exist today. The
-// Responses spoke joins when it lands (spec/00).
+// spokePackages lists the face converter packages that exist today.
 var spokePackages = []string{
 	"./openai/chatcompletions",
 	"./openai/responses",
 	"./anthropic/messages",
+	"./systemone/jev",
 }
 
 // TestSpokesImportOnlyIRAndStdlib runs `go list -deps` over the spoke

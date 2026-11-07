@@ -112,7 +112,7 @@
     "endpoint": {
       "type": "object",
       "properties": {
-        "protocol": { "enum": ["chatcompletions", "responses", "anthropic"] }
+        "protocol": { "enum": ["chatcompletions", "responses", "anthropic", "jev"] }
       },
       "required": ["protocol"],
       "additionalProperties": false

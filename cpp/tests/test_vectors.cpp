@@ -136,7 +136,10 @@ int main() {
             }
         }
         CHECK(r->failures.empty());
-        CHECK(r->executed == 110);
+        // executed counts every loaded cross vector; the four SystemOne Jev
+        // vectors are skipped as Go-only until that face joins the C++ wave
+        // (spec/17).
+        CHECK(r->executed == 114);
         std::printf("test_cross: all %zu vectors passed\n", r->executed);
     }
 

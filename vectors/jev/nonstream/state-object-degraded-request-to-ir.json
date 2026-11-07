@@ -1,0 +1,67 @@
+{
+  "name": "jev.nonstream.state-object-degraded-request-to-ir",
+  "description": "A Jev object state serializes to canonical compact JSON text in the system block and records one degraded loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "jev-latest",
+    "state": { "late": true, "order_id": "A123" },
+    "questions": {
+      "delivered": {
+        "type": "noul",
+        "instructions": "Was the order delivered?"
+      }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "{\"late\":true,\"order_id\":\"A123\"}\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question delivered (noul): Was the order delivered?"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "delivered": {
+              "description": "Was the order delivered?",
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            }
+          },
+          "required": ["delivered"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "state",
+      "field": "state",
+      "reason": "degraded",
+      "detail": "N-JEV-1: state serialized to canonical JSON text"
+    }
+  ],
+  "tags": ["request", "loss", "state"]
+}

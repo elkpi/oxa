@@ -113,7 +113,9 @@ fn repository_loader_includes_all_spec_2_vectors() {
     ] {
         vectors.extend(load_vectors(&root, face, mode).expect("load vectors"));
     }
-    assert_eq!(vectors.len(), 567);
+    // SystemOne Jev vectors (vectors/jev/) are Go-only until that face joins
+    // the Rust wave (spec/17); the loader covers the four shared directories.
+    assert_eq!(vectors.len(), 571);
     assert_eq!(
         vectors
             .iter()

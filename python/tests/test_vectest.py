@@ -43,7 +43,10 @@ class VectestHarnessTest(unittest.TestCase):
             ("responses", "stream"),
         ):
             vectors.extend(load_vectors(root, face, mode))
-        self.assertEqual(len(vectors), 567)
+        # SystemOne Jev vectors (vectors/jev/) are Go-only until that face
+        # joins the Python wave (spec/17); the loader covers the four shared
+        # directories.
+        self.assertEqual(len(vectors), 571)
         self.assertEqual(sum(v.spec_version == "0.2.0" for v in vectors), 395)
 
     def test_compare_json_treats_supported_spec_versions_as_transitional_equivalents(self) -> None:

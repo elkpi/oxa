@@ -1,20 +1,26 @@
 # oxa specification
 
 This directory contains the normative specification for oxa, a collection of
-pure protocol-conversion libraries translating between three protocol faces —
-OpenAI Chat Completions (CC), OpenAI Responses, and Anthropic Messages —
+pure protocol-conversion libraries translating between four protocol faces —
+OpenAI Chat Completions (CC), OpenAI Responses, Anthropic Messages, and
+SystemOne Jev —
 through a hub-and-spoke intermediate representation (IR). The specification
 is the contract every implementation (Go first, then TypeScript, Rust, Python,
 and C++) MUST satisfy.
 
 The specification versions itself independently of the implementations.
-Current spec version: **3.0.1**. The IR contract is **0.3.0**.
-Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)，原生请求配置保真见 [15](15-native-request-options.md)，原生工具声明保真见 [16](16-native-tool-declarations.md)。
+Current spec version: **3.1.0**. The IR contract is **0.3.0**.
+Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14-apply-patch.md)，原生请求配置保真见 [15](15-native-request-options.md)，原生工具声明保真见 [16](16-native-tool-declarations.md)，SystemOne Jev face 映射见 [17](17-systemone-jev.md)。
 
 Go, TypeScript, Rust, Python, and C++ share
-one golden suite of **567 vectors**, covering reasoning, usage granularity,
-structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, and Native Tool Declarations.
-The corresponding implementation release is **v3.0.1**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
+one golden suite of **589 vectors**, covering reasoning, usage granularity,
+structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, Native Tool Declarations, and the SystemOne Jev face.
+The 22 Jev vectors are covered by the Go reference implementation first; the
+remaining languages follow in later waves (spec/17). The SystemOne Jev face
+targets implementation release **v3.1.0**, published once every language
+wave passes this same suite — a minor bump (a new face inside the existing
+framework) with the IR contract staying at 0.3.0; everything else
+corresponds to release **v3.0.1**. See [CHANGELOG.md](CHANGELOG.md) and the versioning policy below.
 
 ## Versioning policy
 
@@ -69,7 +75,7 @@ Read the documents in this order:
 2. [01 — Intermediate Representation](01-intermediate-representation.md)
 3. [02 — Loss Policy](02-loss-policy.md)
 4. [03 — Model Handling](03-model-handling.md)
-5. 10–12 — per-face mapping documents (one per face)
+5. 10–12 and 17 — per-face mapping documents (one per face)
 6. [20 — streaming semantics](20-streaming-semantics.md)
 7. [90 — glossary](90-glossary.md)
 
@@ -86,6 +92,7 @@ Read the documents in this order:
 | [14](14-apply-patch.md) | Apply Patch：专用类型、Operation 联合体、流式与目标降级 | ready |
 | [15](15-native-request-options.md) | 原生请求配置受限保留、分阶段报损与回转保真 | ready |
 | [16](16-native-tool-declarations.md) | 原生命名工具声明保真与跨面损失；不扩展 Advisor 内容块 | ready |
+| [17](17-systemone-jev.md) | SystemOne Jev face：评估协议到对话 IR 的投影、schema 合成与 answers 解析 | ready |
 | [20](20-streaming-semantics.md) | streaming semantics | ready |
 | [90](90-glossary.md) | glossary | ready |
 

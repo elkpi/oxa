@@ -1,0 +1,51 @@
+{
+  "name": "jev.nonstream.minimal-answers-response-to-ir",
+  "description": "A Jev choice answer carries verbatim into one canonical answers text block (probabilities and confidence included); usage and model map directly and stop_reason is the derived end_turn envelope.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "input": {
+    "model": "typesafe-jev-1.13.0",
+    "answers": {
+      "sentiment": {
+        "type": "choice",
+        "choice": "mixed",
+        "probabilities": {
+          "mixed": 1,
+          "negative": 0,
+          "positive": 0
+        },
+        "confidence": 1
+      }
+    },
+    "usage": {
+      "input_tokens": 349,
+      "output_tokens": 39
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "typesafe-jev-1.13.0",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"sentiment\":{\"choice\":\"mixed\",\"confidence\":1,\"probabilities\":{\"mixed\":1,\"negative\":0,\"positive\":0},\"type\":\"choice\"}}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 349,
+      "output_tokens": 39
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "response",
+    "text",
+    "minimal"
+  ]
+}

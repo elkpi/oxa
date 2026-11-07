@@ -6,6 +6,6 @@ export const VectorSchemaTitle = "oxa golden vector" as const;
 export type VectorSchemaDocument = { readonly name: string; readonly description: string; readonly spec_version: string; readonly mode: "nonstream" | "stream"; readonly conversion: "to-ir" | "from-ir" | "protocol-to-protocol"; readonly source: VectorSchemaEndpoint; readonly target?: VectorSchemaEndpoint; readonly input: {  }; readonly input_sse?: string; readonly expected_ir?: {  }; readonly expected_output?: {  }; readonly expected_losses: readonly (unknown)[]; readonly tags: readonly (string)[]; readonly provenance?: { readonly doc_url: string; readonly retrieved?: string; }; };
 
 export interface VectorSchemaEndpoint {
-  readonly protocol: "chatcompletions" | "responses" | "anthropic";
+  readonly protocol: "chatcompletions" | "responses" | "anthropic" | "jev";
 }
 

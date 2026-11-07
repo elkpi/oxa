@@ -10,6 +10,7 @@ import (
 	"github.com/elkpi/oxa/go/v3/ir"
 	"github.com/elkpi/oxa/go/v3/openai/chatcompletions"
 	"github.com/elkpi/oxa/go/v3/openai/responses"
+	jev "github.com/elkpi/oxa/go/v3/systemone/jev"
 )
 
 // fakeCrossConverter is a programmable Converter for harness tests.
@@ -220,6 +221,37 @@ func (crossAnthropic) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []ir
 	return raw, losses, err
 }
 
+// crossJev binds the SystemOne Jev face to the cross runner.
+type crossJev struct{}
+
+func (crossJev) Face() string { return "jev" }
+
+func (crossJev) DecodeRequestWire(w json.RawMessage) (*ir.Request, []ir.Loss, error) {
+	return jev.DecodeRequestJSON(w)
+}
+
+func (crossJev) DecodeResponseWire(w json.RawMessage) (*ir.Response, []ir.Loss, error) {
+	return jev.DecodeResponseJSON(w)
+}
+
+func (crossJev) EncodeRequestIR(req *ir.Request) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := jev.EncodeRequest(req)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
+func (crossJev) EncodeResponseIR(resp *ir.Response) (json.RawMessage, []ir.Loss, error) {
+	out, losses, err := jev.EncodeResponse(resp)
+	if err != nil {
+		return nil, nil, err
+	}
+	raw, err := json.Marshal(out)
+	return raw, losses, err
+}
+
 // TestCrossVectors runs the six ordered face pairs over the
 // cross/nonstream vectors through the real implementations.
 func TestCrossVectors(t *testing.T) {
@@ -227,16 +259,21 @@ func TestCrossVectors(t *testing.T) {
 		"chatcompletions": crossChatCompletions{},
 		"responses":       crossResponses{},
 		"anthropic":       crossAnthropic{},
+		"jev":             crossJev{},
 	}
 	for _, pair := range [][2]string{
 		{"chatcompletions", "responses"},
 		{"chatcompletions", "anthropic"},
+		{"chatcompletions", "jev"},
 		{"responses", "chatcompletions"},
 		{"responses", "anthropic"},
 		{"responses", "responses"},
 		{"anthropic", "chatcompletions"},
 		{"anthropic", "responses"},
 		{"anthropic", "anthropic"},
+		{"jev", "chatcompletions"},
+		{"jev", "responses"},
+		{"jev", "anthropic"},
 	} {
 		t.Run(pair[0]+"-to-"+pair[1], func(t *testing.T) {
 			RunCross(t, faces[pair[0]], faces[pair[1]])

@@ -10,13 +10,14 @@ and only when, they appear in all capitals, as shown here.
 ## 1. Scope
 
 oxa converts structured request, response, and streaming payloads between
-three protocol faces:
+four protocol faces:
 
 | Face | Protocol | Mapping document |
 |------|----------|------------------|
 | CC | OpenAI Chat Completions | [10](10-mapping-openai-chat-completions.md) |
 | Responses | OpenAI Responses | [11](11-mapping-openai-responses.md) |
 | Anthropic | Anthropic Messages | [12](12-mapping-anthropic-messages.md) |
+| Jev | SystemOne Jev | [17](17-systemone-jev.md) |
 
 Version 1 covers:
 
@@ -99,6 +100,13 @@ Each face implements exactly these two converters and nothing else.
                               |   Anthropic   |
                               |    Messages   |
                               +---------------+
+                                   ^    |
+                        face -> IR |    | IR -> face
+                                   |    v
+                              +---------------+
+                              |  SystemOne    |
+                              |     Jev       |
+                              +---------------+
 ```
 
 Rationale:
@@ -107,10 +115,10 @@ Rationale:
   converter per ordered pair of faces — N(N-1) one-way converters, the
   usual "N²" explosion. The hub-and-spoke design costs exactly 2N one-way
   converters, each written once against the single contract in document 01
-  instead of against N-1 foreign payload shapes. At the current N = 3 the
-  raw count is equal (6 either way); the win is that every added face costs
-  2 converters instead of N, and that correctness only ever has to be
-  argued against the IR.
+  instead of against N-1 foreign payload shapes. At the current N = 4 the
+  hub costs 8 one-way converters against 12 pairwise ones; the win is that
+  every added face costs 2 converters instead of N, and that correctness
+  only ever has to be argued against the IR.
 - **Why a block model.** The IR is a normalized block model: a message is a
   role plus an ordered list of content blocks. CC is flat — message content
   is a plain string or a flat array of parts, with tool calls hoisted out

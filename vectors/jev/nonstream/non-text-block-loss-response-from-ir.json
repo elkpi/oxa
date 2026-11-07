@@ -1,0 +1,59 @@
+{
+  "name": "jev.nonstream.non-text-block-loss-response-from-ir",
+  "description": "A thinking block in the IR response records one unsupported-semantic loss and is excluded from the answers object; the text block parses normally.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "target": {
+    "protocol": "jev"
+  },
+  "input": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "jev-latest",
+    "content": [
+      {
+        "type": "thinking",
+        "thinking": "hidden deliberation"
+      },
+      {
+        "type": "text",
+        "text": "{\"sentiment\": \"negative\"}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 30,
+      "output_tokens": 6
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "answers": {
+      "sentiment": {
+        "type": "choice",
+        "choice": "negative"
+      }
+    },
+    "usage": {
+      "input_tokens": 30,
+      "output_tokens": 6
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "content[0]",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-15: non-text blocks are excluded from answers"
+    }
+  ],
+  "tags": [
+    "response",
+    "loss",
+    "blocks"
+  ]
+}

@@ -1,0 +1,83 @@
+{
+  "name": "jev.nonstream.box-assets-loss-request-to-ir",
+  "description": "Experimental assets and box questions are out of scope: each records one unsupported-semantic loss and the box question stays out of schema and prompt.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "jev-latest",
+    "state": "A photo of the delivered package.",
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the sentiment?",
+        "criteria": {
+          "positive": null,
+          "negative": null
+        }
+      },
+      "locate": {
+        "type": "box",
+        "instructions": "Locate the damaged product."
+      }
+    },
+    "assets": {
+      "photo": { "type": "image", "data_base64": "aW1n", "format": "png" }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "A photo of the delivered package.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question sentiment (choice): What is the sentiment?\ncriteria:\n- negative\n- positive"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sentiment": {
+              "description": "What is the sentiment?",
+              "enum": ["negative", "positive"],
+              "type": "string"
+            }
+          },
+          "required": ["sentiment"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "assets",
+      "field": "assets",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-4: experimental image assets are out of scope"
+    },
+    {
+      "path": "questions.locate",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-5: experimental box questions are out of scope"
+    }
+  ],
+  "tags": ["request", "loss", "experimental"]
+}

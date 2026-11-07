@@ -1,0 +1,77 @@
+{
+  "name": "cross.nonstream.jev-to-anthropic-request",
+  "description": "A Jev evaluation request decodes to the IR and re-encodes as an Anthropic Messages request: output_config.format carries the schema, the schema name is unmapped, and max_tokens defaults with a degraded loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "jev" },
+  "target": { "protocol": "anthropic" },
+  "input": {
+    "model": "jev-latest",
+    "state": "The customer said the delivery was late but the product quality was excellent.",
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the overall sentiment of this feedback?",
+        "criteria": {
+          "positive": "Customer is happy overall",
+          "negative": "Customer is unhappy overall",
+          "mixed": "Customer has both good and bad things to say"
+        }
+      }
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "The customer said the delivery was late but the product quality was excellent.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question sentiment (choice): What is the overall sentiment of this feedback?\ncriteria:\n- mixed: Customer has both good and bad things to say\n- negative: Customer is unhappy overall\n- positive: Customer is happy overall"
+          }
+        ]
+      }
+    ],
+    "max_tokens": 4096,
+    "output_config": {
+      "format": {
+        "type": "json_schema",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sentiment": {
+              "description": "What is the overall sentiment of this feedback?",
+              "enum": ["mixed", "negative", "positive"],
+              "type": "string"
+            }
+          },
+          "required": ["sentiment"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "params",
+      "field": "max_tokens",
+      "reason": "degraded",
+      "detail": "Anthropic Messages requires max_tokens; defaulting to 4096"
+    },
+    {
+      "path": "params.response_format.name",
+      "field": "name",
+      "reason": "unmapped-field",
+      "detail": "N-AN-12: Anthropic output_config.format has no name field"
+    }
+  ],
+  "tags": ["request", "response-format", "cross"]
+}

@@ -1,0 +1,37 @@
+{
+  "name": "jev.nonstream.unknown-answer-field-dropped-response-to-ir",
+  "description": "An unrecognized property on an answer is removed from the carried answers text (never passed through) and records one unmapped-field loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "jev-latest",
+    "answers": {
+      "q": { "type": "noul", "noul": 1, "ext": "x" }
+    },
+    "usage": { "input_tokens": 5, "output_tokens": 2 }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "jev-latest",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"q\":{\"noul\":1,\"type\":\"noul\"}}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": { "input_tokens": 5, "output_tokens": 2 }
+  },
+  "expected_losses": [
+    {
+      "path": "answers.q",
+      "field": "ext",
+      "reason": "unmapped-field",
+      "detail": "unknown property on the Jev answer; dropped"
+    }
+  ],
+  "tags": ["response", "loss", "unknown-fields"]
+}

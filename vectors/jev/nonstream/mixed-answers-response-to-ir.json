@@ -1,0 +1,59 @@
+{
+  "name": "jev.nonstream.mixed-answers-response-to-ir",
+  "description": "noul, score, and choice answers carry verbatim into the canonical answers text block with answer keys in ascending lexicographic order; legend and probabilities survive as data.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "input": {
+    "model": "typesafe-jev-1.13.0",
+    "answers": {
+      "severity": {
+        "type": "score",
+        "score": 2,
+        "legend": {
+          "1": "low",
+          "2": "medium",
+          "3": "high"
+        },
+        "probabilities": {
+          "1": 0.2,
+          "2": 0.8,
+          "3": 0
+        },
+        "confidence": 0.8
+      },
+      "is_urgent": {
+        "type": "noul",
+        "noul": 0.95
+      }
+    },
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 15
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "typesafe-jev-1.13.0",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"is_urgent\":{\"noul\":0.95,\"type\":\"noul\"},\"severity\":{\"confidence\":0.8,\"legend\":{\"1\":\"low\",\"2\":\"medium\",\"3\":\"high\"},\"probabilities\":{\"1\":0.2,\"2\":0.8,\"3\":0},\"score\":2,\"type\":\"score\"}}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 15
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "response",
+    "text"
+  ]
+}

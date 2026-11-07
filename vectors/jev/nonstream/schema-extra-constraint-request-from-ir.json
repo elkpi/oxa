@@ -1,0 +1,61 @@
+{
+  "name": "jev.nonstream.schema-extra-constraint-request-from-ir",
+  "description": "A schema property carrying a constraint beyond the synthesized projection (multipleOf) is not the exact synthesized shape: it is skipped with one N-JEV-6 loss while supported properties reconstruct normally.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "jev" },
+  "target": { "protocol": "jev" },
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "State text.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question ok (noul): "
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "ok": { "type": "number", "minimum": 0, "maximum": 1 },
+            "weird": { "type": "number", "minimum": 0, "maximum": 1, "multipleOf": 0.5 }
+          },
+          "required": ["ok"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "state": "State text.",
+    "questions": {
+      "ok": { "type": "noul" }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "questions.weird",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-6: schema constraint beyond the synthesized projection"
+    }
+  ],
+  "tags": ["request", "loss", "response-format"]
+}

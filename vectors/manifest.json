@@ -3421,6 +3421,16 @@
       "sha256": "bbd423de915da38d961eaddf9cbcfd3eb12e26b74ad775728fbcd7f3960bd650"
     },
     {
+      "name": "cross.nonstream.jev-to-responses-request",
+      "file": "cross/nonstream/jev-to-responses-request.json",
+      "tags": [
+        "request",
+        "response-format",
+        "cross"
+      ],
+      "sha256": "f6cafcd4c3e72368f0750aef5a40f37d824c16670aae1baab852fb6cd486ddea"
+    },
+    {
       "name": "cross.nonstream.responses-developer-only-to-chatcompletions-request",
       "file": "cross/nonstream/responses-developer-only-to-chatcompletions-request.json",
       "tags": [
@@ -3946,7 +3956,7 @@
         "loss",
         "experimental"
       ],
-      "sha256": "007751984ffeed295c9ef7fdc61c829721631b991b5d75a34e17358bf6e8c609"
+      "sha256": "24937d29b3735cea77ebb8e24d664a75eb67a6416ea9a144097e8161b58abd25"
     },
     {
       "name": "jev.nonstream.box-assets-loss-request-to-ir",
@@ -3976,7 +3986,7 @@
         "text",
         "minimal"
       ],
-      "sha256": "90674ba7631ad77df6b0d1f9368dec776ab58c22624e7f42f299ea46566faa91"
+      "sha256": "1e5b62d9c74338e0065dc8e6c1c612c6fc6602304b97221ac8f184c634c08a62"
     },
     {
       "name": "jev.nonstream.minimal-choice-request-to-ir",
@@ -4006,7 +4016,7 @@
         "response",
         "text"
       ],
-      "sha256": "88707320fa28c95a3a109bf59a36a958c0d8aecfe440505ac365c88da2a5bf91"
+      "sha256": "381731653161943fad1b33df9a3f2c68d19a69280a6f3784637f7baadc0d53c9"
     },
     {
       "name": "jev.nonstream.mixed-types-request-to-ir",
@@ -4017,6 +4027,16 @@
         "response-format"
       ],
       "sha256": "91be75a5b0c663c2abb7a7964fbf9517b5e897c3485bfcac0e5a5b5edb34c603"
+    },
+    {
+      "name": "jev.nonstream.non-derived-user-content-request-from-ir",
+      "file": "jev/nonstream/non-derived-user-content-request-from-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "conversation"
+      ],
+      "sha256": "63b35a2c87881cde4915f85954aaccbef1f983636a47def4e083fda03350faac"
     },
     {
       "name": "jev.nonstream.non-text-block-loss-response-from-ir",
@@ -4049,6 +4069,16 @@
       "sha256": "dbc14dbd0f26a2574b6237b2855bd452b27fae24bb603f352b77f77a5116720b"
     },
     {
+      "name": "jev.nonstream.schema-extra-constraint-request-from-ir",
+      "file": "jev/nonstream/schema-extra-constraint-request-from-ir.json",
+      "tags": [
+        "request",
+        "loss",
+        "response-format"
+      ],
+      "sha256": "255d9ea0fc127df22fe1ad384fd53ca2e4a490cf7a7ae61a4a544b768c7e0a43"
+    },
+    {
       "name": "jev.nonstream.state-object-degraded-request-to-ir",
       "file": "jev/nonstream/state-object-degraded-request-to-ir.json",
       "tags": [
@@ -4076,6 +4106,16 @@
         "text"
       ],
       "sha256": "e1546cd61831890de3d3586d0a25f72c544e8444da2c5f1712dfcd6197d9f320"
+    },
+    {
+      "name": "jev.nonstream.unknown-answer-field-dropped-response-to-ir",
+      "file": "jev/nonstream/unknown-answer-field-dropped-response-to-ir.json",
+      "tags": [
+        "response",
+        "loss",
+        "unknown-fields"
+      ],
+      "sha256": "96af0fc8b5e7b2e6aeaf469a3e85ab306dae790b06708df10dc66d9a3104a37e"
     },
     {
       "name": "jev.nonstream.unknown-type-loss-request-to-ir",

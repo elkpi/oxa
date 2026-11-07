@@ -37,7 +37,7 @@
     "content": [
       {
         "type": "text",
-        "text": "{\"damaged\":{\"type\":\"noul\",\"noul\":1},\"locate\":{\"type\":\"box\",\"box\":{\"top\":0.1,\"bottom\":0.4,\"left\":0.2,\"right\":0.6},\"confidence\":0.7}}"
+        "text": "{\"damaged\":{\"noul\":1,\"type\":\"noul\"},\"locate\":{\"box\":{\"top\":0.1,\"bottom\":0.4,\"left\":0.2,\"right\":0.6},\"confidence\":0.7,\"type\":\"box\"}}"
       }
     ],
     "stop_reason": "end_turn",

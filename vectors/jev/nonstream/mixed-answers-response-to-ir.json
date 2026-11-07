@@ -42,7 +42,7 @@
     "content": [
       {
         "type": "text",
-        "text": "{\"is_urgent\":{\"type\":\"noul\",\"noul\":0.95},\"severity\":{\"type\":\"score\",\"score\":2,\"legend\":{\"1\":\"low\",\"2\":\"medium\",\"3\":\"high\"},\"probabilities\":{\"1\":0.2,\"2\":0.8,\"3\":0},\"confidence\":0.8}}"
+        "text": "{\"is_urgent\":{\"noul\":0.95,\"type\":\"noul\"},\"severity\":{\"confidence\":0.8,\"legend\":{\"1\":\"low\",\"2\":\"medium\",\"3\":\"high\"},\"probabilities\":{\"1\":0.2,\"2\":0.8,\"3\":0},\"score\":2,\"type\":\"score\"}}"
       }
     ],
     "stop_reason": "end_turn",

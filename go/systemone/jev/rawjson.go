@@ -8,7 +8,7 @@ import (
 )
 
 // DecodeRequestJSON parses raw request JSON, audits unknown properties
-// (spec/02 §4), and decodes into the IR.
+// (spec/02 §4) in source encounter order, and decodes into the IR.
 func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, error) {
 	root, err := decodeRawObject(raw, "request JSON")
 	if err != nil {
@@ -16,7 +16,7 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	}
 	wire := &Request{}
 	var losses []ir.Loss
-	for _, k := range sortedKeys(root) {
+	for _, k := range orderedTopKeys(raw) {
 		v := root[k]
 		switch k {
 		case "model":
@@ -45,7 +45,7 @@ func DecodeRequestJSON(raw []byte, opts ...Option) (*ir.Request, []ir.Loss, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	return req, append(losses, more...), nil
+	return req, mergeSourceOrder(raw, losses, more), nil
 }
 
 func parseQuestions(raw json.RawMessage) (map[string]Question, []ir.Loss, error) {
@@ -85,8 +85,8 @@ func parseQuestions(raw json.RawMessage) (map[string]Question, []ir.Loss, error)
 	return out, losses, nil
 }
 
-// DecodeResponseJSON parses raw response JSON, audits unknown properties,
-// and decodes into the IR.
+// DecodeResponseJSON parses raw response JSON, audits unknown properties in
+// source encounter order, and decodes into the IR.
 func DecodeResponseJSON(raw []byte, opts ...Option) (*ir.Response, []ir.Loss, error) {
 	root, err := decodeRawObject(raw, "response JSON")
 	if err != nil {
@@ -94,7 +94,7 @@ func DecodeResponseJSON(raw []byte, opts ...Option) (*ir.Response, []ir.Loss, er
 	}
 	wire := &Response{}
 	var losses []ir.Loss
-	for _, k := range sortedKeys(root) {
+	for _, k := range orderedTopKeys(raw) {
 		v := root[k]
 		switch k {
 		case "model":
@@ -126,7 +126,7 @@ func DecodeResponseJSON(raw []byte, opts ...Option) (*ir.Response, []ir.Loss, er
 	if err != nil {
 		return nil, nil, err
 	}
-	return resp, append(losses, more...), nil
+	return resp, mergeSourceOrder(raw, losses, more), nil
 }
 
 func parseAnswers(raw json.RawMessage) (map[string]json.RawMessage, []ir.Loss, error) {
@@ -134,24 +134,34 @@ func parseAnswers(raw json.RawMessage) (map[string]json.RawMessage, []ir.Loss, e
 	if err != nil {
 		return nil, nil, err
 	}
+	out := make(map[string]json.RawMessage, len(m))
 	var losses []ir.Loss
 	for _, id := range sortedKeys(m) {
 		am, err := decodeRawObject(m[id], "answer "+id)
 		if err != nil {
-			return nil, nil, fmt.Errorf("jev: answer %s must be an object", id)
+			return nil, nil, err
 		}
+		// Recognized fields carry verbatim; unrecognized properties are
+		// removed, never passed through (spec/02 §4), and reported.
+		filtered := make(map[string]json.RawMessage, len(am))
 		for _, k := range sortedKeys(am) {
 			switch k {
 			case "type", "noul", "choice", "score", "legend", "probabilities", "confidence", "box":
+				filtered[k] = am[k]
 			default:
 				losses = append(losses, ir.Loss{
 					Path: "answers." + id, Field: k, Reason: ir.LossUnmappedField,
-					Detail: "unknown property on the Jev answer",
+					Detail: "unknown property on the Jev answer; dropped",
 				})
 			}
 		}
+		filteredRaw, err := marshalAnswer(filtered)
+		if err != nil {
+			return nil, nil, err
+		}
+		out[id] = filteredRaw
 	}
-	return m, losses, nil
+	return out, losses, nil
 }
 
 func parseUsage(raw json.RawMessage) (Usage, []ir.Loss, error) {
@@ -184,7 +194,13 @@ func parseUsage(raw json.RawMessage) (Usage, []ir.Loss, error) {
 func decodeRawObject(raw []byte, what string) (map[string]json.RawMessage, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &m); err != nil {
+		if json.Valid(raw) {
+			return nil, fmt.Errorf("jev: %s must be an object", what)
+		}
 		return nil, fmt.Errorf("jev: %s: %w", what, err)
+	}
+	if m == nil {
+		return nil, fmt.Errorf("jev: %s must be an object", what)
 	}
 	return m, nil
 }

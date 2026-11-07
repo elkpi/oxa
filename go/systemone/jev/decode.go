@@ -93,22 +93,28 @@ func DecodeRequest(wire *Request, opts ...Option) (*ir.Request, []ir.Loss, error
 }
 
 // stateText renders the state as system-prompt text. A JSON string keeps its
-// unquoted value; any other shape serializes to canonical compact JSON
-// (sorted keys, no whitespace, numbers preserved) and reports degraded.
+// unquoted value; object/array shapes serialize to canonical compact JSON
+// (sorted keys, no whitespace, numbers preserved) and report degraded.
+// Other scalar shapes are structural errors (spec/17 §2: state is a string,
+// object, or array).
 func stateText(raw json.RawMessage) (string, bool, error) {
 	trimmed := bytes.TrimSpace(raw)
-	if trimmed[0] == '"' {
+	switch trimmed[0] {
+	case '"':
 		var s string
 		if err := json.Unmarshal(trimmed, &s); err != nil {
 			return "", false, err
 		}
 		return s, false, nil
+	case '{', '[':
+		canon, err := canonicalJSON(trimmed)
+		if err != nil {
+			return "", false, err
+		}
+		return canon, true, nil
+	default:
+		return "", false, fmt.Errorf("jev: state must be a string, object, or array")
 	}
-	canon, err := canonicalJSON(trimmed)
-	if err != nil {
-		return "", false, err
-	}
-	return canon, true, nil
 }
 
 // renderQuestion renders one question into prompt lines and its synthesized

@@ -5,7 +5,75 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"github.com/elkpi/oxa/go/v3/ir"
 )
+
+// orderedTopKeys returns the top-level object keys of raw in source
+// encounter order (spec/02 §4: losses follow the order the source
+// constructs are encountered).
+func orderedTopKeys(raw []byte) []string {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil || tok != json.Delim('{') {
+		return nil
+	}
+	var keys []string
+	for dec.More() {
+		t, err := dec.Token()
+		if err != nil {
+			return keys
+		}
+		if key, ok := t.(string); ok {
+			keys = append(keys, key)
+		}
+		var skip json.RawMessage
+		if err := dec.Decode(&skip); err != nil {
+			return keys
+		}
+	}
+	return keys
+}
+
+// mergeSourceOrder interleaves the typed-decode losses (whose paths root at
+// top-level keys) with the raw-audit losses by source position, keeping the
+// original relative order within each group (spec/02 §4 encounter order).
+func mergeSourceOrder(raw []byte, rawLosses, typedLosses []ir.Loss) []ir.Loss {
+	if len(typedLosses) == 0 {
+		return rawLosses
+	}
+	position := make(map[string]int)
+	for i, k := range orderedTopKeys(raw) {
+		if _, dup := position[k]; !dup {
+			position[k] = i
+		}
+	}
+	headOf := func(path string) string {
+		if i := strings.IndexAny(path, ".["); i >= 0 {
+			return path[:i]
+		}
+		return path
+	}
+	type entry struct {
+		order int
+		loss  ir.Loss
+	}
+	entries := make([]entry, 0, len(rawLosses)+len(typedLosses))
+	for _, l := range rawLosses {
+		entries = append(entries, entry{position[l.Path], l})
+	}
+	for _, l := range typedLosses {
+		entries = append(entries, entry{position[headOf(l.Path)], l})
+	}
+	sort.SliceStable(entries, func(a, b int) bool {
+		return entries[a].order < entries[b].order
+	})
+	out := make([]ir.Loss, len(entries))
+	for i, e := range entries {
+		out[i] = e.loss
+	}
+	return out
+}
 
 // sortedKeys returns the map keys in ascending lexicographic order; the
 // canonical order for question IDs, criteria names, and JSON canon (spec/17 §7).

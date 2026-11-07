@@ -97,12 +97,14 @@ not recoverable (they live in the prompt text), so choice criteria carry
 the option name as its own description and score criteria carry empty
 level descriptions, each choice/score question recording one N-JEV-9
 `degraded` loss; noul criteria are optional on the wire and stay absent
-without a loss. The user-message text of a decoded request is the §7.2
-rendering of its questions — derived data the reconstructed questions
-regenerate — so it is not re-carried into `state` and is not a loss.
-Sampling parameters, tools, tool choice, metadata, and assistant/tool
-message content have no Jev equivalent and record per-item losses
-(N-JEV-10).
+without a loss. A user message is treated as the derived §7.2 rendering —
+and skipped without a loss — only when every text line is a question
+line, a criteria line, or blank, and its question (id, type) set equals
+the reconstructed questions'; any other user message content, and all
+assistant/tool message content, has no Jev destination and records one
+N-JEV-10 `unsupported-semantic` loss per message. Sampling parameters,
+tools, tool choice, metadata, and native annotations record per-item
+losses (N-JEV-10).
 
 ## 4. Response Field Mapping
 
@@ -123,26 +125,35 @@ drops.
 
 The reverse direction parses model output back into typed answers:
 
-- All `TextBlock`s concatenate in order; the result MUST parse as a JSON
-  object of answer objects, else a structural error. An empty content
-  list is a structural error.
+- All `TextBlock`s concatenate in order; the result MUST parse as a
+  non-empty JSON object of answer objects, else a structural error. An
+  empty content list is a structural error.
+- **Answer completeness.** With `WithQuestions` context installed, every
+  supported-type question (noul/choice/score) MUST have an answer keyed
+  by its ID; a missing key is a structural error. Box and unsupported-type
+  questions are excluded from this contract. An answer keyed beyond the
+  requested questions carries and records one `unmapped-field` loss.
 - Answer objects are carried verbatim (`json.RawMessage` discipline,
   INV-1); the encoder never fabricates `probabilities`, `confidence`, or
   `legend` values that the upstream response did not contain.
 - **Type recovery.** With `WithQuestions` context installed (the original
-  request's questions), an answer whose carried type contradicts the
-  matching question carries verbatim and records N-JEV-12
-  (`unmapped-value`); a matching or untyped answer takes the question's
-  type. Without context, a typed object passes through; an untyped
-  object's type comes from its value field (`noul`/`choice`/`score`).
-  Scalar values follow the output contract directly: boolean → `noul`
-  (1/0), string → `choice`, and a bare number infers `score` with one
-  N-JEV-13 `degraded` loss (noul/score are ambiguous).
+  request's questions), the question's type governs: scalar values are
+  interpreted as that type (boolean/number → `noul` with 1/0 for booleans,
+  string → `choice`, number → `score`), and a scalar that cannot express
+  the question's type carries verbatim and records N-JEV-12
+  (`unmapped-value`). An object answer whose carried type contradicts the
+  matching question also carries verbatim and records N-JEV-12; a matching
+  or untyped answer takes the question's type. Without context, a typed
+  object passes through; an untyped object's type comes from its value
+  field (`noul`/`choice`/`score`). Scalar values follow the output
+  contract directly: boolean → `noul` (1/0), string → `choice`, and a
+  bare number infers `score` with one N-JEV-13 `degraded` loss (noul/score
+  are ambiguous).
 - **Range validation.** With context: a `choice` value outside its
-  criteria options, a `score` value outside its levels, or a `noul`
-  outside [0,1] records N-JEV-14 (`degraded`) and keeps the carried value
-  — the wire may be non-conforming but the data is not rewritten or
-  dropped.
+  criteria options, a `score` value outside its discrete levels (integers
+  1..N), or a `noul` outside [0,1] records N-JEV-14 (`degraded`) and keeps
+  the carried value — the wire may be non-conforming but the data is not
+  rewritten or dropped.
 - Non-text blocks (`tool_use`, `thinking`, …) record N-JEV-15
   (`unsupported-semantic`) and are excluded from the answers object.
 - An experimental `box` answer carries verbatim and records N-JEV-5
@@ -233,11 +244,15 @@ with no reconstructable properties is a structural error. `required` and
 ### 7.5 Answers JSON canon (decode)
 
 Decode marshals the `answers` map to one canonical JSON object: top-level
-answer keys sorted ascending, each answer object carried verbatim as
-received (inner key order and number forms preserved). Two newlines is a
-misnomer — the text block holds exactly this JSON, no fences, no
-indentation. Implementations in every language MUST reproduce this canon;
-answer values are opaque payloads under INV-1 discipline.
+answer keys sorted ascending; each answer object is re-serialized with its
+recognized fields (`type`, `noul`, `choice`, `score`, `legend`,
+`probabilities`, `confidence`, `box`) in ascending key order with their
+values carried verbatim (number forms preserved). Unrecognized properties
+on an answer are removed — never passed through — and each reports one
+`unmapped-field` loss (spec/02 §4). The text block holds exactly this JSON:
+no fences, no indentation. Implementations in every language MUST
+reproduce this canon; answer values are opaque payloads under INV-1
+discipline.
 
 ### 7.6 State JSON canon (decode)
 
@@ -257,7 +272,8 @@ Buckets follow [spec/02 §9](02-loss-policy.md#9-loss-conventions--derived-and-e
 | reconstructed `criteria` descriptions | degraded | IR → request | N-JEV-9: criteria descriptions live in the prompt text |
 | IR params (temperature/top_p/max_tokens/stop/effort/verbosity) | unmapped-field | IR → request | N-JEV-10: one loss per present field |
 | IR tools / tool_choice / metadata / native annotations | unmapped-field | IR → request | N-JEV-10: no Jev equivalent |
-| assistant / tool message content | unsupported-semantic | IR → request | N-JEV-10: Jev has no conversation turns |
+| non-derived user, assistant, and tool message content | unsupported-semantic | IR → request | N-JEV-10: not the derived question rendering; Jev has no conversation turns |
+| answers beyond the requested questions | unmapped-field | IR → response | carries; one loss per extra answer key |
 | `answers.<id>` type `box` | unsupported-semantic | response → IR | N-JEV-5: carried verbatim in the answers text |
 | `answers.<id>` type mismatch vs context | unmapped-value | IR → response | N-JEV-12 |
 | numeric answer type without context | degraded | IR → response | N-JEV-13: noul/score are ambiguous |

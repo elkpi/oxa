@@ -27,7 +27,7 @@ func EncodeRequest(req *ir.Request, opts ...Option) (*Request, []ir.Loss, error)
 	}
 	losses = append(losses, qLosses...)
 
-	state, sLosses, err := stateFromIR(req)
+	state, sLosses, err := stateFromIR(req, questions)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -84,10 +84,11 @@ func requestLosses(req *ir.Request) []ir.Loss {
 	return losses
 }
 
-// stateFromIR extracts the state: the template-stripped system text. User
-// messages carry the derived question rendering (spec/17 §3.1) and are not
-// re-carried; any other role reports a loss.
-func stateFromIR(req *ir.Request) (string, []ir.Loss, error) {
+// stateFromIR extracts the state: the template-stripped system text. A user
+// message that is exactly the §7.2 rendering of the reconstructed questions
+// is derived data and is not re-carried (spec/17 §3.1); any other message
+// content has no Jev destination and reports a loss.
+func stateFromIR(req *ir.Request, questions map[string]Question) (string, []ir.Loss, error) {
 	var sysParts []string
 	for _, b := range req.System {
 		if b.Text != "" {
@@ -97,19 +98,83 @@ func stateFromIR(req *ir.Request) (string, []ir.Loss, error) {
 	if len(sysParts) == 0 {
 		return "", nil, fmt.Errorf("jev: EncodeRequest requires system text")
 	}
+	expected := make(map[string]string, len(questions))
+	for id, q := range questions {
+		expected[id] = q.Type
+	}
 	var losses []ir.Loss
 	for i, msg := range req.Messages {
-		if msg.Role == ir.RoleUser {
+		if msg.Role == ir.RoleUser && isDerivedQuestionRendering(msg, expected) {
 			continue
 		}
 		losses = append(losses, ir.Loss{
 			Path:   fmt.Sprintf("messages[%d]", i),
 			Field:  "content",
 			Reason: ir.LossUnsupportedSemantic,
-			Detail: "N-JEV-10: Jev has no conversation turns",
+			Detail: "N-JEV-10: not the derived question rendering; Jev has no conversation turns",
 		})
 	}
 	return stripTemplate(strings.Join(sysParts, "\n\n")), losses, nil
+}
+
+// isDerivedQuestionRendering reports whether the message's text is exactly a
+// §7.2 rendering of the expected questions: every line is a question line,
+// a criteria line, or blank, and the question (id, type) set matches.
+func isDerivedQuestionRendering(msg ir.Message, expected map[string]string) bool {
+	var texts []string
+	for _, b := range msg.Content {
+		if tb, ok := b.(ir.TextBlock); ok {
+			texts = append(texts, tb.Text)
+		}
+	}
+	if len(texts) == 0 {
+		return false
+	}
+	found := make(map[string]string, len(expected))
+	for _, text := range texts {
+		for _, line := range strings.Split(text, "\n") {
+			switch {
+			case line == "", line == "criteria:", strings.HasPrefix(line, "- "):
+			case strings.HasPrefix(line, "question "):
+				id, typ, ok := parseQuestionLine(line)
+				if !ok {
+					return false
+				}
+				if _, dup := found[id]; dup {
+					return false
+				}
+				found[id] = typ
+			default:
+				return false
+			}
+		}
+	}
+	if len(found) != len(expected) {
+		return false
+	}
+	for id, typ := range expected {
+		if found[id] != typ {
+			return false
+		}
+	}
+	return true
+}
+
+// parseQuestionLine parses "question <id> (<type>): ..." (spec/17 §7.2).
+func parseQuestionLine(line string) (string, string, bool) {
+	rest, ok := strings.CutPrefix(line, "question ")
+	if !ok {
+		return "", "", false
+	}
+	open := strings.Index(rest, " (")
+	if open < 0 {
+		return "", "", false
+	}
+	close := strings.Index(rest[open:], "): ")
+	if close < 0 {
+		return "", "", false
+	}
+	return rest[:open], rest[open+2 : open+close], true
 }
 
 func stripTemplate(text string) string {
@@ -158,8 +223,20 @@ func questionsFromSchema(schema json.RawMessage) (map[string]Question, []ir.Loss
 }
 
 // questionFromProperty reconstructs one question by exact property shape
-// (spec/17 §7.4). ok=false with a loss skips the property.
+// (spec/17 §7.4): only type/minimum/maximum/enum/description are consumed;
+// any other key means the schema constraint set is not the synthesized
+// projection, and the property is skipped with N-JEV-6.
 func questionFromProperty(id string, prop map[string]any) (Question, *ir.Loss, bool, error) {
+	for k := range prop {
+		switch k {
+		case "type", "minimum", "maximum", "enum", "description":
+		default:
+			return Question{}, &ir.Loss{
+				Path: "questions." + id, Field: "type", Reason: ir.LossUnsupportedSemantic,
+				Detail: "N-JEV-6: schema constraint beyond the synthesized projection",
+			}, false, nil
+		}
+	}
 	q := Question{}
 	if desc, ok := prop["description"].(string); ok {
 		q.Instructions = desc
@@ -271,8 +348,22 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 	}
 	aggregated := strings.Join(texts, "")
 	var answers map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(aggregated), &answers); err != nil {
+	if err := json.Unmarshal([]byte(aggregated), &answers); err != nil || answers == nil {
 		return nil, nil, fmt.Errorf("jev: aggregated response text is not a JSON object: %w", err)
+	}
+	if len(answers) == 0 {
+		return nil, nil, fmt.Errorf("jev: aggregated response text carries no answers")
+	}
+	// With question context, every supported question MUST be answered
+	// (spec/17 §1: a missing answer key is a structural error). Box and
+	// unsupported-type questions are excluded from the synthesized contract.
+	for _, id := range sortedKeys(o.questions) {
+		if !supportedQuestionType(o.questions[id].Type) {
+			continue
+		}
+		if _, ok := answers[id]; !ok {
+			return nil, nil, fmt.Errorf("jev: answer %s is missing from the response", id)
+		}
 	}
 
 	out := map[string]json.RawMessage{}
@@ -280,6 +371,12 @@ func EncodeResponse(resp *ir.Response, opts ...Option) (*Response, []ir.Loss, er
 		answer, loss, err := recoverAnswer(id, answers[id], o.questions)
 		if err != nil {
 			return nil, nil, err
+		}
+		if _, known := o.questions[id]; len(o.questions) > 0 && !known {
+			losses = append(losses, ir.Loss{
+				Path: "answers", Field: id, Reason: ir.LossUnmappedField,
+				Detail: "answer beyond the requested questions",
+			})
 		}
 		if loss != nil {
 			losses = append(losses, *loss)
@@ -333,6 +430,69 @@ func recoverAnswer(id string, raw json.RawMessage, context map[string]Question) 
 		return nil, nil, fmt.Errorf("jev: answer %s: %w", id, err)
 	}
 	switch t := v.(type) {
+	case bool, string, json.Number:
+		return recoverScalarAnswer(id, t, context)
+	case map[string]any:
+		return recoverObjectAnswer(id, t, raw, context)
+	default:
+		return nil, nil, fmt.Errorf("jev: answer %s must be an object or scalar value", id)
+	}
+}
+
+// recoverScalarAnswer interprets a scalar answer value (spec/17 §4.1). With
+// question context the question's type governs the interpretation and range
+// validation applies; a scalar that cannot express that type carries
+// verbatim with N-JEV-12. Without context the output contract applies
+// directly and a bare number infers score with N-JEV-13.
+func recoverScalarAnswer(id string, v any, context map[string]Question) (json.RawMessage, *ir.Loss, error) {
+	contradiction := &ir.Loss{
+		Path: "answers." + id, Field: "type", Reason: ir.LossUnmappedValue,
+		Detail: "N-JEV-12: carried answer contradicts the original question",
+	}
+	if q, ok := context[id]; ok {
+		switch q.Type {
+		case QuestionTypeNoul:
+			switch t := v.(type) {
+			case bool:
+				n := 0
+				if t {
+					n = 1
+				}
+				out, err := marshalAnswer(map[string]any{"type": QuestionTypeNoul, "noul": n})
+				return out, nil, err
+			case json.Number:
+				n, err := t.Float64()
+				var loss *ir.Loss
+				if err != nil || n < 0 || n > 1 {
+					loss = outOfRange(id, "noul")
+				}
+				out, mErr := marshalAnswer(map[string]any{"type": QuestionTypeNoul, "noul": t})
+				return out, loss, mErr
+			}
+		case QuestionTypeChoice:
+			if s, isStr := v.(string); isStr {
+				var loss *ir.Loss
+				if names, _ := criteriaNames(q.Criteria); len(names) > 0 && !contains(names, s) {
+					loss = outOfRange(id, "choice")
+				}
+				out, err := marshalAnswer(map[string]any{"type": QuestionTypeChoice, "choice": s})
+				return out, loss, err
+			}
+		case QuestionTypeScore:
+			if t, isNum := v.(json.Number); isNum {
+				var loss *ir.Loss
+				levels, _ := criteriaCount(q.Criteria)
+				if levels > 0 && !scoreWithinLevels(t, levels) {
+					loss = outOfRange(id, "score")
+				}
+				out, err := marshalAnswer(map[string]any{"type": QuestionTypeScore, "score": t})
+				return out, loss, err
+			}
+		}
+		out, err := marshalAnswer(v)
+		return out, contradiction, err
+	}
+	switch t := v.(type) {
 	case bool:
 		n := 0
 		if t {
@@ -346,11 +506,8 @@ func recoverAnswer(id string, raw json.RawMessage, context map[string]Question) 
 	case json.Number:
 		out, err := marshalAnswer(map[string]any{"type": QuestionTypeScore, "score": t})
 		return out, degradedType(id), err
-	case map[string]any:
-		return recoverObjectAnswer(id, t, raw, context)
-	default:
-		return nil, nil, fmt.Errorf("jev: answer %s must be an object or scalar value", id)
 	}
+	return nil, nil, fmt.Errorf("jev: answer %s must be an object or scalar value", id)
 }
 
 func recoverObjectAnswer(id string, obj map[string]any, raw json.RawMessage, context map[string]Question) (json.RawMessage, *ir.Loss, error) {
@@ -437,7 +594,7 @@ func recoverObjectAnswer(id string, obj map[string]any, raw json.RawMessage, con
 			if err != nil {
 				return nil, nil, err
 			}
-			if levels > 0 && (n < 1 || n > float64(levels)) {
+			if levels > 0 && !scoreWithinFloat(n, levels) {
 				loss = pickLoss(loss, outOfRange(id, "score"))
 			}
 		}
@@ -471,6 +628,26 @@ func rangeLoss(id string, n, lo, hi float64, context map[string]Question) *ir.Lo
 		return outOfRange(id, "noul")
 	}
 	return nil
+}
+
+// supportedQuestionType reports whether the question type participates in
+// the synthesized output contract (box and unknown types do not).
+func supportedQuestionType(t string) bool {
+	return t == QuestionTypeNoul || t == QuestionTypeChoice || t == QuestionTypeScore
+}
+
+// scoreWithinLevels validates a score against the discrete 1..N levels
+// (spec/17 §4.1); fractional or out-of-range values are outside.
+func scoreWithinLevels(n json.Number, levels int) bool {
+	f, err := n.Float64()
+	if err != nil {
+		return false
+	}
+	return scoreWithinFloat(f, levels)
+}
+
+func scoreWithinFloat(f float64, levels int) bool {
+	return f == float64(int(f)) && f >= 1 && f <= float64(levels)
 }
 
 func outOfRange(id, field string) *ir.Loss {

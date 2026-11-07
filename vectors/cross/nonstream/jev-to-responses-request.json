@@ -1,0 +1,54 @@
+{
+  "name": "cross.nonstream.jev-to-responses-request",
+  "description": "A Jev evaluation request decodes to the IR and re-encodes as an OpenAI Responses request: instructions carry the state plus template, input carries the rendered questions, and text.format carries the synthesized schema, with no losses on either leg.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "jev" },
+  "target": { "protocol": "responses" },
+  "input": {
+    "model": "jev-latest",
+    "state": "The customer said the delivery was late but the product quality was excellent.",
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the overall sentiment of this feedback?",
+        "criteria": {
+          "positive": "Customer is happy overall",
+          "negative": "Customer is unhappy overall",
+          "mixed": "Customer has both good and bad things to say"
+        }
+      }
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "input": [
+      {
+        "role": "user",
+        "content": "question sentiment (choice): What is the overall sentiment of this feedback?\ncriteria:\n- mixed: Customer has both good and bad things to say\n- negative: Customer is unhappy overall\n- positive: Customer is happy overall"
+      }
+    ],
+    "instructions": "The customer said the delivery was late but the product quality was excellent.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences.",
+    "text": {
+      "format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sentiment": {
+              "description": "What is the overall sentiment of this feedback?",
+              "enum": ["mixed", "negative", "positive"],
+              "type": "string"
+            }
+          },
+          "required": ["sentiment"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [],
+  "tags": ["request", "response-format", "cross"]
+}

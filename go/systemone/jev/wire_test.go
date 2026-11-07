@@ -8,6 +8,195 @@ import (
 	"github.com/elkpi/oxa/go/v3/ir"
 )
 
+func TestDecodeRequestJSONLossSourceOrder(t *testing.T) {
+	// Unknown fields interleave with semantic losses in source encounter
+	// order (spec/02 §4): z_ext, state degraded, a_ext, assets.
+	raw := `{"z_ext": 1, "model": "m", "state": {}, "a_ext": 2, "questions": {"q": {"type": "noul"}}, "assets": {}}`
+	_, losses, err := DecodeRequestJSON([]byte(raw))
+	if err != nil {
+		t.Fatalf("DecodeRequestJSON: %v", err)
+	}
+	want := []struct{ path, field string }{
+		{"z_ext", "z_ext"}, {"state", "state"}, {"a_ext", "a_ext"}, {"assets", "assets"},
+	}
+	if len(losses) != len(want) {
+		t.Fatalf("losses = %+v, want %d entries", losses, len(want))
+	}
+	for i, w := range want {
+		if losses[i].Path != w.path || losses[i].Field != w.field {
+			t.Errorf("loss[%d] = %s/%s, want %s/%s", i, losses[i].Path, losses[i].Field, w.path, w.field)
+		}
+	}
+}
+
+func TestDecodeResponseJSONRemovesUnknownAnswerFields(t *testing.T) {
+	raw := `{"model": "m", "answers": {"q": {"type": "noul", "noul": 1, "secret_ext": "x"}}, "usage": {"input_tokens": 1, "output_tokens": 2}}`
+	resp, losses, err := DecodeResponseJSON([]byte(raw))
+	if err != nil {
+		t.Fatalf("DecodeResponseJSON: %v", err)
+	}
+	if strings.Contains(resp.Content[0].(ir.TextBlock).Text, "secret_ext") {
+		t.Errorf("unknown answer field passed through: %s", resp.Content[0].(ir.TextBlock).Text)
+	}
+	if len(losses) != 1 || losses[0].Path != "answers.q" || losses[0].Field != "secret_ext" || losses[0].Reason != ir.LossUnmappedField {
+		t.Errorf("losses = %+v, want one unmapped-field for secret_ext", losses)
+	}
+}
+
+func TestDecodeResponseJSONRejectsNonObjectKnownFields(t *testing.T) {
+	if _, _, err := DecodeResponseJSON([]byte(`{"model": "m", "answers": {"q": null}, "usage": {}}`)); err == nil || !strings.Contains(err.Error(), "must be an object") {
+		t.Fatalf("null answer: err = %v", err)
+	}
+	if _, _, err := DecodeResponseJSON([]byte(`{"model": "m", "answers": {"q": {}}, "usage": null}`)); err == nil || !strings.Contains(err.Error(), "must be an object") {
+		t.Fatalf("null usage: err = %v", err)
+	}
+}
+
+func TestDecodeRequestRejectsScalarState(t *testing.T) {
+	for _, raw := range []string{
+		`{"model": "m", "state": true, "questions": {"q": {"type": "noul"}}}`,
+		`{"model": "m", "state": 12, "questions": {"q": {"type": "noul"}}}`,
+	} {
+		if _, _, err := DecodeRequestJSON([]byte(raw)); err == nil || !strings.Contains(err.Error(), "must be a string, object, or array") {
+			t.Fatalf("state %s: err = %v", raw, err)
+		}
+	}
+}
+
+func TestEncodeResponseScalarAnswersUseContext(t *testing.T) {
+	resp := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"urgent": 0.95, "mood": "surprise", "level": 1.5}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	qs := map[string]Question{
+		"urgent": {Type: QuestionTypeNoul},
+		"mood":   {Type: QuestionTypeChoice, Criteria: json.RawMessage(`{"good":"g","bad":"b"}`)},
+		"level":  {Type: QuestionTypeScore, Criteria: json.RawMessage(`["low","high"]`)},
+	}
+	wire, losses, err := EncodeResponse(resp, WithQuestions(qs))
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if got := string(wire.Answers["urgent"]); got != `{"noul":0.95,"type":"noul"}` {
+		t.Errorf("urgent = %s, want context-typed noul", got)
+	}
+	if got := string(wire.Answers["mood"]); got != `{"choice":"surprise","type":"choice"}` {
+		t.Errorf("mood = %s, want context-typed choice", got)
+	}
+	if got := string(wire.Answers["level"]); got != `{"score":1.5,"type":"score"}` {
+		t.Errorf("level = %s, want context-typed score", got)
+	}
+	// mood outside criteria and fractional level outside the discrete
+	// levels: two N-JEV-14 losses; urgent is in range and silent.
+	var degraded []string
+	for _, l := range losses {
+		if l.Reason == ir.LossDegraded {
+			degraded = append(degraded, l.Path)
+		}
+	}
+	if len(degraded) != 2 {
+		t.Errorf("expected exactly 2 N-JEV-14 losses, got %+v (%+v)", degraded, losses)
+	}
+}
+
+func TestEncodeResponseRequiresAllContextAnswers(t *testing.T) {
+	qs := map[string]Question{
+		"a":   {Type: QuestionTypeNoul},
+		"b":   {Type: QuestionTypeChoice},
+		"box": {Type: QuestionTypeBox},
+	}
+	resp := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"a": true}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	if _, _, err := EncodeResponse(resp, WithQuestions(qs)); err == nil || !strings.Contains(err.Error(), "answer b is missing") {
+		t.Fatalf("missing answer: err = %v", err)
+	}
+	for _, text := range []string{`null`, `{}`} {
+		r := &ir.Response{Model: "m", Content: []ir.Block{ir.TextBlock{Text: text}}, StopReason: ir.StopEndTurn}
+		if _, _, err := EncodeResponse(r, WithQuestions(qs)); err == nil {
+			t.Fatalf("answers %s accepted", text)
+		}
+	}
+}
+
+func TestEncodeResponseReportsAnswersBeyondQuestions(t *testing.T) {
+	qs := map[string]Question{"a": {Type: QuestionTypeNoul}}
+	resp := &ir.Response{
+		Model:      "m",
+		Content:    []ir.Block{ir.TextBlock{Text: `{"a": true, "extra": 0.5}`}},
+		StopReason: ir.StopEndTurn,
+	}
+	wire, losses, err := EncodeResponse(resp, WithQuestions(qs))
+	if err != nil {
+		t.Fatalf("EncodeResponse: %v", err)
+	}
+	if _, ok := wire.Answers["extra"]; !ok {
+		t.Errorf("extra answer dropped")
+	}
+	var found bool
+	for _, l := range losses {
+		if l.Path == "answers" && l.Field == "extra" && l.Reason == ir.LossUnmappedField {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected unmapped-field loss for extra answer, got %+v", losses)
+	}
+}
+
+func TestEncodeRequestDropsNonDerivedUserContent(t *testing.T) {
+	req := &ir.Request{
+		Model:  "m",
+		System: []ir.SystemBlock{{Text: "state text\n\n" + instructionTemplate}},
+		Messages: []ir.Message{
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "question q (noul): "}}},
+			{Role: ir.RoleUser, Content: []ir.Block{ir.TextBlock{Text: "UNIQUE CUSTOMER INPUT"}}},
+		},
+		Params: ir.Params{ResponseFormat: &ir.ResponseFormat{
+			Type:   ir.ResponseFormatJSONSchema,
+			Name:   ResponseFormatName,
+			Schema: json.RawMessage(`{"type":"object","properties":{"q":{"type":"number","minimum":0,"maximum":1}},"required":["q"]}`),
+		}},
+	}
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if strings.Contains(string(wire.State), "CUSTOMER INPUT") || strings.Contains(string(wire.State), "question q") {
+		t.Errorf("state = %s, want template-stripped system text only", wire.State)
+	}
+	if len(losses) != 1 || losses[0].Path != "messages[1]" || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Errorf("losses = %+v, want one N-JEV-10 loss for messages[1]", losses)
+	}
+}
+
+func TestEncodeRequestSkipsSchemaPropertiesWithExtraConstraints(t *testing.T) {
+	req := &ir.Request{
+		Model:  "m",
+		System: []ir.SystemBlock{{Text: "state text\n\n" + instructionTemplate}},
+		Params: ir.Params{ResponseFormat: &ir.ResponseFormat{
+			Type: ir.ResponseFormatJSONSchema,
+			Name: ResponseFormatName,
+			Schema: json.RawMessage(`{"type":"object","properties":{
+				"ok":{"type":"number","minimum":0,"maximum":1},
+				"weird":{"type":"number","minimum":0,"maximum":1,"multipleOf":0.5}},"required":["ok"]}`),
+		}},
+	}
+	wire, losses, err := EncodeRequest(req)
+	if err != nil {
+		t.Fatalf("EncodeRequest: %v", err)
+	}
+	if _, ok := wire.Questions["weird"]; ok {
+		t.Errorf("weird property reconstructed despite extra constraint")
+	}
+	if len(losses) != 1 || losses[0].Path != "questions.weird" || losses[0].Reason != ir.LossUnsupportedSemantic {
+		t.Errorf("losses = %+v, want one N-JEV-6 loss for questions.weird", losses)
+	}
+}
+
 func TestEncodeResponseWithContextRecoversTypes(t *testing.T) {
 	resp := &ir.Response{
 		Model:      "jev-latest",

@@ -15,9 +15,9 @@ Custom Tools 扩展见 [13](13-custom-tools.md)，专用 Apply Patch 见 [14](14
 Go, TypeScript, Rust, Python, and C++ share
 one golden suite of **589 vectors**, covering reasoning, usage granularity,
 structured-output format mapping, Responses developer instructions, Custom Tools, Apply Patch, Native Request Options, Native Tool Declarations, and the SystemOne Jev face.
-The 22 Jev vectors are covered by the Go and TypeScript implementations
-first; Rust, Python, and C++ follow in later waves (spec/17). The SystemOne
-Jev face
+The 22 Jev vectors are covered by the Go, TypeScript, and Rust
+implementations first; Python and C++ follow in later waves (spec/17). The
+SystemOne Jev face
 targets implementation release **v3.1.0**, published once every language
 wave passes this same suite — a minor bump (a new face inside the existing
 framework) with the IR contract staying at 0.3.0; everything else

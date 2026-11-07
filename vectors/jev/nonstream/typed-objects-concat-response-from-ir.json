@@ -1,0 +1,51 @@
+{
+  "name": "jev.nonstream.typed-objects-concat-response-from-ir",
+  "description": "Text blocks concatenate in order before parsing; answer objects that already carry a type pass through verbatim without inference losses.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "target": {
+    "protocol": "jev"
+  },
+  "input": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "typesafe-jev-1.13.0",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"is_urgent\": "
+      },
+      {
+        "type": "text",
+        "text": "{\"type\": \"noul\", \"noul\": 0.9}}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 44,
+      "output_tokens": 9
+    }
+  },
+  "expected_output": {
+    "model": "typesafe-jev-1.13.0",
+    "answers": {
+      "is_urgent": {
+        "type": "noul",
+        "noul": 0.9
+      }
+    },
+    "usage": {
+      "input_tokens": 44,
+      "output_tokens": 9
+    }
+  },
+  "expected_losses": [],
+  "tags": [
+    "response",
+    "text"
+  ]
+}

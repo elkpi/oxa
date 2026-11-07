@@ -1,0 +1,72 @@
+{
+  "name": "jev.nonstream.minimal-schema-request-from-ir",
+  "description": "An IR request produced by Jev decode reconstructs the original Jev request: template-stripped state string and schema-derived questions; choice criteria degrade to option-name descriptions with one loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "jev" },
+  "target": { "protocol": "jev" },
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "The customer said the delivery was late but the product quality was excellent.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question sentiment (choice): What is the overall sentiment of this feedback?\ncriteria:\n- mixed: Customer has both good and bad things to say\n- negative: Customer is unhappy overall\n- positive: Customer is happy overall"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "sentiment": {
+              "description": "What is the overall sentiment of this feedback?",
+              "enum": ["mixed", "negative", "positive"],
+              "type": "string"
+            }
+          },
+          "required": ["sentiment"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "state": "The customer said the delivery was late but the product quality was excellent.",
+    "questions": {
+      "sentiment": {
+        "type": "choice",
+        "instructions": "What is the overall sentiment of this feedback?",
+        "criteria": {
+          "mixed": "mixed",
+          "negative": "negative",
+          "positive": "positive"
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "questions.sentiment",
+      "field": "criteria",
+      "reason": "degraded",
+      "detail": "N-JEV-9: criteria descriptions live in the prompt text"
+    }
+  ],
+  "tags": ["request", "response-format", "loss"]
+}

@@ -1,0 +1,40 @@
+{
+  "name": "cross.nonstream.chatcompletions-to-jev-response",
+  "description": "A Chat Completions response whose assistant content is the answers JSON decodes to the IR and re-encodes as a Jev response: scalar values infer their types, usage maps directly, and the end_turn stop reason is silent.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "protocol-to-protocol",
+  "source": { "protocol": "chatcompletions" },
+  "target": { "protocol": "jev" },
+  "input": {
+    "id": "chatcmpl-x",
+    "object": "chat.completion",
+    "created": 0,
+    "model": "gpt-x",
+    "choices": [
+      {
+        "index": 0,
+        "message": {
+          "role": "assistant",
+          "content": "{\"is_urgent\": true, \"sentiment\": \"mixed\"}"
+        },
+        "finish_reason": "stop"
+      }
+    ],
+    "usage": {
+      "prompt_tokens": 10,
+      "completion_tokens": 5,
+      "total_tokens": 15
+    }
+  },
+  "expected_output": {
+    "model": "gpt-x",
+    "answers": {
+      "is_urgent": { "type": "noul", "noul": 1 },
+      "sentiment": { "type": "choice", "choice": "mixed" }
+    },
+    "usage": { "input_tokens": 10, "output_tokens": 5 }
+  },
+  "expected_losses": [],
+  "tags": ["response", "cross", "inference"]
+}

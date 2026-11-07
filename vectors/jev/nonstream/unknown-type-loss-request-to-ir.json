@@ -1,0 +1,74 @@
+{
+  "name": "jev.nonstream.unknown-type-loss-request-to-ir",
+  "description": "A question whose type is outside the supported set records one unsupported-semantic loss and is skipped from both schema and prompt; supported questions proceed.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "to-ir",
+  "source": { "protocol": "jev" },
+  "input": {
+    "model": "jev-latest",
+    "state": "Support chat excerpt.",
+    "questions": {
+      "mood": {
+        "type": "fancy",
+        "instructions": "What is the mood?"
+      },
+      "tone": {
+        "type": "choice",
+        "instructions": "What is the tone?",
+        "criteria": {
+          "formal": "Formal tone",
+          "casual": "Casual tone"
+        }
+      }
+    }
+  },
+  "expected_ir": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "Support chat excerpt.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question tone (choice): What is the tone?\ncriteria:\n- casual: Casual tone\n- formal: Formal tone"
+          }
+        ]
+      }
+    ],
+    "params": {
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tone": {
+              "description": "What is the tone?",
+              "enum": ["casual", "formal"],
+              "type": "string"
+            }
+          },
+          "required": ["tone"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "questions.mood",
+      "field": "type",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-6: skipped from schema and prompt"
+    }
+  ],
+  "tags": ["request", "loss", "questions"]
+}

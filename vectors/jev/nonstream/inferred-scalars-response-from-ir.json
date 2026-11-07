@@ -1,0 +1,63 @@
+{
+  "name": "jev.nonstream.inferred-scalars-response-from-ir",
+  "description": "Scalar model output following the instruction contract maps back to typed answers without question context: boolean becomes noul 1, string becomes choice, and the numeric answer infers score with one degraded ambiguity loss.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": {
+    "protocol": "jev"
+  },
+  "target": {
+    "protocol": "jev"
+  },
+  "input": {
+    "specVersion": "0.3.0",
+    "id": "jev",
+    "model": "typesafe-jev-1.13.0",
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"is_urgent\": true, \"sentiment\": \"mixed\", \"severity\": 2}"
+      }
+    ],
+    "stop_reason": "end_turn",
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 15
+    }
+  },
+  "expected_output": {
+    "model": "typesafe-jev-1.13.0",
+    "answers": {
+      "is_urgent": {
+        "type": "noul",
+        "noul": 1
+      },
+      "sentiment": {
+        "type": "choice",
+        "choice": "mixed"
+      },
+      "severity": {
+        "type": "score",
+        "score": 2
+      }
+    },
+    "usage": {
+      "input_tokens": 120,
+      "output_tokens": 15
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "answers.severity",
+      "field": "type",
+      "reason": "degraded",
+      "detail": "N-JEV-13: noul/score are ambiguous without question context"
+    }
+  ],
+  "tags": [
+    "response",
+    "loss",
+    "inference"
+  ]
+}

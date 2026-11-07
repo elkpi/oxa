@@ -1,0 +1,97 @@
+{
+  "name": "jev.nonstream.params-assistant-loss-request-from-ir",
+  "description": "IR sampling parameters record per-field unmapped-field losses and assistant message content records one unsupported-semantic loss; the derived user-question rendering is not re-carried into state.",
+  "spec_version": "0.3.0",
+  "mode": "nonstream",
+  "conversion": "from-ir",
+  "source": { "protocol": "jev" },
+  "target": { "protocol": "jev" },
+  "input": {
+    "specVersion": "0.3.0",
+    "model": "jev-latest",
+    "system": [
+      {
+        "type": "text",
+        "text": "State text.\n\nAnswer the structured questions that follow as a single JSON object. Keys MUST be exactly the question IDs given in the user message; values MUST match each question's type: noul answers are numbers in [0,1], choice answers are one of the listed option names, score answers are one of the listed level numbers. Output raw JSON only: no prose, no markdown fences."
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "question tone (choice): What is the tone?\ncriteria:\n- casual: Casual tone\n- formal: Formal tone"
+          }
+        ]
+      },
+      {
+        "role": "assistant",
+        "content": [
+          { "type": "text", "text": "prior answer" }
+        ]
+      }
+    ],
+    "params": {
+      "temperature": 0.5,
+      "max_tokens": 128,
+      "response_format": {
+        "type": "json_schema",
+        "name": "jev_answers",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "tone": {
+              "description": "What is the tone?",
+              "enum": ["casual", "formal"],
+              "type": "string"
+            }
+          },
+          "required": ["tone"],
+          "additionalProperties": false
+        }
+      }
+    }
+  },
+  "expected_output": {
+    "model": "jev-latest",
+    "state": "State text.",
+    "questions": {
+      "tone": {
+        "type": "choice",
+        "instructions": "What is the tone?",
+        "criteria": {
+          "casual": "casual",
+          "formal": "formal"
+        }
+      }
+    }
+  },
+  "expected_losses": [
+    {
+      "path": "params",
+      "field": "temperature",
+      "reason": "unmapped-field",
+      "detail": "N-JEV-10: one loss per present field"
+    },
+    {
+      "path": "params",
+      "field": "max_tokens",
+      "reason": "unmapped-field",
+      "detail": "N-JEV-10: one loss per present field"
+    },
+    {
+      "path": "messages[1]",
+      "field": "content",
+      "reason": "unsupported-semantic",
+      "detail": "N-JEV-10: Jev has no conversation turns"
+    },
+    {
+      "path": "questions.tone",
+      "field": "criteria",
+      "reason": "degraded",
+      "detail": "N-JEV-9: criteria descriptions live in the prompt text"
+    }
+  ],
+  "tags": ["request", "loss", "params"]
+}

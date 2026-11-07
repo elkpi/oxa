@@ -114,4 +114,23 @@ ir_req = IrRequest(
 )
 validate_native_request(ir_req)
 
+from oxa.jev import (
+    decode_request_json,
+    decode_response_json,
+    encode_request,
+    encode_response,
+)
+
+jev_req, jev_losses = decode_request_json(
+    '{"model":"jev-latest","state":"state text","questions":{"q":{"type":"noul"}}}'
+)
+assert jev_losses == []
+jev_wire, _ = encode_request(jev_req)
+assert jev_wire["questions"]["q"]["type"] == "noul"
+jev_resp, _ = decode_response_json(
+    '{"model":"m","answers":{"q":{"type":"noul","noul":1}},"usage":{"input_tokens":1,"output_tokens":2}}'
+)
+jev_resp_wire, _ = encode_response(jev_resp)
+assert jev_resp_wire["answers"]["q"]["noul"] == 1
+
 print("python consumer: OK")

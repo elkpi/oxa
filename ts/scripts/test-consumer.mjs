@@ -59,7 +59,7 @@ try {
   writeFileSync(
     path.join(consumerDirectory, "runtime.mjs"),
     `import assert from "node:assert/strict";
-import { packageName, ir, json, sse, stream, chatcompletions, responses, anthropic } from "@elkpi/oxa";
+import { packageName, ir, json, sse, stream, chatcompletions, responses, anthropic, jev } from "@elkpi/oxa";
 import * as error from "@elkpi/oxa/error";
 import * as loss from "@elkpi/oxa/loss";
 import * as modelmap from "@elkpi/oxa/modelmap";
@@ -70,11 +70,13 @@ import * as streamSubpath from "@elkpi/oxa/stream";
 import * as chatSubpath from "@elkpi/oxa/openai/chatcompletions";
 import * as responsesSubpath from "@elkpi/oxa/openai/responses";
 import * as anthropicSubpath from "@elkpi/oxa/anthropic/messages";
+import * as jevSubpath from "@elkpi/oxa/systemone/jev";
 
 assert.equal(packageName, "@elkpi/oxa");
 for (const [rootModule, subpathModule] of [
   [ir, irSubpath], [json, jsonSubpath], [sse, sseSubpath], [stream, streamSubpath],
   [chatcompletions, chatSubpath], [responses, responsesSubpath], [anthropic, anthropicSubpath],
+  [jev, jevSubpath],
 ]) {
   assert.deepEqual(Object.keys(rootModule), Object.keys(subpathModule));
 }

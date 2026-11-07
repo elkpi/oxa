@@ -6,6 +6,7 @@ const faceRoots = [
   "openai/chatcompletions",
   "openai/responses",
   "anthropic/messages",
+  "systemone/jev",
 ] as const;
 
 function normalizeModulePath(path: string): string {

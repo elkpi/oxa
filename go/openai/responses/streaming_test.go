@@ -7,8 +7,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/elkpi/oxa/go/v3/ir"
-	"github.com/elkpi/oxa/go/v3/modelmap"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/modelmap"
 )
 
 func streamCreated(id, model string) *StreamEvent {

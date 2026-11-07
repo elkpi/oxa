@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	an "github.com/elkpi/oxa/go/v3/anthropic/messages"
-	"github.com/elkpi/oxa/go/v3/ir"
-	cc "github.com/elkpi/oxa/go/v3/openai/chatcompletions"
+	an "github.com/elkpi/oxa-protocol/go/v3/anthropic/messages"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
+	cc "github.com/elkpi/oxa-protocol/go/v3/openai/chatcompletions"
 )
 
 func TestCustomToolsSupportedInCCAndAnthropic(t *testing.T) {

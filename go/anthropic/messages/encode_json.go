@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 // EncodeRequestJSON preserves the original bytes of opaque schemas.

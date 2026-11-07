@@ -10,7 +10,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/elkpi/oxa/go/v3/ir"
+	"github.com/elkpi/oxa-protocol/go/v3/ir"
 )
 
 // Request is the Chat Completions wire request for the supported non-streaming

@@ -4,6 +4,7 @@ import test from "node:test";
 import * as anthropic from "../src/anthropic/messages/index.js";
 import * as chatcompletions from "../src/openai/chatcompletions/index.js";
 import * as responses from "../src/openai/responses/index.js";
+import * as jev from "../src/systemone/jev/index.js";
 import {
   runCrossRequestVectors,
   runCrossResponseVectors,
@@ -15,6 +16,7 @@ test("binds every face's non-stream vectors through one runner", () => {
     ["chatcompletions", chatcompletions],
     ["responses", responses],
     ["anthropic", anthropic],
+    ["jev", jev],
   ] as const;
   for (const [face, adapter] of groups)
     assert.ok(runNonstreamVectors(face, adapter) > 0, face);
@@ -63,13 +65,25 @@ test("runs Responses cross response vectors across faces", () => {
   );
 });
 
-test("runs Chat Completions cross response vectors across faces", () => {
+test("runs Chat Completions cross response vectors across faces including jev", () => {
   assert.equal(
     runCrossResponseVectors("chatcompletions", chatcompletions, {
       anthropic,
       responses,
+      jev,
     }),
-    4,
+    5,
+  );
+});
+
+test("runs Jev cross request vectors across all three faces", () => {
+  assert.equal(
+    runCrossRequestVectors("jev", jev, {
+      anthropic,
+      chatcompletions,
+      responses,
+    }),
+    3,
   );
 });
 

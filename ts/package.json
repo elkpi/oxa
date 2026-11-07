@@ -54,6 +54,10 @@
     "./anthropic/messages": {
       "types": "./dist/anthropic/messages/index.d.ts",
       "import": "./dist/anthropic/messages/index.js"
+    },
+    "./systemone/jev": {
+      "types": "./dist/systemone/jev/index.d.ts",
+      "import": "./dist/systemone/jev/index.js"
     }
   },
   "engines": {

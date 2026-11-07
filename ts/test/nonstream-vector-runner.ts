@@ -31,7 +31,7 @@ export interface NonstreamVectorAdapter {
 }
 
 export function runNonstreamVectors(
-  face: "chatcompletions" | "responses" | "anthropic",
+  face: "chatcompletions" | "responses" | "anthropic" | "jev",
   adapter: NonstreamVectorAdapter,
 ): number {
   const root = findRepoRoot(process.cwd());
@@ -98,10 +98,6 @@ export function runCrossRequestVectors(
     ({ document }) =>
       document.conversion === "protocol-to-protocol" &&
       object(document.source, "source").protocol === sourceFace &&
-      // SystemOne Jev vectors are Go-only until that face joins the
-      // TypeScript wave (spec/17).
-      object(document.source, "source").protocol !== "jev" &&
-      object(document.target, "target").protocol !== "jev" &&
       !strings(document.tags, "tags").includes("response"),
   );
   assert.ok(vectors.length > 0);
@@ -145,10 +141,6 @@ export function runCrossResponseVectors(
     ({ document }) =>
       document.conversion === "protocol-to-protocol" &&
       object(document.source, "source").protocol === sourceFace &&
-      // SystemOne Jev vectors are Go-only until that face joins the
-      // TypeScript wave (spec/17).
-      object(document.source, "source").protocol !== "jev" &&
-      object(document.target, "target").protocol !== "jev" &&
       strings(document.tags, "tags").includes("response"),
   );
   assert.ok(vectors.length > 0);

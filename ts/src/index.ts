@@ -13,3 +13,4 @@ export * as stream from "./stream/index.js";
 export * as chatcompletions from "./openai/chatcompletions/index.js";
 export * as responses from "./openai/responses/index.js";
 export * as anthropic from "./anthropic/messages/index.js";
+export * as jev from "./systemone/jev/index.js";

@@ -109,7 +109,7 @@ if [[ "$TARGET_RUST" == "true" ]]; then
         local crate_name="$1"
         local manifest_path="$ROOT/rust/crates/$crate_name/Cargo.toml"
         local code
-        code=$(curl -s -o /dev/null -w "%{http_code}" -A "oxa-publish (github.com/elkpi/oxa)" "https://crates.io/api/v1/crates/$crate_name/$RUST_VERSION" || true)
+        code=$(curl -s -o /dev/null -w "%{http_code}" -A "oxa-publish (github.com/elkpi/oxa-protocol)" "https://crates.io/api/v1/crates/$crate_name/$RUST_VERSION" || true)
         if [[ "$code" == "200" ]]; then
             echo "    $crate_name v$RUST_VERSION is already live on crates.io, skipping."
             return 0
@@ -131,7 +131,7 @@ if [[ "$TARGET_RUST" == "true" ]]; then
         local attempts=0
         while (( attempts < 30 )); do
             local code
-            code=$(curl -s -o /dev/null -w "%{http_code}" -A "oxa-publish (github.com/elkpi/oxa)" "https://crates.io/api/v1/crates/$crate_name/$RUST_VERSION" || true)
+            code=$(curl -s -o /dev/null -w "%{http_code}" -A "oxa-publish (github.com/elkpi/oxa-protocol)" "https://crates.io/api/v1/crates/$crate_name/$RUST_VERSION" || true)
             if [[ "$code" == "200" ]]; then
                 echo "    $crate_name v$RUST_VERSION is live on crates.io!"
                 sleep 5

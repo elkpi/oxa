@@ -4,17 +4,17 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-version = "3.0.1"
+version = "3.1.0"
 license = "Apache-2.0"
-repository = "https://github.com/elkpi/oxa"
+repository = "https://github.com/elkpi/oxa-protocol"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["raw_value", "arbitrary_precision"] }
-oxa-ir = { version = "3.0.1", path = "crates/oxa-ir" }
-oxa-modelmap = { version = "3.0.1", path = "crates/oxa-modelmap" }
-oxa-chatcompletions = { version = "3.0.1", path = "crates/oxa-chatcompletions" }
-oxa-anthropic = { version = "3.0.1", path = "crates/oxa-anthropic" }
-oxa-jev = { version = "3.0.1", path = "crates/oxa-jev" }
-oxa-responses = { version = "3.0.1", path = "crates/oxa-responses" }
-oxa-sse = { version = "3.0.1", path = "crates/oxa-sse" }
+oxa-ir = { version = "3.1.0", path = "crates/oxa-ir" }
+oxa-modelmap = { version = "3.1.0", path = "crates/oxa-modelmap" }
+oxa-chatcompletions = { version = "3.1.0", path = "crates/oxa-chatcompletions" }
+oxa-anthropic = { version = "3.1.0", path = "crates/oxa-anthropic" }
+oxa-jev = { version = "3.1.0", path = "crates/oxa-jev" }
+oxa-responses = { version = "3.1.0", path = "crates/oxa-responses" }
+oxa-sse = { version = "3.1.0", path = "crates/oxa-sse" }
